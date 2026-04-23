@@ -18,7 +18,6 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         MapNode,
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
-        MessageService,
         OutputConfig,
         OutputFormat,
         ProjectService,
@@ -531,76 +530,19 @@ class WorkflowExecutor {
   }
 
   factory WorkflowExecutor({
-    StepExecutionContext? executionContext,
+    required StepExecutionContext executionContext,
     StepPromptConfiguration? promptConfiguration,
-    String? dataDir,
+    required String dataDir,
     WorkflowRoleDefaults? roleDefaults,
     BashStepPolicy bashStepPolicy = const BashStepPolicy(),
     Uuid? uuid,
-    WorkflowTaskService? taskService,
-    EventBus? eventBus,
-    KvService? kvService,
-    SqliteWorkflowRunRepository? repository,
-    GateEvaluator? gateEvaluator,
-    ContextExtractor? contextExtractor,
-    WorkflowTemplateEngine? templateEngine,
-    PromptAugmenter? promptAugmenter,
-    SkillPromptBuilder? skillPromptBuilder,
-    HarnessFactory? harnessFactory,
-    MessageService? messageService,
-    WorkflowTurnAdapter? turnAdapter,
-    WorkflowStepOutputTransformer? outputTransformer,
-    SkillRegistry? skillRegistry,
-    TaskRepository? taskRepository,
-    AgentExecutionRepository? agentExecutionRepository,
-    WorkflowStepExecutionRepository? workflowStepExecutionRepository,
-    ExecutionRepositoryTransactor? executionTransactor,
-    ProjectService? projectService,
-    Map<String, String>? hostEnvironment,
-    List<String>? bashStepEnvAllowlist,
-    List<String>? bashStepExtraStripPatterns,
   }) {
-    final resolvedExecutionContext =
-        executionContext ??
-        StepExecutionContext(
-          taskService: taskService ?? (throw ArgumentError.notNull('taskService')),
-          eventBus: eventBus ?? (throw ArgumentError.notNull('eventBus')),
-          kvService: kvService ?? (throw ArgumentError.notNull('kvService')),
-          repository: repository ?? (throw ArgumentError.notNull('repository')),
-          gateEvaluator: gateEvaluator ?? (throw ArgumentError.notNull('gateEvaluator')),
-          contextExtractor: contextExtractor ?? (throw ArgumentError.notNull('contextExtractor')),
-          turnAdapter: turnAdapter,
-          outputTransformer: outputTransformer,
-          skillRegistry: skillRegistry,
-          taskRepository: taskRepository,
-          agentExecutionRepository: agentExecutionRepository,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-          executionTransactor: executionTransactor,
-          projectService: projectService,
-        );
-    final resolvedPromptConfiguration =
-        promptConfiguration ??
-        StepPromptConfiguration(
-          templateEngine: templateEngine,
-          skillPromptBuilder: skillPromptBuilder,
-          promptAugmenter: promptAugmenter,
-          harnessFactory: harnessFactory,
-        );
-    final resolvedBashStepPolicy =
-        hostEnvironment != null || bashStepEnvAllowlist != null || bashStepExtraStripPatterns != null
-        ? BashStepPolicy(
-            hostEnvironment: hostEnvironment,
-            envAllowlist: bashStepEnvAllowlist ?? BashStepPolicy.defaultEnvAllowlist,
-            extraStripPatterns: bashStepExtraStripPatterns ?? const <String>[],
-          )
-        : bashStepPolicy;
-    final resolvedDataDir = dataDir ?? (throw ArgumentError.notNull('dataDir'));
     return WorkflowExecutor._internal(
-      executionContext: resolvedExecutionContext,
-      promptConfiguration: resolvedPromptConfiguration,
-      dataDir: resolvedDataDir,
+      executionContext: executionContext,
+      promptConfiguration: promptConfiguration ?? StepPromptConfiguration(),
+      dataDir: dataDir,
       roleDefaults: roleDefaults,
-      bashStepPolicy: resolvedBashStepPolicy,
+      bashStepPolicy: bashStepPolicy,
       uuid: uuid,
     );
   }
@@ -3233,11 +3175,6 @@ class WorkflowExecutor {
   }
 
   /// Resolves a `story_specs.spec_path` value against [planDir].
-  ///
-  /// The plan skill calls `spec_path` workspace-relative, but historic runs
-  /// also emitted plan-relative values such as `fis/s01-foo.md`. Detecting
-  /// already-plan-rooted values avoids duplicating the plan directory prefix
-  /// when normalizing those older emissions.
   String _resolveStorySpecPathAgainstPlanDir(String specPath, String planDir) {
     if (specPath.isEmpty) return specPath;
     if (p.isAbsolute(specPath)) return p.normalize(specPath);
@@ -3246,9 +3183,14 @@ class WorkflowExecutor {
     if (_isAlreadyPlanRooted(normalizedSpec, planDir)) {
       return normalizedSpec;
     }
-    return p.normalize(p.join(planDir, specPath));
+    return _join(planDir, specPath);
   }
 
+  /// Detects historic plan-relative emissions that already include [planDir].
+  ///
+  /// Without this guard, `docs/specs/demo/fis/s01.md` emitted beside
+  /// `docs/specs/demo/plan.md` would normalize to
+  /// `docs/specs/demo/docs/specs/demo/fis/s01.md`.
   bool _isAlreadyPlanRooted(String specPath, String planDir) {
     final normalizedPlanDir = p.normalize(planDir);
     final planDirPrefix = normalizedPlanDir.endsWith(p.separator)
@@ -3256,6 +3198,8 @@ class WorkflowExecutor {
         : '$normalizedPlanDir${p.separator}';
     return specPath == normalizedPlanDir || specPath.startsWith(planDirPrefix);
   }
+
+  String _join(String planDir, String specPath) => p.normalize(p.join(planDir, specPath));
 
   bool _isPromotionAwareScope(
     WorkflowGitStrategy? strategy, {

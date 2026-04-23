@@ -173,6 +173,8 @@ void main() {
   });
 
   test('coerces missing path outputs to an empty string', () async {
+    final records = <LogRecord>[];
+    final sub = Logger('ContextExtractor').onRecord.listen(records.add);
     final session = await sessionService.getOrCreateMain();
     await messageService.insertMessage(
       sessionId: session.id,
@@ -196,7 +198,14 @@ void main() {
     );
 
     final outputs = await extractor.extract(step, taskWithSession);
+    await sub.cancel();
     expect(outputs['prd'], equals(''));
+    expect(
+      records.map((record) => record.message),
+      contains(
+        allOf(contains('Context key "prd"'), contains('docs/specs/demo/prd.md'), contains('Coercing to empty string')),
+      ),
+    );
   });
 
   test(

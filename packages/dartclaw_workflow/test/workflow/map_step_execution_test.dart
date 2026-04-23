@@ -22,7 +22,13 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatus,
         WorkflowStep;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ContextExtractor, GateEvaluator, WorkflowExecutor, WorkflowTurnAdapter, WorkflowTurnOutcome;
+    show
+        ContextExtractor,
+        GateEvaluator,
+        StepExecutionContext,
+        WorkflowExecutor,
+        WorkflowTurnAdapter,
+        WorkflowTurnOutcome;
 import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowExecutionCursor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -43,6 +49,30 @@ void main() {
   late SqliteExecutionRepositoryTransactor executionRepositoryTransactor;
   late EventBus eventBus;
   late WorkflowExecutor executor;
+
+  WorkflowExecutor makeExecutor({WorkflowTurnAdapter? turnAdapter}) {
+    return WorkflowExecutor(
+      executionContext: StepExecutionContext(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionRepositoryTransactor,
+        turnAdapter: turnAdapter,
+      ),
+      dataDir: tempDir.path,
+    );
+  }
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_map_step_test_');
@@ -65,24 +95,7 @@ void main() {
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
-    executor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-      ),
-      dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionTransactor: executionRepositoryTransactor,
-    );
+    executor = makeExecutor();
   });
 
   tearDown(() async {
@@ -168,23 +181,7 @@ void main() {
         variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
       );
 
-      final runtimeExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-        ),
-        dataDir: tempDir.path,
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionTransactor: executionRepositoryTransactor,
+      final runtimeExecutor = makeExecutor(
         turnAdapter: WorkflowTurnAdapter(
           reserveTurn: (_) => Future.value('turn-1'),
           executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -273,24 +270,7 @@ void main() {
     });
 
     test('worktree auto resolves to inline for serial map execution', () async {
-      final repoBackedExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-        ),
-        dataDir: tempDir.path,
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionTransactor: executionRepositoryTransactor,
-      );
+      final repoBackedExecutor = makeExecutor();
       final definition = WorkflowDefinition(
         name: 'map-inline-auto',
         description: 'Map auto worktree serial resolution',
@@ -331,24 +311,7 @@ void main() {
     });
 
     test('worktree auto resolves to per-map-item for parallel map execution', () async {
-      final repoBackedExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-        ),
-        dataDir: tempDir.path,
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionTransactor: executionRepositoryTransactor,
-      );
+      final repoBackedExecutor = makeExecutor();
       final definition = WorkflowDefinition(
         name: 'map-per-item-auto',
         description: 'Map auto worktree parallel resolution',
@@ -389,24 +352,7 @@ void main() {
     });
 
     test('worktree auto resolves to per-map-item for unlimited map execution', () async {
-      final repoBackedExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-        ),
-        dataDir: tempDir.path,
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionTransactor: executionRepositoryTransactor,
-      );
+      final repoBackedExecutor = makeExecutor();
       final definition = WorkflowDefinition(
         name: 'map-unlimited-auto',
         description: 'Map auto worktree unlimited resolution',
@@ -674,23 +620,7 @@ void main() {
         variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
       );
 
-      final promotionAwareExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-        ),
-        dataDir: tempDir.path,
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionTransactor: executionRepositoryTransactor,
+      final promotionAwareExecutor = makeExecutor(
         turnAdapter: WorkflowTurnAdapter(
           reserveTurn: (_) => Future.value('turn-1'),
           executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},

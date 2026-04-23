@@ -23,8 +23,6 @@ class SchemaPreset {
 }
 
 /// Built-in schema presets registry.
-///
-/// Lookup by name: `schemaPresets['verdict']`.
 const schemaPresets = <String, SchemaPreset>{
   'verdict': verdictPreset,
   'remediation-result': remediationResultPreset,
@@ -48,14 +46,8 @@ const verdictPreset = SchemaPreset(
     'additionalProperties': false,
     'required': ['pass', 'findings_count', 'findings', 'summary'],
     'properties': {
-      'pass': {
-        'type': 'boolean',
-        'description': 'Whether the review passes overall.',
-      },
-      'findings_count': {
-        'type': 'integer',
-        'description': 'Total number of findings in `findings`.',
-      },
+      'pass': {'type': 'boolean', 'description': 'Whether the review passes overall.'},
+      'findings_count': {'type': 'integer', 'description': 'Total number of findings in `findings`.'},
       'findings': {
         'type': 'array',
         'description': 'Structured list of issues. Empty when `pass` is true.',
@@ -69,21 +61,12 @@ const verdictPreset = SchemaPreset(
               'enum': ['critical', 'high', 'medium', 'low'],
               'description': 'Severity tier.',
             },
-            'location': {
-              'type': 'string',
-              'description': 'File path and line reference.',
-            },
-            'description': {
-              'type': 'string',
-              'description': 'What the issue is and why it matters.',
-            },
+            'location': {'type': 'string', 'description': 'File path and line reference.'},
+            'description': {'type': 'string', 'description': 'What the issue is and why it matters.'},
           },
         },
       },
-      'summary': {
-        'type': 'string',
-        'description': '2-3 sentence overall assessment.',
-      },
+      'summary': {'type': 'string', 'description': '2-3 sentence overall assessment.'},
     },
   },
 );
@@ -103,18 +86,9 @@ const storyPlanPreset = SchemaPreset(
           'additionalProperties': false,
           'required': ['id', 'title', 'description'],
           'properties': {
-            'id': {
-              'type': 'string',
-              'description': 'Short unique identifier (e.g. "s01").',
-            },
-            'title': {
-              'type': 'string',
-              'description': 'Concise story title.',
-            },
-            'description': {
-              'type': 'string',
-              'description': 'One-sentence summary of what this story delivers.',
-            },
+            'id': {'type': 'string', 'description': 'Short unique identifier (e.g. "s01").'},
+            'title': {'type': 'string', 'description': 'Concise story title.'},
+            'description': {'type': 'string', 'description': 'One-sentence summary of what this story delivers.'},
           },
         },
       },
@@ -129,14 +103,8 @@ const remediationResultPreset = SchemaPreset(
     'additionalProperties': false,
     'required': ['remediation_summary', 'diff_summary'],
     'properties': {
-      'remediation_summary': {
-        'type': 'string',
-        'description': 'What was re-validated and changed during this pass.',
-      },
-      'diff_summary': {
-        'type': 'string',
-        'description': 'Concise summary of the resulting code diff.',
-      },
+      'remediation_summary': {'type': 'string', 'description': 'What was re-validated and changed during this pass.'},
+      'diff_summary': {'type': 'string', 'description': 'Concise summary of the resulting code diff.'},
     },
   },
 );
@@ -150,7 +118,8 @@ const storySpecsPreset = SchemaPreset(
     'properties': {
       'items': {
         'type': 'array',
-        'description': 'Per-story records used as the foreach iteration source. '
+        'description':
+            'Per-story records used as the foreach iteration source. '
             'Downstream steps read the authoritative FIS body (including '
             'acceptance criteria) from `spec_path`.',
         'items': {
@@ -158,14 +127,8 @@ const storySpecsPreset = SchemaPreset(
           'additionalProperties': false,
           'required': ['id', 'title', 'spec_path'],
           'properties': {
-            'id': {
-              'type': 'string',
-              'description': 'Story identifier used by downstream foreach steps (e.g. "s01").',
-            },
-            'title': {
-              'type': 'string',
-              'description': 'Concise story title for display and logs.',
-            },
+            'id': {'type': 'string', 'description': 'Story identifier used by downstream foreach steps (e.g. "s01").'},
+            'title': {'type': 'string', 'description': 'Concise story title for display and logs.'},
             'spec_path': {
               'type': 'string',
               'description': 'Workspace-relative path to the FIS file — the authoritative spec body lives here.',
@@ -192,10 +155,7 @@ const fileListPreset = SchemaPreset(
           'additionalProperties': false,
           'required': ['path'],
           'properties': {
-            'path': {
-              'type': 'string',
-              'description': 'File path relative to project root.',
-            },
+            'path': {'type': 'string', 'description': 'File path relative to project root.'},
             'reason': {
               'type': ['string', 'null'],
               'description': 'Why this file is included (optional).',
@@ -222,14 +182,8 @@ const checklistPreset = SchemaPreset(
           'additionalProperties': false,
           'required': ['check', 'pass'],
           'properties': {
-            'check': {
-              'type': 'string',
-              'description': 'What was verified.',
-            },
-            'pass': {
-              'type': 'boolean',
-              'description': 'Whether the check passed.',
-            },
+            'check': {'type': 'string', 'description': 'What was verified.'},
+            'pass': {'type': 'boolean', 'description': 'Whether the check passed.'},
             'detail': {
               'type': ['string', 'null'],
               'description': 'Additional context when the check failed (optional).',
@@ -237,10 +191,7 @@ const checklistPreset = SchemaPreset(
           },
         },
       },
-      'all_pass': {
-        'type': 'boolean',
-        'description': 'True only if every item in `items` passed.',
-      },
+      'all_pass': {'type': 'boolean', 'description': 'True only if every item in `items` passed.'},
     },
   },
 );
@@ -258,14 +209,12 @@ const projectIndexPreset = SchemaPreset(
         'type': 'string',
         'description': 'Detected project framework (e.g. "andthen", "spec-kit"), or "none".',
       },
-      'project_root': {
-        'type': 'string',
-        'description': 'Absolute or repo-relative path to the project root.',
-      },
+      'project_root': {'type': 'string', 'description': 'Absolute or repo-relative path to the project root.'},
       'document_locations': {
         'type': 'object',
         'additionalProperties': false,
-        'description': 'Map of canonical document kind to workspace-relative path. '
+        'description':
+            'Map of canonical document kind to workspace-relative path. '
             'Each value is the path the document should live at even when the file is missing.',
         'required': [
           'product',
@@ -370,14 +319,16 @@ const projectIndexPreset = SchemaPreset(
       },
       'artifact_locations': {
         'type': ['object', 'null'],
-        'description': 'Canonical artifact-write paths (`prd`, `plan`, `fis_dir`). Each value is workspace-relative or `null`.',
+        'description':
+            'Canonical artifact-write paths (`prd`, `plan`, `fis_dir`). Each value is workspace-relative or `null`.',
         'additionalProperties': {
           'type': ['string', 'null'],
         },
       },
       'notes': {
         'type': ['string', 'null'],
-        'description': 'Free-form notes, e.g. cross-repo relationships that cannot be expressed in `document_locations`.',
+        'description':
+            'Free-form notes, e.g. cross-repo relationships that cannot be expressed in `document_locations`.',
       },
     },
   },

@@ -825,10 +825,7 @@ class _WorkflowCliCommand {
 }
 
 final class _CodexSandboxDecision {
-  static const _rankBySandbox = <String, int>{
-    'read-only': 0,
-    'workspace-write': 1,
-  };
+  static const _rankBySandbox = <String, int>{'read-only': 0, 'workspace-write': 1, 'danger-full-access': 2};
 
   final String? sandbox;
   final bool hasExplicitSandbox;

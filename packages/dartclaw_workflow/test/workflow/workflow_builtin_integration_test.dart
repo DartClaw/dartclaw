@@ -11,6 +11,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         KvService,
         MessageService,
         SessionService,
+        StepExecutionContext,
         Task,
         TaskType,
         TaskStatus,
@@ -197,57 +198,171 @@ void main() {
     await taskService.transition(taskId, status, trigger: 'test');
   }
 
-  Future<void> attachAssistantOutput(Task task, {required String content, Map<String, dynamic>? worktreeJson}) async {
+  Map<String, dynamic>? decodeStubPayload(String content) {
+    final contextMatch = RegExp(r'<workflow-context>\s*([\s\S]*?)\s*</workflow-context>').firstMatch(content);
+    final raw = contextMatch?.group(1) ?? content;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return Map<String, dynamic>.from(decoded);
+      if (decoded is Map) return decoded.map((key, value) => MapEntry('$key', value));
+    } on FormatException {
+      return null;
+    }
+    return null;
+  }
+
+  String normalizeStubProjectRoot(String content) {
+    final decoded = decodeStubPayload(content);
+    if (decoded == null) return content;
+    var changed = false;
+    void rewriteProjectRoot(Map<String, dynamic> map) {
+      final root = map['project_root'];
+      if (root is String && root.startsWith('/repo/')) {
+        map['project_root'] = tempDir.path;
+        changed = true;
+      }
+    }
+
+    rewriteProjectRoot(decoded);
+    final projectIndex = decoded['project_index'];
+    if (projectIndex is Map) {
+      final normalizedProjectIndex = projectIndex.map((key, value) => MapEntry('$key', value));
+      rewriteProjectRoot(normalizedProjectIndex);
+      decoded['project_index'] = normalizedProjectIndex;
+    }
+    if (!changed) return content;
+    if (content.contains('<workflow-context>')) {
+      return _contextOutput(decoded);
+    }
+    return jsonEncode(decoded);
+  }
+
+  void materializeClaimedPathOutputs(
+    Task task,
+    String content,
+    WorkflowContext context,
+    Map<String, dynamic>? worktreeJson,
+  ) {
+    final decoded = decodeStubPayload(content);
+    if (decoded == null) return;
+    final roots = <String>[];
+    final worktreePath = (worktreeJson?['path'] as String?)?.trim();
+    if (worktreePath != null && worktreePath.isNotEmpty) roots.add(worktreePath);
+    final projectId = task.projectId?.trim();
+    if (projectId != null && projectId.isNotEmpty && projectId != '_local') {
+      roots.add(p.join(tempDir.path, 'projects', projectId));
+    }
+    final projectIndex = context['project_index'];
+    final projectRoot = switch (projectIndex) {
+      final Map<dynamic, dynamic> map => map['project_root'] as String?,
+      _ => null,
+    };
+    if (projectRoot != null && projectRoot.isNotEmpty) roots.add(projectRoot);
+    roots.add(tempDir.path);
+
+    void writeRelative(String? rawPath) {
+      final path = rawPath?.trim();
+      if (path == null || path.isEmpty) return;
+      final targets = p.isAbsolute(path) ? [path] : roots.map((root) => p.join(root, path));
+      for (final target in targets) {
+        final file = File(target);
+        file.parent.createSync(recursive: true);
+        if (!file.existsSync()) {
+          file.writeAsStringSync('Generated test artifact for $path\n');
+        }
+      }
+    }
+
+    writeRelative(decoded['prd'] as String?);
+    final planPath = decoded['plan'] as String?;
+    writeRelative(planPath);
+    writeRelative(decoded['spec_path'] as String?);
+    final planDir = planPath == null || planPath.trim().isEmpty ? null : p.dirname(planPath.trim());
+    final storySpecs = decoded['story_specs'];
+    if (storySpecs is Map) {
+      final items = storySpecs['items'];
+      if (items is List) {
+        for (final item in items) {
+          if (item is Map) {
+            final specPath = item['spec_path'] as String?;
+            writeRelative(specPath);
+            if (specPath != null &&
+                specPath.trim().isNotEmpty &&
+                planDir != null &&
+                !p.isAbsolute(specPath) &&
+                !specPath.startsWith('$planDir${p.separator}')) {
+              writeRelative(p.join(planDir, specPath));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> attachAssistantOutput(
+    Task task, {
+    required String content,
+    required WorkflowContext context,
+    Map<String, dynamic>? worktreeJson,
+  }) async {
     final session = await sessionService.createSession(type: SessionType.task);
-    await taskService.updateFields(task.id, sessionId: session.id, worktreeJson: worktreeJson);
-    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: content);
+    final projectId = task.projectId?.trim();
+    final effectiveWorktreeJson =
+        worktreeJson ?? (projectId == null || projectId == '_local' ? {'path': tempDir.path} : null);
+    final normalizedContent = normalizeStubProjectRoot(content);
+    materializeClaimedPathOutputs(task, normalizedContent, context, effectiveWorktreeJson);
+    await taskService.updateFields(task.id, sessionId: session.id, worktreeJson: effectiveWorktreeJson);
+    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: normalizedContent);
   }
 
   WorkflowExecutor makeExecutor({WorkflowTurnAdapter? turnAdapter}) {
     return WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
+      executionContext: StepExecutionContext(
         taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
         workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionTransactor,
+        turnAdapter:
+            turnAdapter ??
+            WorkflowTurnAdapter(
+              reserveTurn: (_) => Future.value('turn-1'),
+              executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+              waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+              bootstrapWorkflowGit:
+                  ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+                      WorkflowGitBootstrapResult(
+                        integrationBranch: perMapItem ? 'dartclaw/integration/$runId' : 'dartclaw/shared/$runId',
+                      ),
+              promoteWorkflowBranch:
+                  ({
+                    required runId,
+                    required projectId,
+                    required branch,
+                    required integrationBranch,
+                    required strategy,
+                    String? storyId,
+                  }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
+              publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+                  WorkflowGitPublishResult(
+                    status: 'success',
+                    branch: branch,
+                    remote: 'origin',
+                    prUrl: 'https://example.test/pr/$runId',
+                  ),
+            ),
       ),
       dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionTransactor: executionTransactor,
-      turnAdapter:
-          turnAdapter ??
-          WorkflowTurnAdapter(
-            reserveTurn: (_) => Future.value('turn-1'),
-            executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-            waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                WorkflowGitBootstrapResult(
-                  integrationBranch: perMapItem ? 'dartclaw/integration/$runId' : 'dartclaw/shared/$runId',
-                ),
-            promoteWorkflowBranch:
-                ({
-                  required runId,
-                  required projectId,
-                  required branch,
-                  required integrationBranch,
-                  required strategy,
-                  String? storyId,
-                }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
-            publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
-                WorkflowGitPublishResult(
-                  status: 'success',
-                  branch: branch,
-                  remote: 'origin',
-                  prUrl: 'https://example.test/pr/$runId',
-                ),
-          ),
     );
   }
 
@@ -310,7 +425,12 @@ void main() {
         mapIndex: task.workflowStepExecution?.mapIterationIndex,
       );
       final response = await responseForStep(queued);
-      await attachAssistantOutput(task, content: response.assistantContent, worktreeJson: response.worktreeJson);
+      await attachAssistantOutput(
+        task,
+        content: response.assistantContent,
+        context: context,
+        worktreeJson: response.worktreeJson,
+      );
       await completeTask(task.id);
     });
 
@@ -599,128 +719,141 @@ void main() {
     },
   );
 
-  test('spec-and-implement commits generated artifacts to a local-path workflow branch and publishes to origin', () async {
-    final projectId = 'local-path-project';
-    final repoDir = Directory(p.join(tempDir.path, 'projects', projectId))..createSync(recursive: true);
-    final originDir = Directory(p.join(tempDir.path, 'origin.git'))..createSync(recursive: true);
+  test(
+    'spec-and-implement commits generated artifacts to a local-path workflow branch and publishes to origin',
+    () async {
+      final projectId = 'local-path-project';
+      final repoDir = Directory(p.join(tempDir.path, 'projects', projectId))..createSync(recursive: true);
+      final originDir = Directory(p.join(tempDir.path, 'origin.git'))..createSync(recursive: true);
 
-    ProcessResult runGit(List<String> args, {String? workingDirectory}) {
-      final result = Process.runSync('git', args, workingDirectory: workingDirectory ?? repoDir.path);
-      if (result.exitCode != 0) {
-        fail('git ${args.join(' ')} failed in ${workingDirectory ?? repoDir.path}: ${result.stderr}');
+      ProcessResult runGit(List<String> args, {String? workingDirectory}) {
+        final result = Process.runSync('git', args, workingDirectory: workingDirectory ?? repoDir.path);
+        if (result.exitCode != 0) {
+          fail('git ${args.join(' ')} failed in ${workingDirectory ?? repoDir.path}: ${result.stderr}');
+        }
+        return result;
       }
-      return result;
-    }
 
-    runGit(['init', '--bare'], workingDirectory: originDir.path);
-    runGit(['init', '-b', 'main']);
-    runGit(['config', 'user.name', 'Workflow Test']);
-    runGit(['config', 'user.email', 'workflow-test@example.com']);
-    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# local-path\n');
-    runGit(['add', 'README.md']);
-    runGit(['commit', '-m', 'initial']);
-    runGit(['remote', 'add', 'origin', originDir.path]);
-    runGit(['push', '-u', 'origin', 'main']);
-    final mainHeadBefore = (runGit(['rev-parse', 'main']).stdout as String).trim();
+      runGit(['init', '--bare'], workingDirectory: originDir.path);
+      runGit(['init', '-b', 'main']);
+      runGit(['config', 'user.name', 'Workflow Test']);
+      runGit(['config', 'user.email', 'workflow-test@example.com']);
+      File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# local-path\n');
+      runGit(['add', 'README.md']);
+      runGit(['commit', '-m', 'initial']);
+      runGit(['remote', 'add', 'origin', originDir.path]);
+      runGit(['push', '-u', 'origin', 'main']);
+      final mainHeadBefore = (runGit(['rev-parse', 'main']).stdout as String).trim();
 
-    String? workflowBranch;
-    final turnAdapter = WorkflowTurnAdapter(
-      reserveTurn: (_) async => 'turn-1',
-      executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-      waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-      bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
-        workflowBranch = 'workflow/$runId';
-        runGit(['checkout', '-b', workflowBranch!, baseRef]);
-        return WorkflowGitBootstrapResult(integrationBranch: workflowBranch!);
-      },
-      promoteWorkflowBranch:
-          ({
-            required runId,
-            required projectId,
-            required branch,
-            required integrationBranch,
-            required strategy,
-            String? storyId,
-          }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
-      publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
-        runGit(['push', 'origin', branch]);
-        runGit(['checkout', 'main']);
-        return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: '');
-      },
-    );
+      String? workflowBranch;
+      final turnAdapter = WorkflowTurnAdapter(
+        reserveTurn: (_) async => 'turn-1',
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+          workflowBranch = 'workflow/$runId';
+          runGit(['checkout', '-b', workflowBranch!, baseRef]);
+          return WorkflowGitBootstrapResult(integrationBranch: workflowBranch!);
+        },
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
+        publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
+          runGit(['push', 'origin', branch]);
+          runGit(['checkout', 'main']);
+          return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: '');
+        },
+      );
 
-    final trace = await executeBuiltInWorkflow(
-      workflowFileName: 'spec-and-implement.yaml',
-      variables: {'FEATURE': 'Local-path workflow publish', 'PROJECT': projectId, 'BRANCH': 'main'},
-      turnAdapter: turnAdapter,
-      responseForStep: (queued) async {
-        return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'dart',
-              'project_root': repoDir.path,
-              'document_locations': {'product': 'PRODUCT.md'},
-              'state_protocol': {'state_file': 'docs/STATE.md'},
-            }),
-          ),
-          'spec' => () {
-            final specFile = File(p.join(repoDir.path, 'docs', 'specs', 'test', 'spec.md'));
-            specFile.parent.createSync(recursive: true);
-            specFile.writeAsStringSync('Local-path spec artifact\n');
-            return _StubResponse(
-              assistantContent: _contextOutput({'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized'}),
-            );
-          }(),
-          'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
-          'integrated-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'integrated review passed')),
-              'findings_count': 0,
-              'integrated-review.findings_count': 0,
-            }),
-          ),
-          'remediate' => _StubResponse(
-            assistantContent: _contextOutput({
-              'remediation_summary': 'No remediation needed',
-              'diff_summary': 'IMPLEMENT_DIFF_MARKER',
-            }),
-          ),
-          're-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_findings': _verdictJson(findingsCount: 0, summary: 'No remaining gaps'),
-              'findings_count': 0,
-              're-review.findings_count': 0,
-            }),
-          ),
-          'update-state' => _StubResponse(
-            assistantContent: _contextOutput({'state_update_summary': 'State updated cleanly'}),
-          ),
-          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-        };
-      },
-    );
+      final trace = await executeBuiltInWorkflow(
+        workflowFileName: 'spec-and-implement.yaml',
+        variables: {'FEATURE': 'Local-path workflow publish', 'PROJECT': projectId, 'BRANCH': 'main'},
+        turnAdapter: turnAdapter,
+        responseForStep: (queued) async {
+          return switch (queued.stepKey) {
+            'discover-project' => _StubResponse(
+              assistantContent: jsonEncode({
+                'framework': 'dart',
+                'project_root': repoDir.path,
+                'document_locations': {'product': 'PRODUCT.md'},
+                'state_protocol': {'state_file': 'docs/STATE.md'},
+              }),
+            ),
+            'spec' => () {
+              final specFile = File(p.join(repoDir.path, 'docs', 'specs', 'test', 'spec.md'));
+              specFile.parent.createSync(recursive: true);
+              specFile.writeAsStringSync('Local-path spec artifact\n');
+              return _StubResponse(
+                assistantContent: _contextOutput({
+                  'spec_path': 'docs/specs/test/spec.md',
+                  'spec_source': 'synthesized',
+                }),
+                worktreeJson: {
+                  'path': repoDir.path,
+                  'branch': workflowBranch ?? 'workflow/spec-and-implement-run',
+                  'createdAt': DateTime.now().toIso8601String(),
+                },
+              );
+            }(),
+            'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
+            'integrated-review' => _StubResponse(
+              assistantContent: _contextOutput({
+                'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'integrated review passed')),
+                'findings_count': 0,
+                'integrated-review.findings_count': 0,
+              }),
+            ),
+            'remediate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'remediation_summary': 'No remediation needed',
+                'diff_summary': 'IMPLEMENT_DIFF_MARKER',
+              }),
+            ),
+            're-review' => _StubResponse(
+              assistantContent: _contextOutput({
+                'review_findings': _verdictJson(findingsCount: 0, summary: 'No remaining gaps'),
+                'findings_count': 0,
+                're-review.findings_count': 0,
+              }),
+            ),
+            'update-state' => _StubResponse(
+              assistantContent: _contextOutput({'state_update_summary': 'State updated cleanly'}),
+            ),
+            _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+          };
+        },
+      );
 
-    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(workflowBranch, isNotNull);
+      expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+      expect(workflowBranch, isNotNull);
 
-    final branchFile = runGit(['show', '${workflowBranch!}:docs/specs/test/spec.md']);
-    expect((branchFile.stdout as String), contains('Local-path spec artifact'));
+      final branchFile = runGit(['show', '${workflowBranch!}:docs/specs/test/spec.md']);
+      expect((branchFile.stdout as String), contains('Local-path spec artifact'));
 
-    final lsRemote = Process.runSync('git', ['ls-remote', '--heads', originDir.path, workflowBranch!]);
-    expect(lsRemote.exitCode, 0);
-    expect((lsRemote.stdout as String), contains('refs/heads/$workflowBranch'));
+      final lsRemote = Process.runSync('git', ['ls-remote', '--heads', originDir.path, workflowBranch!]);
+      expect(lsRemote.exitCode, 0);
+      expect((lsRemote.stdout as String), contains('refs/heads/$workflowBranch'));
 
-    final pushedFile = Process.runSync(
-      'git',
-      ['--git-dir', originDir.path, 'show', 'refs/heads/$workflowBranch:docs/specs/test/spec.md'],
-    );
-    expect(pushedFile.exitCode, 0);
-    expect((pushedFile.stdout as String), contains('Local-path spec artifact'));
+      final pushedFile = Process.runSync('git', [
+        '--git-dir',
+        originDir.path,
+        'show',
+        'refs/heads/$workflowBranch:docs/specs/test/spec.md',
+      ]);
+      expect(pushedFile.exitCode, 0);
+      expect((pushedFile.stdout as String), contains('Local-path spec artifact'));
 
-    final mainHeadAfter = (runGit(['rev-parse', 'main']).stdout as String).trim();
-    expect(mainHeadAfter, mainHeadBefore);
-    expect((runGit(['status', '--short', '--untracked-files=all']).stdout as String).trim(), isEmpty);
-  });
+      final mainHeadAfter = (runGit(['rev-parse', 'main']).stdout as String).trim();
+      expect(mainHeadAfter, mainHeadBefore);
+      expect((runGit(['status', '--short', '--untracked-files=all']).stdout as String).trim(), isEmpty);
+    },
+  );
 
   test('plan-and-implement integration runs per-story foreach pipeline after merged plan step', () async {
     final trace = await executeBuiltInWorkflow(
@@ -985,97 +1118,100 @@ void main() {
     expect(trace.tasksForStep('update-state').single.type, TaskType.coding);
   });
 
-  test('plan-and-implement marks per-story analysis steps as worktree-bound when map parallelism resolves to per-map-item', () async {
-    final trace = await executeBuiltInWorkflow(
-      workflowFileName: 'plan-and-implement.yaml',
-      variables: {
-        'REQUIREMENTS': 'Per-map-item worktree flag check',
-        'PROJECT': 'demo-project',
-        'BRANCH': 'main',
-        'MAX_PARALLEL': '2',
-      },
-      responseForStep: (queued) async {
-        return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'none',
-              'project_root': '/repo/demo-project',
-              'document_locations': {'product': null},
-              'state_protocol': {'type': 'none'},
-            }),
-          ),
-          'prd' => _StubResponse(
-            assistantContent: _contextOutput({
-              'prd': 'docs/specs/demo/prd.md',
-              'prd_source': 'synthesized',
-              'prd_confidence': 9,
-            }),
-          ),
-          'plan' => _StubResponse(
-            assistantContent: _contextOutput({
-              'plan': 'docs/specs/demo/plan.md',
-              'plan_source': 'synthesized',
-              'story_specs': {
-                'items': [
-                  {
-                    'id': 'S01',
-                    'title': 'Story One',
-                    'spec_path': 'docs/specs/demo/fis/s01-story-one.md',
-                    'acceptance_criteria': ['first passes'],
-                  },
-                  {
-                    'id': 'S02',
-                    'title': 'Story Two',
-                    'spec_path': 'docs/specs/demo/fis/s02-story-two.md',
-                    'acceptance_criteria': ['second passes'],
-                  },
-                ],
+  test(
+    'plan-and-implement marks per-story analysis steps as worktree-bound when map parallelism resolves to per-map-item',
+    () async {
+      final trace = await executeBuiltInWorkflow(
+        workflowFileName: 'plan-and-implement.yaml',
+        variables: {
+          'REQUIREMENTS': 'Per-map-item worktree flag check',
+          'PROJECT': 'demo-project',
+          'BRANCH': 'main',
+          'MAX_PARALLEL': '2',
+        },
+        responseForStep: (queued) async {
+          return switch (queued.stepKey) {
+            'discover-project' => _StubResponse(
+              assistantContent: jsonEncode({
+                'framework': 'none',
+                'project_root': '/repo/demo-project',
+                'document_locations': {'product': null},
+                'state_protocol': {'type': 'none'},
+              }),
+            ),
+            'prd' => _StubResponse(
+              assistantContent: _contextOutput({
+                'prd': 'docs/specs/demo/prd.md',
+                'prd_source': 'synthesized',
+                'prd_confidence': 9,
+              }),
+            ),
+            'plan' => _StubResponse(
+              assistantContent: _contextOutput({
+                'plan': 'docs/specs/demo/plan.md',
+                'plan_source': 'synthesized',
+                'story_specs': {
+                  'items': [
+                    {
+                      'id': 'S01',
+                      'title': 'Story One',
+                      'spec_path': 'docs/specs/demo/fis/s01-story-one.md',
+                      'acceptance_criteria': ['first passes'],
+                    },
+                    {
+                      'id': 'S02',
+                      'title': 'Story Two',
+                      'spec_path': 'docs/specs/demo/fis/s02-story-two.md',
+                      'acceptance_criteria': ['second passes'],
+                    },
+                  ],
+                },
+              }),
+            ),
+            'implement' => _StubResponse(
+              assistantContent: _contextOutput({'story_result': 'Implemented the story.'}),
+              worktreeJson: {
+                'branch': 'story-branch-${queued.mapIndex}',
+                'path': '/tmp/worktrees/story-${queued.mapIndex}',
+                'createdAt': DateTime.now().toIso8601String(),
               },
-            }),
-          ),
-          'implement' => _StubResponse(
-            assistantContent: _contextOutput({'story_result': 'Implemented the story.'}),
-            worktreeJson: {
-              'branch': 'story-branch-${queued.mapIndex}',
-              'path': '/tmp/worktrees/story-${queued.mapIndex}',
-              'createdAt': DateTime.now().toIso8601String(),
-            },
-          ),
-          'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
-          ),
-          'plan-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'implementation_summary': 'complete',
-              'remediation_plan': 'none',
-              'needs_remediation': false,
-              'findings_count': 0,
-              'plan-review.findings_count': 0,
-            }),
-          ),
-          'remediate' => _StubResponse(
-            assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
-          ),
-          're-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'remediation_plan': 'No further remediation',
-              'findings_count': 0,
-              're-review.findings_count': 0,
-            }),
-          ),
-          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
-          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-        };
-      },
-    );
+            ),
+            'quick-review' => _StubResponse(
+              assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+            ),
+            'plan-review' => _StubResponse(
+              assistantContent: _contextOutput({
+                'implementation_summary': 'complete',
+                'remediation_plan': 'none',
+                'needs_remediation': false,
+                'findings_count': 0,
+                'plan-review.findings_count': 0,
+              }),
+            ),
+            'remediate' => _StubResponse(
+              assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
+            ),
+            're-review' => _StubResponse(
+              assistantContent: _contextOutput({
+                'remediation_plan': 'No further remediation',
+                'findings_count': 0,
+                're-review.findings_count': 0,
+              }),
+            ),
+            'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+            _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+          };
+        },
+      );
 
-    final quickReviews = trace.tasksForStep('quick-review');
-    expect(quickReviews, hasLength(2));
-    for (final quickReview in quickReviews) {
-      expect(quickReview.type, TaskType.coding);
-      expect(quickReview.configJson['_workflowNeedsWorktree'], isTrue);
-    }
-  });
+      final quickReviews = trace.tasksForStep('quick-review');
+      expect(quickReviews, hasLength(2));
+      for (final quickReview in quickReviews) {
+        expect(quickReview.type, TaskType.coding);
+        expect(quickReview.configJson['_workflowNeedsWorktree'], isTrue);
+      }
+    },
+  );
 
   test('plan-and-implement discovery prompt excludes authored requirements text', () async {
     const requirements = 'REQUIREMENTS_SHOULD_NOT_APPEAR_IN_DISCOVERY_PROMPT';
@@ -1179,12 +1315,7 @@ void main() {
     const requirements = 'Create exactly two thin note stories from this request.';
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
-      variables: {
-        'REQUIREMENTS': requirements,
-        'PROJECT': 'demo-project',
-        'BRANCH': 'main',
-        'MAX_PARALLEL': '1',
-      },
+      variables: {'REQUIREMENTS': requirements, 'PROJECT': 'demo-project', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
           'discover-project' => _StubResponse(

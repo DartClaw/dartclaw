@@ -249,5 +249,4 @@ extension _WorkflowGitStrategyRules on WorkflowDefinitionValidator {
         stepId.endsWith('_$literal') ||
         stepId.contains('_${literal}_');
   }
-
 }

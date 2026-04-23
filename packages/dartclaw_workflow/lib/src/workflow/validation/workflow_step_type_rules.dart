@@ -350,5 +350,4 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
       }
     }
   }
-
 }

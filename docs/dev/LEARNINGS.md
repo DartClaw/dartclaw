@@ -125,6 +125,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 ## Workflow Engine
 
 - **Shared worktree caches need both persisted bindings and per-key mutexes.** In-memory map alone fails on retry/restart; same-key fanout needs a `finally`-released waiter/completer guard.
+- **Validator file splits must preserve diagnostic ordering.** `workflow validate` output order is observable, so rule-group moves need either the original call sequence in the composer or explicit golden coverage for ordering.
 - **`git worktree list` automation must use `--porcelain`.** Human-format output is not stable for reconciliation.
 - **Foreach unwraps must accept immutable map views.** Wrapped payloads can arrive as `UnmodifiableMapView`, not always `Map<String, dynamic>`.
 - **Merge inside the integration worktree when the integration branch is checked out there.** Reusing the main checkout fails with `branch is already used by worktree` once a shared worktree owns the branch.
@@ -157,6 +158,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 ## Tooling / Verification
 
 - **Workflow Codex E2E needs real `CODEX_API_KEY`** even when the binary starts cleanly. Empty creds surface as websocket `401 Unauthorized` on the first live turn — environment blocker, not product regression.
+- **Path-output test stubs must materialize claimed files under the same roots production validation probes.** For workflow tests, write files under task worktree, `dataDir/projects/<projectId>`, and discovered `project_root` when relevant; otherwise stricter path validation correctly coerces outputs to empty.
 - **Nested `dart run` subprocesses inside `dart test` can stall on build hooks.** Use `Platform.resolvedExecutable` against the script path from the package root.
 - **Filesystem teardown for project/worktree tests needs async retry, not one-shot `deleteSync()`.** Git/file watchers leave temp dirs briefly non-empty.
 - **`HarnessWiring` is the deterministic seam for spawn-time prompt tests.** `ServiceWiring` hides spawn behind the background poller; wire `StorageWiring` + `SecurityWiring` + `HarnessWiring` directly with a recording harness factory.

@@ -13,12 +13,10 @@ class WorkflowContext {
 
   dynamic operator [](String key) => _data[key];
 
-  /// Sets a context value.
   void operator []=(String key, dynamic value) => _data[key] = value;
 
   String? variable(String name) => _variables[name];
 
-  /// Returns all variable bindings.
   Map<String, String> get variables => _variables;
 
   Map<String, dynamic> get data => Map.unmodifiable(_data);

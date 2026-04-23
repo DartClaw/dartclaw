@@ -6,7 +6,14 @@ export 'container_task_failure_subscriber.dart' show ContainerTaskFailureSubscri
 export 'diff_generator.dart' show DiffGenerator, DiffResult, DiffFileEntry, DiffHunk, DiffFileStatus;
 export 'goal_service.dart' show GoalService;
 export 'merge_executor.dart'
-    show MergeExecutor, MergeResult, MergeSuccess, MergeConflict, MergeStrategy, PreMergeInvariantException;
+    show
+        MergeExecutor,
+        MergeResult,
+        MergeSuccess,
+        MergeConflict,
+        MergeStrategy,
+        PreMergeInvariantException,
+        PreMergeInvariantReason;
 export 'pr_creator.dart' show PrCreator, PrCreationResult, PrCreated, PrGhNotFound, PrCreationFailed;
 export 'remote_push_service.dart'
     show RemotePushService, PushResult, PushSuccess, PushAuthFailure, PushRejected, PushError;

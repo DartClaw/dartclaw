@@ -68,10 +68,10 @@ class ValidationReport {
   bool get hasWarnings => warnings.isNotEmpty;
 }
 
-/// Runs static analysis over the [WorkflowDefinition] AST.
+/// Static analysis over the [WorkflowDefinition] AST.
 ///
-/// Produces a [ValidationReport] with separate [errors] (hard failures) and
-/// [warnings] (soft notices). A definition is loadable when [errors] is empty.
+/// Each rule group validates one axis of the definition; the composer
+/// accumulates errors and warnings in a single [ValidationReport].
 class WorkflowDefinitionValidator {
   static final _log = Logger('WorkflowDefinitionValidator');
   static final _gateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)+)\s*(==|!=|<=|>=|<|>)\s*(.+)$');

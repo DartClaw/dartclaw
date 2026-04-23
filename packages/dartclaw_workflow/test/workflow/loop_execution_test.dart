@@ -14,7 +14,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowStep;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show ContextExtractor, GateEvaluator, WorkflowExecutor;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show ContextExtractor, GateEvaluator, StepExecutionContext, WorkflowExecutor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
@@ -53,22 +54,24 @@ void main() {
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
     executor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
+      executionContext: StepExecutionContext(
         taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
         workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionTransactor,
       ),
       dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionTransactor: executionTransactor,
     );
   });
 

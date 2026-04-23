@@ -2,11 +2,11 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-22 22:23 CEST
+Last Updated: 2026-04-23 08:57 CEST
 
 ## Current Phase
 
-**0.16.4** — release prep, reopened mid-milestone for workflow step semantics redesign. S01–S43 are code-complete.
+**0.16.4** — release prep, reopened mid-milestone for workflow step semantics redesign. S01–S44 are code-complete.
 
 ## Active Stories
 

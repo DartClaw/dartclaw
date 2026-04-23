@@ -274,7 +274,7 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
           ),
         );
       }
-      // Prompt is optional when skill is present (S04) or when the step type is
+      // Prompt is optional when skill is present or when the step type is
       // bash, approval, foreach, or loop (these types own their execution semantics
       // and orchestrate child steps rather than issuing prompts themselves).
       final isBashOrApproval = step.type == 'bash' || step.type == 'approval';
@@ -336,6 +336,7 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
       }
     }
   }
+
   void _validateLoopReferences(WorkflowDefinition definition, List<ValidationError> errors) {
     final stepIds = definition.steps.map((s) => s.id).toSet();
     for (final loop in definition.loops) {
@@ -428,5 +429,4 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
       }
     }
   }
-
 }

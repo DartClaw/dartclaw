@@ -168,6 +168,68 @@ void main() {
       expect(arguments, containsAll(['--sandbox', 'read-only']));
     });
 
+    test('Codex sandbox override resolves to the stricter configured value', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'sandbox': 'read-only'}),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = [
+            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-strict-sandbox'}),
+            jsonEncode({
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 1, 'output_tokens': 1},
+            }),
+          ].join('\n').replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'codex',
+        prompt: 'Review this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+        sandboxOverride: 'workspace-write',
+      );
+
+      expect(arguments, isNot(contains('--full-auto')));
+      expect(arguments, containsAll(['--sandbox', 'read-only']));
+    });
+
+    test('Codex read-only override tightens danger-full-access default', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'sandbox': 'danger-full-access'}),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = [
+            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-tightened-sandbox'}),
+            jsonEncode({
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 1, 'output_tokens': 1},
+            }),
+          ].join('\n').replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'codex',
+        prompt: 'Review this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+        sandboxOverride: 'read-only',
+      );
+
+      expect(arguments, isNot(contains('--full-auto')));
+      expect(arguments, containsAll(['--sandbox', 'read-only']));
+    });
+
     test('builds Claude one-shot args with permissionMode and structured settings', () async {
       late List<String> arguments;
       final runner = WorkflowCliRunner(

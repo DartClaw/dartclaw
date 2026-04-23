@@ -253,23 +253,7 @@ class ContextExtractor {
     // treated as null by the gate evaluator, so the downstream authoring
     // step runs and can produce the file. Coercion is a narrow safety net;
     // skills should still emit correct values.
-    final missingPathKeys = <String>{};
-    for (final entry in configs?.entries ?? const <MapEntry<String, OutputConfig>>[]) {
-      final outputKey = entry.key;
-      final outputConfig = entry.value;
-      if (outputConfig.format != OutputFormat.path) continue;
-      final rawValue = outputs[outputKey];
-      if (rawValue is! String || rawValue.isEmpty) continue;
-      if (_pathResolvesToExistingFile(rawValue, task)) continue;
-      missingPathKeys.add(outputKey);
-      _log.warning(
-        'Context key "$outputKey" from step "${step.id}" (task ${task.id}) '
-        'resolved to path "$rawValue" which does not exist under any known root '
-        '(worktree, project, dataDir, cwd). Coercing to empty string — '
-        'downstream gates treat this as null. Skill should emit only paths to existing files.',
-      );
-    }
-    final normalizedOutputs = _coercePhantomPaths(outputs, missingPathKeys);
+    final normalizedOutputs = _coercePhantomPaths(outputs, configs, task, step.id);
 
     // Warn on large values.
     for (final entry in normalizedOutputs.entries) {
@@ -504,7 +488,6 @@ class ContextExtractor {
     return relative == '.' ? '' : relative;
   }
 
-  /// Dispatches to the appropriate extraction handler based on [config.type].
   Future<String?> _applyExtractionConfig(ExtractionConfig config, Task task) async {
     switch (config.type) {
       case ExtractionType.artifact:
@@ -524,7 +507,6 @@ class ContextExtractor {
     }
   }
 
-  /// Finds an artifact whose name matches [pattern] and returns its content.
   Future<String?> _extractArtifactByName(Task task, String pattern) async {
     final artifacts = await _taskService.listArtifacts(task.id);
     for (final artifact in artifacts) {
@@ -615,14 +597,29 @@ class ContextExtractor {
       return null;
     }
   }
-}
 
-Map<String, dynamic> _coercePhantomPaths(Map<String, dynamic> outputs, Set<String> missingPathKeys) {
-  if (missingPathKeys.isEmpty) {
-    return outputs;
+  Map<String, dynamic> _coercePhantomPaths(
+    Map<String, dynamic> outputs,
+    Map<String, OutputConfig>? configs,
+    Task task,
+    String stepId,
+  ) {
+    final normalized = Map<String, dynamic>.from(outputs);
+    for (final entry in configs?.entries ?? const <MapEntry<String, OutputConfig>>[]) {
+      final outputKey = entry.key;
+      final outputConfig = entry.value;
+      if (outputConfig.format != OutputFormat.path) continue;
+      final rawValue = outputs[outputKey];
+      if (rawValue is! String || rawValue.isEmpty) continue;
+      if (_pathResolvesToExistingFile(rawValue, task)) continue;
+      _log.warning(
+        'Context key "$outputKey" from step "$stepId" (task ${task.id}) '
+        'resolved to path "$rawValue" which does not exist under any known root '
+        '(worktree, project, dataDir, cwd). Coercing to empty string — '
+        'downstream gates treat this as null. Skill should emit only paths to existing files.',
+      );
+      normalized[outputKey] = '';
+    }
+    return normalized;
   }
-  return {
-    for (final entry in outputs.entries)
-      entry.key: missingPathKeys.contains(entry.key) ? '' : entry.value,
-  };
 }

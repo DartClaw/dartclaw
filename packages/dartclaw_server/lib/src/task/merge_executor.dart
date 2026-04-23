@@ -28,9 +28,15 @@ class MergeConflict extends MergeResult {
   Map<String, dynamic> toJson() => {'conflictingFiles': conflictingFiles, 'details': details};
 }
 
+enum PreMergeInvariantReason { uncleanIndex }
+
 /// Thrown when a pre-merge repository invariant is already broken.
-class PreMergeInvariantException extends WorktreeException {
-  const PreMergeInvariantException(super.message, {super.gitStderr, super.exitCode});
+class PreMergeInvariantException extends WorktreeException implements Exception {
+  final PreMergeInvariantReason reason;
+  final String detail;
+
+  const PreMergeInvariantException({required this.reason, required this.detail, super.gitStderr, super.exitCode})
+    : super(detail);
 }
 
 /// Handles merging a worktree branch onto the base branch.
@@ -166,9 +172,7 @@ class MergeExecutor {
             // are intentionally being discarded.
             final resetResult = await _git(['reset', '--hard', 'HEAD']);
             if (resetResult.exitCode != 0) {
-              _log.warning(
-                'Failed to reset working tree after stash-pop overlap: ${_stderr(resetResult)}',
-              );
+              _log.warning('Failed to reset working tree after stash-pop overlap: ${_stderr(resetResult)}');
             }
             final dropResult = await _git(['stash', 'drop']);
             if (dropResult.exitCode != 0) {
@@ -266,7 +270,8 @@ class MergeExecutor {
     final statusResult = await _git(['status', '--porcelain']);
     if (statusResult.exitCode != 0) {
       throw PreMergeInvariantException(
-        'Failed to verify merge precondition: repository index state is unknown',
+        reason: PreMergeInvariantReason.uncleanIndex,
+        detail: 'Failed to verify merge precondition: repository index state is unknown',
         gitStderr: _stderr(statusResult),
         exitCode: statusResult.exitCode,
       );
@@ -276,7 +281,8 @@ class MergeExecutor {
       return;
     }
     throw PreMergeInvariantException(
-      'Merge requires a clean index before checkout/merge. Resolve or stash local changes first.',
+      reason: PreMergeInvariantReason.uncleanIndex,
+      detail: 'Merge requires a clean index before checkout/merge. Resolve or stash local changes first.',
       gitStderr: dirtyEntries,
     );
   }

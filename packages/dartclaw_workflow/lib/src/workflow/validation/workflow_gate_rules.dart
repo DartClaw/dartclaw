@@ -106,5 +106,4 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
     }
     return rawKey.split('.').first;
   }
-
 }

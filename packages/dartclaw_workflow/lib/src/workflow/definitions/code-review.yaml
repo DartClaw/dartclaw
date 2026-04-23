@@ -117,7 +117,7 @@ steps:
           review_summary:
             format: json
             schema: verdict
-            description: Updated structured verdict and findings from the re-review pass.
+            description: Structured verdict and findings from the code review.
           re-review.findings_count:
             format: json
             schema: non-negative-integer

@@ -28,8 +28,8 @@ class _RegisteredWorkflow {
 
 /// Production registry of workflow definitions - materialized and custom.
 ///
-/// Implements [WorkflowDefinitionSource] (S05) to serve as the single
-/// source of workflow definitions for the API routes, CLI, and UI.
+/// Implements [WorkflowDefinitionSource] as the single source of workflow
+/// definitions for the API routes, CLI, and UI.
 ///
 /// Materialized workflows are loaded from the workspace copy of the bundled
 /// YAML definitions. Custom workflows are discovered from filesystem

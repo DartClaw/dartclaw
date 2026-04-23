@@ -33,16 +33,25 @@ void main() {
       await expectLater(
         () => executor.merge(branch: 'dartclaw/task-t1', baseRef: 'main', taskId: 't1', taskTitle: 'Fix bug'),
         throwsA(
-          isA<PreMergeInvariantException>().having(
-            (error) => error.message,
-            'message',
-            contains('clean index'),
-          ),
+          isA<PreMergeInvariantException>()
+              .having((error) => error.reason, 'reason', PreMergeInvariantReason.uncleanIndex)
+              .having((error) => error.detail, 'detail', contains('clean index')),
         ),
       );
 
       final gitArgs = calls.map((c) => c.args.join(' ')).toList();
       expect(gitArgs, ['status --porcelain']);
+    });
+
+    test('PreMergeInvariantException reason is switch-exhaustive', () {
+      const error = PreMergeInvariantException(reason: PreMergeInvariantReason.uncleanIndex, detail: 'index dirty');
+
+      final label = switch (error.reason) {
+        PreMergeInvariantReason.uncleanIndex => 'unclean-index',
+      };
+
+      expect(label, 'unclean-index');
+      expect(error.detail, 'index dirty');
     });
 
     test('squash merge calls correct git commands in order', () async {
@@ -268,11 +277,7 @@ void main() {
       responses['merge --squash dartclaw/task-t1'] = pr('');
       responses['commit -m task(t1): Fix bug'] = pr('');
       responses['checkout main'] = pr('');
-      responses['stash pop'] = pr(
-        '',
-        exitCode: 1,
-        stderr: 'CONFLICT (content): Merge conflict in lib/main.dart\n',
-      );
+      responses['stash pop'] = pr('', exitCode: 1, stderr: 'CONFLICT (content): Merge conflict in lib/main.dart\n');
 
       await executor.merge(branch: 'dartclaw/task-t1', baseRef: 'main', taskId: 't1', taskTitle: 'Fix bug');
 

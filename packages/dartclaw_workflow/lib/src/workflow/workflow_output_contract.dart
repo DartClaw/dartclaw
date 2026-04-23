@@ -7,14 +7,11 @@ library;
 
 import 'dart:convert';
 
-/// Tag name used to delimit the workflow-context JSON payload in the
-/// agent's final assistant message.
+/// Tag name used to delimit the workflow-context JSON payload.
 const String kWorkflowContextTag = 'workflow-context';
 
-/// Opening tag literal.
 const String kWorkflowContextOpen = '<$kWorkflowContextTag>';
 
-/// Closing tag literal.
 const String kWorkflowContextClose = '</$kWorkflowContextTag>';
 
 /// Matches the `<workflow-context>...</workflow-context>` block and captures
@@ -24,17 +21,14 @@ final RegExp workflowContextRegExp = RegExp('$kWorkflowContextOpen\\s*([\\s\\S]*
 /// Tag name used to delimit step outcome metadata in the final assistant message.
 const String kStepOutcomeTag = 'step-outcome';
 
-/// Opening tag literal.
 const String kStepOutcomeOpen = '<$kStepOutcomeTag>';
 
-/// Closing tag literal.
 const String kStepOutcomeClose = '</$kStepOutcomeTag>';
 
 /// Matches the `<step-outcome>...</step-outcome>` block and captures its inner
 /// JSON payload in group 1.
 final RegExp stepOutcomeRegExp = RegExp('$kStepOutcomeOpen\\s*([\\s\\S]*?)\\s*$kStepOutcomeClose');
 
-/// Parsed step outcome payload emitted by an agent step.
 class StepOutcomePayload {
   final String outcome;
   final String reason;

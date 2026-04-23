@@ -15,6 +15,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         OutputConfig,
         OutputFormat,
         SessionService,
+        BashStepPolicy,
+        StepExecutionContext,
         StepConfigDefault,
         StepReviewMode,
         Task,
@@ -37,12 +39,14 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitWorktreeStrategy,
         WorkflowGitStrategy,
         WorkflowExecutor,
+        WorkflowStepOutputTransformer,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
         WorkflowVariable,
         WorkflowStep,
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
+import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProjectService;
 import 'package:path/path.dart' as p;
@@ -114,6 +118,50 @@ void main() {
   late EventBus eventBus;
   late WorkflowExecutor executor;
 
+  WorkflowExecutor makeExecutor({
+    WorkflowTurnAdapter? turnAdapter,
+    WorkflowStepOutputTransformer? outputTransformer,
+    ProjectService? projectService,
+    ContextExtractor? contextExtractor,
+    bool wirePersistence = true,
+    Map<String, String>? hostEnvironment,
+    List<String>? bashStepEnvAllowlist,
+    List<String>? bashStepExtraStripPatterns,
+  }) {
+    return WorkflowExecutor(
+      executionContext: StepExecutionContext(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor:
+            contextExtractor ??
+            ContextExtractor(
+              taskService: taskService,
+              messageService: messageService,
+              dataDir: tempDir.path,
+              workflowStepExecutionRepository: wirePersistence ? workflowStepExecutionRepository : null,
+            ),
+        turnAdapter: turnAdapter,
+        outputTransformer: outputTransformer,
+        taskRepository: wirePersistence ? taskRepository : null,
+        agentExecutionRepository: wirePersistence ? agentExecutionRepository : null,
+        workflowStepExecutionRepository: wirePersistence ? workflowStepExecutionRepository : null,
+        executionTransactor: wirePersistence ? executionRepositoryTransactor : null,
+        projectService: projectService,
+      ),
+      dataDir: tempDir.path,
+      bashStepPolicy: hostEnvironment != null || bashStepEnvAllowlist != null || bashStepExtraStripPatterns != null
+          ? BashStepPolicy(
+              hostEnvironment: hostEnvironment,
+              envAllowlist: bashStepEnvAllowlist ?? BashStepPolicy.defaultEnvAllowlist,
+              extraStripPatterns: bashStepExtraStripPatterns ?? const <String>[],
+            )
+          : const BashStepPolicy(),
+    );
+  }
+
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_wf_exec_test_');
     sessionsDir = p.join(tempDir.path, 'sessions');
@@ -136,24 +184,7 @@ void main() {
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
-    executor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-      ),
-      dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionTransactor: executionRepositoryTransactor,
-    );
+    executor = makeExecutor();
   });
 
   tearDown(() async {
@@ -167,18 +198,13 @@ void main() {
 
   test('workflow execution fails fast when AE/WSE persistence is not wired', () async {
     // Synthesize an executor deliberately missing the AE/WSE/triple infrastructure.
-    final bareExecutor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
+    final bareExecutor = makeExecutor(
+      wirePersistence: false,
       contextExtractor: ContextExtractor(
         taskService: taskService,
         messageService: messageService,
         dataDir: tempDir.path,
       ),
-      dataDir: tempDir.path,
     );
 
     final definition = WorkflowDefinition(
@@ -381,23 +407,7 @@ void main() {
     final context = WorkflowContext(variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'});
     final promotionCalls = <Map<String, String?>>[];
 
-    final runtimeExecutor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-      ),
-      dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionTransactor: executionRepositoryTransactor,
+    final runtimeExecutor = makeExecutor(
       turnAdapter: WorkflowTurnAdapter(
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -490,23 +500,7 @@ void main() {
     final context = WorkflowContext(variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'});
     final reviewReached = Completer<void>();
     final allowAccept = Completer<void>();
-    final runtimeExecutor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-      ),
-      dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionTransactor: executionRepositoryTransactor,
+    final runtimeExecutor = makeExecutor(
       turnAdapter: WorkflowTurnAdapter(
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -640,23 +634,7 @@ void main() {
     final context = WorkflowContext(data: {'implement.status': 'pending'}, variables: const {'PROJECT': 'my-project'});
     final promotionCalls = <Map<String, String?>>[];
 
-    final runtimeExecutor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-      ),
-      dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionTransactor: executionRepositoryTransactor,
+    final runtimeExecutor = makeExecutor(
       turnAdapter: WorkflowTurnAdapter(
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -825,23 +803,7 @@ void main() {
   });
 
   test('deterministic publish writes publish.* outputs when enabled', () async {
-    final publishExecutor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-      ),
-      dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionTransactor: executionRepositoryTransactor,
+    final publishExecutor = makeExecutor(
       turnAdapter: WorkflowTurnAdapter(
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -887,23 +849,7 @@ void main() {
 
   test('workflow git bootstrap passes an empty baseRef when BRANCH is absent', () async {
     String? capturedBaseRef;
-    final bootstrapExecutor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-      ),
-      dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionTransactor: executionRepositoryTransactor,
+    final bootstrapExecutor = makeExecutor(
       turnAdapter: WorkflowTurnAdapter(
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -1056,25 +1002,7 @@ void main() {
       ],
     );
 
-    final localPathExecutor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-      ),
-      dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionTransactor: executionRepositoryTransactor,
-      projectService: projectService,
-    );
+    final localPathExecutor = makeExecutor(projectService: projectService);
 
     final definition = WorkflowDefinition(
       name: 'artifact-commit-local-path',
@@ -1113,7 +1041,7 @@ void main() {
       File(outputPath).parent.createSync(recursive: true);
       File(outputPath).writeAsStringSync('# local path test\n');
       final session = await sessionService.createSession(type: SessionType.task);
-      await taskService.updateFields(e.taskId, sessionId: session.id);
+      await taskService.updateFields(e.taskId, sessionId: session.id, worktreeJson: {'path': projectDir.path});
       await messageService.insertMessage(
         sessionId: session.id,
         role: 'assistant',
@@ -2065,25 +1993,7 @@ void main() {
 
   group('multi-prompt execution (S02)', () {
     WorkflowExecutor makeMultiPromptExecutor() {
-      return WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-        ),
-        dataDir: tempDir.path,
-        messageService: messageService,
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionTransactor: executionRepositoryTransactor,
-      );
+      return makeExecutor();
     }
 
     StreamSubscription<TaskStatusChangedEvent> autoAcceptQueuedTask() {
@@ -2715,23 +2625,7 @@ void main() {
     });
 
     test('bash step strips sensitive parent env and keeps allowlisted vars only', () async {
-      final isolatedExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-        ),
-        dataDir: tempDir.path,
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionTransactor: executionRepositoryTransactor,
+      final isolatedExecutor = makeExecutor(
         hostEnvironment: const {
           'PATH': '/usr/bin:/bin',
           'HOME': '/tmp/home',

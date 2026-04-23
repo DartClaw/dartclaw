@@ -183,5 +183,4 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
       }
     }
   }
-
 }

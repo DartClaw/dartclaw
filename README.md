@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-banner-1280-8bit.png" alt="DartClaw" width="720">
+</p>
+
 # DartClaw
 
 _Agentic powers. No dependency black holes. Secure by design._

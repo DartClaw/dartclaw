@@ -7,6 +7,7 @@ relevant to `dartclaw_testing`.
 - `InMemoryAgentExecutionRepository` for repository tests and parity checks
 - S34 task/execution test helpers for AE-backed task hydration and workflow-step persistence
 - `FakeGitGateway`, an in-memory `WorkflowGitPort` implementation with parity coverage against the production git adapter
+- Workflow scenario-tier consumers now rely on `FakeGitGateway` and `FakeCodexProcess` as the shared deterministic seams for regression tests
 
 ## 0.9.0
 

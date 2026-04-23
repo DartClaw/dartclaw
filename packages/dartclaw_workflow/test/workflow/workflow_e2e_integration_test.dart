@@ -27,53 +27,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-import 'workflow_e2e_preconditions.dart';
-
-// ---------------------------------------------------------------------------
-// Path resolution helpers
-// ---------------------------------------------------------------------------
-
-String _fixturesRoot() {
-  var current = Directory.current;
-  while (true) {
-    final candidates = [
-      p.join(current.path, 'test', 'fixtures'),
-      p.join(current.path, 'packages', 'dartclaw_workflow', 'test', 'fixtures'),
-    ];
-    for (final candidate in candidates) {
-      if (Directory(candidate).existsSync()) {
-        return Directory(candidate).resolveSymbolicLinksSync();
-      }
-    }
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate workflow test fixtures');
-    }
-    current = parent;
-  }
-}
-
-String _e2eFixtureProfileDir(String fixturesRoot) => p.join(fixturesRoot, 'workflow-e2e-profile');
-
-// ---------------------------------------------------------------------------
-// Config loading — replicates run.sh path templating
-// ---------------------------------------------------------------------------
-
-DartclawConfig _loadWorkflowsConfig({required String fixtureProfileDir, required String dataDir}) {
-  final dataDirAbs = Directory(dataDir).resolveSymbolicLinksSync();
-  final workspaceDir = p.join(dataDirAbs, 'workflow-workspace');
-  final templatePath = p.join(fixtureProfileDir, 'workflow_profile.yaml');
-
-  final templateYaml = File(templatePath).readAsStringSync();
-  final resolvedYaml = templateYaml
-      .replaceAll('__DATA_DIR__', dataDirAbs)
-      .replaceAll('__WORKFLOW_WORKSPACE_DIR__', workspaceDir);
-
-  final runtimePath = p.join(dataDirAbs, '.e2e-test.runtime.yaml');
-  File(runtimePath).writeAsStringSync(resolvedYaml);
-
-  return DartclawConfig.load(configPath: runtimePath);
-}
+import '../fixtures/e2e_fixture.dart';
 
 // ---------------------------------------------------------------------------
 // Codex availability check
@@ -82,6 +36,20 @@ DartclawConfig _loadWorkflowsConfig({required String fixtureProfileDir, required
 Future<bool> _codexAvailable() async {
   try {
     final result = await Process.run('codex', ['--version']);
+    return result.exitCode == 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+bool _hasGitHubTokenEnv() {
+  final token = Platform.environment['GITHUB_TOKEN']?.trim();
+  return token != null && token.isNotEmpty;
+}
+
+Future<bool> _ghAuthenticated() async {
+  try {
+    final result = await Process.run('gh', ['auth', 'status']);
     return result.exitCode == 0;
   } catch (_) {
     return false;
@@ -331,6 +299,7 @@ class WorkflowExecutionRecorder {
         pending: pending,
         task: task,
         stepName: event.stepName,
+        stepSuccess: event.success,
         terminalStatus: task.status,
         tokenCount: event.tokenCount,
         sessionTotalTokens: (sessionCost['total_tokens'] as num?)?.toInt() ?? 0,
@@ -390,6 +359,7 @@ class WorkflowExecutionRecorder {
     required WorkflowStepTrace pending,
     required Task task,
     required String stepName,
+    required bool stepSuccess,
     required TaskStatus terminalStatus,
     required int tokenCount,
     required int sessionTotalTokens,
@@ -421,6 +391,9 @@ class WorkflowExecutionRecorder {
       'title': pending.title,
       'description': pending.description,
       'terminalStatus': terminalStatus.name,
+      'stepSuccess': stepSuccess,
+      'stepOutcome': stepScopedContext['step.${pending.stepKey}.outcome'],
+      'stepOutcomeReason': stepScopedContext['step.${pending.stepKey}.outcome.reason'],
       'tokenCount': tokenCount,
       'session_total_tokens': sessionTotalTokens,
       'step_delta_tokens': stepDeltaTokens,
@@ -482,7 +455,11 @@ Map<String, dynamic> _contextData(Map<String, dynamic>? contextJson) {
 Map<String, dynamic> _buildStepScopedContext({required Map<String, dynamic> runContext, required String stepId}) {
   final result = <String, dynamic>{};
   for (final entry in runContext.entries) {
-    if (entry.key == stepId || entry.key.startsWith('$stepId.') || entry.key.startsWith('$stepId[')) {
+    if (entry.key == stepId ||
+        entry.key.startsWith('$stepId.') ||
+        entry.key.startsWith('$stepId[') ||
+        entry.key.startsWith('step.$stepId.') ||
+        entry.key.startsWith('step.$stepId[')) {
       result[entry.key] = entry.value;
     }
   }
@@ -592,6 +569,72 @@ void expectPreservedArtifactsHaveNonZeroTokenKeys(Directory artifactDir, {requir
   );
 }
 
+void expectNoMissingFisFallbacks(Directory artifactDir) {
+  final banned = [
+    'fallback because FIS file is missing',
+    'MISSING REQUIREMENT',
+  ];
+  final offenders = <String>[];
+  for (final file in artifactDir.listSync().whereType<File>().where((file) => file.path.endsWith('.json'))) {
+    final text = file.readAsStringSync();
+    for (final marker in banned) {
+      if (text.contains(marker)) {
+        offenders.add('${p.basename(file.path)} contains "$marker"');
+      }
+    }
+  }
+  expect(offenders, isEmpty, reason: offenders.join('\n'));
+}
+
+void expectCommittedPlanArtifacts({required String projectDir, required Directory artifactDir}) {
+  final planArtifacts = artifactDir
+      .listSync()
+      .whereType<File>()
+      .where((file) => file.path.endsWith('.json'))
+      .map((file) => jsonDecode(file.readAsStringSync()) as Map<String, dynamic>)
+      .where((payload) => payload['stepKey'] == 'plan')
+      .toList(growable: false);
+  expect(planArtifacts, isNotEmpty, reason: 'Expected at least one preserved plan artifact.');
+
+  final requiredPaths = <String>{};
+  for (final payload in planArtifacts) {
+    final contextOutputs = (payload['contextOutputs'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+    final planPath = contextOutputs['plan'] as String?;
+    if (planPath != null && planPath.trim().isNotEmpty) {
+      requiredPaths.add(planPath.trim());
+      final planDir = p.dirname(planPath.trim());
+      requiredPaths.add(p.join(planDir, '.technical-research.md'));
+    }
+    final storySpecs = contextOutputs['story_specs'];
+    if (storySpecs is Map<Object?, Object?> && storySpecs['items'] is List<Object?>) {
+      for (final item in (storySpecs['items'] as List<Object?>).whereType<Map<Object?, Object?>>()) {
+        final specPath = item['spec_path']?.toString().trim();
+        if (specPath != null && specPath.isNotEmpty) {
+          requiredPaths.add(specPath);
+        }
+      }
+    }
+  }
+
+  final missing = <String>[];
+  for (final relativePath in requiredPaths) {
+    final result = Process.runSync('git', ['cat-file', '-e', 'HEAD:$relativePath'], workingDirectory: projectDir);
+    if (result.exitCode != 0) {
+      missing.add(relativePath);
+    }
+  }
+  expect(missing, isEmpty, reason: 'Expected committed plan artifacts at HEAD: $missing');
+}
+
+void expectKnownDefectsBacklog(String fixtureDir) {
+  final backlog = File(p.join(fixtureDir, 'docs', 'PRODUCT-BACKLOG.md'));
+  expect(backlog.existsSync(), isTrue, reason: 'Fixture backlog missing: ${backlog.path}');
+  final text = backlog.readAsStringSync();
+  for (final id in const ['BUG-001', 'BUG-002', 'BUG-003']) {
+    expect(text, contains(id), reason: 'Fixture backlog should contain $id in Known Defects.');
+  }
+}
+
 void expectPublishSuccess(Map<String, dynamic> contextJson) {
   final contextData = (contextJson['data'] as Map?)?.cast<String, dynamic>() ?? contextJson;
   expect(
@@ -669,20 +712,6 @@ Future<void> _closePrByBranch(String branch, String repo) async {
   await Process.run('gh', ['pr', 'close', branch, '--repo', repo, '--delete-branch']);
 }
 
-void _copyDirectorySync(Directory source, Directory target) {
-  target.createSync(recursive: true);
-  for (final entity in source.listSync(recursive: true, followLinks: false)) {
-    final relativePath = p.relative(entity.path, from: source.path);
-    if (entity is File) {
-      final destination = File(p.join(target.path, relativePath));
-      destination.parent.createSync(recursive: true);
-      entity.copySync(destination.path);
-    } else if (entity is Directory) {
-      Directory(p.join(target.path, relativePath)).createSync(recursive: true);
-    }
-  }
-}
-
 Future<void> _cloneTodoAppFixtureRepo(String targetDir) async {
   Directory(targetDir).parent.createSync(recursive: true);
 
@@ -720,6 +749,49 @@ Future<void> _cloneTodoAppFixtureRepo(String targetDir) async {
   }
   Process.runSync('git', ['config', 'user.name', 'Workflow E2E Test'], workingDirectory: targetDir);
   Process.runSync('git', ['config', 'user.email', 'workflow-e2e@example.com'], workingDirectory: targetDir);
+  final backlogChanged = _ensureKnownDefectsBacklogEntries(targetDir);
+  if (backlogChanged) {
+    Process.runSync('git', ['add', 'docs/PRODUCT-BACKLOG.md'], workingDirectory: targetDir);
+    Process.runSync(
+      'git',
+      ['commit', '-m', 'test fixture: seed known defects', '--no-gpg-sign'],
+      workingDirectory: targetDir,
+      environment: const {
+        'GIT_AUTHOR_NAME': 'Workflow E2E Test',
+        'GIT_AUTHOR_EMAIL': 'workflow-e2e@example.com',
+        'GIT_COMMITTER_NAME': 'Workflow E2E Test',
+        'GIT_COMMITTER_EMAIL': 'workflow-e2e@example.com',
+      },
+    );
+  }
+}
+
+bool _ensureKnownDefectsBacklogEntries(String targetDir) {
+  final backlog = File(p.join(targetDir, 'docs', 'PRODUCT-BACKLOG.md'));
+  if (!backlog.existsSync()) {
+    return false;
+  }
+
+  var text = backlog.readAsStringSync();
+  final requiredEntries = const <String, String>{
+    'BUG-001': 'BUG-001 — the sidebar incomplete-count is not updated when a todo is deleted.',
+    'BUG-002': 'BUG-002 — due dates set in the edit dialog do not persist after save.',
+    'BUG-003': 'BUG-003 — quick-add todos have no default priority.',
+  };
+  final missing = requiredEntries.entries.where((entry) => !text.contains(entry.key)).toList(growable: false);
+  if (missing.isEmpty) {
+    return false;
+  }
+
+  final sectionHeader = '## Known Defects';
+  final bulletLines = missing.map((entry) => '- ${entry.value}').join('\n');
+  if (text.contains(sectionHeader)) {
+    text = '$text\n$bulletLines\n';
+  } else {
+    text = '$text\n\n$sectionHeader\n\n$bulletLines\n';
+  }
+  backlog.writeAsStringSync(text);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -727,11 +799,9 @@ Future<void> _cloneTodoAppFixtureRepo(String targetDir) async {
 // ---------------------------------------------------------------------------
 
 void main() {
-  late String fixturesRoot;
-  late String e2eFixtureProfileDir;
-  late Directory runtimeDir;
   late String fixtureDir;
   late DartclawConfig config;
+  E2EFixtureInstance? fixture;
   final createdPrUrls = <String>[];
   final createdBranches = <String>[];
 
@@ -756,13 +826,13 @@ void main() {
       );
       return;
     }
-    final githubTokenMessage = missingWorkflowE2eGitHubTokenMessage(Platform.environment);
-    if (githubTokenMessage != null) {
-      fail(githubTokenMessage);
+    if (!_hasGitHubTokenEnv() && !await _ghAuthenticated()) {
+      fail(
+        'GitHub auth is required for workflow e2e. Either export GITHUB_TOKEN or authenticate gh '
+        'for the SSH/PR-create fallback path.',
+      );
     }
 
-    fixturesRoot = _fixturesRoot();
-    e2eFixtureProfileDir = _e2eFixtureProfileDir(fixturesRoot);
   });
 
   tearDownAll(() async {
@@ -776,20 +846,21 @@ void main() {
   setUp(() async {
     createdPrUrls.clear();
     createdBranches.clear();
-    runtimeDir = Directory.systemTemp.createTempSync('dartclaw_workflow_e2e_');
-    final dataDir = p.join(runtimeDir.path, 'data');
-    _copyDirectorySync(Directory(p.join(e2eFixtureProfileDir, 'workspace')), Directory(p.join(dataDir, 'workspace')));
-    _copyDirectorySync(
-      Directory(p.join(e2eFixtureProfileDir, 'workflow-workspace')),
-      Directory(p.join(dataDir, 'workflow-workspace')),
-    );
-    fixtureDir = p.join(dataDir, 'projects', 'workflow-test-todo-app');
-    await _cloneTodoAppFixtureRepo(fixtureDir);
+    fixture = await E2EFixture()
+        .withProject(
+          'workflow-test-todo-app',
+          credentials: _hasGitHubTokenEnv() ? 'github-main' : null,
+          localPath: !_hasGitHubTokenEnv(),
+        )
+        .withProjectSetup(_cloneTodoAppFixtureRepo)
+        .build();
+    fixtureDir = fixture!.projectDir;
     // Keep the cloned project checkout pristine so workflow bootstrap can
     // switch to its owned branch before the first step runs. The fixture
     // workspace/workflow-workspace already provide the AGENTS.md content that
     // the workflow task path injects into prompts and Codex home.
-    config = _loadWorkflowsConfig(fixtureProfileDir: e2eFixtureProfileDir, dataDir: dataDir);
+    expectKnownDefectsBacklog(fixtureDir);
+    config = fixture!.config;
   });
 
   tearDown(() async {
@@ -807,8 +878,9 @@ void main() {
       await _closePrByBranch(branch, 'DartClaw/workflow-test-todo-app');
     }
 
-    if (runtimeDir.existsSync()) {
-      runtimeDir.deleteSync(recursive: true);
+    if (fixture != null) {
+      await fixture!.dispose();
+      fixture = null;
     }
   });
 
@@ -1016,6 +1088,7 @@ void main() {
         artifactDir,
         agentSteps: const ['discover-project', 'spec', 'implement', 'integrated-review'],
       );
+      expectNoMissingFisFallbacks(artifactDir);
 
       // Safety net: publish step runs at the end of the workflow. A `failed`
       // terminal state here usually means the publish callback (push or PR
@@ -1162,6 +1235,8 @@ void main() {
 
       // Assert worktrees were recorded for coding steps
       expectWorktreeRecorded(recorder, 'implement');
+      expectNoMissingFisFallbacks(artifactDir);
+      expectCommittedPlanArtifacts(projectDir: fixtureDir, artifactDir: artifactDir);
 
       // Safety net — see spec-and-implement test above for rationale.
       expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);

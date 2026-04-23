@@ -7,6 +7,7 @@
 - Artefact commit redesign option notes covering copy-not-commit and artefact-branch-split follow-ups
 - `OutputResolver`, `MissingArtifactFailure`, and `ProducedArtifactResolver` for filesystem-first structured-output extraction and artifact propagation checks
 - Extraction-turn measurement fixtures for the baseline and filesystem-first post-change rate
+- Typed `E2EFixture` builder for workflow e2e/scenario setup, a nine-file scripted scenario tier under `test/workflow/scenarios/`, and a frozen-baseline `fitness_test.dart` + `fitness_baseline.json` ratchet for workflow/task architectural regressions
 
 ### Changed
 - Workflow step spawn creates `AgentExecution` + `WorkflowStepExecution` + `Task` atomically in a single transaction; `Task.configJson` is sanitized on spawn so `_workflow*` keys and `model` no longer round-trip through the task row (`model` is canonical on `AgentExecution`)

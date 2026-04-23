@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-23 13:56 CEST
+Last Updated: 2026-04-23 16:44 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -25,7 +25,7 @@ Last Updated: 2026-04-23 13:56 CEST
 
 ## Active Stories
 
-- None.
+- S49 — In Progress: building the workflow scenario-test tier, typed `E2EFixture`, and fitness-baseline ratchet for 0.16.4 release gating.
 
 ## Next Planned
 

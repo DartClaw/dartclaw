@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus, WorkflowCliTurnProgressEvent;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
@@ -115,6 +116,31 @@ class WorkflowCliRunner {
        _eventBus = eventBus,
        _uuid = uuid ?? const Uuid(),
        _codexProfile = _resolveCodexProfile(providers: providers, dataDir: dataDir, preInjected: codexProfile);
+
+  @visibleForTesting
+  (String, List<String>) buildCodexCommandForTesting({
+    required String prompt,
+    String? providerSessionId,
+    String? model,
+    String? effort,
+    Map<String, dynamic>? jsonSchema,
+    required String schemaDirectory,
+    ContainerExecutor? containerManager,
+    String? appendSystemPrompt,
+    String? sandboxOverride,
+  }) {
+    return _buildCodexCommand(
+      prompt: prompt,
+      providerSessionId: providerSessionId,
+      model: model,
+      effort: effort,
+      jsonSchema: jsonSchema,
+      schemaDirectory: schemaDirectory,
+      containerManager: containerManager,
+      appendSystemPrompt: appendSystemPrompt,
+      sandboxOverride: sandboxOverride,
+    ).command;
+  }
 
   /// Builds (and validates) the Codex profile manager at construction
   /// time so opt-in mistakes fail loud at server startup instead of

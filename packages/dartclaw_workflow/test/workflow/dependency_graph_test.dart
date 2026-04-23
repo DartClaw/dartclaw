@@ -31,9 +31,81 @@ void main() {
       expect(ready, containsAll([0, 1, 2]));
     });
 
+    test('dependency-aware item missing id throws ArgumentError', () {
+      final items = [
+        {'dependencies': <String>[]},
+        {'id': 's02', 'dependencies': <String>[]},
+      ];
+      final graph = DependencyGraph(items);
+
+      expect(
+        () => graph.validate(),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('index 0'), contains('missing a non-empty `id`')),
+          ),
+        ),
+      );
+    });
+
+    test('dependency-aware item missing dependencies throws ArgumentError', () {
+      final items = [
+        {'id': 's01'},
+        {
+          'id': 's02',
+          'dependencies': <String>['s01'],
+        },
+      ];
+      final graph = DependencyGraph(items);
+
+      expect(
+        () => graph.validate(),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('s01'), contains('missing `dependencies`')),
+          ),
+        ),
+      );
+    });
+
+    test('dependency-aware item with non-list dependencies throws ArgumentError', () {
+      final items = [
+        {'id': 's01', 'dependencies': 's00'},
+      ];
+      final graph = DependencyGraph(items);
+
+      expect(
+        () => graph.validate(),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('s01'), contains('must provide `dependencies` as a list')),
+          ),
+        ),
+      );
+    });
+
+    test('duplicate dependency-aware ids throw ArgumentError', () {
+      final items = [
+        {'id': 's01', 'dependencies': <String>[]},
+        {'id': 's01', 'dependencies': <String>[]},
+      ];
+      final graph = DependencyGraph(items);
+
+      expect(
+        () => graph.validate(),
+        throwsA(isA<ArgumentError>().having((error) => error.message, 'message', contains('duplicate id `s01`'))),
+      );
+    });
+
     test('linear chain: s01→s02→s03 — only s01 ready initially', () {
       final items = [
-        {'id': 's01', 'name': 'Story 1'},
+        {'id': 's01', 'name': 'Story 1', 'dependencies': <String>[]},
         {
           'id': 's02',
           'name': 'Story 2',
@@ -63,7 +135,7 @@ void main() {
 
     test('diamond dependency: s01→s02, s01→s03, s02&s03→s04', () {
       final items = [
-        {'id': 's01', 'name': 'Story 1'},
+        {'id': 's01', 'name': 'Story 1', 'dependencies': <String>[]},
         {
           'id': 's02',
           'name': 'Story 2',
@@ -153,32 +225,34 @@ void main() {
       );
     });
 
-    test('dependency referencing non-existent item ID — item treated as independent', () {
+    test('unknown dependency ids throw ArgumentError before scheduling', () {
       final items = [
         {
           'id': 's01',
           'name': 'Story 1',
           'dependencies': ['s99'],
         }, // s99 doesn't exist
-        {'id': 's02', 'name': 'Story 2'},
+        {'id': 's02', 'name': 'Story 2', 'dependencies': <String>[]},
       ];
       final graph = DependencyGraph(items);
-      graph.validate(); // No error — stale/missing dep not validated
 
-      // s01 depends on s99 which doesn't exist → treated as satisfied.
-      final ready = graph.getReady({});
-      expect(ready, containsAll([0, 1]));
+      expect(
+        () => graph.validate(),
+        throwsA(
+          isA<ArgumentError>().having((error) => error.message, 'message', contains('Unknown dependency IDs: s99')),
+        ),
+      );
     });
 
     test('mixed: some with deps, some without — independent items always ready', () {
       final items = [
-        {'id': 's01', 'name': 'Story 1'},
+        {'id': 's01', 'name': 'Story 1', 'dependencies': <String>[]},
         {
           'id': 's02',
           'name': 'Story 2',
           'dependencies': ['s01'],
         },
-        {'id': 's03', 'name': 'Story 3'}, // independent
+        {'id': 's03', 'name': 'Story 3', 'dependencies': <String>[]}, // independent
       ];
       final graph = DependencyGraph(items);
       graph.validate();
@@ -191,7 +265,7 @@ void main() {
 
     test('getReady grows as completed set grows', () {
       final items = [
-        {'id': 's01'},
+        {'id': 's01', 'dependencies': <String>[]},
         {
           'id': 's02',
           'dependencies': ['s01'],
@@ -210,7 +284,7 @@ void main() {
 
     test('hasDependencies is true when any item declares dependencies', () {
       final items = [
-        {'id': 's01'},
+        {'id': 's01', 'dependencies': <String>[]},
         {
           'id': 's02',
           'dependencies': ['s01'],
@@ -222,7 +296,7 @@ void main() {
 
     test('validate does not throw on valid DAG', () {
       final items = [
-        {'id': 's01'},
+        {'id': 's01', 'dependencies': <String>[]},
         {
           'id': 's02',
           'dependencies': ['s01'],

@@ -211,9 +211,10 @@ void main() {
       final itemSchema = items['items'] as Map;
       final required = itemSchema['required'] as List;
       // Slim contract: id + title for display/routing, spec_path for FIS
-      // resolution. Acceptance criteria and all other detail live in the FIS
-      // body on disk at spec_path; plan-level detail lives in plan.md.
-      expect(required, unorderedEquals(['id', 'title', 'spec_path']));
+      // resolution, and dependencies for dependency-aware foreach scheduling.
+      // Acceptance criteria and all other detail live in the FIS body on disk
+      // at spec_path; plan-level detail lives in plan.md.
+      expect(required, unorderedEquals(['id', 'title', 'spec_path', 'dependencies']));
     });
 
     test('acceptance_criteria is not part of the story-specs contract', () {
@@ -243,6 +244,14 @@ void main() {
       final props = itemSchema['properties'] as Map;
       expect(props.containsKey('spec_path'), isTrue, reason: 'schema must use spec_path (not path) for FIS location');
       expect(props.containsKey('path'), isFalse, reason: 'legacy `path` field must not be present');
+    });
+
+    test('dependencies property is present for dependency-aware story fan-out', () {
+      final items = (storySpecsPreset.schema['properties'] as Map)['items'] as Map;
+      final itemSchema = items['items'] as Map;
+      final props = itemSchema['properties'] as Map;
+      expect(props.containsKey('dependencies'), isTrue);
+      expect(props['dependencies'], isA<Map<Object?, Object?>>());
     });
   });
 

@@ -77,19 +77,15 @@ StorySpecPathResolution resolveStorySpecPaths(Map<String, dynamic> outputs, {Str
   }
 
   final rawStorySpecs = outputs['story_specs'];
-  if (rawStorySpecs is List) {
-    final paths = <String>[];
-    for (final rawPath in rawStorySpecs) {
-      final specPath = rawPath.toString().trim();
-      if (specPath.isEmpty) continue;
-      paths.add(resolveStorySpecPathAgainstPlanDir(path: specPath, planDir: planDir));
-    }
-    return StorySpecPathResolution(outputs: {...outputs, 'story_specs': paths}, specPaths: _sortedNormalized(paths));
-  }
-  if (rawStorySpecs is! Map<String, dynamic>) {
+  final storySpecs = switch (rawStorySpecs) {
+    final Map<String, dynamic> typed => typed,
+    final Map<dynamic, dynamic> dynamicMap => dynamicMap.map((key, value) => MapEntry('$key', value)),
+    _ => null,
+  };
+  if (storySpecs == null) {
     return StorySpecPathResolution(outputs: outputs, specPaths: const <String>[]);
   }
-  final rawItems = rawStorySpecs['items'];
+  final rawItems = storySpecs['items'];
   if (rawItems is! List) {
     return StorySpecPathResolution(outputs: outputs, specPaths: const <String>[]);
   }
@@ -114,7 +110,7 @@ StorySpecPathResolution resolveStorySpecPaths(Map<String, dynamic> outputs, {Str
   return StorySpecPathResolution(
     outputs: {
       ...outputs,
-      'story_specs': {...rawStorySpecs, 'items': normalizedItems},
+      'story_specs': {...storySpecs, 'items': normalizedItems},
     },
     specPaths: _sortedNormalized(paths),
   );

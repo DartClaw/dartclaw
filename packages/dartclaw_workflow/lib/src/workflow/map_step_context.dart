@@ -90,7 +90,9 @@ class MapStepContext {
     final item = collection[index];
     if (item is Map) {
       final id = item['id'];
-      return id is String ? id : null;
+      if (id is! String) return null;
+      final normalizedId = id.trim();
+      return normalizedId.isEmpty ? null : normalizedId;
     }
     return null;
   }

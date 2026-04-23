@@ -1,4 +1,5 @@
 part of 'workflow_executor.dart';
+
 extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
   Future<MapStepResult?> _executeForeachStep(
     WorkflowRun run,
@@ -93,8 +94,22 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
     final promotedIds =
         (context['_map.${controllerStep.id}.promotedIds'] as List?)?.whereType<String>().toSet() ?? <String>{};
+    final depGraph = DependencyGraph(collection);
+    if (depGraph.isDependencyAware) {
+      try {
+        depGraph.validate();
+      } on ArgumentError catch (e) {
+        return MapStepResult(
+          results: const [],
+          totalTokens: 0,
+          success: false,
+          error: "Foreach step '${controllerStep.id}': ${e.message}",
+        );
+      }
+    }
     final mapCtx = MapStepContext(collection: collection, maxParallel: maxParallel, maxItems: controllerStep.maxItems);
-    _restoreForeachProgress(mapCtx, resumeCursor, collectionLength: collection.length);
+    final completedIds = <String>{};
+    _restoreForeachProgress(mapCtx, completedIds, resumeCursor, collectionLength: collection.length);
     await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
     final inFlight = <int, Future<void>>{};
     final settledIndices = mapCtx.completedIndices;
@@ -120,7 +135,22 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       final poolAvailable = _turnAdapter?.availableRunnerCount?.call();
       final concurrencyCap = mapCtx.effectiveConcurrency(poolAvailable);
       while (inFlight.length < concurrencyCap && pending.isNotEmpty) {
-        final iterIndex = pending.removeFirst();
+        int? nextIndex;
+        if (depGraph.hasDependencies) {
+          final ready = depGraph.getReady(promotionAware ? promotedIds : completedIds);
+          for (final pendingIndex in pending) {
+            if (ready.contains(pendingIndex)) {
+              nextIndex = pendingIndex;
+              break;
+            }
+          }
+        } else {
+          nextIndex = pending.first;
+        }
+        if (nextIndex == null) break;
+        pending.remove(nextIndex);
+
+        final iterIndex = nextIndex;
         final mapContext = MapContext(
           item: (collection[iterIndex] as Object?) ?? '',
           index: iterIndex,
@@ -132,12 +162,19 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           definition.stepDefaults,
           roleDefaults: _roleDefaults,
         );
+        final projectBindingStep = childSteps.firstWhere(
+          (step) => _stepTouchesProjectBranch(definition, step),
+          orElse: () => controllerStep,
+        );
+        final projectResolved = identical(projectBindingStep, controllerStep)
+            ? controllerResolved
+            : resolveStepConfig(projectBindingStep, definition.stepDefaults, roleDefaults: _roleDefaults);
         final effectiveProjectId = _resolveProjectIdWithMap(
           definition,
-          controllerStep,
+          projectBindingStep,
           context,
           mapContext,
-          resolved: controllerResolved,
+          resolved: projectResolved,
         );
         mapCtx.inFlightCount++;
         inFlight[iterIndex] =
@@ -159,15 +196,28 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               controllerMaxParallel: maxParallel,
             ).then((_) {
               inFlight.remove(iterIndex);
+              final itemId = mapCtx.itemId(iterIndex);
+              if (itemId != null) completedIds.add(itemId);
             });
       }
       if (inFlight.isEmpty && pending.isNotEmpty) {
+        if (promotionAware && depGraph.hasDependencies && mapCtx.failedIndices.isNotEmpty) {
+          WorkflowExecutor._log.warning(
+            "Workflow '${run.id}': foreach step '${controllerStep.id}' — "
+            '${pending.length} items remain blocked on unresolved promoted dependencies; leaving them pending for resume.',
+          );
+          break;
+        }
+
+        final cancellationMessage = depGraph.hasDependencies
+            ? 'Cancelled: dependency deadlock'
+            : 'Cancelled: dispatch stall';
         WorkflowExecutor._log.warning(
           "Workflow '${run.id}': foreach step '${controllerStep.id}' — "
           '${pending.length} items stalled; cancelling.',
         );
         while (pending.isNotEmpty) {
-          mapCtx.recordCancelled(pending.removeFirst(), 'Cancelled: dispatch stall');
+          mapCtx.recordCancelled(pending.removeFirst(), cancellationMessage);
         }
         await _persistForeachProgress(
           run,
@@ -211,15 +261,22 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       ),
     );
     if (mapCtx.hasFailures) {
+      final hasPromotionConflict = mapCtx.failedIndices.any((index) {
+        final slot = mapCtx.results[index];
+        return slot is Map && (slot['message'] as String?)?.startsWith('promotion-conflict') == true;
+      });
       return MapStepResult(
         results: List<dynamic>.from(mapCtx.results),
         totalTokens: totalTokens,
         success: false,
-        error: "Foreach step '${controllerStep.id}': ${mapCtx.failedIndices.length} iteration(s) failed",
+        error: hasPromotionConflict
+            ? "promotion-conflict: foreach step '${controllerStep.id}' has unresolved promotion conflicts"
+            : "Foreach step '${controllerStep.id}': ${mapCtx.failedIndices.length} iteration(s) failed",
       );
     }
     return MapStepResult(results: List<dynamic>.from(mapCtx.results), totalTokens: totalTokens, success: true);
   }
+
   Future<void> _dispatchForeachIteration({
     required WorkflowRun run,
     required WorkflowDefinition definition,
@@ -577,8 +634,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       ),
     );
   }
+
   void _restoreForeachProgress(
     MapStepContext mapCtx,
+    Set<String> completedIds,
     WorkflowExecutionCursor? cursor, {
     required int collectionLength,
   }) {
@@ -606,6 +665,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         mapCtx.recordFailure(index, restoredFailure, _restoredMapTaskId(slotValue));
       } else {
         mapCtx.recordResult(index, slotValue);
+      }
+      final itemId = mapCtx.itemId(index);
+      if (itemId != null) {
+        completedIds.add(itemId);
       }
     }
   }

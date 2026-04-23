@@ -45,8 +45,19 @@ void main() {
 
     test('reports missing FIS files without sentinel output keys', () {
       final handoff = normalizeOutputs({
-        'story_specs': ['docs/plans/foo/fis/a.md', 'docs/plans/foo/fis/b.md'],
-      }, StepOutputNormalizationContext(projectRoot: tempDir.path));
+        'plan': 'docs/plans/foo/plan.md',
+        'story_specs': {
+          'items': [
+            {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': 'fis/a.md'},
+            {
+              'id': 'S02',
+              'title': 'Two',
+              'dependencies': <String>['S01'],
+              'spec_path': 'fis/b.md',
+            },
+          ],
+        },
+      }, StepOutputNormalizationContext(planDir: 'docs/plans/foo', projectRoot: tempDir.path));
 
       expect(handoff, isA<StepHandoffValidationFailed>());
       final failure = handoff.validationFailure!;
@@ -54,6 +65,33 @@ void main() {
       expect(handoff.outputs, isEmpty);
       final reservedPrefix = ['_dartclaw', 'internal', ''].join('.');
       expect(handoff.outputs.keys.any((key) => key.startsWith(reservedPrefix)), isFalse);
+    });
+
+    test('rejects legacy list-shaped story_specs payloads', () {
+      final handoff = normalizeOutputs({
+        'story_specs': ['docs/plans/foo/fis/a.md'],
+      }, const StepOutputNormalizationContext());
+
+      expect(handoff, isA<StepHandoffValidationFailed>());
+      expect(handoff.validationFailure?.reason, contains('legacy list-shaped `story_specs`'));
+      expect(handoff.validationFailure?.missingPaths, isEmpty);
+      expect(handoff.outputs, isEmpty);
+    });
+
+    test('rejects story_specs items missing dependencies', () {
+      final handoff = normalizeOutputs({
+        'plan': 'docs/plans/foo/plan.md',
+        'story_specs': {
+          'items': [
+            {'id': 'S01', 'title': 'One', 'spec_path': 'fis/a.md'},
+          ],
+        },
+      }, const StepOutputNormalizationContext(planDir: 'docs/plans/foo'));
+
+      expect(handoff, isA<StepHandoffValidationFailed>());
+      expect(handoff.validationFailure?.reason, contains('missing `dependencies`'));
+      expect(handoff.validationFailure?.missingPaths, isEmpty);
+      expect(handoff.outputs, isEmpty);
     });
 
     test('normalizes nested story_specs items and succeeds when files exist', () {
@@ -64,7 +102,12 @@ void main() {
         'plan': 'docs/plans/foo/plan.md',
         'story_specs': {
           'items': [
-            {'story_id': 'S01', 'spec_path': 'fis/a.md'},
+            {
+              'id': ' S01 ',
+              'title': 'One',
+              'dependencies': <String>[' S00 '],
+              'spec_path': 'fis/a.md',
+            },
           ],
         },
       }, StepOutputNormalizationContext(planDir: 'docs/plans/foo', projectRoot: tempDir.path));
@@ -72,7 +115,9 @@ void main() {
       expect(handoff, isA<StepHandoffSuccess>());
       final storySpecs = handoff.outputs['story_specs'] as Map<String, Object?>;
       final items = storySpecs['items'] as List;
+      expect(items.single, containsPair('id', 'S01'));
       expect(items.single, containsPair('spec_path', 'docs/plans/foo/fis/a.md'));
+      expect(items.single, containsPair('dependencies', <String>['S00']));
     });
 
     test('empty outputs pass through as success', () {

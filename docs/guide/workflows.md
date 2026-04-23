@@ -330,9 +330,12 @@ Rules:
 
 Use `parallel: true` on contiguous steps when they are independent and can run concurrently.
 
+This is only for sibling steps with no ordering edges between them. If work items depend on each other, keep the YAML step sequence simple and express the per-item dependency graph in a `mapOver` / `foreach` collection with `id` and `dependencies`; the engine will only dispatch the ready subset.
+
 - Keep the group contiguous.
 - Keep the inputs independent.
 - Expect the engine to merge results back into context only after all parallel steps finish.
+- Do not use `parallel: true` to model prerequisite chains or staged waves.
 
 This pattern is ideal for review fan-out, independent research, and summary generation.
 
@@ -344,6 +347,18 @@ Use `mapOver` (`map_over`) when a workflow should iterate over a JSON array in c
 - **`foreach`** — an ordered sub-pipeline (multiple authored steps) executed in sequence per array item.
 
 Both are map shorthand, not loop syntax. The decision is about how much work each item needs, not about parallelism or collection size.
+
+Dependency-aware fan-out is a separate contract from `parallel: true`:
+
+- `parallel: true` means authored sibling steps are fully independent.
+- Dependency-aware `mapOver` / `foreach` means the iterated items form a DAG and only dependency-ready items may run concurrently.
+
+When you need dependency-aware scheduling, the iterated value must be an object array where every item carries:
+
+- `id`: non-empty string used for dependency references
+- `dependencies`: array of prerequisite item ids; use `[]` for root items
+
+The runtime validates dependency-aware collections before creating any tasks. Duplicate ids, missing `id`, missing `dependencies`, non-list `dependencies`, and unknown dependency ids all fail fast. Scalar arrays and opaque object arrays with no `dependencies` field remain dependency-free and do not need the graph-shaped payload.
 
 Key fields (shared by both shapes):
 
@@ -366,7 +381,7 @@ Map-aware templates can reference `{{map.item}}`, `{{map.index}}`, `{{map.displa
 | Typical use | "Apply skill X to each item" | "Implement → validate → review each item" |
 | Per-iteration overlay | n/a (single step) | Child outputs readable in sibling steps as bare key or `<stepId>.<key>` |
 
-Both honor the same `max_parallel`, `max_items`, `as:` alias, `{{map.*}}` / `{{<alias>.*}}` template grammar, and git-strategy (`per-map-item` worktree isolation, externalArtifactMount, etc.). The sections below drill into each shape.
+Both honor the same `max_parallel`, `max_items`, `as:` alias, `{{map.*}}` / `{{<alias>.*}}` template grammar, and git-strategy (`per-map-item` worktree isolation, externalArtifactMount, etc.). For dependency-aware collections, plain `mapOver` and `foreach` use the same `id` / `dependencies` contract and the same ready-set scheduler. In promotion-aware `per-map-item` runs, dependents wait for prerequisite item ids to reach the promoted set, not merely the completed set. The sections below drill into each shape.
 
 #### Plain `mapOver` Steps
 
@@ -515,8 +530,8 @@ Key runtime behavior:
 - Omitted `gitStrategy.promotion` is inferred from the resolved worktree mode: `merge` for per-map-item isolation, `none` for inline/shared execution.
 - `worktree: shared` reuses one workflow-owned coding worktree across serial coding phases.
 - `worktree: per-map-item` isolates mapped story implementation branches while enabling promotion into the integration branch.
-- Promotion-aware maps validate dependency IDs before dispatch; unknown IDs fail fast.
-- Promotion conflicts pause with a `promotion-conflict` reason and preserve worktrees for manual conflict resolution + `workflow resume`.
+- Dependency-aware `mapOver` / `foreach` collections validate ids and dependency metadata before dispatch; unknown IDs fail fast.
+- In promotion-aware `per-map-item` runs, dependents wait on the promoted set, not just the completed set. Promotion conflicts keep downstream items undispatched until retry / resume.
 - Publish runs deterministically at workflow completion (`publish.status`, `publish.branch`, `publish.remote`, `publish.pr_url`) rather than relying on task-accept side effects.
 - For GitHub-backed projects, deterministic publish uses the project's configured `github-token` credential for both branch push and PR creation. It does not depend on `gh auth login` or ambient SSH state.
 
@@ -740,9 +755,9 @@ Notable patterns:
 - **PRD / Plan / Exec altitudes**: `prd` stops at the product layer; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
 - **Single-step artifact producers**: `prd` and `spec` are expected to produce solid final artifacts themselves. Downstream steps consume their emitted paths (`prd`, `spec_path`) via `file_read` instead of inserting separate review-only altitude steps.
 - **Merged plan + specs**: `plan` emits `stories` and `story_specs` together, absorbing the work the legacy `spec-plan` step used to do.
-- **Cross-map binding**: implementation reads per-iteration data directly via `{{map.item.spec_path}}` (the FIS body is already on disk in the story's worktree, mounted by `gitStrategy.worktree.externalArtifactMount`), while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller. The `{{context.key[map.index]}}` form is still available when a prior step produced a parallel list and you want to correlate by position.
+- **Cross-map binding**: implementation reads per-iteration data directly via `{{map.item.spec_path}}` (the FIS body is already on disk in the story's worktree, mounted by `gitStrategy.worktree.externalArtifactMount`), while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller. The `story_specs` records also carry `id` and `dependencies`, so the foreach runtime can gate later stories on prerequisite promotions without consulting a second graph output. The `{{context.key[map.index]}}` form is still available when a prior step produced a parallel list and you want to correlate by position.
 - **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.story_result}}` within the same story iteration, via the bare keys each child declares in `contextOutputs`.
-- **Independent story slices**: the plan step is expected to produce stories that can be implemented from the same base branch without implicit code sharing between iterations.
+- **Dependency-aware story slices**: `story_specs` is the executable fan-out contract. Every item should carry `id`, `spec_path`, and `dependencies` (`[]` for roots). The foreach pipeline may run multiple ready stories concurrently, but stories with prerequisites remain undispatched until their dependencies are promoted successfully.
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
 - **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
 - **Bounded remediation**: the batch follows the same remediation/re-review loop pattern as `code-review`, stopping on success or after `maxIterations: 3`.
@@ -1098,7 +1113,7 @@ Use these by name in `schema:` — the engine appends output format instructions
 | `verdict` | `{pass, findings_count, findings[], summary}` | Code review, QA evaluation |
 | `remediation-result` | `{remediation_summary, diff_summary}` | Remediation verification and closure |
 | `story-plan` | `{items[]}` where each item is `{id, title, description, acceptance_criteria, type, dependencies, key_files, effort}` | Planning steps — output consumed by map steps |
-| `story-specs` | `[{id, title, description, acceptance_criteria, type, dependencies, key_files, effort, spec, ...}]` | Spec authoring steps whose output feeds story-level implement/verify/review foreach pipelines |
+| `story-specs` | `{items[]}` where each item is `{id, title, spec_path, dependencies}` | Spec authoring steps whose output feeds story-level implement/verify/review foreach pipelines; the FIS body lives on disk at `spec_path` |
 | `file-list` | `{items[]}` where each item is `{path, reason?}` | Affected file discovery |
 | `checklist` | `{items[], all_pass}` where items have `{check, pass, detail?}` | Verification, acceptance testing |
 

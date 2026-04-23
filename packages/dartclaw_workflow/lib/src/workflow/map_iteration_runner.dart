@@ -162,7 +162,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     );
     final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
     final promotedIds = (context['_map.${step.id}.promotedIds'] as List?)?.whereType<String>().toSet() ?? <String>{};
-    if (depGraph.hasDependencies) {
+    if (depGraph.isDependencyAware) {
       try {
         depGraph.validate();
       } on ArgumentError catch (e) {
@@ -172,17 +172,6 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
           success: false,
           error: "Map step '${step.id}': ${e.message}",
         );
-      }
-      if (promotionAware) {
-        final unknownDeps = depGraph.unknownDependencyIds().toList()..sort();
-        if (unknownDeps.isNotEmpty) {
-          return MapStepResult(
-            results: const [],
-            totalTokens: 0,
-            success: false,
-            error: "Map step '${step.id}': unknown dependency IDs: ${unknownDeps.join(', ')}",
-          );
-        }
       }
     }
 
@@ -320,6 +309,13 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
 
       // If nothing dispatched and nothing in-flight but items remain — deadlock.
       if (inFlight.isEmpty && pending.isNotEmpty) {
+        if (promotionAware && depGraph.hasDependencies && mapCtx.failedIndices.isNotEmpty) {
+          WorkflowExecutor._log.warning(
+            "Workflow '${run.id}': map step '${step.id}' — "
+            '${pending.length} items remain blocked on unresolved promoted dependencies; leaving them pending for resume.',
+          );
+          break;
+        }
         WorkflowExecutor._log.warning(
           "Workflow '${run.id}': map step '${step.id}' — "
           '${pending.length} items blocked by unsatisfiable dependencies (deadlock guard).',

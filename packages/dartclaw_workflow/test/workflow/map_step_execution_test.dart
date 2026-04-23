@@ -14,6 +14,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowGitBootstrapResult,
+        WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishStrategy,
         WorkflowGitWorktreeStrategy,
@@ -573,16 +574,10 @@ void main() {
   });
 
   group('error handling', () {
-    test('promotion-aware map rejects unknown dependency IDs before dispatch', () async {
+    test('dependency-aware map rejects unknown dependency IDs before dispatch', () async {
       final definition = WorkflowDefinition(
-        name: 'promotion-aware-map',
+        name: 'dependency-aware-map',
         description: 'Unknown dependency validation',
-        gitStrategy: const WorkflowGitStrategy(
-          bootstrap: true,
-          worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
-          promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: false),
-        ),
         steps: const [
           WorkflowStep(
             id: 'implement',
@@ -597,44 +592,59 @@ void main() {
         ],
       );
 
-      final run = WorkflowRun(
-        id: 'run-unknown-deps',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.running,
-        startedAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-        definitionJson: definition.toJson(),
-      );
+      final run = makeRun(definition).copyWith(id: 'run-unknown-deps');
       await repository.insert(run);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {
+            'id': 'S01',
+            'dependencies': ['S99'],
+          },
+        ];
 
-      final context = WorkflowContext(
-        data: {
-          'stories': [
-            {
-              'id': 'S01',
-              'dependencies': ['S99'],
-            },
-          ],
-        },
-        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-      );
-
-      final promotionAwareExecutor = makeExecutor(
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
-        ),
-      );
-
-      await promotionAwareExecutor.execute(run, definition, context);
+      await executor.execute(run, definition, context);
 
       final finalRun = await repository.getById(run.id);
       expect(finalRun?.status, WorkflowRunStatus.failed);
-      expect(finalRun?.errorMessage, contains('unknown dependency IDs'));
+      expect(finalRun?.errorMessage, contains('Unknown dependency IDs'));
+      final tasks = await taskService.list();
+      expect(tasks.where((t) => t.workflowRunId == run.id), isEmpty, reason: 'Validation should fail before dispatch');
+    });
+
+    test('dependency-aware map missing dependencies fails before dispatch', () async {
+      final definition = WorkflowDefinition(
+        name: 'dependency-aware-map-shape',
+        description: 'Shape validation',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            type: 'coding',
+            project: 'my-project',
+            prompts: ['Implement {{map.item.id}}'],
+            mapOver: 'stories',
+            maxParallel: 2,
+            contextOutputs: ['results'],
+          ),
+        ],
+      );
+
+      final run = makeRun(definition).copyWith(id: 'run-missing-deps');
+      await repository.insert(run);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01'},
+          {
+            'id': 'S02',
+            'dependencies': ['S01'],
+          },
+        ];
+
+      await executor.execute(run, definition, context);
+
+      final finalRun = await repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.failed);
+      expect(finalRun?.errorMessage, contains('missing `dependencies`'));
       final tasks = await taskService.list();
       expect(tasks.where((t) => t.workflowRunId == run.id), isEmpty, reason: 'Validation should fail before dispatch');
     });
@@ -855,7 +865,7 @@ void main() {
   group('dependency ordering', () {
     test('item with dependency not dispatched until dep completes', () async {
       final collection = [
-        {'id': 's01', 'name': 'S1'},
+        {'id': 's01', 'name': 'S1', 'dependencies': <String>[]},
         {
           'id': 's02',
           'name': 'S2',
@@ -917,6 +927,66 @@ void main() {
       await executorFuture;
 
       expect(taskIds.length, equals(2));
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('whitespace-bearing ids still unblock dependent items after completion', () async {
+      final collection = [
+        {'id': ' s01 ', 'name': 'S1', 'dependencies': <String>[]},
+        {
+          'id': 's02',
+          'name': 'S2',
+          'dependencies': ['s01'],
+        },
+      ];
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Whitespace dependency normalization',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'stories',
+            maxParallel: 3,
+            contextOutputs: ['results'],
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = collection;
+
+      final taskIds = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskIds.add(e.taskId);
+      });
+
+      final executorFuture = executor.execute(run, definition, context, startFromStepIndex: 1);
+
+      await Future.doWhile(() async {
+        await Future<void>.delayed(Duration.zero);
+        return taskIds.isEmpty;
+      });
+
+      expect(taskIds, hasLength(1), reason: 'Dependent item must stay blocked until the trimmed prerequisite settles');
+
+      await completeTask(taskIds.first);
+      await Future.doWhile(() async {
+        await Future<void>.delayed(Duration.zero);
+        return taskIds.length < 2;
+      });
+      await sub.cancel();
+
+      await completeTask(taskIds.last);
+      await executorFuture;
+
+      expect(taskIds, hasLength(2));
       final updatedRun = await repository.getById('run-1');
       expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
     });
@@ -1199,6 +1269,44 @@ void main() {
   });
 
   group('S19: foreach execution', () {
+    test('dependency-aware foreach duplicate ids fail before dispatch', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-duplicate-id',
+        description: 'Duplicate dependency-aware ids',
+        steps: const [
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['child'],
+            contextOutputs: ['results'],
+          ),
+          WorkflowStep(id: 'child', name: 'Child', type: 'coding', prompts: ['Do {{map.item.id}}']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+          {'id': 'S01', 'dependencies': <String>[]},
+        ];
+
+      await executor.execute(run, definition, context);
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
+      expect(updatedRun?.errorMessage, contains('duplicate id `S01`'));
+      final tasks = await taskService.list();
+      expect(
+        tasks.where((task) => task.workflowRunId == run.id),
+        isEmpty,
+        reason: 'Validation should fail before dispatch',
+      );
+    });
+
     test('end-to-end: `as:` on inline `type: foreach` parses and reaches child prompts', () async {
       // Regression for the parser bug where _parseInlineForeachStep silently
       // dropped `as:` / `mapAlias:`. This test goes YAML → parser → executor
@@ -1398,6 +1506,233 @@ steps:
       expect(taskTitles.length, 6);
 
       final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('dependency-aware foreach waits for prerequisite completion before dispatch', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-dependency-ordering',
+        description: 'Dependency-aware foreach ordering',
+        steps: const [
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['implement'],
+            maxParallel: 2,
+            contextOutputs: ['story_results'],
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', type: 'coding', prompts: ['Build {{map.item.id}}']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+          {
+            'id': 'S02',
+            'dependencies': <String>['S01'],
+          },
+        ];
+
+      final taskIds = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskIds.add(e.taskId);
+      });
+
+      final executorFuture = executor.execute(run, definition, context);
+
+      await Future.doWhile(() async {
+        await Future<void>.delayed(Duration.zero);
+        return taskIds.isEmpty;
+      });
+
+      expect(taskIds, hasLength(1), reason: 'Dependent foreach item must stay blocked until S01 settles');
+
+      await completeTask(taskIds.first);
+      await Future.doWhile(() async {
+        await Future<void>.delayed(Duration.zero);
+        return taskIds.length < 2;
+      });
+      await sub.cancel();
+
+      await completeTask(taskIds.last);
+      await executorFuture;
+
+      expect(taskIds, hasLength(2));
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('promotion-aware foreach keeps dependents blocked until prerequisite is promoted', () async {
+      final definition = WorkflowDefinition(
+        name: 'promotion-aware-foreach',
+        description: 'Promotion-aware dependency gating',
+        gitStrategy: const WorkflowGitStrategy(
+          bootstrap: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+          promotion: 'merge',
+          publish: WorkflowGitPublishStrategy(enabled: false),
+        ),
+        steps: const [
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['implement'],
+            maxParallel: 2,
+            contextOutputs: ['story_results'],
+          ),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            type: 'coding',
+            project: 'my-project',
+            prompts: ['Implement {{map.item.id}}'],
+          ),
+        ],
+      );
+
+      final run = WorkflowRun(
+        id: 'run-promotion-aware-foreach',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+        definitionJson: definition.toJson(),
+      );
+      await repository.insert(run);
+
+      final stories = [
+        {'id': 'S01', 'dependencies': <String>[]},
+        {
+          'id': 'S02',
+          'dependencies': <String>['S01'],
+        },
+      ];
+      final firstContext = WorkflowContext(
+        data: {'stories': stories},
+        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+      );
+
+      final conflictExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          promoteWorkflowBranch:
+              ({
+                required runId,
+                required projectId,
+                required branch,
+                required integrationBranch,
+                required strategy,
+                String? storyId,
+              }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
+        ),
+      );
+
+      final firstRunTaskIds = <String>[];
+      final firstSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        firstRunTaskIds.add(e.taskId);
+        final task = await taskService.get(e.taskId);
+        if (task != null) {
+          await taskService.updateFields(
+            task.id,
+            worktreeJson: {
+              'path': p.join(tempDir.path, 'worktrees', task.id),
+              'branch': 'story-s01',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          );
+        }
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await conflictExecutor.execute(run, definition, firstContext);
+      await firstSub.cancel();
+
+      expect(firstRunTaskIds, hasLength(1), reason: 'Dependent story must remain undispatched during conflict');
+
+      final conflictedRun = await repository.getById(run.id);
+      expect(conflictedRun?.status, equals(WorkflowRunStatus.failed));
+      expect(conflictedRun?.executionCursor, isNotNull);
+      final conflictedSlot = conflictedRun?.executionCursor?.resultSlots.first as Map<Object?, Object?>?;
+      expect(conflictedSlot?['message'], contains('promotion-conflict'));
+      expect(
+        conflictedRun?.executionCursor?.cancelledIndices,
+        isEmpty,
+        reason: 'Pending dependents must remain resumable',
+      );
+
+      final resumedExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-2'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          promoteWorkflowBranch:
+              ({
+                required runId,
+                required projectId,
+                required branch,
+                required integrationBranch,
+                required strategy,
+                String? storyId,
+              }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
+        ),
+      );
+
+      final resumedContext = WorkflowContext(
+        data: {'stories': stories},
+        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+      );
+      final retryingRun = conflictedRun!.copyWith(
+        status: WorkflowRunStatus.running,
+        errorMessage: null,
+        completedAt: null,
+        updatedAt: DateTime.now(),
+      );
+      await repository.update(retryingRun);
+      final resumedTaskIds = <String>[];
+      final resumedSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        resumedTaskIds.add(e.taskId);
+        final task = await taskService.get(e.taskId);
+        if (task != null) {
+          final branch = resumedTaskIds.length == 1 ? 'story-s01-retry' : 'story-s02';
+          await taskService.updateFields(
+            task.id,
+            worktreeJson: {
+              'path': p.join(tempDir.path, 'worktrees', task.id),
+              'branch': branch,
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          );
+        }
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await resumedExecutor.execute(retryingRun, definition, resumedContext, startCursor: retryingRun.executionCursor);
+      await resumedSub.cancel();
+
+      expect(resumedTaskIds, hasLength(2), reason: 'Resume should retry S01, promote it, then dispatch dependent S02');
+      final updatedRun = await repository.getById(run.id);
       expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
     });
 

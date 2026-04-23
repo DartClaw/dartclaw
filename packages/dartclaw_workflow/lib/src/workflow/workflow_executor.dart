@@ -35,6 +35,7 @@ import 'workflow_turn_adapter.dart';
 export 'workflow_runner_types.dart';
 part 'public_node_runners.dart';
 part 'public_step_dispatcher.dart';
+part 'public_step_dispatcher_helpers.dart';
 part 'step_dispatcher.dart';
 part 'parallel_group_runner.dart';
 part 'loop_step_runner.dart';
@@ -43,7 +44,6 @@ part 'foreach_iteration_runner.dart';
 part 'map_iteration_dispatcher.dart';
 part 'workflow_executor_helpers.dart';
 
-/// Tree-walking interpreter over the [WorkflowNode] AST.
 class WorkflowExecutor {
   static final _log = Logger('WorkflowExecutor');
   final WorkflowTaskService _taskService;
@@ -244,11 +244,15 @@ class WorkflowExecutor {
           if (!mapResult.success) {
             final msg = mapResult.error ?? "Map step '${step.id}' failed";
             _log.info("Workflow '${run.id}': $msg");
-            run = run.copyWith(
-              totalTokens: run.totalTokens + mapResult.totalTokens,
-              executionCursor: null,
+            final refreshedRun = await _repository.getById(run.id) ?? run;
+            final keepCursor =
+                mapResult.error?.startsWith('promotion-conflict') == true ||
+                mapResult.results.any((result) => result == null);
+            run = refreshedRun.copyWith(
+              totalTokens: refreshedRun.totalTokens + mapResult.totalTokens,
+              executionCursor: keepCursor ? refreshedRun.executionCursor : null,
               contextJson: {
-                for (final e in run.contextJson.entries)
+                for (final e in refreshedRun.contextJson.entries)
                   if (e.key.startsWith('_') && !e.key.startsWith('_map.current')) e.key: e.value,
                 ...context.toJson(),
               },
@@ -462,11 +466,15 @@ class WorkflowExecutor {
           if (!foreachResult.success) {
             final msg = foreachResult.error ?? "Foreach step '${foreachStep.id}' failed";
             _log.info("Workflow '${run.id}': $msg");
-            run = run.copyWith(
-              totalTokens: run.totalTokens + foreachResult.totalTokens,
-              executionCursor: null,
+            final refreshedRun = await _repository.getById(run.id) ?? run;
+            final keepCursor =
+                foreachResult.error?.startsWith('promotion-conflict') == true ||
+                foreachResult.results.any((result) => result == null);
+            run = refreshedRun.copyWith(
+              totalTokens: refreshedRun.totalTokens + foreachResult.totalTokens,
+              executionCursor: keepCursor ? refreshedRun.executionCursor : null,
               contextJson: {
-                for (final e in run.contextJson.entries)
+                for (final e in refreshedRun.contextJson.entries)
                   if (e.key.startsWith('_') && !e.key.startsWith('_foreach.current')) e.key: e.value,
                 ...context.toJson(),
               },

@@ -3,10 +3,12 @@ import 'dart:collection' show Queue;
 /// Dependency-aware ordering for map/fan-out step collections.
 ///
 /// Parses `id` and `dependencies` fields from collection items (Maps only).
-/// Items without these fields are treated as independent (no dependencies).
+/// Collections without any `dependencies` keys are treated as dependency-free.
 ///
 /// Uses Kahn's algorithm for cycle detection and topological ordering.
 class DependencyGraph {
+  final List<dynamic> _items;
+
   /// Item ID → index mapping (only for items that declare an `id`).
   final Map<String, int> _idToIndex = {};
 
@@ -19,20 +21,31 @@ class DependencyGraph {
   /// Total number of items in the collection.
   final int _length;
 
+  /// Whether the collection opted into dependency-aware scheduling.
+  ///
+  /// This is true when at least one item declares a `dependencies` field,
+  /// including `dependencies: []` on root items.
+  bool _dependencyAware = false;
+
+  bool get isDependencyAware => _dependencyAware;
+
   /// Whether any item declares dependencies.
   bool get hasDependencies => _deps.isNotEmpty;
 
-  DependencyGraph(List<dynamic> items) : _length = items.length {
+  DependencyGraph(List<dynamic> items) : _items = List<dynamic>.unmodifiable(items), _length = items.length {
     // First pass: build ID ↔ index maps.
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
-      if (item is Map) {
-        final id = item['id'];
-        if (id is String && id.isNotEmpty) {
-          _idToIndex[id] = i;
-          _indexToId[i] = id;
-        }
+      if (item is! Map) continue;
+      if (item.containsKey('dependencies')) {
+        _dependencyAware = true;
       }
+      final id = item['id'];
+      if (id is! String) continue;
+      final normalizedId = id.trim();
+      if (normalizedId.isEmpty || _idToIndex.containsKey(normalizedId)) continue;
+      _idToIndex[normalizedId] = i;
+      _indexToId[i] = normalizedId;
     }
 
     // Second pass: collect dependency declarations.
@@ -41,7 +54,11 @@ class DependencyGraph {
       if (item is! Map) continue;
       final depsRaw = item['dependencies'];
       if (depsRaw is! List) continue;
-      final depIds = depsRaw.whereType<String>().toList();
+      final depIds = depsRaw
+          .whereType<String>()
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList();
       if (depIds.isNotEmpty) {
         _deps[i] = depIds;
       }
@@ -53,6 +70,40 @@ class DependencyGraph {
   /// Throws [ArgumentError] if a cycle is detected, with a message
   /// describing the cycle path (e.g. "Circular dependency detected: s01 → s03 → s01").
   void validate() {
+    if (!isDependencyAware) return;
+
+    final seenIds = <String>{};
+    for (var i = 0; i < _items.length; i++) {
+      final item = _items[i];
+      if (item is! Map) {
+        throw ArgumentError(
+          'Dependency-aware collection item at index $i must be an object with `id` and `dependencies`.',
+        );
+      }
+
+      final rawId = item['id'];
+      if (rawId is! String || rawId.trim().isEmpty) {
+        throw ArgumentError('Dependency-aware collection item at index $i is missing a non-empty `id`.');
+      }
+      final id = rawId.trim();
+      if (!seenIds.add(id)) {
+        throw ArgumentError('Dependency-aware collection contains duplicate id `$id`.');
+      }
+
+      if (!item.containsKey('dependencies')) {
+        throw ArgumentError('Dependency-aware collection item `$id` at index $i is missing `dependencies`.');
+      }
+      if (item['dependencies'] is! List) {
+        throw ArgumentError(
+          'Dependency-aware collection item `$id` at index $i must provide `dependencies` as a list.',
+        );
+      }
+    }
+
+    final unknownDeps = unknownDependencyIds().toList()..sort();
+    if (unknownDeps.isNotEmpty) {
+      throw ArgumentError('Unknown dependency IDs: ${unknownDeps.join(', ')}');
+    }
     if (!hasDependencies) return;
 
     // Build in-degree count for each item that has a declared ID.
@@ -134,7 +185,7 @@ class DependencyGraph {
         ready.add(i);
         continue;
       }
-      final allSatisfied = myDeps.every((depId) => !_idToIndex.containsKey(depId) || completed.contains(depId));
+      final allSatisfied = myDeps.every(completed.contains);
       if (allSatisfied) ready.add(i);
     }
     return ready;

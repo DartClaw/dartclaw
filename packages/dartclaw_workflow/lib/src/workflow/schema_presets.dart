@@ -220,13 +220,20 @@ const storySpecsPreset = SchemaPreset(
         'items': {
           'type': 'object',
           'additionalProperties': false,
-          'required': ['id', 'title', 'spec_path'],
+          'required': ['id', 'title', 'spec_path', 'dependencies'],
           'properties': {
             'id': {'type': 'string', 'description': 'Story identifier used by downstream foreach steps (e.g. "s01").'},
             'title': {'type': 'string', 'description': 'Concise story title for display and logs.'},
             'spec_path': {
               'type': 'string',
               'description': 'Workspace-relative path to the FIS file — the authoritative spec body lives here.',
+            },
+            'dependencies': {
+              'type': 'array',
+              'description':
+                  'Ordered prerequisite story IDs for dependency-aware fan-out. '
+                  'Use an empty list for root stories with no prerequisites.',
+              'items': {'type': 'string'},
             },
           },
         },

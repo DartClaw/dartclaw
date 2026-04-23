@@ -160,7 +160,7 @@ steps:
       story_specs:
         format: json
         schema: story-specs
-        description: Per-story records — id, title, spec_path. Drives the foreach; exec-spec reads the FIS body (including acceptance criteria) from disk at spec_path.
+        description: Per-story records — id, title, spec_path, dependencies. Drives the dependency-aware foreach; exec-spec reads the FIS body (including acceptance criteria) from disk at spec_path.
       plan:
         format: path
         description: Workspace-relative path to plan.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the plan step.

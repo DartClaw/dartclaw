@@ -36,8 +36,13 @@ void main() {
           'plan': 'docs/plans/p/plan.md',
           'story_specs': {
             'items': [
-              {'id': 'S01', 'title': 'One', 'spec_path': 'fis/s01.md'},
-              {'id': 'S02', 'title': 'Two', 'spec_path': 'fis/s02.md'},
+              {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': 'fis/s01.md'},
+              {
+                'id': 'S02',
+                'title': 'Two',
+                'dependencies': <String>['S01'],
+                'spec_path': 'fis/s02.md',
+              },
             ],
           },
         },
@@ -58,8 +63,12 @@ void main() {
       final resolution = resolveStorySpecPaths({
         'story_specs': {
           'items': [
-            {'id': 'S01', 'spec_path': 'docs/plans/p/fis/s01.md'},
-            {'id': 'S02', 'spec_path': 'fis/s02.md'},
+            {'id': 'S01', 'dependencies': <String>[], 'spec_path': 'docs/plans/p/fis/s01.md'},
+            {
+              'id': 'S02',
+              'dependencies': <String>['S01'],
+              'spec_path': 'fis/s02.md',
+            },
           ],
         },
       }, planDir: 'docs/plans/p');
@@ -68,6 +77,8 @@ void main() {
       final items = storySpecs['items'] as List;
       expect(items.first, containsPair('spec_path', 'docs/plans/p/fis/s01.md'));
       expect(items.last, containsPair('spec_path', 'docs/plans/p/fis/s02.md'));
+      expect(items.first, containsPair('dependencies', <String>[]));
+      expect(items.last, containsPair('dependencies', <String>['S01']));
       expect(resolution.specPaths, ['docs/plans/p/fis/s01.md', 'docs/plans/p/fis/s02.md']);
     });
 

@@ -5,12 +5,15 @@
 ### Added
 - `WorkflowGitPort` as the single mockable git boundary for workflow-layer git operations, including branch-state reads for `HEAD:<path>` artifact checks
 - Artefact commit redesign option notes covering copy-not-commit and artefact-branch-split follow-ups
+- `OutputResolver`, `MissingArtifactFailure`, and `ProducedArtifactResolver` for filesystem-first structured-output extraction and artifact propagation checks
+- Extraction-turn measurement fixtures for the baseline and filesystem-first post-change rate
 
 ### Changed
 - Workflow step spawn creates `AgentExecution` + `WorkflowStepExecution` + `Task` atomically in a single transaction; `Task.configJson` is sanitized on spawn so `_workflow*` keys and `model` no longer round-trip through the task row (`model` is canonical on `AgentExecution`)
 - Workflow execution now relies on the shared `AgentExecution` primitive end-to-end: the public task payload shape is nested, the workflow/task boundary is guarded by explicit fitness checks, and workflow metadata is expected to flow through `WorkflowStepExecution` rather than task-owned JSON blobs
 - Workflow task spawn now fails fast with a clear `StateError` when `AgentExecution`/`WorkflowStepExecution` persistence is not wired, instead of silently falling back to the legacy `_workflow*` task-config path. Hosts that previously spawned workflow tasks without the execution repositories must now supply `taskRepository`, `agentExecutionRepository`, `workflowStepExecutionRepository`, and `executionTransactor` (or accept the run pausing with the fail-fast error)
 - Artifact auto-commit returns `ArtifactCommitResult`; load-bearing per-map-item commit failures now fail the producing workflow step before downstream dispatch
+- `ContextExtractor` now resolves path-shaped outputs from `WorkflowGitPort.diffNameOnly`, verifies agent path claims, and limits structured-output extraction turns to narrative fields
 
 ## 0.15.0
 

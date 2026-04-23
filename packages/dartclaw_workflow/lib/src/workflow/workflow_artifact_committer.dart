@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'step_config_policy.dart' as step_config_policy;
+import 'produced_artifact_resolver.dart';
 import 'workflow_context.dart';
 import 'workflow_git_port.dart';
 import 'workflow_runner_types.dart';
@@ -101,24 +102,22 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
   if (!shouldCommit) return const ArtifactCommitResult.skipped();
   if (artifacts == null && !hasProducer) return const ArtifactCommitResult.skipped();
 
-  final outputs = step.outputs;
-  if (outputs == null) return const ArtifactCommitResult.skipped();
-  final producedPaths = <String>[];
-  for (final outKey in step.contextOutputs) {
-    final cfg = outputs[outKey];
-    if (cfg == null || cfg.format != OutputFormat.path) continue;
-    final value = policy.context[outKey]?.toString().trim() ?? '';
-    if (value.isEmpty || value == 'null') continue;
-    producedPaths.add(value);
-  }
-  if (producedPaths.isEmpty) return const ArtifactCommitResult.skipped();
+  final resolver = const ProducedArtifactResolver();
+  final contextOutputs = Map<String, Object?>.from(policy.context.data);
+  final planDir = _planDirFromOutputs(contextOutputs);
+  final preliminaryArtifacts = resolver.resolve(step: step, outputs: contextOutputs, planDir: planDir);
+  if (preliminaryArtifacts.requiredPaths.isEmpty) return const ArtifactCommitResult.skipped();
 
   final failureIsFatal = artifactCommitFailureIsFatal(policy);
   final git = policy.workflowGitPort;
   if (git == null) {
     final reason = "artifact-commit: no WorkflowGitPort configured for step '${step.id}'";
     _log.warning(reason);
-    return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: producedPaths, fatal: failureIsFatal);
+    return ArtifactCommitResult.failed(
+      failureReason: reason,
+      skippedPaths: preliminaryArtifacts.requiredPaths,
+      fatal: failureIsFatal,
+    );
   }
 
   final resolved = await resolveArtifactCommitProject(
@@ -138,7 +137,7 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     );
     return ArtifactCommitResult.failed(
       failureReason: "artifact-commit: no project id resolved for step '${step.id}'",
-      skippedPaths: producedPaths,
+      skippedPaths: preliminaryArtifacts.requiredPaths,
       fatal: failureIsFatal,
     );
   }
@@ -156,10 +155,15 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     );
     return ArtifactCommitResult.failed(
       failureReason: "artifact-commit: directory '$projectDir' does not exist",
-      skippedPaths: producedPaths,
+      skippedPaths: preliminaryArtifacts.requiredPaths,
       fatal: failureIsFatal,
     );
   }
+
+  final producedPaths = resolver
+      .resolve(step: step, outputs: contextOutputs, planDir: planDir, projectRoot: projectDir)
+      .requiredPaths;
+  if (producedPaths.isEmpty) return const ArtifactCommitResult.skipped();
 
   final messageTemplate = artifacts?.commitMessage ?? 'chore(workflow): artifacts for run {{runId}}';
   final resolvedMessage = policy.templateEngine
@@ -173,6 +177,12 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     await git.add(projectDir, producedPaths);
     final staged = await git.diffNameOnly(projectDir, cached: true);
     if (staged.isEmpty) {
+      final missingAtHead = await _pathsMissingAtHead(git, projectDir, producedPaths);
+      if (missingAtHead.isNotEmpty) {
+        final reason = "artifact-commit: required artifacts missing at HEAD for step '${step.id}': $missingAtHead";
+        _log.warning(reason);
+        return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: missingAtHead, fatal: failureIsFatal);
+      }
       _log.info("artifact-commit: no staged changes in '$projectDir' after step '${step.id}' — skipping commit");
       return ArtifactCommitResult.skipped(skippedPaths: producedPaths);
     }
@@ -186,6 +196,12 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
       "artifact-commit: committed ${staged.length} file(s) in '$projectDir' "
       "after step '${step.id}' with message '$commitMessage'",
     );
+    final missingAtHead = await _pathsMissingAtHead(git, projectDir, producedPaths);
+    if (missingAtHead.isNotEmpty) {
+      final reason = "artifact-commit: required artifacts missing at HEAD for step '${step.id}': $missingAtHead";
+      _log.warning(reason);
+      return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: missingAtHead, fatal: failureIsFatal);
+    }
     return ArtifactCommitResult.committed(committedPaths: staged, commitSha: commit.sha);
   } on WorkflowGitException catch (e) {
     final reason = "artifact-commit: ${e.message} in '$projectDir'";
@@ -196,6 +212,21 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     _log.warning(reason);
     return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: producedPaths, fatal: failureIsFatal);
   }
+}
+
+String _planDirFromOutputs(Map<String, Object?> outputs) {
+  final planPath = (outputs['plan'] as String?)?.trim();
+  return planPath == null || planPath.isEmpty ? '' : p.dirname(planPath);
+}
+
+Future<List<String>> _pathsMissingAtHead(WorkflowGitPort git, String projectDir, List<String> paths) async {
+  final missing = <String>[];
+  for (final path in paths) {
+    if (!await git.pathExistsAtRef(projectDir, ref: 'HEAD', path: path)) {
+      missing.add(path);
+    }
+  }
+  return missing;
 }
 
 /// Returns true when a commit failure prevents downstream per-map-item worktrees

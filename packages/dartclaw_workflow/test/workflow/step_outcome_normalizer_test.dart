@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_workflow/src/workflow/produced_artifact_resolver.dart';
 import 'package:dartclaw_workflow/src/workflow/step_outcome_normalizer.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_runner_types.dart';
 import 'package:path/path.dart' as p;
@@ -8,10 +9,7 @@ import 'package:test/test.dart';
 void main() {
   group('resolveStorySpecPathAgainstPlanDir', () {
     test('resolves a workspace-relative path exactly once', () {
-      final resolved = resolveStorySpecPathAgainstPlanDir(
-        path: 'fis/s01-foo.md',
-        planDir: 'docs/plans/my-plan/',
-      );
+      final resolved = resolveStorySpecPathAgainstPlanDir(path: 'fis/s01-foo.md', planDir: 'docs/plans/my-plan/');
 
       expect(resolved, equals('docs/plans/my-plan/fis/s01-foo.md'));
       expect(
@@ -22,10 +20,7 @@ void main() {
 
     test('leaves already plan-rooted paths unchanged', () {
       expect(
-        resolveStorySpecPathAgainstPlanDir(
-          path: 'docs/specs/demo/fis/s01.md',
-          planDir: 'docs/specs/demo',
-        ),
+        resolveStorySpecPathAgainstPlanDir(path: 'docs/specs/demo/fis/s01.md', planDir: 'docs/specs/demo'),
         equals('docs/specs/demo/fis/s01.md'),
       );
     });
@@ -33,10 +28,7 @@ void main() {
     test('normalizes absolute paths without joining plan dir', () {
       final absolute = p.normalize(p.absolute('tmp/fis/s01.md'));
 
-      expect(
-        resolveStorySpecPathAgainstPlanDir(path: absolute, planDir: 'docs/specs/demo'),
-        equals(absolute),
-      );
+      expect(resolveStorySpecPathAgainstPlanDir(path: absolute, planDir: 'docs/specs/demo'), equals(absolute));
     });
   });
 
@@ -52,12 +44,9 @@ void main() {
     });
 
     test('reports missing FIS files without sentinel output keys', () {
-      final handoff = normalizeOutputs(
-        {
-          'story_specs': ['docs/plans/foo/fis/a.md', 'docs/plans/foo/fis/b.md'],
-        },
-        StepOutputNormalizationContext(projectRoot: tempDir.path),
-      );
+      final handoff = normalizeOutputs({
+        'story_specs': ['docs/plans/foo/fis/a.md', 'docs/plans/foo/fis/b.md'],
+      }, StepOutputNormalizationContext(projectRoot: tempDir.path));
 
       expect(handoff, isA<StepHandoffValidationFailed>());
       final failure = handoff.validationFailure!;
@@ -71,17 +60,14 @@ void main() {
       final fisPath = p.join(tempDir.path, 'docs/plans/foo/fis/a.md');
       File(fisPath).createSync(recursive: true);
 
-      final handoff = normalizeOutputs(
-        {
-          'plan': 'docs/plans/foo/plan.md',
-          'story_specs': {
-            'items': [
-              {'story_id': 'S01', 'spec_path': 'fis/a.md'},
-            ],
-          },
+      final handoff = normalizeOutputs({
+        'plan': 'docs/plans/foo/plan.md',
+        'story_specs': {
+          'items': [
+            {'story_id': 'S01', 'spec_path': 'fis/a.md'},
+          ],
         },
-        StepOutputNormalizationContext(planDir: 'docs/plans/foo', projectRoot: tempDir.path),
-      );
+      }, StepOutputNormalizationContext(planDir: 'docs/plans/foo', projectRoot: tempDir.path));
 
       expect(handoff, isA<StepHandoffSuccess>());
       final storySpecs = handoff.outputs['story_specs'] as Map<String, Object?>;

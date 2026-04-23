@@ -879,6 +879,62 @@ void main() {
     expect(events.any((e) => e.kind.name == 'structuredOutputInlineUsed'), isFalse);
   });
 
+  test('workflow oneshot runs extraction turn when inline structured payload is partial', () async {
+    final schema = <String, dynamic>{
+      'type': 'object',
+      'required': ['summary', 'confidence'],
+      'properties': {
+        'summary': {'type': 'string'},
+        'confidence': {'type': 'integer'},
+      },
+    };
+    final capturedArgs = <List<String>>[];
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        capturedArgs.add(List<String>.from(args));
+        final payload = args.contains('--json-schema')
+            ? jsonEncode({
+                'session_id': 'cli-session-partial',
+                'structured_output': {'summary': 'Fallback summary', 'confidence': 7},
+              })
+            : jsonEncode({
+                'session_id': 'cli-session-partial',
+                'result': '<workflow-context>{"summary":"Inline summary"}</workflow-context>',
+              });
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
+      },
+    );
+    final partialExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(partialExecutor.stop);
+
+    await tasks.create(
+      id: 'task-partial-inline',
+      title: 'Partial inline',
+      description: 'Main turn emits only one required narrative key.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-partial-inline',
+      workflowRunId: 'wf-partial-inline',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-partial-inline',
+      agentExecutionId: 'ae-task-partial-inline',
+      workflowRunId: 'wf-partial-inline',
+      structuredSchema: schema,
+      stepId: 'summarize',
+    );
+
+    await partialExecutor.pollOnce();
+
+    expect(capturedArgs, hasLength(2), reason: 'partial inline payload must not suppress extraction turn');
+    expect((await workflowStepExecutions.getByTaskId('task-partial-inline'))?.structuredOutput, {
+      'summary': 'Fallback summary',
+      'confidence': 7,
+    });
+  });
+
   test('workflow oneshot structured-output fallback turn emits correlated progress events', () async {
     // Regression guard for the gap where the fallback `runner.executeTurn(...)`
     // call omitted taskId/sessionId, causing WorkflowCliTurnProgressEvent to
@@ -2728,6 +2784,62 @@ void main() {
     expect(updated, isNotNull);
     expect(updated!.status, TaskStatus.review);
     expect(updated.configJson['errorSummary'], isNull);
+  });
+
+  test('workflow required input path preflight fails before workflow runner starts', () async {
+    final worktreeDir = Directory.systemTemp.createTempSync('dartclaw_missing_spec_worktree_');
+    addTearDown(() {
+      if (worktreeDir.existsSync()) worktreeDir.deleteSync(recursive: true);
+    });
+    var processStarted = false;
+    final runner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        processStarted = true;
+        final payload = jsonEncode({'session_id': 'cli-session', 'result': 'Done.'});
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
+      },
+    );
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      workflowCliRunner: runner,
+      worktreeManager: _StaticPathWorktreeManager(worktreeDir.path),
+      workflowRunRepository: workflowRuns,
+      workflowStepExecutionRepository: workflowStepExecutions,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-missing-required-input',
+      title: 'Implement Story',
+      description: 'Implement fis/s01.md',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-missing-required-input',
+      workflowRunId: 'wf-missing-required-input',
+      configJson: const {'_workflowNeedsWorktree': true, 'requiredInputPath': 'fis/s01.md'},
+    );
+    await seedWorkflowExecution(
+      'task-missing-required-input',
+      agentExecutionId: 'ae-task-missing-required-input',
+      workflowRunId: 'wf-missing-required-input',
+      stepId: 'implement',
+      git: const {'worktree': 'per-map-item'},
+      mapIterationIndex: 0,
+    );
+
+    final processed = await projectExecutor.pollOnce();
+
+    expect(processed, isTrue);
+    expect(processStarted, isFalse);
+    final updated = await tasks.get('task-missing-required-input');
+    expect(updated?.status, TaskStatus.failed);
+    expect(updated?.configJson['errorSummary'], contains('required input path "fis/s01.md" is missing'));
   });
 }
 

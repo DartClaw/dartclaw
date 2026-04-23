@@ -15,6 +15,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowStepExecution;
 
 import 'map_context.dart';
+import 'output_resolver.dart';
 import 'schema_presets.dart';
 import 'skill_prompt_builder.dart';
 import 'step_config_policy.dart' as step_config_policy;
@@ -204,6 +205,7 @@ Map<String, dynamic>? buildStructuredOutputEnvelopeSchema(
 
   for (final entry in effectiveOutputs.entries) {
     final config = entry.value;
+    if (outputResolverFor(entry.key, config) is! NarrativeOutput) continue;
     final schema = switch (config.format) {
       OutputFormat.text || OutputFormat.path => const {'type': 'string'},
       OutputFormat.lines => const {

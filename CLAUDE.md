@@ -1,8 +1,60 @@
-# DartClaw — Project Guide
+# Rules, Guidelines and Project Overview for Coding Agents — DartClaw Workspace
 
-An experimental, security-conscious AI agent runtime built with Dart. Dart host (AOT-compiled, zero npm) orchestrates multiple native agent harnesses (Claude Code, Codex, more planned) via control protocols. Defense-in-depth security with container isolation, guard chain, and credential proxy.
+## Project Overview
 
-## Documentation Map
+**DartClaw** — An experimental, security-conscious AI agent runtime built with Dart. Dart orchestrator (AOT-compiled, zero npm) + multiple agent harnesses (Claude Code, Codex, and potentially more). Lineage: openclaw → nanoclaw → dartclaw.
+
+Architecture: 2-layer model — Dart host (state/API/security) → agent harness binaries via control protocols. The primary harness is the native `claude` binary (JSONL over stdin/stdout), but DartClaw is **multi-harness by design** — the `HarnessFactory` creates provider-specific harness instances, and the `HarnessPool` manages a heterogeneous pool of runners with different providers and security profiles. Each harness type has its own binary, protocol adapter, and native conventions.
+
+### Philosophy
+A ground-up agent runtime leveraging Dart's strengths. Guiding principles: security by design, security in depth, developer ergonomics, pragmatic lightweight architecture. DartClaw should not only be secure and efficient but also a joy to use and build upon.
+
+### Design Philosophy
+
+- **Minimal attack surface** — No Node.js/npm in the chain. Fewer dependencies = fewer supply chain vulnerabilities. Prefer capable standard libraries over third-party packages
+- **Dart as host** — AOT-compiled native binary, complete built-in toolchain (formatter, analyzer, linter, test runner), capable stdlib. No external toolchain dependencies
+- **Direct control protocol** — Dart spawns the native `claude` binary directly, no intermediate runtime. All state/storage/security lives in Dart
+- **Outpost pattern** — purpose-built CLI tools in the best language for the job (Python for ML/NLP, etc.), invoked as subprocesses with structured JSON I/O. No shared runtime, no dependency contamination
+- **Auditable** — codebase fits in a context window; dependencies stay minimal
+
+### Development Stage
+Early experimental (soft-published). Breaking changes acceptable — correctness and clean design over backward compat. See `docs/PRODUCT.md`.
+
+### Current State
+See `/docs/dev/STATE.md` for current version, phase, active stories, blockers, and session continuity notes. (Canonical home is the public repo — see "Public Repo Mirror — Sync Rules" below.)
+
+### Implemented Features
+
+See `/docs/dev/STATE.md`
+
+> For architecture details, see the 12 deep-dive docs in `docs/architecture/`.
+
+
+### Package Structure (Dart pub workspace)
+
+```
+/
+  packages/
+    dartclaw/            # Published umbrella — re-exports core + storage + channel packages
+    dartclaw_models/     # Shared data types and small cross-package enums/config DTOs
+    dartclaw_security/   # Guard framework, classifiers, redaction, audit primitives
+    dartclaw_config/     # Typed config loading, metadata, validation, and authoring utilities
+    dartclaw_core/       # sqlite3-free runtime primitives: harnesses, channels, events, governance, file services
+    dartclaw_storage/    # SQLite-backed repositories, search backends, pruning, trace/event stores
+    dartclaw_workflow/   # Workflow definitions, registry, parser/validator, and execution engine
+    dartclaw_whatsapp/   # WhatsApp channel integration
+    dartclaw_signal/     # Signal channel integration
+    dartclaw_google_chat/# Google Chat channel integration
+    dartclaw_testing/    # Shared test doubles and fixtures for workspace packages
+    dartclaw_server/     # HTTP API + HTMX web UI, task runtime, and container orchestration
+  apps/
+    dartclaw_cli/        # CLI app (AOT-compilable): serve, status, deploy, rebuild-index commands
+```
+
+Dart pub workspace — all packages resolve locally via `pubspec.yaml` workspace declaration.
+
+
+### Documentation Map
 
 | Topic | Location | When to read |
 |-------|----------|--------------|
@@ -25,6 +77,10 @@ An experimental, security-conscious AI agent runtime built with Dart. Dart host 
 | Architecture | `docs/guide/architecture.md` | Understanding the 2-layer model |
 | Full guide index | `docs/guide/README.md` | Everything else |
 
+
+---
+
+
 ## Project Document Index
 
 Internal development docs for working on DartClaw itself (as opposed to using it).
@@ -45,24 +101,20 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Testing strategy | `docs/guidelines/TESTING-STRATEGY.md` | Before writing tests |
 | Key dev commands | `docs/guidelines/KEY_DEVELOPMENT_COMMANDS.md` | Before/after modifying code |
 
-## Companion Private Repo
 
-Strategic planning context (full roadmap, ADRs, research, PRDs, wireframes, design system, competitor analysis) lives in a sibling repo at `../dartclaw-private/`, checked out alongside this one. **Day-to-day code work in this repo does not require the private repo to be present** — the standard built-in DartClaw workflows operate on this repo alone.
+---
 
-When implementing a planned milestone, the active spec/PRD/plan/FIS files may be temporarily checked into `docs/specs/<version>/` for the duration of the implementation, then removed before merging to `main`. See `docs/dev/SPEC-LIFECYCLE.md` for the convention.
-
-Authoring new PRDs/plans/FIS, ADR work, architecture or research notes, and wireframe/design-system updates happen in the private repo.
 
 ## Rules, Guardrails and Guidelines
 
 ### Foundational Rules and Guardrails
 Adhere to system prompt "CRITICAL RULES and GUARDRAILS" before doing any work.
 
-### Git Merge Strategy
-All merging to `main` must use **squash merge** (`git merge --squash`). This applies to both repos in the workspace.
-
-### Private Repo Git Policy
-**Never** automatically commit or push in the companion private repo (`../dartclaw-private/`) during implementation work (executing plans, specs, etc.). All commits and pushes there must be explicitly requested by the user. (Normal commit/PR workflow applies in this public repo.)
+### Conventions
+- Lean dependencies — only what's needed per package
+- Single-threaded (add isolates only if profiling shows bottleneck)
+- Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_server/lib/src/static/` — see `VENDORS.md` in that directory for versions and upgrade instructions
+- Never use references to specific story IDs or titles in code, filenames, documentation etc (project/development documents are the exception).
 
 ### Timestamps
 **Always** run `date '+%Y-%m-%d %H:%M %Z'` before writing timestamps. Never guess — internal time may be wrong timezone.
@@ -70,16 +122,38 @@ All merging to `main` must use **squash merge** (`git merge --squash`). This app
 ### Development Guidelines
 Read relevant guidelines before coding, architecture, UX/UI, or review work:
 
-- _`~/.claude/cc-workflows/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md`_ when doing development work (coding, architecture, etc.)
-- _`~/.claude/cc-workflows/guidelines/UX-UI-GUIDELINES.md`_ when doing UX/UI related work
-- _`~/.claude/cc-workflows/guidelines/WEB-DEV-GUIDELINES.md`_ when doing web development work
+- _`~/.claude/plugins/marketplaces/andthen/docs/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md`_ when doing development work (coding, architecture, etc.)
+- _`~/.claude/plugins/marketplaces/andthen/docs/guidelines/UX-UI-GUIDELINES.md`_ when doing UX/UI related work
+- _`~/.claude/plugins/marketplaces/andthen/docs/guidelines/WEB-DEV-GUIDELINES.md`_ when doing web development work
 - _`docs/guidelines/DART-EFFECTIVE-GUIDELINES.md`_ — Effective Dart: style, documentation, usage, API design, async, error handling, Dart 3.x features, linter config
 - _`docs/guidelines/DART-PACKAGE-GUIDELINES.md`_ — Package creation: structure, pubspec, versioning, pub.dev scoring, publishing workflow, automated publishing
 - _`docs/guidelines/HTMX-GUIDELINES.md`_ — HTMX usage patterns, attributes, server-side rendering best practices, streaming updates, error handling, security considerations
 - _`docs/guidelines/TRELLIS-GUIDELINES.md`_ — Trellis template usage, escaping rules, fragment patterns, integration with HTMX, security best practices
 - _`docs/guidelines/TESTING-STRATEGY.md`_ — Test philosophy, four-layer pyramid, async patterns, coverage guidance, shared fakes, anti-patterns. **Read before writing tests**
 
-### Key Development Commands
+
+---
+
+
+## Visual Validation Workflow
+
+- `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` — conventions for visual validation (auto-read by `andthen:visual-validation-specialist`)
+- `docs/testing/UI-SMOKE-TEST.md` — test cases TC-01…TC-18. Trigger: _"Run the UI smoke test"_
+
+
+---
+
+
+## Release Preparation
+
+Before tagging: all tests (incl. `-t integration`), `dart analyze` (zero warnings), format check, UI smoke test.
+Then bump `dartclawVersion`, update CHANGELOG, `STATE.md`, `ROADMAP.md`, "Current through" markers in docs.
+
+
+---
+
+
+## Key Development Commands
 See `docs/guidelines/KEY_DEVELOPMENT_COMMANDS.md` — read before/after modifying code.
 
 For local development only, if `dart test` is blocked by `package:sqlite3` failing to codesign its bundled native asset inside `.dart_tool/`, it is acceptable to temporarily point sqlite hooks at the host system library with an uncommitted `pubspec.yaml` edit:
@@ -93,74 +167,45 @@ hooks:
 
 This is an escape hatch for local iteration, not the canonical verification path. Do not commit it as the default, and verify the host SQLite build supports the required features (at minimum FTS5) before trusting test results.
 
-## Project Structure
+#### Example configs
+Quick start: `bash examples/run.sh` — defaults to `dev.yaml` (no auth, guards off), stores data in `.dartclaw-dev/`.
+Specify a config: `bash examples/run.sh production --port 8080`
 
-```
-apps/dartclaw_cli/           CLI app: serve, status, deploy, token commands
-packages/
-  dartclaw/                  Umbrella package — re-exports core + models + storage
-  dartclaw_core/             Runtime: harness, protocol, guards, channels, scheduling (no sqlite3)
-  dartclaw_models/           Pure data classes: Session, Message, SessionKey (zero deps)
-  dartclaw_storage/          SQLite-backed: memory service, FTS5/QMD search, pruning
-  dartclaw_security/         Guard framework: CommandGuard, FileGuard, NetworkGuard
-  dartclaw_server/           HTTP API (shelf) + HTMX web UI + SSE streaming
-  dartclaw_whatsapp/         WhatsApp channel via GOWA
-  dartclaw_signal/           Signal channel via signal-cli
-  dartclaw_google_chat/      Google Chat channel via GCP
-  dartclaw_config/           Typed config model + extension registration
-  dartclaw_testing/          Shared test fakes and helpers
-docs/                        User guide, SDK docs, architecture, recipes
-examples/                    Ready-made configs + SDK examples
-```
 
-Dart pub workspace — all packages resolve locally via `pubspec.yaml` workspace declaration.
+---
 
-## Common Setup Paths
 
-**Basic web UI** — Start here. `dart pub get && dart run dartclaw_cli:dartclaw serve`. Edit behavior files in `~/.dartclaw/workspace/` to personalize. See `docs/guide/getting-started.md`.
+## Vital External Documentation Resources
+- **Dart** — https://dart.dev/guides — Language reference, core libraries, effective Dart
+- **Claude Code CLI** — https://code.claude.com/docs/en/headless — JSONL control protocol reference (stream-json format)
+- **sqlite3 (Dart)** — https://pub.dev/packages/sqlite3 — Raw SQLite bindings (search index only, no ORM)
+- **HTMX** — https://htmx.org/docs/ — Web UI attribute reference
 
-**Personal assistant** — Long-running knowledge companion with briefings, journaling, memory. Use `examples/personal-assistant.yaml` as starting config. See `docs/guide/recipes/00-personal-assistant.md`.
+**IMPORTANT**: Always delegate documentation lookups to a background _`andthen:documentation-lookup`_ sub-agent — keep the main context window clean.
 
-**Production deployment** — AOT compile, use `examples/production.yaml`, run `dartclaw deploy setup` for LaunchDaemon/systemd. See `docs/guide/deployment.md`.
 
-**With messaging channels** — Add WhatsApp, Signal, or Google Chat. Each has its own guide under `docs/guide/`. Channels are independent — enable one or all.
+---
 
-**SDK integration** — Build on DartClaw programmatically. Start with `docs/sdk/packages.md` to pick the right package, then `docs/sdk/quick-start.md`. Examples in `examples/sdk/`.
 
-## Customization Levels
+## Useful Tools and MCP Servers
 
-Users customize DartClaw at five levels (see `docs/guide/customization.md`):
+### Command line file search and code exploration tools
+- **ripgrep (rg)**: Fast recursive search. Example: `rg "createServerSupabaseClient"`. _Use instead of grep_ for better search performance.
+- **ast-grep**: Search by AST node types. Example: `ast-grep 'import { $X } from "supabase"' routes/`
+- **tree**: Directory structure visualization. Example: `tree -L 2 routes/`
 
-1. **L1 — Behavior files** (no code): Edit `SOUL.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `HEARTBEAT.md` in `~/.dartclaw/workspace/`
-2. **L2 — Config YAML** (no code): Tune `dartclaw.yaml` — guards, channels, scheduling, session scoping
-3. **L3 — Skills** (no code): Prompt templates in `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for other agents
-4. **L4 — MCP servers** (minimal code): Tool integrations via `.mcp.json`
-5. **L5 — Dart source**: Custom guards, channels, templates, MCP tools
+### Context7 MCP / Fetch MCP
+Both used **only** via the _`andthen:documentation-lookup`_ sub-agent. Context7 fetches version-specific library docs; Fetch converts web pages to markdown.
 
-Always suggest the lowest level that solves the user's need.
+### Dart MCP Server — NOT USED
+Not active. Use Bash for Dart CLI commands (see `KEY_DEVELOPMENT_COMMANDS.md`). For pub.dev searches, use the JSON API.
 
-## Data Layout
+### Dart LSP Plugin (`https://github.com/tolo/coding-agent-toolkit/tree/main/plugins/dart-lsp`)
+Spawns `dart language-server` — diagnostics, hover, goToDefinition, findReferences, call hierarchy across workspace packages. 
+**Fix all diagnostics immediately** — run `dart analyze` before declaring work done.
 
-```
-~/.dartclaw/
-  dartclaw.yaml          Runtime configuration
-  workspace/             Behavior files (SOUL.md, AGENTS.md, USER.md, etc.)
-  sessions/              Session transcripts (NDJSON)
-  logs/                  Structured logs
-  dartclaw.db            SQLite search index
-```
+### Visual Validation & UI Testing
 
-## Conventions
+**Agent Browser** — `agent-browser` skill. Core: `open <url>` → `snapshot -i` → `click @e1` / `fill @e2 "text"` → re-snapshot.
 
-- Lean dependencies. Prefer Dart stdlib and existing workspace packages over new packages.
-- `dartclaw_core` must stay free of sqlite3 and server-only dependencies.
-- Run `dart analyze` and targeted `dart test` coverage for touched code before finishing.
-- Follow existing package boundaries, naming, and file organization.
-
-## Prerequisites
-
-- **Dart SDK** >= 3.11.0 (`brew install dart` on macOS)
-- **Claude CLI** binary in PATH (`curl -fsSL https://claude.ai/install.sh | bash`)
-- **SQLite** system library (pre-installed on macOS, `apt install libsqlite3-dev` on Debian/Ubuntu)
-- **Docker** (optional) — for container isolation
-- **ANTHROPIC_API_KEY** or Claude CLI OAuth session (`claude login`)
+**Chrome DevTools MCP** — `chrome-devtools` skill. Deeper inspection, JS execution, debugging.

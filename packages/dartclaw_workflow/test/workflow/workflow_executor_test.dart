@@ -2200,7 +2200,7 @@ void main() {
       expect(agentExecutionCount, greaterThanOrEqualTo(taskCount));
     });
 
-    test('mixed-output steps include text and json fields in the structured extraction schema', () async {
+    test('mixed-output steps without narrative outputs skip structured extraction schema', () async {
       final mpExecutor = makeMultiPromptExecutor();
 
       final definition = makeDefinition(
@@ -2226,14 +2226,7 @@ void main() {
       await sub.cancel();
 
       final createdTask = (await taskService.list()).single;
-      final schema = Map<Object?, Object?>.from(
-        (await workflowStepExecutionRepository.getByTaskId(createdTask.id))!.structuredSchema!,
-      );
-      final properties = Map<Object?, Object?>.from(schema['properties'] as Map);
-
-      expect((schema['required'] as List<Object?>), containsAll(['prd', 'stories']));
-      expect(properties['prd'], equals({'type': 'string'}));
-      expect((properties['stories'] as Map<Object?, Object?>)['type'], equals('object'));
+      expect((await workflowStepExecutionRepository.getByTaskId(createdTask.id))!.structuredSchema, isNull);
     });
 
     test('without turn infrastructure, multi-prompt step still completes (graceful degradation)', () async {

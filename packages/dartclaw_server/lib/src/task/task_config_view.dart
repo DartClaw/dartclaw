@@ -77,6 +77,13 @@ final class TaskConfigView {
     return trimmed.isEmpty ? null : trimmed;
   }
 
+  String? get requiredInputPath {
+    final raw = task.configJson['requiredInputPath'];
+    if (raw is! String) return null;
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
   int? get tokenBudget {
     if (task.maxTokens != null && task.maxTokens! > 0) return task.maxTokens;
     final primary = task.configJson['tokenBudget'];

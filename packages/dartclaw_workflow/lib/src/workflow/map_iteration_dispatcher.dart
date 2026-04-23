@@ -169,8 +169,25 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
         );
       }
 
+      StepValidationFailure? extractionFailure;
       try {
         outputs = await _contextExtractor.extract(step, finalTask, effectiveOutputs: _effectiveOutputsFor(step));
+      } on MissingArtifactFailure catch (e, st) {
+        extractionFailure = StepValidationFailure(reason: e.toString(), missingArtifacts: e.missingPaths);
+        WorkflowExecutor._log.warning(
+          "Workflow '${run.id}': context extraction failed for map step '${step.id}' "
+          'iteration $iterIndex: $e',
+          e,
+          st,
+        );
+      } on StateError catch (e, st) {
+        extractionFailure = StepValidationFailure(reason: e.message);
+        WorkflowExecutor._log.warning(
+          "Workflow '${run.id}': context extraction failed for map step '${step.id}' "
+          'iteration $iterIndex: $e',
+          e,
+          st,
+        );
       } catch (e, st) {
         WorkflowExecutor._log.warning(
           "Workflow '${run.id}': context extraction failed for map step '${step.id}' "
@@ -178,6 +195,14 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
           e,
           st,
         );
+      }
+      if (extractionFailure != null) {
+        persistIterationOutputs();
+        mapCtx.recordFailure(iterIndex, extractionFailure.reason, taskId);
+        await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+        mapCtx.inFlightCount--;
+        emitIterationFailure();
+        return;
       }
 
       // Build result value.

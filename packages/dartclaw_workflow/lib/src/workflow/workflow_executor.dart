@@ -15,6 +15,7 @@ import 'dependency_graph.dart';
 import 'gate_evaluator.dart';
 import 'map_context.dart';
 import 'map_step_context.dart';
+import 'missing_artifact_failure.dart';
 import 'skill_prompt_builder.dart';
 import 'skill_registry.dart';
 import 'step_config_policy.dart' as step_config_policy;

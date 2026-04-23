@@ -48,6 +48,7 @@ extension _WorkflowOneShotRunnerHelpers on WorkflowOneShotRunner {
     final extracted = WorkflowTurnExtractor(
       log: _log,
     ).parse(assistantMessages.last.content, requiredKeys: WorkflowTurnExtractor.requiredTopLevelKeys(structuredSchema));
+    if (extracted.isPartial) return null;
     return extracted.inlinePayload.isEmpty ? null : Map<String, dynamic>.from(extracted.inlinePayload);
   }
 

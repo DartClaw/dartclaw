@@ -1,3 +1,7 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show OutputConfig, OutputFormat;
+
+import 'output_resolver.dart';
+
 /// A built-in schema preset with JSON Schema and prompt fragment.
 class SchemaPreset {
   /// Preset name (used in YAML: `schema: verdict`).
@@ -19,8 +23,94 @@ class SchemaPreset {
   /// workflows.
   final String? description;
 
-  const SchemaPreset({required this.name, required this.schema, this.promptFragment, this.description});
+  /// Default resolver used when [fieldResolvers] does not name a field.
+  final OutputResolver? defaultResolver;
+
+  /// Field-specific resolver declarations for canonical output keys.
+  final Map<String, OutputResolver> fieldResolvers;
+
+  const SchemaPreset({
+    required this.name,
+    required this.schema,
+    this.promptFragment,
+    this.description,
+    this.defaultResolver,
+    this.fieldResolvers = const <String, OutputResolver>{},
+  });
+
+  /// Returns the resolver declared for [fieldName].
+  OutputResolver? resolverFor(String fieldName) {
+    final explicit = fieldResolvers[fieldName];
+    if (explicit != null) return _withSchemaKey(explicit, fieldName);
+    final fallback = defaultResolver;
+    return fallback == null ? null : _withSchemaKey(fallback, fieldName);
+  }
 }
+
+/// Resolves the output source policy for [outputKey].
+OutputResolver outputResolverFor(String outputKey, OutputConfig? config) {
+  final presetName = config?.presetName;
+  if (presetName != null) {
+    final resolver = schemaPresets[presetName]?.resolverFor(outputKey);
+    if (resolver != null) return resolver;
+  }
+  return defaultOutputResolverFor(outputKey, config);
+}
+
+/// Infers a backward-compatible resolver for workflows without declarations.
+OutputResolver defaultOutputResolverFor(String outputKey, OutputConfig? config) {
+  if (config?.format == OutputFormat.path) {
+    return FileSystemOutput(pathPattern: _defaultPathPattern(outputKey), listMode: false);
+  }
+  if (config?.format == OutputFormat.lines && _looksLikePathList(outputKey)) {
+    return FileSystemOutput(pathPattern: _defaultPathPattern(outputKey), listMode: true);
+  }
+  if (_narrativeOutputKeys.contains(outputKey)) {
+    return NarrativeOutput(schemaKey: outputKey);
+  }
+  return InlineOutput(schemaKey: outputKey);
+}
+
+OutputResolver _withSchemaKey(OutputResolver resolver, String fieldName) {
+  return switch (resolver) {
+    FileSystemOutput(:final pathPattern, :final listMode) => FileSystemOutput(
+      pathPattern: pathPattern,
+      listMode: listMode,
+    ),
+    InlineOutput() => InlineOutput(schemaKey: fieldName),
+    NarrativeOutput() => NarrativeOutput(schemaKey: fieldName),
+  };
+}
+
+String _defaultPathPattern(String outputKey) {
+  return switch (outputKey) {
+    'prd' || 'prd_path' => '**/prd.md',
+    'plan' || 'plan_path' => '**/plan.md',
+    'technical_research' || 'technical_research_path' => '**/.technical-research.md',
+    'fis_paths' || 'story_spec_paths' => 'fis/s*.md',
+    'spec_path' || 'story_spec' || 'story_spec_path' => '**/*.md',
+    _ => '**/*',
+  };
+}
+
+bool _looksLikePathList(String outputKey) {
+  return outputKey == 'fis_paths' || outputKey == 'story_spec_paths' || outputKey.endsWith('_paths');
+}
+
+const _narrativeOutputKeys = <String>{
+  'confidence',
+  'diff_summary',
+  'findings_summary',
+  'plan_source',
+  'prd_source',
+  'remediation_summary',
+  'spec_confidence',
+  'spec_source',
+  'state_update_summary',
+  'summary',
+  'technical_research',
+  'validation_summary',
+};
 
 /// Built-in schema presets registry.
 const schemaPresets = <String, SchemaPreset>{
@@ -41,6 +131,7 @@ const schemaPresets = <String, SchemaPreset>{
 
 const verdictPreset = SchemaPreset(
   name: 'verdict',
+  defaultResolver: NarrativeOutput(schemaKey: 'verdict'),
   schema: {
     'type': 'object',
     'additionalProperties': false,
@@ -73,6 +164,7 @@ const verdictPreset = SchemaPreset(
 
 const storyPlanPreset = SchemaPreset(
   name: 'story-plan',
+  defaultResolver: InlineOutput(schemaKey: 'stories'),
   schema: {
     'type': 'object',
     'additionalProperties': false,
@@ -98,6 +190,7 @@ const storyPlanPreset = SchemaPreset(
 
 const remediationResultPreset = SchemaPreset(
   name: 'remediation-result',
+  defaultResolver: NarrativeOutput(schemaKey: 'remediation_result'),
   schema: {
     'type': 'object',
     'additionalProperties': false,
@@ -111,6 +204,8 @@ const remediationResultPreset = SchemaPreset(
 
 const storySpecsPreset = SchemaPreset(
   name: 'story-specs',
+  defaultResolver: InlineOutput(schemaKey: 'story_specs'),
+  fieldResolvers: {'story_specs': InlineOutput(schemaKey: 'story_specs')},
   schema: {
     'type': 'object',
     'additionalProperties': false,
@@ -142,6 +237,7 @@ const storySpecsPreset = SchemaPreset(
 
 const fileListPreset = SchemaPreset(
   name: 'file-list',
+  defaultResolver: InlineOutput(schemaKey: 'files'),
   schema: {
     'type': 'object',
     'additionalProperties': false,
@@ -169,6 +265,7 @@ const fileListPreset = SchemaPreset(
 
 const checklistPreset = SchemaPreset(
   name: 'checklist',
+  defaultResolver: InlineOutput(schemaKey: 'checklist'),
   schema: {
     'type': 'object',
     'additionalProperties': false,
@@ -200,6 +297,7 @@ const checklistPreset = SchemaPreset(
 /// `project_index` by downstream workflow steps.
 const projectIndexPreset = SchemaPreset(
   name: 'project-index',
+  defaultResolver: InlineOutput(schemaKey: 'project_index'),
   schema: {
     'type': 'object',
     'additionalProperties': false,
@@ -337,6 +435,12 @@ const projectIndexPreset = SchemaPreset(
 /// Simple scalar schema for non-negative integer counters like `findings_count`.
 const nonNegativeIntegerPreset = SchemaPreset(
   name: 'non-negative-integer',
+  defaultResolver: NarrativeOutput(schemaKey: 'count'),
+  fieldResolvers: {
+    'confidence': NarrativeOutput(schemaKey: 'confidence'),
+    'findings_count': InlineOutput(schemaKey: 'findings_count'),
+    'spec_confidence': NarrativeOutput(schemaKey: 'spec_confidence'),
+  },
   schema: {'type': 'integer', 'minimum': 0},
   promptFragment: 'Produce a non-negative integer (0 or greater). Output the number directly.',
 );
@@ -345,6 +449,7 @@ const nonNegativeIntegerPreset = SchemaPreset(
 /// remediation, and validation steps.
 const diffSummaryPreset = SchemaPreset(
   name: 'diff-summary',
+  defaultResolver: NarrativeOutput(schemaKey: 'diff_summary'),
   schema: {'type': 'string'},
   description: 'Compact description of file-level changes produced by this step (files touched, nature of edits).',
 );
@@ -353,6 +458,7 @@ const diffSummaryPreset = SchemaPreset(
 /// re-validate steps.
 const validationSummaryPreset = SchemaPreset(
   name: 'validation-summary',
+  defaultResolver: NarrativeOutput(schemaKey: 'validation_summary'),
   schema: {'type': 'string'},
   description: 'Summary of validation outcomes for this step (build, tests, analyzer, and any refinements applied).',
 );
@@ -361,6 +467,7 @@ const validationSummaryPreset = SchemaPreset(
 /// final `update-state` step of every workflow.
 const stateUpdateSummaryPreset = SchemaPreset(
   name: 'state-update-summary',
+  defaultResolver: NarrativeOutput(schemaKey: 'state_update_summary'),
   schema: {'type': 'string'},
   description: 'Summary of what was written to the project state document for this workflow execution.',
 );
@@ -369,6 +476,7 @@ const stateUpdateSummaryPreset = SchemaPreset(
 /// remediation loops.
 const remediationSummaryPreset = SchemaPreset(
   name: 'remediation-summary',
+  defaultResolver: NarrativeOutput(schemaKey: 'remediation_summary'),
   schema: {'type': 'string'},
   description:
       'Summary of what was changed during this remediation pass — issues addressed, approach taken, and any deferrals.',
@@ -378,6 +486,7 @@ const remediationSummaryPreset = SchemaPreset(
 /// the plan-and-implement foreach pipeline.
 const storyResultPreset = SchemaPreset(
   name: 'story-result',
+  defaultResolver: NarrativeOutput(schemaKey: 'story_result'),
   schema: {'type': 'string'},
   description: 'Summary of what was implemented for this story — files changed, key decisions, and verification notes.',
 );

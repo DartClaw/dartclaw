@@ -464,6 +464,18 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   bool _requiresPerMapItemBootstrap(WorkflowDefinition definition, WorkflowContext context) =>
       step_config_policy.requiresPerMapItemBootstrap(definition, context, templateEngine: _templateEngine);
 
+  String? _mapItemSpecPath(MapContext mapCtx) {
+    final item = mapCtx.item;
+    final raw = switch (item) {
+      final Map<String, dynamic> map => map['spec_path'],
+      final Map<Object?, Object?> map => map['spec_path'],
+      _ => null,
+    };
+    if (raw is! String) return null;
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
   /// Returns true if the workflow-level budget has been exceeded.
   bool _workflowBudgetExceeded(WorkflowRun run, WorkflowDefinition definition) =>
       workflow_budget_monitor.workflowBudgetExceeded(run, definition);

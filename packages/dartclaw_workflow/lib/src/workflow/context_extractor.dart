@@ -18,8 +18,11 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'json_extraction.dart';
+import 'missing_artifact_failure.dart';
+import 'output_resolver.dart';
 import 'schema_presets.dart';
 import 'schema_validator.dart';
+import 'workflow_git_port.dart';
 import 'workflow_output_contract.dart';
 import 'workflow_task_config.dart';
 
@@ -52,18 +55,21 @@ class ContextExtractor {
   final SchemaValidator _schemaValidator;
   final StructuredOutputFallbackRecorder? _structuredOutputFallbackRecorder;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
+  final WorkflowGitPort? _workflowGitPort;
 
   ContextExtractor({
     required WorkflowTaskService taskService,
     required MessageService messageService,
     required String dataDir,
     WorkflowStepExecutionRepository? workflowStepExecutionRepository,
+    WorkflowGitPort? workflowGitPort,
     SchemaValidator? schemaValidator,
     StructuredOutputFallbackRecorder? structuredOutputFallbackRecorder,
   }) : _taskService = taskService,
        _messageService = messageService,
        _dataDir = dataDir,
        _workflowStepExecutionRepository = workflowStepExecutionRepository,
+       _workflowGitPort = workflowGitPort,
        _schemaValidator = schemaValidator ?? const SchemaValidator(),
        _structuredOutputFallbackRecorder = structuredOutputFallbackRecorder;
 
@@ -125,45 +131,43 @@ class ContextExtractor {
         );
       }
 
-      // Structured-mode primary: provider-enforced payload is authoritative.
-      // On miss, record the fallback event and fall through to the heuristic chain.
-      if (config != null && config.outputMode == OutputMode.structured) {
-        if (structuredOutputPayload.containsKey(outputKey)) {
-          final structuredValue = _normalizeJsonOutput(structuredOutputPayload[outputKey], config, step.id, outputKey);
-          _softValidate(structuredValue, config, step.id, outputKey);
-          outputs[outputKey] = structuredValue;
+      final resolver = outputResolverFor(outputKey, config);
+      switch (resolver) {
+        case FileSystemOutput():
+          outputs[outputKey] = await _resolveFileSystemOutput(
+            resolver,
+            outputKey: outputKey,
+            task: task,
+            inlinePayload: workflowContextPayload?[outputKey],
+          );
           continue;
-        }
+        case InlineOutput():
+          if (workflowContextPayload != null && workflowContextPayload.containsKey(outputKey)) {
+            outputs[outputKey] = _normalizePayloadValue(workflowContextPayload[outputKey], config, step.id, outputKey);
+            continue;
+          }
+          if (structuredOutputPayload.containsKey(outputKey)) {
+            outputs[outputKey] = _normalizePayloadValue(structuredOutputPayload[outputKey], config, step.id, outputKey);
+            continue;
+          }
+        case NarrativeOutput():
+          if (workflowContextPayload != null && workflowContextPayload.containsKey(outputKey)) {
+            outputs[outputKey] = _normalizePayloadValue(workflowContextPayload[outputKey], config, step.id, outputKey);
+            continue;
+          }
+          if (structuredOutputPayload.containsKey(outputKey)) {
+            outputs[outputKey] = _normalizePayloadValue(structuredOutputPayload[outputKey], config, step.id, outputKey);
+            continue;
+          }
+      }
+
+      if (config != null && config.outputMode == OutputMode.structured) {
         _structuredOutputFallbackRecorder?.call(
           task.id,
           stepId: step.id,
           outputKey: outputKey,
           failureReason: 'missing_payload',
         );
-      }
-
-      if (workflowContextPayload != null && workflowContextPayload.containsKey(outputKey)) {
-        final payloadValue = workflowContextPayload[outputKey];
-        if (config == null || config.format == OutputFormat.text) {
-          outputs[outputKey] = _stringifyWorkflowValue(payloadValue);
-        } else {
-          switch (config.format) {
-            case OutputFormat.json:
-              final normalizedValue = _normalizeJsonOutput(payloadValue, config, step.id, outputKey);
-              _softValidate(normalizedValue, config, step.id, outputKey);
-              outputs[outputKey] = normalizedValue;
-            case OutputFormat.lines:
-              outputs[outputKey] = switch (payloadValue) {
-                final List<dynamic> values =>
-                  values.map((value) => value.toString().trim()).where((s) => s.isNotEmpty).toList(),
-                _ => extractLines(_stringifyWorkflowValue(payloadValue)),
-              };
-            case OutputFormat.text:
-            case OutputFormat.path:
-              outputs[outputKey] = _stringifyWorkflowValue(payloadValue);
-          }
-        }
-        continue;
       }
 
       if (config != null && config.format != OutputFormat.text && config.format != OutputFormat.path) {
@@ -238,25 +242,8 @@ class ContextExtractor {
       outputs[outputKey] = '';
     }
 
-    // Path-existence validation for `format: path` outputs.
-    //
-    // Workflows routinely gate downstream steps on whether an upstream step
-    // produced a file (e.g. `dartclaw-prd` sets `prd` to the path it wrote;
-    // the next step's entryGate `prd == null` skips authoring when a PRD
-    // already exists). LLMs occasionally emit the *intended* write path even
-    // when they didn't (or couldn't) actually produce the file — poisoning
-    // the gate into skipping a step that was supposed to author the file.
-    //
-    // Defensive policy: if `format: path` resolves to a non-empty string but
-    // the file doesn't exist under any of the task's plausible roots, coerce
-    // the value to an empty string and log a warning. An empty string is
-    // treated as null by the gate evaluator, so the downstream authoring
-    // step runs and can produce the file. Coercion is a narrow safety net;
-    // skills should still emit correct values.
-    final normalizedOutputs = _coercePhantomPaths(outputs, configs, task, step.id);
-
     // Warn on large values.
-    for (final entry in normalizedOutputs.entries) {
+    for (final entry in outputs.entries) {
       final value = entry.value?.toString() ?? '';
       if (value.length > _contextSizeWarningThreshold) {
         _log.warning(
@@ -266,7 +253,88 @@ class ContextExtractor {
       }
     }
 
-    return normalizedOutputs;
+    return outputs;
+  }
+
+  Future<Object?> _resolveFileSystemOutput(
+    FileSystemOutput resolver, {
+    required String outputKey,
+    required Task task,
+    required Object? inlinePayload,
+  }) async {
+    final claimedPaths = _claimedPaths(inlinePayload);
+    final worktreePath = (task.worktreeJson?['path'] as String?)?.trim() ?? '';
+    final git = _workflowGitPort;
+
+    if (git == null || worktreePath.isEmpty) {
+      final missingPaths = claimedPaths.where((path) => !_pathResolvesToExistingFile(path, task)).toList();
+      if (missingPaths.isNotEmpty) {
+        throw MissingArtifactFailure(
+          claimedPaths: claimedPaths,
+          missingPaths: missingPaths,
+          worktreePath: worktreePath,
+          fieldName: outputKey,
+          reason: 'path claimed but not present in worktree diff',
+        );
+      }
+      if (resolver.listMode) return claimedPaths;
+      return claimedPaths.isEmpty ? '' : claimedPaths.single;
+    }
+
+    final changedPaths = await git.diffNameOnly(worktreePath);
+    final matches = changedPaths.map(p.normalize).where(resolver.matches).toList()..sort();
+    final missingClaims = claimedPaths.where((path) => !matches.contains(p.normalize(path))).toList();
+    if (missingClaims.isNotEmpty) {
+      throw MissingArtifactFailure(
+        claimedPaths: claimedPaths,
+        missingPaths: missingClaims,
+        worktreePath: worktreePath,
+        fieldName: outputKey,
+        reason: 'path claimed but not present in worktree diff',
+      );
+    }
+
+    if (resolver.listMode) return matches;
+    if (matches.isEmpty) return '';
+    if (matches.length == 1) return matches.single;
+    throw StateError('Multiple filesystem artifacts matched "$outputKey" in $worktreePath: $matches');
+  }
+
+  Object? _normalizePayloadValue(Object? payloadValue, OutputConfig? config, String stepId, String outputKey) {
+    if (config == null || config.format == OutputFormat.text) {
+      return _stringifyWorkflowValue(payloadValue);
+    }
+    switch (config.format) {
+      case OutputFormat.json:
+        final normalizedValue = _normalizeJsonOutput(payloadValue, config, stepId, outputKey);
+        _softValidate(normalizedValue, config, stepId, outputKey);
+        return normalizedValue;
+      case OutputFormat.lines:
+        return switch (payloadValue) {
+          final List<dynamic> values =>
+            values.map((value) => value.toString().trim()).where((s) => s.isNotEmpty).toList(),
+          _ => extractLines(_stringifyWorkflowValue(payloadValue)),
+        };
+      case OutputFormat.text:
+      case OutputFormat.path:
+        return _stringifyWorkflowValue(payloadValue);
+    }
+  }
+
+  List<String> _claimedPaths(Object? payloadValue) {
+    if (payloadValue == null) return const <String>[];
+    if (payloadValue is String) {
+      final value = payloadValue.trim();
+      return value.isEmpty || value == 'null' ? const <String>[] : <String>[p.normalize(value)];
+    }
+    if (payloadValue is Iterable) {
+      return payloadValue
+          .map((value) => value.toString().trim())
+          .where((value) => value.isNotEmpty && value != 'null')
+          .map(p.normalize)
+          .toList();
+    }
+    return const <String>[];
   }
 
   /// Returns `true` if [value] (possibly relative) resolves to an existing
@@ -596,30 +664,5 @@ class ContextExtractor {
       _log.warning('Failed to read artifact at "$path" for task $taskId: $e');
       return null;
     }
-  }
-
-  Map<String, dynamic> _coercePhantomPaths(
-    Map<String, dynamic> outputs,
-    Map<String, OutputConfig>? configs,
-    Task task,
-    String stepId,
-  ) {
-    final normalized = Map<String, dynamic>.from(outputs);
-    for (final entry in configs?.entries ?? const <MapEntry<String, OutputConfig>>[]) {
-      final outputKey = entry.key;
-      final outputConfig = entry.value;
-      if (outputConfig.format != OutputFormat.path) continue;
-      final rawValue = outputs[outputKey];
-      if (rawValue is! String || rawValue.isEmpty) continue;
-      if (_pathResolvesToExistingFile(rawValue, task)) continue;
-      _log.warning(
-        'Context key "$outputKey" from step "$stepId" (task ${task.id}) '
-        'resolved to path "$rawValue" which does not exist under any known root '
-        '(worktree, project, dataDir, cwd). Coercing to empty string — '
-        'downstream gates treat this as null. Skill should emit only paths to existing files.',
-      );
-      normalized[outputKey] = '';
-    }
-    return normalized;
   }
 }

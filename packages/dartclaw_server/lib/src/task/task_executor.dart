@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../behavior/behavior_file_service.dart';
@@ -446,6 +448,23 @@ class TaskExecutor {
               _log.warning('externalArtifactMount failed for task ${task.id}: $e');
             }
           }
+        }
+      }
+
+      final requiredInputPath = TaskConfigView(task, log: _log).requiredInputPath;
+      if (requiredInputPath != null) {
+        final effectiveWorktreePath = worktreeInfo?.path;
+        final fallbackProjectPath = (project != null && project.id != '_local') ? project.localPath : null;
+        final rootPath = (effectiveWorktreePath?.isNotEmpty ?? false) ? effectiveWorktreePath : fallbackProjectPath;
+        final exists = rootPath != null && File(p.join(rootPath, requiredInputPath)).existsSync();
+        if (!exists) {
+          final rootLabel = rootPath == null || rootPath.isEmpty ? 'task worktree' : rootPath;
+          await _failureHandler.markFailedOrRetry(
+            task,
+            errorSummary: 'artifact-propagation: required input path "$requiredInputPath" is missing in "$rootLabel"',
+            retryable: false,
+          );
+          return;
         }
       }
 

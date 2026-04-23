@@ -3,10 +3,7 @@ import 'package:test/test.dart';
 
 /// Collects every leaf property schema from an object preset so we can assert
 /// that each property carries a JSON Schema `description`.
-List<MapEntry<String, Map<String, dynamic>>> _collectProperties(
-  Map<String, dynamic> schema, {
-  String prefix = '',
-}) {
+List<MapEntry<String, Map<String, dynamic>>> _collectProperties(Map<String, dynamic> schema, {String prefix = ''}) {
   final out = <MapEntry<String, Map<String, dynamic>>>[];
 
   void visit(Map<String, dynamic> node, String path) {
@@ -63,6 +60,40 @@ void main() {
       }
     });
 
+    test('each preset declares an output resolver', () {
+      for (final preset in schemaPresets.values) {
+        expect(
+          preset.defaultResolver ?? preset.fieldResolvers.values.firstOrNull,
+          isNotNull,
+          reason: '"${preset.name}" must declare how outputs resolve.',
+        );
+      }
+    });
+
+    test('declares resolver type per canonical field', () {
+      expect(
+        outputResolverFor('story_specs', const OutputConfig(format: OutputFormat.json, schema: 'story-specs')),
+        isA<InlineOutput>(),
+      );
+      expect(
+        outputResolverFor(
+          'spec_confidence',
+          const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        ),
+        isA<NarrativeOutput>(),
+      );
+      expect(outputResolverFor('plan', const OutputConfig(format: OutputFormat.path)), isA<FileSystemOutput>());
+    });
+
+    test('infers filesystem resolver for legacy path output without preset resolver', () {
+      final resolver = outputResolverFor('artifact_path', const OutputConfig(format: OutputFormat.path));
+
+      expect(resolver, isA<FileSystemOutput>());
+      final filesystem = resolver as FileSystemOutput;
+      expect(filesystem.authoritative, isTrue);
+      expect(filesystem.pathPattern, '**/*');
+    });
+
     test('each object preset disables additional properties', () {
       for (final preset in schemaPresets.values) {
         if (preset.schema['type'] == 'object') {
@@ -107,18 +138,10 @@ void main() {
               'workflow using this preset via PromptAugmenter.effectiveDescription.',
         );
         final properties = _collectProperties(preset.schema);
-        expect(
-          properties,
-          isNotEmpty,
-          reason: '"${preset.name}" should expose at least one property.',
-        );
+        expect(properties, isNotEmpty, reason: '"${preset.name}" should expose at least one property.');
         for (final entry in properties) {
           final desc = entry.value['description'];
-          expect(
-            desc,
-            isA<String>(),
-            reason: '"${preset.name}".${entry.key} is missing a JSON Schema `description`.',
-          );
+          expect(desc, isA<String>(), reason: '"${preset.name}".${entry.key} is missing a JSON Schema `description`.');
           expect(
             (desc as String).trim(),
             isNotEmpty,
@@ -202,8 +225,11 @@ void main() {
       // it in the structured record invited drift between the two copies.
       expect(required, isNot(contains('acceptance_criteria')));
       expect(props.containsKey('acceptance_criteria'), isFalse);
-      expect(itemSchema['additionalProperties'], isFalse,
-          reason: 'additionalProperties:false ensures plan skills cannot silently re-emit acceptance_criteria');
+      expect(
+        itemSchema['additionalProperties'],
+        isFalse,
+        reason: 'additionalProperties:false ensures plan skills cannot silently re-emit acceptance_criteria',
+      );
     });
 
     test('schema envelope requires items', () {

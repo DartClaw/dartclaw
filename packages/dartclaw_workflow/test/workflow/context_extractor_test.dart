@@ -7,6 +7,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         ExtractionConfig,
         ExtractionType,
         MessageService,
+        MissingArtifactFailure,
         OutputConfig,
         OutputFormat,
         OutputMode,
@@ -17,7 +18,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show ContextExtractor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryWorkflowStepExecutionRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, InMemoryWorkflowStepExecutionRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -172,9 +173,7 @@ void main() {
     expect(outputs['research_notes'], equals('JSON extracted value'));
   });
 
-  test('coerces missing path outputs to an empty string', () async {
-    final records = <LogRecord>[];
-    final sub = Logger('ContextExtractor').onRecord.listen(records.add);
+  test('throws MissingArtifactFailure for missing path outputs', () async {
     final session = await sessionService.getOrCreateMain();
     await messageService.insertMessage(
       sessionId: session.id,
@@ -197,15 +196,221 @@ void main() {
       outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
     );
 
-    final outputs = await extractor.extract(step, taskWithSession);
-    await sub.cancel();
-    expect(outputs['prd'], equals(''));
-    expect(
-      records.map((record) => record.message),
-      contains(
-        allOf(contains('Context key "prd"'), contains('docs/specs/demo/prd.md'), contains('Coercing to empty string')),
+    await expectLater(
+      extractor.extract(step, taskWithSession),
+      throwsA(
+        isA<MissingArtifactFailure>()
+            .having((failure) => failure.claimedPaths, 'claimedPaths', ['docs/specs/demo/prd.md'])
+            .having((failure) => failure.missingPaths, 'missingPaths', ['docs/specs/demo/prd.md'])
+            .having((failure) => failure.reason, 'reason', 'path claimed but not present in worktree diff'),
       ),
     );
+  });
+
+  test('resolves list path outputs from workflow git diff', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree'))..createSync();
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'fis/s01-foo.md')
+      ..addUntracked(worktree.path, 'fis/s02-bar.md')
+      ..addUntracked(worktree.path, 'docs/unrelated.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>${jsonEncode({
+            'fis_paths': ['fis/s01-foo.md', 'fis/s02-bar.md'],
+          })}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-fis-paths',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-fis-paths', sessionId: session.id, worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-fis-paths'))!;
+
+    final step = makeStep(
+      contextOutputs: ['fis_paths'],
+      outputs: const {'fis_paths': OutputConfig(format: OutputFormat.lines)},
+    );
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['fis_paths'], ['fis/s01-foo.md', 'fis/s02-bar.md']);
+    expect(git.events, contains('diff --name-only'));
+  });
+
+  test('rejects phantom path claims against workflow git diff', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-phantom'))..createSync();
+    final git = FakeGitGateway()..initWorktree(worktree.path);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"prd":"docs/prd.md"}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-phantom-path',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-phantom-path', sessionId: session.id, worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-phantom-path'))!;
+    final step = makeStep(
+      contextOutputs: ['prd'],
+      outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
+    );
+
+    await expectLater(
+      localExtractor.extract(step, taskWithWorktree),
+      throwsA(
+        isA<MissingArtifactFailure>()
+            .having((failure) => failure.claimedPaths, 'claimedPaths', ['docs/prd.md'])
+            .having((failure) => failure.missingPaths, 'missingPaths', ['docs/prd.md'])
+            .having((failure) => failure.worktreePath, 'worktreePath', worktree.path)
+            .having((failure) => failure.fieldName, 'fieldName', 'prd')
+            .having((failure) => failure.reason, 'reason', 'path claimed but not present in worktree diff'),
+      ),
+    );
+  });
+
+  test('throws StateError when singular filesystem output has multiple matches', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-ambiguous'))..createSync();
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'docs/a/prd.md')
+      ..addUntracked(worktree.path, 'docs/b/prd.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    await taskService.create(
+      id: 'task-ambiguous-path',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-ambiguous-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-ambiguous-path'))!;
+    final step = makeStep(
+      contextOutputs: ['prd'],
+      outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
+    );
+
+    await expectLater(
+      localExtractor.extract(step, taskWithWorktree),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Multiple filesystem artifacts'))),
+    );
+  });
+
+  test('uses inline values for narrative-only outputs', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"summary":"Inline summary","confidence":8}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-narrative-inline',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-narrative-inline', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-narrative-inline'))!;
+    final fallbackCalls = <String>[];
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      structuredOutputFallbackRecorder:
+          (_, {required stepId, required outputKey, required failureReason, String? providerSubtype}) {
+            fallbackCalls.add(outputKey);
+          },
+    );
+    final step = makeStep(
+      contextOutputs: ['summary', 'confidence'],
+      outputs: const {
+        'summary': OutputConfig(format: OutputFormat.text),
+        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await localExtractor.extract(step, taskWithSession);
+
+    expect(outputs['summary'], 'Inline summary');
+    expect(outputs['confidence'], 8);
+    expect(fallbackCalls, isEmpty);
+  });
+
+  test('resolves mixed filesystem and inline narrative outputs', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-mixed'))..createSync();
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'fis/s01-foo.md')
+      ..addUntracked(worktree.path, 'fis/s02-bar.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>${jsonEncode({
+            'fis_paths': ['fis/s02-bar.md', 'fis/s01-foo.md'],
+            'summary': 'Inline summary',
+            'confidence': 9,
+          })}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-mixed-output',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-mixed-output', sessionId: session.id, worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-mixed-output'))!;
+    final step = makeStep(
+      contextOutputs: ['fis_paths', 'summary', 'confidence'],
+      outputs: const {
+        'fis_paths': OutputConfig(format: OutputFormat.lines),
+        'summary': OutputConfig(format: OutputFormat.text),
+        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['fis_paths'], ['fis/s01-foo.md', 'fis/s02-bar.md']);
+    expect(outputs['summary'], 'Inline summary');
+    expect(outputs['confidence'], 9);
   });
 
   test(
@@ -475,6 +680,49 @@ void main() {
 
     expect(outputs['verdict'], isA<Map<Object?, Object?>>());
     expect((outputs['verdict'] as Map<Object?, Object?>)['pass'], isTrue);
+  });
+
+  test('inline payload wins for narrative fields before structured fallback payload', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"summary":"Inline summary"}</workflow-context>',
+    );
+    await agentExecutions.create(const AgentExecution(id: 'ae-narrative-precedence'));
+    await taskService.create(
+      id: 'task-narrative-precedence',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+      agentExecutionId: 'ae-narrative-precedence',
+      workflowRunId: 'wf-narrative-precedence',
+    );
+    await workflowStepExecutions.create(
+      const WorkflowStepExecution(
+        taskId: 'task-narrative-precedence',
+        agentExecutionId: 'ae-narrative-precedence',
+        workflowRunId: 'wf-narrative-precedence',
+        stepIndex: 0,
+        stepId: 'step1',
+        structuredOutputJson: '{"summary":"Structured summary","confidence":7}',
+      ),
+    );
+    await taskService.updateFields('task-narrative-precedence', sessionId: session.id);
+    final task = (await taskService.get('task-narrative-precedence'))!;
+    final step = makeStep(
+      contextOutputs: ['summary', 'confidence'],
+      outputs: const {
+        'summary': OutputConfig(format: OutputFormat.text),
+        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['summary'], 'Inline summary');
+    expect(outputs['confidence'], 7);
   });
 
   test('structured output mode records fallback and uses heuristic json when payload is missing', () async {

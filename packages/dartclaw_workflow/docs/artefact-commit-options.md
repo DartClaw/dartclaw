@@ -28,4 +28,4 @@ Trade-offs:
 
 ## Non-Decision
 
-S47 does not choose between copy-not-commit and artefact-branch-split because both change workflow branch topology and worktree lifecycle semantics. The current implementation keeps the existing commit path but makes load-bearing commit failure observable and fatal. S48/S49 can then validate required artefacts at `HEAD:<path>` before launching child worktrees.
+The current implementation does not choose between copy-not-commit and artefact-branch-split because both change workflow branch topology and worktree lifecycle semantics. It keeps the existing commit path but makes load-bearing commit failure observable and fatal. Follow-up validation can then verify required artefacts at `HEAD:<path>` before launching child worktrees.

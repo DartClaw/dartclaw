@@ -86,6 +86,10 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
 
     if (mapCtx != null) {
       taskConfig = {...taskConfig, '_mapIterationIndex': mapCtx.index, '_mapIterationTotal': mapCtx.length};
+      final requiredInputPath = _mapItemSpecPath(mapCtx);
+      if (requiredInputPath != null) {
+        taskConfig = {...taskConfig, 'requiredInputPath': requiredInputPath};
+      }
       final mount = definition.gitStrategy?.externalArtifactMount;
       if (mount != null) {
         final resolvedSource = mount.source == null
@@ -241,9 +245,16 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       accumulatedTokenCount += tokenCount;
 
       Map<String, dynamic> outputs = {};
+      StepValidationFailure? extractionFailure;
       if (finalTask.status != TaskStatus.failed && finalTask.status != TaskStatus.cancelled) {
         try {
           outputs = await _contextExtractor.extract(step, finalTask, effectiveOutputs: effectiveOutputs);
+        } on MissingArtifactFailure catch (e, st) {
+          extractionFailure = StepValidationFailure(reason: e.toString(), missingArtifacts: e.missingPaths);
+          WorkflowExecutor._log.warning("Context extraction failed for step '${step.id}'", e, st);
+        } on StateError catch (e, st) {
+          extractionFailure = StepValidationFailure(reason: e.message);
+          WorkflowExecutor._log.warning("Context extraction failed for step '${step.id}'", e, st);
         } catch (e, st) {
           WorkflowExecutor._log.warning("Context extraction failed for step '${step.id}'", e, st);
         }
@@ -260,7 +271,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       }
       final normalizedOutputs = _validateStorySpecOutputs(run, step, outputs, context);
       outputs = normalizedOutputs.outputs;
-      final validationFailure = normalizedOutputs.validationFailure;
+      final validationFailure = extractionFailure ?? normalizedOutputs.validationFailure;
       final providerSessionId = _workflowStepExecutionRepository == null
           ? null
           : await WorkflowTaskConfig.readProviderSessionId(finalTask, _workflowStepExecutionRepository);
@@ -404,19 +415,18 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     WorkflowStep step,
     WorkflowContext context, {
     required int stepIndex,
-  }) =>
-      approval_step_runner.executeApprovalStep(
-        run: run,
-        step: step,
-        context: context,
-        stepIndex: stepIndex,
-        templateEngine: _templateEngine,
-        dependencies: approval_step_runner.ApprovalStepDependencies(
-          eventBus: _eventBus,
-          repository: _repository,
-          persistContext: _persistContext,
-          cancelRun: _cancelRun,
-          approvalTimers: _approvalTimers,
-        ),
-      );
+  }) => approval_step_runner.executeApprovalStep(
+    run: run,
+    step: step,
+    context: context,
+    stepIndex: stepIndex,
+    templateEngine: _templateEngine,
+    dependencies: approval_step_runner.ApprovalStepDependencies(
+      eventBus: _eventBus,
+      repository: _repository,
+      persistContext: _persistContext,
+      cancelRun: _cancelRun,
+      approvalTimers: _approvalTimers,
+    ),
+  );
 }

@@ -653,6 +653,7 @@ class WorkflowService {
           messageService: _messageService,
           dataDir: _dataDir,
           workflowStepExecutionRepository: _workflowStepExecutionRepository,
+          workflowGitPort: _workflowGitPort,
           structuredOutputFallbackRecorder: _structuredOutputFallbackRecorder,
         ),
         turnAdapter: _turnAdapter,

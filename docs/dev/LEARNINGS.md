@@ -139,6 +139,8 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Workflow-owned refs stay local refs all the way through publish.** Coding steps must attach to the existing branch/worktree; base-ref freshness logic must stop rewriting back to `origin/*`.
 - **Workflow git cleanup must run after child-task shutdown and walk the full run-owned set.** Shared-key cleanup is insufficient for `per-map-item` workflows.
 - **Artifact auto-commit must verify task worktree paths are real git worktrees.** Test scaffolds and workflow workspaces may use temporary directories for output materialization; commit load-bearing artifacts to the resolved project checkout instead.
+- **Partial inline structured payloads must not satisfy a structured-output schema.** If any required narrative key is missing, run the extraction turn and let context extraction preserve inline precedence per field.
+- **Artifact commit must use output resolver semantics, not raw output formats.** List-shaped filesystem outputs can be represented as `lines` in the current model but are still load-bearing artifacts.
 
 ## Storage / Data Model
 

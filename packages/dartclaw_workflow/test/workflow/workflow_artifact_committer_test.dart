@@ -125,6 +125,90 @@ void main() {
       expect(await git.pathExistsAtRef(repoDir.path, ref: 'HEAD', path: 'plan.md'), isTrue);
     });
 
+    test('commits nested story specs and technical research sibling', () async {
+      final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
+      final paths = [
+        'docs/plans/p/plan.md',
+        'docs/plans/p/.technical-research.md',
+        'docs/plans/p/fis/s01.md',
+        'docs/plans/p/fis/s02.md',
+      ];
+      for (final path in paths) {
+        File(p.join(repoDir.path, path))
+          ..createSync(recursive: true)
+          ..writeAsStringSync(path);
+      }
+      final git = FakeGitGateway()..initWorktree(repoDir.path);
+      for (final path in paths) {
+        git.addUntracked(repoDir.path, path, content: path);
+      }
+
+      final result = await maybeCommitStepArtifacts(
+        ArtifactCommitPolicy(
+          run: _run(),
+          definition: const WorkflowDefinition(
+            name: 'wf',
+            description: 'test',
+            project: 'proj',
+            gitStrategy: WorkflowGitStrategy(artifacts: WorkflowGitArtifactsStrategy(commit: true)),
+            steps: [
+              WorkflowStep(
+                id: 'plan',
+                name: 'Plan',
+                contextOutputs: ['story_specs', 'plan'],
+                outputs: {
+                  'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+                  'plan': OutputConfig(format: OutputFormat.path),
+                },
+              ),
+            ],
+          ),
+          step: const WorkflowStep(
+            id: 'plan',
+            name: 'Plan',
+            contextOutputs: ['story_specs', 'plan'],
+            outputs: {
+              'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+              'plan': OutputConfig(format: OutputFormat.path),
+            },
+          ),
+          context: WorkflowContext(
+            data: {
+              'plan': 'docs/plans/p/plan.md',
+              'story_specs': {
+                'items': [
+                  {'id': 'S01', 'title': 'One', 'spec_path': 'fis/s01.md'},
+                  {'id': 'S02', 'title': 'Two', 'spec_path': 'fis/s02.md'},
+                ],
+              },
+            },
+          ),
+          task: Task(
+            id: 'task-1',
+            title: 'Task',
+            description: 'Task',
+            type: TaskType.coding,
+            createdAt: DateTime(2026, 1, 1),
+          ),
+          projectService: null,
+          dataDir: tempDir.path,
+          templateEngine: WorkflowTemplateEngine(),
+          workflowGitPort: git,
+        ),
+      );
+
+      expect(result.failed, isFalse);
+      expect(result.committedPaths, [
+        'docs/plans/p/.technical-research.md',
+        'docs/plans/p/fis/s01.md',
+        'docs/plans/p/fis/s02.md',
+        'docs/plans/p/plan.md',
+      ]);
+      for (final path in paths) {
+        expect(await git.pathExistsAtRef(repoDir.path, ref: 'HEAD', path: path), isTrue);
+      }
+    });
+
     test('returns fatal failure for load-bearing per-map-item artifact add failure', () async {
       final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
       File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');

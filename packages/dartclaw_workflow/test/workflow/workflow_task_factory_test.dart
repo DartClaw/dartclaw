@@ -168,18 +168,15 @@ void main() {
       expect(followUps.last, contains('<step-outcome>'));
     });
 
-    test('builds strict structured-output envelope schema', () {
-      final schema = buildStructuredOutputEnvelopeSchema(
-        const WorkflowStep(id: 'step-1', name: 'Step 1'),
-        const {
-          'summary': OutputConfig(format: OutputFormat.text),
-          'files': OutputConfig(format: OutputFormat.lines),
-        },
-      );
+    test('builds strict structured-output envelope schema for narrative outputs only', () {
+      final schema = buildStructuredOutputEnvelopeSchema(const WorkflowStep(id: 'step-1', name: 'Step 1'), const {
+        'summary': OutputConfig(format: OutputFormat.text),
+        'files': OutputConfig(format: OutputFormat.lines),
+      });
 
       expect(schema, containsPair('additionalProperties', false));
-      expect(schema?['required'], equals(['summary', 'files']));
-      expect((schema?['properties'] as Map)['files'], containsPair('type', 'array'));
+      expect(schema?['required'], equals(['summary']));
+      expect((schema?['properties'] as Map).containsKey('files'), isFalse);
     });
 
     test('buildStepConfig and stripWorkflowStepConfig preserve public task config only', () {

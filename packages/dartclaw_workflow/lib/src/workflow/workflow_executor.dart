@@ -33,6 +33,7 @@ import 'workflow_template_engine.dart';
 import 'workflow_task_config.dart';
 import 'workflow_turn_adapter.dart';
 export 'workflow_runner_types.dart';
+part 'public_step_dispatcher.dart';
 part 'step_dispatcher.dart';
 part 'parallel_group_runner.dart';
 part 'loop_step_runner.dart';

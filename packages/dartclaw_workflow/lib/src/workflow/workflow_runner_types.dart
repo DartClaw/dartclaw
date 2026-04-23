@@ -185,6 +185,7 @@ class StepOutcome {
   final String? outcome;
   final String? outcomeReason;
   final bool awaitingApproval;
+  final StepValidationFailure? validationFailure;
 
   const StepOutcome({
     required this.step,
@@ -196,6 +197,7 @@ class StepOutcome {
     this.outcome,
     this.outcomeReason,
     this.awaitingApproval = false,
+    this.validationFailure,
   });
 }
 

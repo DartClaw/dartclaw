@@ -1,26 +1,13 @@
 part of 'workflow_executor.dart';
 
-/// Public step-dispatch contract consumed by scenario tests.
+/// Public node-dispatch contract consumed by scenario tests.
 Future<StepHandoff> dispatchStep(WorkflowNode node, StepExecutionContext ctx) async {
-  final definition = ctx.definition;
-  final run = ctx.run;
-  final context = ctx.workflowContext;
-  if (definition == null || run == null || context == null) {
-    throw StateError('dispatchStep requires run, definition, and workflowContext on StepExecutionContext.');
+  final dispatcher = _PublicStepDispatcher.fromContext(ctx);
+  try {
+    return await dispatcher.dispatch(node);
+  } finally {
+    dispatcher.dispose();
   }
-  final step = switch (node) {
-    ActionNode(stepId: final stepId) => definition.steps.firstWhere((candidate) => candidate.id == stepId),
-    _ => throw UnsupportedError('dispatchStep handles ActionNode; coordinator runners handle ${node.type}.'),
-  };
-  if (step.type == 'bash') {
-    final outcome = await bash_step_runner.bashStepRun(node, ctx);
-    return StepHandoffSuccess.fromOutcome(outcome);
-  }
-  if (step.type == 'approval') {
-    final outcome = await approval_step_runner.approvalStepRun(node, ctx);
-    return StepHandoffRetrying(outputs: Map<String, Object?>.from(outcome.outputs), retryState: StepRetryState.none);
-  }
-  throw UnsupportedError('Agent task dispatch requires a WorkflowExecutor instance.');
 }
 
 extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
@@ -308,6 +295,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           outcome: effectiveOutcome,
           outcomeReason: effectiveReason,
           awaitingApproval: true,
+          validationFailure: validationFailure,
         );
       }
 
@@ -323,6 +311,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
               error: effectiveReason,
               outcome: effectiveOutcome,
               outcomeReason: effectiveReason,
+              validationFailure: validationFailure,
             );
           case OnFailurePolicy.retry:
             if (attempt < outcomeRetryLimit) {
@@ -345,6 +334,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
               outcome: effectiveOutcome,
               outcomeReason: effectiveReason,
               awaitingApproval: true,
+              validationFailure: validationFailure,
             );
           case OnFailurePolicy.fail:
             break;
@@ -359,6 +349,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           error: effectiveReason,
           outcome: effectiveOutcome,
           outcomeReason: effectiveReason,
+          validationFailure: validationFailure,
         );
       }
 
@@ -382,6 +373,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             error: promotionFailure,
             outcome: effectiveOutcome,
             outcomeReason: outcomeReason,
+            validationFailure: validationFailure,
           );
         }
       }
@@ -394,6 +386,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         success: true,
         outcome: effectiveOutcome,
         outcomeReason: outcomeReason,
+        validationFailure: validationFailure,
       );
     }
   }

@@ -803,7 +803,7 @@ The workflow engine ships 11 built-in `dartclaw-*` skills:
 
 - `dartclaw-discover-project`
 - `dartclaw-update-state`
-- `dartclaw-review` — unified code / doc / gap / mixed review (0.16.4 S30 re-port; previously split into `review-code` / `review-doc` / `review-gap`)
+- `dartclaw-review` — unified code / doc / gap / mixed review
 - `dartclaw-quick-review`
 - `dartclaw-spec`
 - `dartclaw-prd`
@@ -838,7 +838,7 @@ This split keeps picker/browser UIs fast and stable as the built-in library grow
 
 ---
 
-## YAML Field Reference (0.16.4)
+## YAML Field Reference
 
 ### Orchestration Containers at a Glance
 

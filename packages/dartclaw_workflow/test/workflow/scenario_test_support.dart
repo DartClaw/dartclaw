@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
@@ -17,6 +18,8 @@ final class ScenarioTaskHarness {
   late String workspaceDir;
   late SessionService sessions;
   late MessageService messages;
+  late EventBus eventBus;
+  late SqliteTaskRepository taskRepository;
   late TaskService tasks;
   late _FakeTaskWorker _worker;
   late TurnManager turns;
@@ -38,14 +41,17 @@ final class ScenarioTaskHarness {
     harness.sessions = SessionService(baseDir: harness.sessionsDir);
     harness.messages = MessageService(baseDir: harness.sessionsDir);
     harness.taskDb = sqlite3.openInMemory();
+    harness.eventBus = EventBus();
+    harness.taskRepository = SqliteTaskRepository(harness.taskDb);
     harness.agentExecutions = SqliteAgentExecutionRepository(harness.taskDb);
     harness.workflowRuns = SqliteWorkflowRunRepository(harness.taskDb);
     harness.workflowStepExecutions = SqliteWorkflowStepExecutionRepository(harness.taskDb);
     harness.executionTransactor = SqliteExecutionRepositoryTransactor(harness.taskDb);
     harness.tasks = TaskService(
-      SqliteTaskRepository(harness.taskDb),
+      harness.taskRepository,
       agentExecutionRepository: harness.agentExecutions,
       executionTransactor: harness.executionTransactor,
+      eventBus: harness.eventBus,
     );
     harness._worker = _FakeTaskWorker();
     harness.turns = TurnManager(
@@ -113,6 +119,41 @@ final class ScenarioTaskHarness {
       file.parent.createSync(recursive: true);
       file.writeAsStringSync(content);
     };
+  }
+
+  StepExecutionContext buildExecutionContext({
+    required WorkflowRun run,
+    required WorkflowDefinition definition,
+    required WorkflowContext workflowContext,
+    WorkflowTurnAdapter? turnAdapter,
+    WorkflowStepOutputTransformer? outputTransformer,
+    WorkflowGitPort? workflowGitPort,
+  }) {
+    return StepExecutionContext(
+      taskService: tasks,
+      eventBus: eventBus,
+      kvService: kvService,
+      repository: workflowRuns,
+      gateEvaluator: GateEvaluator(),
+      contextExtractor: ContextExtractor(
+        taskService: tasks,
+        messageService: messages,
+        dataDir: tempDir.path,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        workflowGitPort: workflowGitPort,
+      ),
+      turnAdapter: turnAdapter,
+      outputTransformer: outputTransformer,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutions,
+      workflowStepExecutionRepository: workflowStepExecutions,
+      executionTransactor: executionTransactor,
+      dataDir: tempDir.path,
+      workflowGitPort: workflowGitPort,
+      run: run,
+      definition: definition,
+      workflowContext: workflowContext,
+    );
   }
 
   Future<void> seedWorkflowExecution(
@@ -206,6 +247,7 @@ final class ScenarioTaskHarness {
     await tasks.dispose();
     await messages.dispose();
     await kvService.dispose();
+    await eventBus.dispose();
     await _worker.dispose();
     taskDb.close();
     if (tempDir.existsSync()) {

@@ -1,5 +1,10 @@
 part of 'workflow_executor.dart';
-Future<StepOutcome> foreachRun(ForeachNode node, StepExecutionContext ctx) async => throw UnsupportedError('executor');
+
+Future<StepOutcome> foreachRun(ForeachNode node, StepExecutionContext ctx) async {
+  final handoff = await dispatchStep(node, ctx);
+  return _stepOutcomeFromHandoff(node, ctx, handoff);
+}
+
 extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
   Future<MapStepResult?> _executeForeachStep(
     WorkflowRun run,
@@ -221,6 +226,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     }
     return MapStepResult(results: List<dynamic>.from(mapCtx.results), totalTokens: totalTokens, success: true);
   }
+
   Future<void> _dispatchForeachIteration({
     required WorkflowRun run,
     required WorkflowDefinition definition,
@@ -578,6 +584,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       ),
     );
   }
+
   void _restoreForeachProgress(
     MapStepContext mapCtx,
     WorkflowExecutionCursor? cursor, {
@@ -610,6 +617,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       }
     }
   }
+
   Future<void> _persistForeachProgress(
     WorkflowRun run,
     WorkflowStep step,

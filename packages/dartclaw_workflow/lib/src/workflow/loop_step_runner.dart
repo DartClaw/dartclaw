@@ -1,9 +1,8 @@
 part of 'workflow_executor.dart';
 
 /// Uniform runner signature for loop nodes.
-Future<StepOutcome> loopRun(LoopNode node, StepExecutionContext ctx) async {
-  throw UnsupportedError('loopRun is coordinated by WorkflowExecutor for cursor and terminal-state ownership.');
-}
+Future<StepOutcome> loopRun(LoopNode node, StepExecutionContext ctx) async =>
+    _stepOutcomeFromHandoff(node, ctx, await dispatchStep(node, ctx));
 
 /// Runs loop nodes, including checkpoints and optional finalizers.
 extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {

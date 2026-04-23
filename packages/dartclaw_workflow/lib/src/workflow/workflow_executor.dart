@@ -84,8 +84,11 @@ typedef WorkflowStepOutputTransformer =
       Map<String, dynamic> outputs,
     );
 
-/// Result of a single step within a parallel group.
-class _ParallelStepResult {
+typedef StepValidationFailure = ({String reason, List<String> missingArtifacts});
+typedef StorySpecOutputValidation = ({Map<String, dynamic> outputs, StepValidationFailure? validationFailure});
+
+/// Result of a single workflow step execution.
+class StepOutcome {
   final WorkflowStep step;
   final Task? task;
   final Map<String, dynamic> outputs;
@@ -96,7 +99,7 @@ class _ParallelStepResult {
   final String? outcomeReason;
   final bool awaitingApproval;
 
-  const _ParallelStepResult({
+  const StepOutcome({
     required this.step,
     this.task,
     this.outputs = const {},
@@ -131,6 +134,84 @@ final class _EmptyProcessEnvironmentPlan implements ProcessEnvironmentPlan {
   final Map<String, String> environment;
 
   const _EmptyProcessEnvironmentPlan() : environment = const <String, String>{};
+}
+
+final class StepExecutionContext {
+  final WorkflowTaskService taskService;
+  final EventBus eventBus;
+  final KvService kvService;
+  final SqliteWorkflowRunRepository repository;
+  final GateEvaluator gateEvaluator;
+  final ContextExtractor contextExtractor;
+  final WorkflowTurnAdapter? turnAdapter;
+  final WorkflowStepOutputTransformer? outputTransformer;
+  final SkillRegistry? skillRegistry;
+  final TaskRepository? taskRepository;
+  final AgentExecutionRepository? agentExecutionRepository;
+  final WorkflowStepExecutionRepository? workflowStepExecutionRepository;
+  final ExecutionRepositoryTransactor? executionTransactor;
+  final ProjectService? projectService;
+
+  StepExecutionContext({
+    required this.taskService,
+    required this.eventBus,
+    required this.kvService,
+    required this.repository,
+    required this.gateEvaluator,
+    required this.contextExtractor,
+    this.turnAdapter,
+    this.outputTransformer,
+    this.skillRegistry,
+    this.taskRepository,
+    this.agentExecutionRepository,
+    this.workflowStepExecutionRepository,
+    this.executionTransactor,
+    this.projectService,
+  });
+}
+
+final class StepPromptConfiguration {
+  final WorkflowTemplateEngine templateEngine;
+  final SkillPromptBuilder skillPromptBuilder;
+
+  StepPromptConfiguration({
+    WorkflowTemplateEngine? templateEngine,
+    SkillPromptBuilder? skillPromptBuilder,
+    PromptAugmenter? promptAugmenter,
+    HarnessFactory? harnessFactory,
+  }) : templateEngine = templateEngine ?? WorkflowTemplateEngine(),
+       skillPromptBuilder =
+           skillPromptBuilder ??
+           SkillPromptBuilder(
+             augmenter: promptAugmenter ?? const PromptAugmenter(),
+             harnessFactory: (harnessFactory ?? HarnessFactory())..warnIfEmpty(context: 'WorkflowExecutor'),
+           );
+}
+
+final class BashStepPolicy {
+  static const defaultEnvAllowlist = <String>[
+    'PATH',
+    'HOME',
+    'LANG',
+    'LC_*',
+    'TZ',
+    'USER',
+    'SHELL',
+    'TERM',
+    'TMPDIR',
+    'TMP',
+    'TEMP',
+  ];
+
+  final Map<String, String>? hostEnvironment;
+  final List<String> envAllowlist;
+  final List<String> extraStripPatterns;
+
+  const BashStepPolicy({
+    this.hostEnvironment,
+    this.envAllowlist = defaultEnvAllowlist,
+    this.extraStripPatterns = const <String>[],
+  });
 }
 
 /// Sequential + parallel + iterative workflow execution engine.
@@ -449,14 +530,19 @@ class WorkflowExecutor {
     return updated;
   }
 
-  WorkflowExecutor({
-    required WorkflowTaskService taskService,
-    required EventBus eventBus,
-    required KvService kvService,
-    required SqliteWorkflowRunRepository repository,
-    required GateEvaluator gateEvaluator,
-    required ContextExtractor contextExtractor,
-    required String dataDir,
+  factory WorkflowExecutor({
+    StepExecutionContext? executionContext,
+    StepPromptConfiguration? promptConfiguration,
+    String? dataDir,
+    WorkflowRoleDefaults? roleDefaults,
+    BashStepPolicy bashStepPolicy = const BashStepPolicy(),
+    Uuid? uuid,
+    WorkflowTaskService? taskService,
+    EventBus? eventBus,
+    KvService? kvService,
+    SqliteWorkflowRunRepository? repository,
+    GateEvaluator? gateEvaluator,
+    ContextExtractor? contextExtractor,
     WorkflowTemplateEngine? templateEngine,
     PromptAugmenter? promptAugmenter,
     SkillPromptBuilder? skillPromptBuilder,
@@ -464,7 +550,6 @@ class WorkflowExecutor {
     MessageService? messageService,
     WorkflowTurnAdapter? turnAdapter,
     WorkflowStepOutputTransformer? outputTransformer,
-    WorkflowRoleDefaults? roleDefaults,
     SkillRegistry? skillRegistry,
     TaskRepository? taskRepository,
     AgentExecutionRepository? agentExecutionRepository,
@@ -474,36 +559,80 @@ class WorkflowExecutor {
     Map<String, String>? hostEnvironment,
     List<String>? bashStepEnvAllowlist,
     List<String>? bashStepExtraStripPatterns,
+  }) {
+    final resolvedExecutionContext =
+        executionContext ??
+        StepExecutionContext(
+          taskService: taskService ?? (throw ArgumentError.notNull('taskService')),
+          eventBus: eventBus ?? (throw ArgumentError.notNull('eventBus')),
+          kvService: kvService ?? (throw ArgumentError.notNull('kvService')),
+          repository: repository ?? (throw ArgumentError.notNull('repository')),
+          gateEvaluator: gateEvaluator ?? (throw ArgumentError.notNull('gateEvaluator')),
+          contextExtractor: contextExtractor ?? (throw ArgumentError.notNull('contextExtractor')),
+          turnAdapter: turnAdapter,
+          outputTransformer: outputTransformer,
+          skillRegistry: skillRegistry,
+          taskRepository: taskRepository,
+          agentExecutionRepository: agentExecutionRepository,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+          executionTransactor: executionTransactor,
+          projectService: projectService,
+        );
+    final resolvedPromptConfiguration =
+        promptConfiguration ??
+        StepPromptConfiguration(
+          templateEngine: templateEngine,
+          skillPromptBuilder: skillPromptBuilder,
+          promptAugmenter: promptAugmenter,
+          harnessFactory: harnessFactory,
+        );
+    final resolvedBashStepPolicy =
+        hostEnvironment != null || bashStepEnvAllowlist != null || bashStepExtraStripPatterns != null
+        ? BashStepPolicy(
+            hostEnvironment: hostEnvironment,
+            envAllowlist: bashStepEnvAllowlist ?? BashStepPolicy.defaultEnvAllowlist,
+            extraStripPatterns: bashStepExtraStripPatterns ?? const <String>[],
+          )
+        : bashStepPolicy;
+    final resolvedDataDir = dataDir ?? (throw ArgumentError.notNull('dataDir'));
+    return WorkflowExecutor._internal(
+      executionContext: resolvedExecutionContext,
+      promptConfiguration: resolvedPromptConfiguration,
+      dataDir: resolvedDataDir,
+      roleDefaults: roleDefaults,
+      bashStepPolicy: resolvedBashStepPolicy,
+      uuid: uuid,
+    );
+  }
+
+  WorkflowExecutor._internal({
+    required StepExecutionContext executionContext,
+    required StepPromptConfiguration promptConfiguration,
+    required String dataDir,
+    WorkflowRoleDefaults? roleDefaults,
+    BashStepPolicy bashStepPolicy = const BashStepPolicy(),
     Uuid? uuid,
-  }) : _taskService = taskService,
-       _eventBus = eventBus,
-       _kvService = kvService,
-       _repository = repository,
-       _gateEvaluator = gateEvaluator,
-       _contextExtractor = contextExtractor,
-       _templateEngine = templateEngine ?? WorkflowTemplateEngine(),
-       _skillPromptBuilder =
-           skillPromptBuilder ??
-           SkillPromptBuilder(
-             augmenter: promptAugmenter ?? const PromptAugmenter(),
-             harnessFactory: (harnessFactory ?? HarnessFactory())..warnIfEmpty(context: 'WorkflowExecutor'),
-           ),
-       _turnAdapter = turnAdapter,
-       _outputTransformer = outputTransformer,
-       _skillRegistry = skillRegistry,
-       _taskRepository = taskRepository,
-       _agentExecutionRepository = agentExecutionRepository,
-       _workflowStepExecutionRepository = workflowStepExecutionRepository,
-       _executionTransactor = executionTransactor,
+  }) : _taskService = executionContext.taskService,
+       _eventBus = executionContext.eventBus,
+       _kvService = executionContext.kvService,
+       _repository = executionContext.repository,
+       _gateEvaluator = executionContext.gateEvaluator,
+       _contextExtractor = executionContext.contextExtractor,
+       _templateEngine = promptConfiguration.templateEngine,
+       _skillPromptBuilder = promptConfiguration.skillPromptBuilder,
+       _turnAdapter = executionContext.turnAdapter,
+       _outputTransformer = executionContext.outputTransformer,
+       _skillRegistry = executionContext.skillRegistry,
+       _taskRepository = executionContext.taskRepository,
+       _agentExecutionRepository = executionContext.agentExecutionRepository,
+       _workflowStepExecutionRepository = executionContext.workflowStepExecutionRepository,
+       _executionTransactor = executionContext.executionTransactor,
        _dataDir = dataDir,
        _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
-       _hostEnvironment = hostEnvironment,
-       _bashStepEnvAllowlist = List.unmodifiable(
-         bashStepEnvAllowlist ??
-             const <String>['PATH', 'HOME', 'LANG', 'LC_*', 'TZ', 'USER', 'SHELL', 'TERM', 'TMPDIR', 'TMP', 'TEMP'],
-       ),
-       _bashStepExtraStripPatterns = List.unmodifiable(bashStepExtraStripPatterns ?? const <String>[]),
-       _projectService = projectService,
+       _hostEnvironment = bashStepPolicy.hostEnvironment,
+       _bashStepEnvAllowlist = List.unmodifiable(bashStepPolicy.envAllowlist),
+       _bashStepExtraStripPatterns = List.unmodifiable(bashStepPolicy.extraStripPatterns),
+       _projectService = executionContext.projectService,
        _uuid = uuid ?? const Uuid();
 
   /// Executes a workflow run in authored order over normalized steps/loops.
@@ -1198,7 +1327,7 @@ class WorkflowExecutor {
   ///
   /// Uses the same per-step dispatcher as sequential execution so hybrid step
   /// semantics stay consistent across both code paths.
-  Future<List<_ParallelStepResult>> _executeParallelGroup(
+  Future<List<StepOutcome>> _executeParallelGroup(
     WorkflowRun run,
     WorkflowDefinition definition,
     List<WorkflowStep> group,
@@ -1209,7 +1338,7 @@ class WorkflowExecutor {
         final stepIndex = definition.steps.indexOf(step);
         final result = await _executeStep(run, definition, step, context, stepIndex: stepIndex);
         if (result == null) {
-          return _ParallelStepResult(
+          return StepOutcome(
             step: step,
             outputs: const {},
             tokenCount: 0,
@@ -1220,7 +1349,7 @@ class WorkflowExecutor {
         return result;
       } catch (e, st) {
         _log.severe("Parallel step '${step.name}' failed: $e", e, st);
-        return _ParallelStepResult(step: step, outputs: {}, tokenCount: 0, success: false, error: e.toString());
+        return StepOutcome(step: step, outputs: {}, tokenCount: 0, success: false, error: e.toString());
       }
     }).toList();
 
@@ -1231,7 +1360,7 @@ class WorkflowExecutor {
   ///
   /// Sets automatic metadata keys for all steps regardless of success.
   /// Successful steps' outputs are merged; failed steps are skipped.
-  void _mergeParallelResults(List<_ParallelStepResult> results, WorkflowContext context) {
+  void _mergeParallelResults(List<StepOutcome> results, WorkflowContext context) {
     for (final result in results) {
       _mergeStepResultIntoContext(
         context,
@@ -1242,12 +1371,12 @@ class WorkflowExecutor {
   }
 
   /// Accumulates token counts from all parallel results into [run.totalTokens].
-  WorkflowRun _updateParallelBudget(WorkflowRun run, List<_ParallelStepResult> results) {
+  WorkflowRun _updateParallelBudget(WorkflowRun run, List<StepOutcome> results) {
     final total = results.fold(0, (sum, r) => sum + r.tokenCount);
     return run.copyWith(totalTokens: run.totalTokens + total, updatedAt: DateTime.now());
   }
 
-  void _mergeStepResultIntoContext(WorkflowContext context, _ParallelStepResult result, {String? fallbackStatus}) {
+  void _mergeStepResultIntoContext(WorkflowContext context, StepOutcome result, {String? fallbackStatus}) {
     context.merge(result.outputs);
     final stepId = result.step.id;
     if (!result.outputs.containsKey('$stepId.status') && fallbackStatus != null) {
@@ -1846,8 +1975,8 @@ class WorkflowExecutor {
   /// Executes a single step: resolves template, creates task, waits for terminal state.
   ///
   /// Returns null if task creation fails (workflow already paused by this method).
-  /// Returns a [_ParallelStepResult] (success or failure) on completion.
-  Future<_ParallelStepResult?> _executeStep(
+  /// Returns a [StepOutcome] (success or failure) on completion.
+  Future<StepOutcome?> _executeStep(
     WorkflowRun run,
     WorkflowDefinition definition,
     WorkflowStep step,
@@ -2104,8 +2233,9 @@ class WorkflowExecutor {
           'branch/worktree_path context values will be empty',
         );
       }
-      outputs = _normalizeWorkflowOutputs(run, step, outputs, context);
-      final validationFailure = outputs.remove(_validationFailureKey) as String?;
+      final normalizedOutputs = _validateStorySpecOutputs(run, step, outputs, context);
+      outputs = normalizedOutputs.outputs;
+      final validationFailure = normalizedOutputs.validationFailure;
       final providerSessionId = _workflowStepExecutionRepository == null
           ? null
           : await WorkflowTaskConfig.readProviderSessionId(finalTask, _workflowStepExecutionRepository);
@@ -2120,25 +2250,23 @@ class WorkflowExecutor {
 
       final (outcome, outcomeReason) = await _resolveStepOutcome(step, finalTask);
       // Override a "succeeded" outcome when post-extraction validation flags
-      // the outputs as unusable. `_normalizeWorkflowOutputs` stashes the
-      // reason under `_validationFailureKey` above; taking it out here and
-      // forcing `failed` lets `OnFailurePolicy.retry` (if configured on the
-      // step) re-invoke the skill, and falls back to the usual fail/pause
-      // paths otherwise.
+      // the outputs as unusable. Forcing `failed` lets
+      // `OnFailurePolicy.retry` (if configured on the step) re-invoke the
+      // skill, and falls back to the usual fail/pause paths otherwise.
       final effectiveOutcome = validationFailure != null && outcome != 'needsInput' ? 'failed' : outcome;
       final effectiveReason = (outcomeReason != null && outcomeReason.isNotEmpty)
           ? outcomeReason
-          : validationFailure ?? (finalTask.configJson['failReason'] as String?) ?? finalTask.status.name;
+          : validationFailure?.reason ?? (finalTask.configJson['failReason'] as String?) ?? finalTask.status.name;
       if (validationFailure != null && outcome != effectiveOutcome) {
         _log.warning(
           "Workflow '${run.id}': step '${step.id}' outcome overridden from "
           "'$outcome' to 'failed' due to post-extraction validation failure: "
-          '$validationFailure',
+          '${validationFailure.reason}',
         );
       }
 
       if (effectiveOutcome == 'needsInput') {
-        return _ParallelStepResult(
+        return StepOutcome(
           step: step,
           task: finalTask,
           outputs: outputs,
@@ -2154,7 +2282,7 @@ class WorkflowExecutor {
       if (effectiveOutcome == 'failed') {
         switch (step.onFailure) {
           case OnFailurePolicy.continueWorkflow:
-            return _ParallelStepResult(
+            return StepOutcome(
               step: step,
               task: finalTask,
               outputs: outputs,
@@ -2175,7 +2303,7 @@ class WorkflowExecutor {
             }
             break;
           case OnFailurePolicy.pause:
-            return _ParallelStepResult(
+            return StepOutcome(
               step: step,
               task: finalTask,
               outputs: outputs,
@@ -2190,7 +2318,7 @@ class WorkflowExecutor {
             break;
         }
 
-        return _ParallelStepResult(
+        return StepOutcome(
           step: step,
           task: finalTask,
           outputs: outputs,
@@ -2213,7 +2341,7 @@ class WorkflowExecutor {
           promotionStrategy: effectivePromotion,
         );
         if (promotionFailure != null) {
-          return _ParallelStepResult(
+          return StepOutcome(
             step: step,
             task: finalTask,
             outputs: outputs,
@@ -2226,7 +2354,7 @@ class WorkflowExecutor {
         }
       }
 
-      return _ParallelStepResult(
+      return StepOutcome(
         step: step,
         task: finalTask,
         outputs: outputs,
@@ -2250,7 +2378,7 @@ class WorkflowExecutor {
   /// - `onError: pause` (default) returns success=false → caller pauses run.
   static const _bashStdoutMaxBytes = 64 * 1024;
 
-  Future<_ParallelStepResult> _executeBashStep(WorkflowRun run, WorkflowStep step, WorkflowContext context) async {
+  Future<StepOutcome> _executeBashStep(WorkflowRun run, WorkflowStep step, WorkflowContext context) async {
     // Resolve workdir.
     final String workDir;
     try {
@@ -2333,7 +2461,7 @@ class WorkflowExecutor {
     }
 
     // Record step metadata in context.
-    return _ParallelStepResult(
+    return StepOutcome(
       step: step,
       task: null,
       outputs: {
@@ -2427,10 +2555,10 @@ class WorkflowExecutor {
     return outputs;
   }
 
-  /// Returns a failed [_ParallelStepResult] for a bash step.
-  _ParallelStepResult _bashFailure(WorkflowStep step, String reason, {String? stderr}) {
+  /// Returns a failed [StepOutcome] for a bash step.
+  StepOutcome _bashFailure(WorkflowStep step, String reason, {String? stderr}) {
     _log.info("Bash step '${step.id}' failed: $reason");
-    return _ParallelStepResult(
+    return StepOutcome(
       step: step,
       task: null,
       outputs: {
@@ -3016,23 +3144,29 @@ class WorkflowExecutor {
     }
   }
 
-  Map<String, dynamic> _normalizeWorkflowOutputs(
+  /// Validates `story_specs` outputs emitted by the plan step.
+  ///
+  /// The primary side effect is path normalization against the emitted plan
+  /// directory. When the step claims story-spec files that do not exist on
+  /// disk, this returns a typed [StepValidationFailure] instead of mutating the
+  /// output map with a reserved sentinel key.
+  StorySpecOutputValidation _validateStorySpecOutputs(
     WorkflowRun run,
     WorkflowStep step,
     Map<String, dynamic> outputs,
     WorkflowContext context,
   ) {
     if (!outputs.containsKey('story_specs')) {
-      return outputs;
+      return (outputs: outputs, validationFailure: null);
     }
 
     final rawStorySpecs = outputs['story_specs'];
     if (rawStorySpecs is! Map<String, dynamic>) {
-      return outputs;
+      return (outputs: outputs, validationFailure: null);
     }
     final rawItems = rawStorySpecs['items'];
     if (rawItems is! List) {
-      return outputs;
+      return (outputs: outputs, validationFailure: null);
     }
 
     final planPath = (outputs['plan'] as String?)?.trim();
@@ -3056,7 +3190,7 @@ class WorkflowExecutor {
       };
       final rawSpecPath = (itemMap['spec_path'] as String?)?.trim();
       if (rawSpecPath != null && rawSpecPath.isNotEmpty) {
-        final normalizedSpecPath = _normalizeStorySpecPath(rawSpecPath, planDir);
+        final normalizedSpecPath = _resolveStorySpecPathAgainstPlanDir(rawSpecPath, planDir);
         itemMap['spec_path'] = normalizedSpecPath;
         final priorCount = seenSpecPaths.update(normalizedSpecPath, (count) => count + 1, ifAbsent: () => 1);
         if (priorCount > 1) {
@@ -3082,56 +3216,45 @@ class WorkflowExecutor {
       ...outputs,
       'story_specs': {...rawStorySpecs, 'items': normalizedItems},
     };
+    StepValidationFailure? validationFailure;
     if (missingSpecPaths.isNotEmpty) {
-      // Escalate from warning → step failure. Historically this was a
-      // silent warning, which let the workflow proceed into the foreach
-      // with phantom FIS paths — exec-spec would then block at "Resolve
-      // FIS" long after the planner stalled, wasting tokens on a run
-      // that was already unrecoverable. Stashing a failure marker here
-      // lets the step result-path (line ~2120 in _runWorkflowStep) see
-      // it and override the step outcome to `failed`, which in turn
-      // lets `onFailure: retry` on the plan step re-invoke the skill.
       final sorted = missingSpecPaths.toList()..sort();
-      final reason =
-          'Plan skill produced story_specs.spec_path values that do not '
-          'exist on disk: $sorted. Expected the skill to write a FIS file '
-          'per story record.';
-      _log.severe("Workflow '${run.id}': step '${step.id}': $reason");
-      result[_validationFailureKey] = reason;
+      validationFailure = (
+        reason:
+            'Plan skill produced story_specs.spec_path values that do not '
+            'exist on disk: $sorted. Expected the skill to write a FIS file '
+            'per story record.',
+        missingArtifacts: sorted,
+      );
+      _log.severe("Workflow '${run.id}': step '${step.id}': ${validationFailure.reason}");
     }
 
-    return result;
+    return (outputs: result, validationFailure: validationFailure);
   }
 
-  /// Special output key used by `_normalizeWorkflowOutputs` to signal that
-  /// the step produced outputs that failed post-extraction validation.
-  /// Consumed (and removed) by the step-execution path before outcome
-  /// resolution. Not forwarded into the workflow context.
-  static const _validationFailureKey = '_dartclaw.internal.validationFailure';
-
-  String _normalizeStorySpecPath(String specPath, String planDir) {
+  /// Resolves a `story_specs.spec_path` value against [planDir].
+  ///
+  /// The plan skill calls `spec_path` workspace-relative, but historic runs
+  /// also emitted plan-relative values such as `fis/s01-foo.md`. Detecting
+  /// already-plan-rooted values avoids duplicating the plan directory prefix
+  /// when normalizing those older emissions.
+  String _resolveStorySpecPathAgainstPlanDir(String specPath, String planDir) {
     if (specPath.isEmpty) return specPath;
     if (p.isAbsolute(specPath)) return p.normalize(specPath);
     if (planDir.isEmpty || planDir == '.') return p.normalize(specPath);
-    // The plan skill's contract calls `spec_path` "workspace-relative", but
-    // historic invocations (and some skill variants) emit it plan-relative —
-    // just the basename, or a directory-local path like `fis/s01-...md`.
-    // When `specPath` is already rooted at `planDir`, joining with `planDir`
-    // again produces a duplicated segment (`docs/specs/X/docs/specs/X/s01.md`)
-    // that the foreach agent then feeds into `exec-spec`, pointing at a path
-    // that doesn't exist on disk.
-    //
-    // Detect both exact-prefix and normalized-prefix cases to avoid the
-    // duplication while still honouring genuinely plan-relative emissions.
     final normalizedSpec = p.normalize(specPath);
+    if (_isAlreadyPlanRooted(normalizedSpec, planDir)) {
+      return normalizedSpec;
+    }
+    return p.normalize(p.join(planDir, specPath));
+  }
+
+  bool _isAlreadyPlanRooted(String specPath, String planDir) {
     final normalizedPlanDir = p.normalize(planDir);
     final planDirPrefix = normalizedPlanDir.endsWith(p.separator)
         ? normalizedPlanDir
         : '$normalizedPlanDir${p.separator}';
-    if (normalizedSpec == normalizedPlanDir || normalizedSpec.startsWith(planDirPrefix)) {
-      return normalizedSpec;
-    }
-    return p.normalize(p.join(planDir, specPath));
+    return specPath == normalizedPlanDir || specPath.startsWith(planDirPrefix);
   }
 
   bool _isPromotionAwareScope(

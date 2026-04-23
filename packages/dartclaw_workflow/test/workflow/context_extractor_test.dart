@@ -172,6 +172,33 @@ void main() {
     expect(outputs['research_notes'], equals('JSON extracted value'));
   });
 
+  test('coerces missing path outputs to an empty string', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"prd":"docs/specs/demo/prd.md"}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-path-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-path-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-path-1'))!;
+
+    final step = makeStep(
+      contextOutputs: ['prd'],
+      outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+    expect(outputs['prd'], equals(''));
+  });
+
   test(
     'uses the most recent assistant message containing workflow-context, not only the last assistant message',
     () async {

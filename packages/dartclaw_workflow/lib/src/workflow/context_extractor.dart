@@ -253,6 +253,7 @@ class ContextExtractor {
     // treated as null by the gate evaluator, so the downstream authoring
     // step runs and can produce the file. Coercion is a narrow safety net;
     // skills should still emit correct values.
+    final missingPathKeys = <String>{};
     for (final entry in configs?.entries ?? const <MapEntry<String, OutputConfig>>[]) {
       final outputKey = entry.key;
       final outputConfig = entry.value;
@@ -260,17 +261,18 @@ class ContextExtractor {
       final rawValue = outputs[outputKey];
       if (rawValue is! String || rawValue.isEmpty) continue;
       if (_pathResolvesToExistingFile(rawValue, task)) continue;
+      missingPathKeys.add(outputKey);
       _log.warning(
         'Context key "$outputKey" from step "${step.id}" (task ${task.id}) '
         'resolved to path "$rawValue" which does not exist under any known root '
         '(worktree, project, dataDir, cwd). Coercing to empty string — '
         'downstream gates treat this as null. Skill should emit only paths to existing files.',
       );
-      outputs[outputKey] = '';
     }
+    final normalizedOutputs = _coercePhantomPaths(outputs, missingPathKeys);
 
     // Warn on large values.
-    for (final entry in outputs.entries) {
+    for (final entry in normalizedOutputs.entries) {
       final value = entry.value?.toString() ?? '';
       if (value.length > _contextSizeWarningThreshold) {
         _log.warning(
@@ -280,7 +282,7 @@ class ContextExtractor {
       }
     }
 
-    return outputs;
+    return normalizedOutputs;
   }
 
   /// Returns `true` if [value] (possibly relative) resolves to an existing
@@ -569,7 +571,6 @@ class ContextExtractor {
     return jsonEncode(value);
   }
 
-  /// Returns the content of the first `.md` artifact for [task].
   Future<String?> _extractFirstMdArtifact(Task task) async {
     final artifacts = await _taskService.listArtifacts(task.id);
     for (final artifact in artifacts) {
@@ -614,4 +615,14 @@ class ContextExtractor {
       return null;
     }
   }
+}
+
+Map<String, dynamic> _coercePhantomPaths(Map<String, dynamic> outputs, Set<String> missingPathKeys) {
+  if (missingPathKeys.isEmpty) {
+    return outputs;
+  }
+  return {
+    for (final entry in outputs.entries)
+      entry.key: missingPathKeys.contains(entry.key) ? '' : entry.value,
+  };
 }

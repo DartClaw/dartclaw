@@ -6,15 +6,12 @@ import 'package:logging/logging.dart';
 import 'git_credential_env.dart';
 import 'worktree_manager.dart';
 
-/// Strategy for merging a worktree branch onto the base branch.
 enum MergeStrategy { squash, merge }
 
-/// Result of a merge attempt.
 sealed class MergeResult {
   const MergeResult();
 }
 
-/// Successful merge with the resulting commit SHA.
 class MergeSuccess extends MergeResult {
   final String commitSha;
   final String commitMessage;
@@ -22,7 +19,6 @@ class MergeSuccess extends MergeResult {
   const MergeSuccess({required this.commitSha, required this.commitMessage});
 }
 
-/// Merge failed due to conflicts.
 class MergeConflict extends MergeResult {
   final List<String> conflictingFiles;
   final String details;
@@ -30,6 +26,11 @@ class MergeConflict extends MergeResult {
   const MergeConflict({required this.conflictingFiles, required this.details});
 
   Map<String, dynamic> toJson() => {'conflictingFiles': conflictingFiles, 'details': details};
+}
+
+/// Thrown when a pre-merge repository invariant is already broken.
+class PreMergeInvariantException extends WorktreeException {
+  const PreMergeInvariantException(super.message, {super.gitStderr, super.exitCode});
 }
 
 /// Handles merging a worktree branch onto the base branch.
@@ -77,6 +78,7 @@ class MergeExecutor {
   }) async {
     final effectiveStrategy = strategy ?? _defaultStrategy;
     final commitMessage = 'task($taskId): $taskTitle';
+    await _assertCleanIndex();
 
     // 1. Record current HEAD and branch
     final originalHeadResult = await _git(['rev-parse', 'HEAD']);
@@ -236,6 +238,11 @@ class MergeExecutor {
     return MergeConflict(conflictingFiles: conflictingFiles, details: details.trim());
   }
 
+  /// Restores the repository to a usable state after a failed merge attempt.
+  ///
+  /// Squash merges reset to `HEAD`; merge-commit flows abort the in-progress
+  /// merge. Both branches log and continue on cleanup failure so the original
+  /// conflict result can still propagate to the caller.
   Future<void> _restoreAfterConflict(MergeStrategy strategy) async {
     if (strategy == MergeStrategy.squash) {
       final resetResult = await _git(['reset', '--hard', 'HEAD']);
@@ -253,6 +260,25 @@ class MergeExecutor {
 
   Future<ProcessResult> _git(List<String> args) {
     return _runProcess('git', args, workingDirectory: _projectDir);
+  }
+
+  Future<void> _assertCleanIndex() async {
+    final statusResult = await _git(['status', '--porcelain']);
+    if (statusResult.exitCode != 0) {
+      throw PreMergeInvariantException(
+        'Failed to verify merge precondition: repository index state is unknown',
+        gitStderr: _stderr(statusResult),
+        exitCode: statusResult.exitCode,
+      );
+    }
+    final dirtyEntries = _stdout(statusResult).trim();
+    if (dirtyEntries.isEmpty) {
+      return;
+    }
+    throw PreMergeInvariantException(
+      'Merge requires a clean index before checkout/merge. Resolve or stash local changes first.',
+      gitStderr: dirtyEntries,
+    );
   }
 
   static String _stdout(ProcessResult result) => result.stdout as String;

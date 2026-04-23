@@ -39,8 +39,10 @@ import 'workflow_turn_adapter.dart';
 
 /// Public API facade for workflow lifecycle management.
 ///
-/// Owns the [SqliteWorkflowRunRepository] and delegates execution to
-/// [WorkflowExecutor]. Provides start, pause, resume, cancel, get, list.
+/// Owns workflow-run persistence, tracks in-memory execution coordination
+/// (`_cancelFlags`, `_activeExecutors`, approval timers), and delegates the
+/// per-run execution loop to [WorkflowExecutor]. Callers use this service to
+/// start, pause, resume, cancel, and recover runs safely across restarts.
 class WorkflowService {
   static final _log = Logger('WorkflowService');
 
@@ -213,9 +215,7 @@ class WorkflowService {
     return run;
   }
 
-  /// Pauses a running workflow.
-  ///
-  /// Sets the cancellation flag so the executor stops before the next step.
+  /// Pauses a running workflow by setting the cancellation flag.
   Future<WorkflowRun> pause(String runId) async {
     final run = await _requireRun(runId);
     if (run.status != WorkflowRunStatus.running) {
@@ -443,10 +443,8 @@ class WorkflowService {
     await _invokeWorkflowGitCleanup(cancelled, preserveWorktrees: false);
   }
 
-  /// Returns the workflow run with [runId], or null if not found.
   Future<WorkflowRun?> get(String runId) => _repository.getById(runId);
 
-  /// Lists workflow runs with optional filters.
   Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) =>
       _repository.list(status: status, definitionName: definitionName);
 
@@ -480,7 +478,7 @@ class WorkflowService {
     }
   }
 
-  /// Recovers a single incomplete run.
+  /// Recovers a single incomplete run from its persisted definition and context.
   Future<void> _recoverRun(WorkflowRun run) async {
     // Load definition from snapshot.
     WorkflowDefinition definition;
@@ -640,32 +638,36 @@ class WorkflowService {
     String? startFromLoopStepId,
   }) {
     final executor = WorkflowExecutor(
-      taskService: _taskService,
-      eventBus: _eventBus,
-      kvService: _kvService,
-      repository: _repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
+      executionContext: StepExecutionContext(
         taskService: _taskService,
-        messageService: _messageService,
-        dataDir: _dataDir,
+        eventBus: _eventBus,
+        kvService: _kvService,
+        repository: _repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: _taskService,
+          messageService: _messageService,
+          dataDir: _dataDir,
+          workflowStepExecutionRepository: _workflowStepExecutionRepository,
+          structuredOutputFallbackRecorder: _structuredOutputFallbackRecorder,
+        ),
+        turnAdapter: _turnAdapter,
+        outputTransformer: _outputTransformer,
+        skillRegistry: _skillRegistry,
+        taskRepository: _taskRepository,
+        agentExecutionRepository: _agentExecutionRepository,
         workflowStepExecutionRepository: _workflowStepExecutionRepository,
-        structuredOutputFallbackRecorder: _structuredOutputFallbackRecorder,
+        executionTransactor: _executionRepositoryTransactor,
+        projectService: _projectService,
       ),
-      messageService: _messageService,
-      turnAdapter: _turnAdapter,
-      outputTransformer: _outputTransformer,
+      promptConfiguration: StepPromptConfiguration(),
       dataDir: _dataDir,
       roleDefaults: _roleDefaults,
-      skillRegistry: _skillRegistry,
-      taskRepository: _taskRepository,
-      agentExecutionRepository: _agentExecutionRepository,
-      workflowStepExecutionRepository: _workflowStepExecutionRepository,
-      executionTransactor: _executionRepositoryTransactor,
-      projectService: _projectService,
-      hostEnvironment: _hostEnvironment,
-      bashStepEnvAllowlist: _bashStepEnvAllowlist,
-      bashStepExtraStripPatterns: _bashStepExtraStripPatterns,
+      bashStepPolicy: BashStepPolicy(
+        hostEnvironment: _hostEnvironment,
+        envAllowlist: _bashStepEnvAllowlist ?? BashStepPolicy.defaultEnvAllowlist,
+        extraStripPatterns: _bashStepExtraStripPatterns ?? const <String>[],
+      ),
     );
 
     Future<void> executeFn() async {

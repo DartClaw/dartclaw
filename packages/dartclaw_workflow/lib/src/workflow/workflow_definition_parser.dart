@@ -42,7 +42,6 @@ class WorkflowDefinitionParser {
     );
   }
 
-  /// Parses a YAML file at [path] into a [WorkflowDefinition].
   Future<WorkflowDefinition> parseFile(String path) async {
     final content = await File(path).readAsString();
     return parse(content, sourcePath: path);

@@ -19,6 +19,11 @@ typedef WorkflowCliProcessStarter =
       Map<String, String>? environment,
     });
 
+/// YAML-decoded provider configuration for workflow one-shot execution.
+///
+/// The [options] map is intentionally untyped because it mirrors authored
+/// workflow/provider YAML directly; callers must normalize individual keys
+/// before using them.
 class WorkflowCliProviderConfig {
   final String executable;
   final Map<String, String> environment;
@@ -32,15 +37,34 @@ class WorkflowCliProviderConfig {
 }
 
 class WorkflowCliTurnResult {
+  /// Provider-owned conversation/session identifier returned by the CLI.
   final String providerSessionId;
+
+  /// Raw assistant text returned by the provider after protocol parsing.
   final String responseText;
+
+  /// Provider-enforced structured payload, when available.
   final Map<String, dynamic>? structuredOutput;
+
+  /// Total input tokens reported by the provider for the turn.
   final int inputTokens;
+
+  /// Total output tokens reported by the provider for the turn.
   final int outputTokens;
+
+  /// Cache-read tokens reported by the provider for the turn.
   final int cacheReadTokens;
+
+  /// Cache-write tokens reported by the provider for the turn.
   final int cacheWriteTokens;
+
+  /// Fresh input tokens derived from provider telemetry normalization.
   final int newInputTokens;
+
+  /// Reported cost, when the provider exposes it.
   final double? totalCostUsd;
+
+  /// End-to-end turn duration, including process startup and parsing.
   final Duration duration;
 
   WorkflowCliTurnResult({
@@ -152,6 +176,12 @@ class WorkflowCliRunner {
     return false;
   }
 
+  /// Executes a one-shot turn for [provider].
+  ///
+  /// Supports only `claude` and `codex`. When [sandboxOverride] is provided it
+  /// takes precedence over `providers[provider].options['sandbox']` after
+  /// resolving the stricter effective sandbox. stdin is always closed
+  /// immediately after spawn so Codex does not hang waiting for piped input.
   Future<WorkflowCliTurnResult> executeTurn({
     required String provider,
     required String prompt,
@@ -383,22 +413,14 @@ class WorkflowCliRunner {
     String? appendSystemPrompt,
     String? sandboxOverride,
   }) {
-    // Resolve the effective sandbox first so we can decide whether to pass
-    // `--full-auto` (an alias for `--sandbox workspace-write`). Passing both
-    // `--full-auto` and `--sandbox <mode>` leaves Codex with two conflicting
-    // sandbox declarations on the same invocation — when the explicit mode
-    // is stricter (`read-only`), the alias's implicit workspace-write can
-    // still let writes through, which is how a read-only discover-project
-    // task has been seen modifying the working tree. Prefer the explicit
-    // sandbox and drop the alias when we have one.
-    final sandbox = sandboxOverride?.trim().isNotEmpty == true
-        ? sandboxOverride!.trim()
-        : providers['codex']?.options['sandbox']?.toString().trim();
-    final hasExplicitSandbox = sandbox != null && sandbox.isNotEmpty;
+    final sandboxDecision = _CodexSandboxDecision(
+      defaultSandbox: providers['codex']?.options['sandbox']?.toString(),
+      sandboxOverride: sandboxOverride,
+    );
     final args = <String>[
       'exec',
       '--json',
-      if (!hasExplicitSandbox) '--full-auto',
+      if (!sandboxDecision.hasExplicitSandbox) '--full-auto',
       '--skip-git-repo-check',
       '-c',
       'approval_policy="never"',
@@ -412,8 +434,8 @@ class WorkflowCliRunner {
     if (appendSystemPrompt != null && appendSystemPrompt.trim().isNotEmpty) {
       args.addAll(['-c', 'developer_instructions=${jsonEncode(appendSystemPrompt)}']);
     }
-    if (hasExplicitSandbox) {
-      args.addAll(['--sandbox', sandbox]);
+    if (sandboxDecision.sandbox != null) {
+      args.addAll(['--sandbox', sandboxDecision.sandbox!]);
     }
     // Codex 0.120.0+ removed --ask-for-approval; approval behavior is now
     // controlled by --full-auto (already set above) and --sandbox.
@@ -800,6 +822,56 @@ class _WorkflowCliCommand {
   final String? tempSchemaPath;
 
   const _WorkflowCliCommand(this.command, {this.tempSchemaPath});
+}
+
+final class _CodexSandboxDecision {
+  static const _rankBySandbox = <String, int>{
+    'read-only': 0,
+    'workspace-write': 1,
+  };
+
+  final String? sandbox;
+  final bool hasExplicitSandbox;
+
+  factory _CodexSandboxDecision({String? defaultSandbox, String? sandboxOverride}) {
+    final normalizedDefault = _normalize(defaultSandbox);
+    final normalizedOverride = _normalize(sandboxOverride);
+    final resolvedSandbox = _resolve(normalizedDefault, normalizedOverride);
+    assert(
+      normalizedDefault == null ||
+          normalizedOverride == null ||
+          resolvedSandbox == _stricter(normalizedDefault, normalizedOverride),
+      'Codex sandbox resolution must preserve the stricter authored sandbox value.',
+    );
+    return _CodexSandboxDecision._(resolvedSandbox);
+  }
+
+  const _CodexSandboxDecision._(this.sandbox) : hasExplicitSandbox = sandbox != null;
+
+  static String? _normalize(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  static String? _resolve(String? defaultSandbox, String? sandboxOverride) {
+    if (sandboxOverride == null) return defaultSandbox;
+    if (defaultSandbox == null) return sandboxOverride;
+    return _stricter(defaultSandbox, sandboxOverride);
+  }
+
+  static String _stricter(String left, String right) {
+    if (left == right) return left;
+    final leftRank = _rankBySandbox[left];
+    final rightRank = _rankBySandbox[right];
+    if (leftRank == null || rightRank == null) {
+      throw StateError(
+        'Unsupported Codex sandbox combination: default="$left", override="$right". '
+        'Update _CodexSandboxDecision before adding new sandbox names.',
+      );
+    }
+    return leftRank <= rightRank ? left : right;
+  }
 }
 
 class _CodexStreamState {

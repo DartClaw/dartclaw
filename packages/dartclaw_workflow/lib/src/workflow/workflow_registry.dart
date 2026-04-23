@@ -58,7 +58,6 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
        _continuityProviders = continuityProviders,
        _log = log ?? Logger('WorkflowRegistry');
 
-  /// Sets the skill registry on the validator for skill-aware validation (S04).
   set skillRegistry(SkillRegistry? registry) => _validator.skillRegistry = registry;
 
   /// Discovers and loads custom workflow YAML files from [directory].
@@ -177,10 +176,8 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
       .map((r) => r.definition)
       .toList(growable: false);
 
-  /// Returns the number of registered workflows.
   int get length => _definitions.length;
 
-  /// Returns the source type for a workflow by name, or null if not found.
   WorkflowSource? sourceOf(String name) => _definitions[name]?.source;
 
   static WorkflowSummary _toSummary(WorkflowDefinition definition) => (

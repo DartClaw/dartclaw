@@ -96,6 +96,14 @@ Future<ArtifactCommitResult> maybeCommitArtifacts(
 Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy policy) async {
   final definition = policy.definition;
   final step = policy.step;
+  if ((step.id == 'discover-project' || step.skill == 'dartclaw-discover-project') &&
+      !step_config_policy.requiresPerMapItemBootstrap(
+        definition,
+        policy.context,
+        templateEngine: policy.templateEngine,
+      )) {
+    return const ArtifactCommitResult.skipped();
+  }
   final artifacts = definition.gitStrategy?.artifacts;
   final hasProducer = workflowHasArtifactProducer(definition);
   final shouldCommit = artifacts?.commit ?? hasProducer;
@@ -103,7 +111,13 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
   if (artifacts == null && !hasProducer) return const ArtifactCommitResult.skipped();
 
   final resolver = const ProducedArtifactResolver();
-  final contextOutputs = Map<String, Object?>.from(policy.context.data);
+  final contextOutputs = <String, Object?>{
+    for (final key in step.contextOutputs)
+      if (policy.context.data.containsKey(key)) key: policy.context.data[key],
+  };
+  if (policy.context.data.containsKey('project_index')) {
+    contextOutputs['project_index'] = policy.context.data['project_index'];
+  }
   final planDir = _planDirFromOutputs(contextOutputs);
   final preliminaryArtifacts = resolver.resolve(step: step, outputs: contextOutputs, planDir: planDir);
   if (preliminaryArtifacts.requiredPaths.isEmpty) return const ArtifactCommitResult.skipped();
@@ -215,7 +229,14 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
 }
 
 String _planDirFromOutputs(Map<String, Object?> outputs) {
-  final planPath = (outputs['plan'] as String?)?.trim();
+  final explicitPlanPath = (outputs['plan'] as String?)?.trim();
+  final projectIndex = switch (outputs['project_index']) {
+    final Map<dynamic, dynamic> map => map,
+    _ => null,
+  };
+  final planPath = explicitPlanPath == null || explicitPlanPath.isEmpty
+      ? (projectIndex?['active_plan'] as String?)?.trim()
+      : explicitPlanPath;
   return planPath == null || planPath.isEmpty ? '' : p.dirname(planPath);
 }
 

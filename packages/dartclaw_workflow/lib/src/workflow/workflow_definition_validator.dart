@@ -75,12 +75,10 @@ class ValidationReport {
 class WorkflowDefinitionValidator {
   static final _log = Logger('WorkflowDefinitionValidator');
   static final _gateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)+)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
-  // `entryGate` supports both bare-key and dotted `stepId.key` forms
-  // (e.g. `active_prd != null` or `review-prd.findings_count > 0`), mirroring
-  // how `GateEvaluator` reads values out of context. The key segment pattern
-  // intentionally rejects multi-dotted forms (`a.b.c`) because the runtime
-  // evaluator does not resolve nested paths — a gate written that way would
-  // always read as null at runtime.
+  // `entryGate` supports bare keys and dotted context paths
+  // (e.g. `active_prd != null`, `project_index.active_prd == null`, or
+  // `review-prd.findings_count > 0`), mirroring how `GateEvaluator` resolves
+  // exact flat keys before nested map paths.
   static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
 
   static const _artifactProducingSkills = {'dartclaw-prd', 'dartclaw-plan', 'dartclaw-spec'};

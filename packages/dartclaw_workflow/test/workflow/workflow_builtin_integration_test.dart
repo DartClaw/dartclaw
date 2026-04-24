@@ -277,12 +277,23 @@ void main() {
       }
     }
 
-    writeRelative(decoded['prd'] as String?);
-    final planPath = decoded['plan'] as String?;
+    final projectIndexMap = decoded['project_index'];
+    final discoveredPrdPath = switch (projectIndexMap) {
+      final Map<dynamic, dynamic> map => map['active_prd'] as String?,
+      _ => null,
+    };
+    final discoveredPlanPath = switch (projectIndexMap) {
+      final Map<dynamic, dynamic> map => map['active_plan'] as String?,
+      _ => null,
+    };
+
+    writeRelative((decoded['prd'] as String?) ?? discoveredPrdPath);
+    final planPath = (decoded['plan'] as String?) ?? discoveredPlanPath;
     writeRelative(planPath);
     writeRelative(decoded['spec_path'] as String?);
     final planDir = planPath == null || planPath.trim().isEmpty ? null : p.dirname(planPath.trim());
-    final storySpecs = decoded['story_specs'];
+    final activeStorySpecs = projectIndexMap is Map ? projectIndexMap['active_story_specs'] : null;
+    final storySpecs = decoded['story_specs'] ?? activeStorySpecs;
     if (storySpecs is Map) {
       final items = storySpecs['items'];
       if (items is List) {
@@ -528,7 +539,7 @@ void main() {
     expect(trace.descriptionsByStep['integrated-review']!.single, contains('IMPLEMENT_DIFF_MARKER'));
   });
 
-  test('spec-and-implement integration binds discover-project and coding steps to the workflow PROJECT', () async {
+  test('spec-and-implement integration binds project-aware steps to the workflow PROJECT', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': 'Project binding check', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
@@ -571,12 +582,14 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('spec').single.projectId, isNull);
+    expect(trace.tasksForStep('spec').single.projectId, 'demo-project');
     expect(trace.tasksForStep('spec').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('spec').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('integrated-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('remediate'), isEmpty);
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('integrated-review').single.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
   });
 
   test('spec-and-implement integration keeps discovery/review read-only and spec writable', () async {
@@ -904,7 +917,11 @@ void main() {
             }),
           ),
           'prd' => _StubResponse(
-            assistantContent: _contextOutput({'prd': 'docs/specs/test/prd.md', 'prd_source': 'synthesized'}),
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/test/prd.md',
+              'prd_source': 'synthesized',
+              'prd_confidence': 9,
+            }),
           ),
           // The merged plan step now emits stories + story_specs in one pass.
           'plan' => _StubResponse(
@@ -1030,7 +1047,7 @@ void main() {
     expect((r1['implement'] as Map<String, dynamic>)['story_result'], 'STORY_RESULT_BETA');
   });
 
-  test('plan-and-implement integration binds discover-project and coding steps to the workflow PROJECT', () async {
+  test('plan-and-implement integration binds project-aware steps to the workflow PROJECT', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
@@ -1050,7 +1067,11 @@ void main() {
             }),
           ),
           'prd' => _StubResponse(
-            assistantContent: _contextOutput({'prd': 'docs/specs/project-bound/prd.md', 'prd_source': 'synthesized'}),
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/project-bound/prd.md',
+              'prd_source': 'synthesized',
+              'prd_confidence': 9,
+            }),
           ),
           'plan' => _StubResponse(
             assistantContent: _contextOutput({
@@ -1125,23 +1146,24 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('prd').single.projectId, isNull);
+    expect(trace.tasksForStep('prd').single.projectId, 'demo-project');
     expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('discover-project').single.type, TaskType.coding);
     expect(trace.tasksForStep('prd').single.type, TaskType.coding);
-    expect(trace.tasksForStep('plan').single.projectId, isNull);
+    expect(trace.tasksForStep('plan').single.projectId, 'demo-project');
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('plan').single.type, TaskType.coding);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('implement').single.type, TaskType.coding);
-    expect(trace.tasksForStep('quick-review').single.projectId, isNull);
+    expect(trace.tasksForStep('quick-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('quick-review').single.type, TaskType.coding);
     expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
-    expect(trace.tasksForStep('plan-review').single.projectId, isNull);
+    expect(trace.tasksForStep('plan-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('plan-review').single.type, TaskType.coding);
+    expect(trace.tasksForStep('plan-review').single.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
     expect(trace.tasksForStep('update-state').single.type, TaskType.coding);
   });
@@ -1185,12 +1207,14 @@ void main() {
                       'title': 'Story One',
                       'spec_path': 'docs/specs/demo/fis/s01-story-one.md',
                       'acceptance_criteria': ['first passes'],
+                      'dependencies': <String>[],
                     },
                     {
                       'id': 'S02',
                       'title': 'Story Two',
                       'spec_path': 'docs/specs/demo/fis/s02-story-two.md',
                       'acceptance_criteria': ['second passes'],
+                      'dependencies': <String>[],
                     },
                   ],
                 },
@@ -1372,6 +1396,7 @@ void main() {
                     'title': 'Thin Story',
                     'spec_path': 'docs/specs/demo/fis/s01-thin-story.md',
                     'acceptance_criteria': ['prompt includes authored requirements'],
+                    'dependencies': <String>[],
                   },
                 ],
               },
@@ -1464,6 +1489,7 @@ void main() {
                     'title': 'Story One',
                     'spec_path': 'fis/s01-story-one.md',
                     'acceptance_criteria': ['first passes'],
+                    'dependencies': <String>[],
                   },
                 ],
               },
@@ -1509,6 +1535,358 @@ void main() {
     expect(implementPrompt, contains('docs/specs/demo/fis/s01-story-one.md (story 1 of 1):'));
   });
 
+  test('plan-and-implement reuses an active PRD as the flat handoff for the plan step', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': 'Reuse an existing PRD only',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: _contextOutput({
+              'project_index': {
+                'framework': 'dart',
+                'project_root': '/repo/demo-project',
+                'document_locations': {'product': 'PRODUCT.md', 'prd': 'docs/specs/reused/prd.md'},
+                'active_prd': 'docs/specs/reused/prd.md',
+                'state_protocol': {'state_file': 'docs/STATE.md'},
+              },
+            }),
+          ),
+          'plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'plan': 'docs/specs/reused/plan.md',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Planned Story',
+                    'spec_path': 'docs/specs/reused/fis/s01-planned-story.md',
+                    'dependencies': <String>[],
+                  },
+                ],
+              },
+            }),
+          ),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'Implemented the reused-PRD story.'}),
+            worktreeJson: {
+              'branch': 'reused-prd-story',
+              'path': '/tmp/worktrees/reused-prd-story',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+          ),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_findings': 'No issues',
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.count('prd'), 0);
+    expect(trace.count('plan'), 1);
+    expect(trace.descriptionsByStep['plan']!.single, contains('docs/specs/reused/prd.md'));
+  });
+
+  test('plan-and-implement reruns plan when active_story_specs is missing for a reused plan', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': 'Recover a reused plan without a discovered story catalog',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: _contextOutput({
+              'project_index': {
+                'framework': 'dart',
+                'project_root': '/repo/demo-project',
+                'document_locations': {
+                  'product': 'PRODUCT.md',
+                  'prd': 'docs/specs/reused/prd.md',
+                  'plan': 'docs/specs/reused/plan.md',
+                },
+                'active_prd': 'docs/specs/reused/prd.md',
+                'active_plan': 'docs/specs/reused/plan.md',
+                'state_protocol': {'state_file': 'docs/STATE.md'},
+              },
+            }),
+          ),
+          'plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'plan': 'docs/specs/reused/plan.md',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Recovered Story',
+                    'spec_path': 'docs/specs/reused/fis/s01-recovered-story.md',
+                    'dependencies': <String>[],
+                  },
+                ],
+              },
+            }),
+          ),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'Implemented the recovered story.'}),
+            worktreeJson: {
+              'branch': 'recovered-story',
+              'path': '/tmp/worktrees/recovered-story',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+          ),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_findings': 'No issues',
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.count('prd'), 0, reason: 'an existing active plan should suppress PRD synthesis');
+    expect(
+      trace.count('plan'),
+      1,
+      reason: 'missing active_story_specs should force the plan step to republish the catalog',
+    );
+    expect(trace.count('implement'), 1);
+  });
+
+  test('plan-and-implement still drafts a PRD when only an active plan path was discovered', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': 'Recover a discovered plan path without an active PRD',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: _contextOutput({
+              'project_index': {
+                'framework': 'dart',
+                'project_root': '/repo/demo-project',
+                'document_locations': {'product': 'PRODUCT.md', 'plan': 'docs/specs/reused/plan.md'},
+                'active_plan': 'docs/specs/reused/plan.md',
+                'state_protocol': {'state_file': 'docs/STATE.md'},
+              },
+            }),
+          ),
+          'prd' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/reused/prd.md',
+              'prd_source': 'synthesized',
+              'prd_confidence': 9,
+            }),
+          ),
+          'plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'plan': 'docs/specs/reused/plan.md',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Recovered Story',
+                    'spec_path': 'docs/specs/reused/fis/s01-recovered-story.md',
+                    'dependencies': <String>[],
+                  },
+                ],
+              },
+            }),
+          ),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'Implemented the recovered plan-path story.'}),
+            worktreeJson: {
+              'branch': 'recovered-plan-path',
+              'path': '/tmp/worktrees/recovered-plan-path',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+          ),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_findings': 'No issues',
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.count('prd'), 1, reason: 'an active plan path without an active PRD still needs PRD synthesis');
+    expect(trace.count('plan'), 1, reason: 'missing active_story_specs should still force plan republishing');
+    expect(trace.descriptionsByStep['plan']!.single, contains('docs/specs/reused/prd.md'));
+  });
+
+  test('plan-and-implement still drafts a PRD when an executable reused plan lacks an active PRD', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': 'Repair a missing PRD while reusing an executable plan',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: _contextOutput({
+              'project_index': {
+                'framework': 'dart',
+                'project_root': '/repo/demo-project',
+                'document_locations': {'product': 'PRODUCT.md', 'plan': 'docs/specs/reused/plan.md'},
+                'active_plan': 'docs/specs/reused/plan.md',
+                'active_story_specs': {
+                  'items': [
+                    {
+                      'id': 'S01',
+                      'title': 'Existing Story',
+                      'spec_path': 'docs/specs/reused/fis/s01-existing-story.md',
+                      'dependencies': <String>[],
+                    },
+                  ],
+                },
+                'state_protocol': {'state_file': 'docs/STATE.md'},
+              },
+            }),
+          ),
+          'prd' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/reused/prd.md',
+              'prd_source': 'synthesized',
+              'prd_confidence': 9,
+            }),
+          ),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'Implemented the executable reused-plan story.'}),
+            worktreeJson: {
+              'branch': 'existing-story',
+              'path': '/tmp/worktrees/existing-story',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+          ),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_findings': 'No issues',
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.count('prd'), 1, reason: 'missing active_prd should still trigger PRD synthesis');
+    expect(trace.count('plan'), 0, reason: 'the executable reused plan should still be reused');
+  });
+
+  test('plan-and-implement normalizes reused-plan story spec paths against the discovered plan path', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': 'Normalize reused-plan story spec paths',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: _contextOutput({
+              'project_index': {
+                'framework': 'dart',
+                'project_root': '/repo/demo-project',
+                'document_locations': {
+                  'product': 'PRODUCT.md',
+                  'prd': 'docs/specs/reused/prd.md',
+                  'plan': 'docs/specs/reused/plan.md',
+                },
+                'active_prd': 'docs/specs/reused/prd.md',
+                'active_plan': 'docs/specs/reused/plan.md',
+                'active_story_specs': {
+                  'items': [
+                    {
+                      'id': 'S01',
+                      'title': 'Relative Story',
+                      'spec_path': 'fis/s01-relative-story.md',
+                      'dependencies': <String>[],
+                    },
+                  ],
+                },
+                'state_protocol': {'state_file': 'docs/STATE.md'},
+              },
+            }),
+          ),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'Implemented the relative story.'}),
+            worktreeJson: {
+              'branch': 'relative-story',
+              'path': '/tmp/worktrees/relative-story',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+          ),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_findings': 'No issues',
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.count('plan'), 0, reason: 'the reused plan already had an active story catalog');
+    final implementPrompt = trace.tasksForStep('implement').single.description;
+    expect(implementPrompt, contains('docs/specs/reused/fis/s01-relative-story.md (story 1 of 1):'));
+  });
+
   test(
     'plan-and-implement integration enters remediation when plan-review finds issues and exits after re-validation',
     () async {
@@ -1532,7 +1910,11 @@ void main() {
               }),
             ),
             'prd' => _StubResponse(
-              assistantContent: _contextOutput({'prd': 'docs/specs/loop/prd.md', 'prd_source': 'synthesized'}),
+              assistantContent: _contextOutput({
+                'prd': 'docs/specs/loop/prd.md',
+                'prd_source': 'synthesized',
+                'prd_confidence': 9,
+              }),
             ),
             'plan' => _StubResponse(
               assistantContent: _contextOutput({
@@ -1642,7 +2024,100 @@ void main() {
     },
   );
 
-  test('code-review integration binds discover-project and remediation steps to the workflow PROJECT', () async {
+  test('plan-and-implement still runs plan-review when the plan was reused from disk', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': 'Execute a pre-authored plan',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: _contextOutput({
+              'project_index': {
+                'framework': 'dart',
+                'project_root': '/repo/demo-project',
+                'document_locations': {
+                  'product': 'PRODUCT.md',
+                  'prd': 'docs/specs/reused/prd.md',
+                  'plan': 'docs/specs/reused/plan.md',
+                },
+                'active_prd': 'docs/specs/reused/prd.md',
+                'active_plan': 'docs/specs/reused/plan.md',
+                'active_story_specs': {
+                  'items': [
+                    {
+                      'id': 'S01',
+                      'title': 'Existing Story',
+                      'description': 'Already planned story',
+                      'acceptance_criteria': ['passes review'],
+                      'type': 'coding',
+                      'dependencies': <String>[],
+                      'key_files': ['lib/existing.dart'],
+                      'effort': 'small',
+                      'spec_path': 'docs/specs/reused/fis/s01-existing-story.md',
+                    },
+                  ],
+                },
+                'state_protocol': {'state_file': 'docs/STATE.md'},
+              },
+            }),
+          ),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'IMPLEMENTED_EXISTING_STORY'}),
+            worktreeJson: {
+              'branch': 'existing-story',
+              'path': '/tmp/worktrees/existing-story',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'quick_review_summary': 'Story looks good',
+              'quick_review_findings_count': 0,
+            }),
+          ),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_findings': 'One reused-plan issue remains',
+              'findings_count': 1,
+              'plan-review.findings_count': 1,
+            }),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_summary': 'Fixed the reused-plan issue',
+              'diff_summary': 'UPDATED_DIFF',
+            }),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_findings': 'No remaining issues',
+              'findings_count': 0,
+              're-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(
+            assistantContent: _contextOutput({'state_update_summary': 'reused plan execution recorded'}),
+          ),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.count('prd'), 0, reason: 'discover-project should fast-path the existing PRD');
+    expect(trace.count('revise-prd'), 0, reason: 'reused PRDs should still skip revise-prd');
+    expect(trace.count('plan'), 0, reason: 'discover-project should fast-path the existing plan');
+    expect(trace.count('plan-review'), 1, reason: 'full implementation review should run for reused plans');
+    expect(trace.count('remediate'), 1, reason: 'reused plans should still enter remediation when review finds issues');
+    expect(trace.count('re-review'), 1);
+  });
+
+  test('code-review integration binds project-aware steps to the workflow PROJECT', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'code-review.yaml',
       variables: {
@@ -1693,9 +2168,10 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('review-code').single.projectId, isNull);
+    expect(trace.tasksForStep('review-code').single.projectId, 'demo-project');
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
+    expect(trace.tasksForStep('review-code').single.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
     expect(trace.tasksForStep('remediate'), isEmpty);
     expect(trace.tasksForStep('re-review'), isEmpty);
   });

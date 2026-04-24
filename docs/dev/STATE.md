@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-23 20:30 CEST
+Last Updated: 2026-04-24 00:22 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -21,11 +21,12 @@ Last Updated: 2026-04-23 20:30 CEST
 
 ## Current Phase
 
-**0.16.4** — release prep, reopened mid-milestone for workflow step semantics redesign. Filesystem-first structured-output extraction is code-complete.
+**0.16.4** — release prep, reopened mid-milestone for workflow step semantics redesign. Filesystem-first structured-output extraction is code-complete. Final workflow gap remediation plan is ready to execute from the private bundle's S51 closure ledger.
 
 ## Active Stories
 
 - S49 — In Progress: building the workflow scenario-test tier, typed `E2EFixture`, and fitness-baseline ratchet now that dependency-aware `foreach` scheduling is landed.
+- Workflow final gap remediation — Plan Ready: private plan bundle created at `../dartclaw-private/docs/specs/0.16.4/workflow-final-gap-remediation/` (5 stories, 3 phases). Execution starts with S51 final gap triage and closure ledger.
 
 ## Next Planned
 
@@ -38,6 +39,7 @@ Last Updated: 2026-04-23 20:30 CEST
 ## Recent Decisions
 
 - Dependency-aware fan-out is now a shared `mapOver` / `foreach` contract: dependency-aware records must carry `id` + `dependencies`, `story_specs` now preserves that adjacency, and promotion conflicts keep downstream stories pending for retry/resume.
+- Final workflow gap remediation will execute sequentially from S51 -> S52 -> S53 -> S54 -> S55; S52/S53 are not parallel because they share executor, dispatcher, task-boundary, and built-in workflow surfaces.
 - S46 task_executor.dart decomposition completed: task executor reduced to 771 LOC with extracted task config, workflow turn extraction, read-only guard, budget policy, runner-pool coordination, workflow worktree binding, and one-shot workflow runner seams.
 - S47 git integration hardening completed: WorkflowGitPort seam, pre-merge invariants, RepoLock, fake-git parity tests, and fatal load-bearing artifact commit failures.
 - Filesystem-first structured-output extraction completed: path outputs resolve from `WorkflowGitPort.diffNameOnly`, artifact propagation uses `ProducedArtifactResolver`, and mapped story specs preflight before agent launch.

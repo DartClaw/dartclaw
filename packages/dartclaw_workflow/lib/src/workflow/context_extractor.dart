@@ -17,6 +17,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import 'context_output_defaults.dart';
 import 'json_extraction.dart';
 import 'missing_artifact_failure.dart';
 import 'output_resolver.dart';
@@ -77,10 +78,8 @@ class ContextExtractor {
   ///
   /// Returns a map of output key → extracted value.
   ///
-  /// [effectiveOutputs] lets the caller supply a precomputed `outputs:` map
-  /// (e.g. the step's explicit config shallow-merged over the skill's
-  /// `workflow.default_outputs`). When null, the extractor falls back to
-  /// `step.outputs`.
+  /// [effectiveOutputs] lets callers supply precomputed output config; null
+  /// falls back to `step.outputs`.
   Future<Map<String, dynamic>> extract(
     WorkflowStep step,
     Task task, {
@@ -161,6 +160,12 @@ class ContextExtractor {
           }
       }
 
+      final derivedValue = _deriveFromStructuredOutputs(step, outputs, outputKey);
+      if (derivedValue != null) {
+        outputs[outputKey] = derivedValue;
+        continue;
+      }
+
       if (config != null && config.outputMode == OutputMode.structured) {
         _structuredOutputFallbackRecorder?.call(
           task.id,
@@ -210,12 +215,6 @@ class ContextExtractor {
         continue;
       }
 
-      final derivedValue = _deriveFromStructuredOutputs(outputs, outputKey);
-      if (derivedValue != null) {
-        outputs[outputKey] = derivedValue;
-        continue;
-      }
-
       // Fall through to convention-based extraction (text format or no config).
 
       // Try first .md artifact.
@@ -242,7 +241,8 @@ class ContextExtractor {
       outputs[outputKey] = '';
     }
 
-    // Warn on large values.
+    applyContextOutputDefaults(step, outputs);
+
     for (final entry in outputs.entries) {
       final value = entry.value?.toString() ?? '';
       if (value.length > _contextSizeWarningThreshold) {
@@ -283,7 +283,10 @@ class ContextExtractor {
 
     final changedPaths = await git.diffNameOnly(worktreePath);
     final matches = changedPaths.map(p.normalize).where(resolver.matches).toList()..sort();
-    final missingClaims = claimedPaths.where((path) => !matches.contains(p.normalize(path))).toList();
+    final existingClaims = claimedPaths.where((path) => _pathResolvesToExistingFile(path, task)).toList();
+    final missingClaims = claimedPaths
+        .where((path) => !matches.contains(p.normalize(path)) && !existingClaims.contains(path))
+        .toList();
     if (missingClaims.isNotEmpty) {
       throw MissingArtifactFailure(
         claimedPaths: claimedPaths,
@@ -294,6 +297,11 @@ class ContextExtractor {
       );
     }
 
+    if (claimedPaths.isNotEmpty) {
+      if (resolver.listMode) return claimedPaths.toList()..sort();
+      if (claimedPaths.length == 1) return claimedPaths.single;
+      throw StateError('Multiple filesystem artifacts were explicitly claimed for "$outputKey": $claimedPaths');
+    }
     if (resolver.listMode) return matches;
     if (matches.isEmpty) return '';
     if (matches.length == 1) return matches.single;
@@ -341,7 +349,7 @@ class ContextExtractor {
   /// file under any plausible root for [task].
   ///
   /// Tries, in order: absolute path, task worktree path, project dir under
-  /// dataDir (via `task.projectId`), and the process CWD. The check is
+  /// dataDir (via `task.projectId`). The check is
   /// read-only and tolerates missing roots.
   bool _pathResolvesToExistingFile(String value, Task task) {
     try {
@@ -355,7 +363,6 @@ class ContextExtractor {
       if (projectId != null && projectId.isNotEmpty && projectId != '_local') {
         roots.add(p.join(_dataDir, 'projects', projectId));
       }
-      roots.add(Directory.current.path);
       for (final root in roots) {
         if (File(p.join(root, value)).existsSync()) return true;
       }
@@ -382,7 +389,7 @@ class ContextExtractor {
     return null;
   }
 
-  dynamic _deriveFromStructuredOutputs(Map<String, dynamic> outputs, String outputKey) {
+  dynamic _deriveFromStructuredOutputs(WorkflowStep step, Map<String, dynamic> outputs, String outputKey) {
     if (outputs.containsKey(outputKey)) {
       return outputs[outputKey];
     }
@@ -403,7 +410,7 @@ class ContextExtractor {
         return value[outputKey];
       }
     }
-    return null;
+    return defaultContextOutput(step, outputs, outputKey);
   }
 
   Future<Map<String, dynamic>> _extractStructuredOutputPayload(Task task) async {
@@ -512,6 +519,32 @@ class ContextExtractor {
         outputKey: outputKey,
         fieldPath: key,
       );
+    }
+
+    final rawActiveStorySpecs = _asStringKeyedMap(projectIndex['active_story_specs']);
+    if (rawActiveStorySpecs != null) {
+      final rawItems = rawActiveStorySpecs['items'];
+      if (rawItems is List) {
+        sanitized['active_story_specs'] = {
+          ...rawActiveStorySpecs,
+          'items': [
+            for (var index = 0; index < rawItems.length; index++)
+              switch (_asStringKeyedMap(rawItems[index])) {
+                final item? => {
+                  ...item,
+                  'spec_path': _sanitizeProjectRelativePath(
+                    projectRoot,
+                    item['spec_path'],
+                    stepId: stepId,
+                    outputKey: outputKey,
+                    fieldPath: 'active_story_specs.items[$index].spec_path',
+                  ),
+                },
+                _ => rawItems[index],
+              },
+          ],
+        };
+      }
     }
 
     return sanitized;

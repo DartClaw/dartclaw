@@ -1321,6 +1321,39 @@ void main() {
     expect(task.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
   });
 
+  test('workflow-level project binds project-aware read-only steps without forcing a worktree', () async {
+    const definition = WorkflowDefinition(
+      name: 'workflow-project-readonly-bound',
+      description: 'Project-aware review steps should target the workflow project inline.',
+      project: '{{PROJECT}}',
+      steps: [
+        WorkflowStep(
+          id: 'review',
+          name: 'Review',
+          type: 'custom',
+          typeAuthored: true,
+          allowedTools: ['file_read'],
+          contextInputs: ['project_index'],
+          prompts: ['Review the generated plan'],
+        ),
+      ],
+    );
+
+    final task = await executeAndCaptureSingleTask(
+      definition: definition,
+      context: WorkflowContext(
+        variables: const {'PROJECT': 'demo-project'},
+        data: const {
+          'project_index': {'project_root': '/repo/demo-project'},
+        },
+      ),
+      runId: 'run-readonly-bound',
+    );
+
+    expect(task.projectId, 'demo-project');
+    expect(task.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
+  });
+
   test('workflow-level project still binds neutral custom steps without an explicit tool allowlist', () async {
     const definition = WorkflowDefinition(
       name: 'workflow-project-custom-bound',

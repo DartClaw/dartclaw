@@ -1,11 +1,11 @@
 import 'package:logging/logging.dart';
 
 import 'workflow_context.dart';
+import 'workflow_context_resolver.dart';
 
 /// Evaluates simple gate expressions against workflow context.
 ///
 /// Gate syntax: `<key> <operator> <value>` joined by `&&`.
-/// Operators: ==, !=, <, >, <=, >=.
 /// Example: `implement.status == accepted && research.tokenCount < 50000`
 class GateEvaluator {
   static final _log = Logger('GateEvaluator');
@@ -46,7 +46,7 @@ class GateEvaluator {
     }
     final op = match.group(2)!.trim();
     final expected = match.group(3)!.trim();
-    final rawActual = context[key]?.toString() ?? '';
+    final rawActual = resolveContextKey(context, key)?.toString() ?? '';
 
     // Null-literal handling for equality: missing keys and empty values are
     // considered null; the literal string "null" also matches null. Equality

@@ -1,4 +1,5 @@
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:dartclaw_workflow/src/workflow/workflow_context_resolver.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -12,6 +13,18 @@ void main() {
     test('missing key returns null', () {
       final ctx = WorkflowContext();
       expect(ctx['nonexistent'], isNull);
+    });
+
+    test('resolveContextKey prefers exact keys before dotted map paths', () {
+      final ctx = WorkflowContext(
+        data: {
+          'review.findings_count': 3,
+          'project_index': {'active_plan': 'docs/specs/0.16.5/plan.md'},
+        },
+      );
+      expect(resolveContextKey(ctx, 'review.findings_count'), 3);
+      expect(resolveContextKey(ctx, 'project_index.active_plan'), 'docs/specs/0.16.5/plan.md');
+      expect(resolveContextKey(ctx, 'project_index.missing'), isNull);
     });
 
     test('variable access', () {

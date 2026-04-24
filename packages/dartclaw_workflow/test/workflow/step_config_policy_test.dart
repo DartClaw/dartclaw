@@ -13,7 +13,9 @@ void main() {
         name: 'wf',
         description: 'test',
         gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
-        steps: const [WorkflowStep(id: 'map', name: 'Map', prompts: ['p'], mapOver: 'items', maxParallel: 2)],
+        steps: const [
+          WorkflowStep(id: 'map', name: 'Map', prompts: ['p'], mapOver: 'items', maxParallel: 2),
+        ],
       );
 
       expect(
@@ -32,8 +34,8 @@ void main() {
       expect(effectivePromotion(null, resolvedWorktreeMode: 'inline'), equals('none'));
     });
 
-    test('stepNeedsWorktree is true for per-map-item and false for foreach controller', () {
-      const definition = WorkflowDefinition(name: 'wf', description: 'test', steps: []);
+    test('stepNeedsWorktree is true for per-map-item and false for inherited read-only project steps', () {
+      const definition = WorkflowDefinition(name: 'wf', description: 'test', project: 'proj', steps: []);
       const resolved = ResolvedStepConfig();
 
       expect(
@@ -54,22 +56,25 @@ void main() {
         ),
         isFalse,
       );
+      expect(
+        stepNeedsWorktree(
+          definition,
+          const WorkflowStep(id: 'review', name: 'Review', contextInputs: ['project_index']),
+          const ResolvedStepConfig(allowedTools: ['file_read']),
+          resolvedWorktreeMode: 'inline',
+        ),
+        isFalse,
+      );
     });
 
     test('stepIsReadOnly follows allowed tools and legacy semantic defaults', () {
       expect(stepIsReadOnly(const WorkflowStep(id: 's', name: 'S'), const ResolvedStepConfig()), isTrue);
       expect(
-        stepIsReadOnly(
-          const WorkflowStep(id: 's', name: 'S'),
-          const ResolvedStepConfig(allowedTools: ['file_read']),
-        ),
+        stepIsReadOnly(const WorkflowStep(id: 's', name: 'S'), const ResolvedStepConfig(allowedTools: ['file_read'])),
         isTrue,
       );
       expect(
-        stepIsReadOnly(
-          const WorkflowStep(id: 's', name: 'S'),
-          const ResolvedStepConfig(allowedTools: ['file_write']),
-        ),
+        stepIsReadOnly(const WorkflowStep(id: 's', name: 'S'), const ResolvedStepConfig(allowedTools: ['file_write'])),
         isFalse,
       );
     });
@@ -87,7 +92,7 @@ void main() {
       );
     });
 
-    test('shouldBindWorkflowProject binds custom mutating steps but not path-only producers', () {
+    test('shouldBindWorkflowProject binds project-index consumers and mutating custom steps', () {
       const definition = WorkflowDefinition(name: 'wf', description: 'test', project: 'proj', steps: []);
 
       expect(
@@ -101,14 +106,10 @@ void main() {
       expect(
         shouldBindWorkflowProject(
           definition,
-          const WorkflowStep(
-            id: 'artifact',
-            name: 'Artifact',
-            outputs: {'plan': OutputConfig(format: OutputFormat.path)},
-          ),
-          const ResolvedStepConfig(),
+          const WorkflowStep(id: 'review', name: 'Review', contextInputs: ['project_index']),
+          const ResolvedStepConfig(allowedTools: ['file_read']),
         ),
-        isFalse,
+        isTrue,
       );
     });
 

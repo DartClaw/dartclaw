@@ -47,7 +47,12 @@ final class TaskConfigView {
 
   bool get isCodingTask => task.type == TaskType.coding || task.workflowStepExecution?.stepType == 'coding';
 
-  bool get needsWorktree => task.type == TaskType.coding || task.configJson['_workflowNeedsWorktree'] == true;
+  bool get needsWorktree {
+    if (isWorkflowOrchestrated) {
+      return task.configJson['_workflowNeedsWorktree'] == true;
+    }
+    return task.type == TaskType.coding || task.configJson['_workflowNeedsWorktree'] == true;
+  }
 
   String? get model => task.model;
 

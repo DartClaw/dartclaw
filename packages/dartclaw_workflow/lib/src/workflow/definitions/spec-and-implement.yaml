@@ -54,36 +54,37 @@ stepDefaults:
 steps:
   # Discover the project layout and document/state locations before authoring work starts.
   # When FEATURE is already a path to an existing spec/FIS file in this project,
-  # discover-project emits it as `spec_path` so the next step's entryGate can
-  # skip spec authoring.
+  # discover-project emits it as `spec_path` and marks `spec_source` as
+  # `existing` so the next step can skip spec authoring.
   - id: discover-project
     name: Discover Project
     type: custom
     skill: dartclaw-discover-project
     allowedTools: [shell, file_read]
     workflowVariables: [FEATURE]
-    contextOutputs: [project_index, spec_path]
+    contextOutputs: [project_index, spec_path, spec_source]
     outputs:
       project_index:
         format: json
         schema: project-index
-        description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
+        description: Normalized snapshot of the project layout, active artifacts, and state protocol.
       spec_path:
         format: path
         description: Workspace-relative path to the FIS on disk — pre-authored (if FEATURE resolves to one) or freshly synthesized by the spec step.
+      spec_source:
+        format: text
+        description: "'existing' when the skill reused a spec, 'synthesized' when it wrote a new one."
 
   # Draft the initial implementation spec from the requested feature and
   # discovered project context. Also emits a 1-10 self-rated confidence
   # score; downstream review/revise steps are gated on this value so
   # high-confidence specs skip the review loop entirely. Skipped entirely
-  # when discover-project already populated `spec_path` — in that case
-  # `spec_source` stays unset and the revise-spec gate below falls through
-  # to a no-op.
+  # when discover-project already marked `spec_source` as `existing`.
   - id: spec
     name: Generate Specification
     type: custom
     skill: dartclaw-spec
-    entryGate: "spec_path == null"
+    entryGate: "spec_source == synthesized"
     contextInputs: [project_index]
     workflowVariables: [FEATURE]
     contextOutputs: [spec_path, spec_source, spec_confidence]

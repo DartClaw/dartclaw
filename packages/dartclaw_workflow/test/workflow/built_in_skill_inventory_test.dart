@@ -67,18 +67,24 @@ void main() {
       expect(
         skillDirs,
         equals(_expectedSkillDirs),
-        reason: 'Exact skill set matters — a refactor that drops one skill and adds another must update this test explicitly',
+        reason:
+            'Exact skill set matters — a refactor that drops one skill and adds another must update this test explicitly',
       );
     });
 
     test('every expected skill has a SKILL.md', () {
       for (final skill in _expectedSkillDirs) {
-        expect(
-          File(p.join(skillsDir, skill, 'SKILL.md')).existsSync(),
-          isTrue,
-          reason: '$skill/SKILL.md is missing',
-        );
+        expect(File(p.join(skillsDir, skill, 'SKILL.md')).existsSync(), isTrue, reason: '$skill/SKILL.md is missing');
       }
+    });
+
+    test('discover-project documents project-index active story-spec contract', () {
+      final content = File(p.join(skillsDir, 'dartclaw-discover-project', 'SKILL.md')).readAsStringSync();
+
+      expect(content, isNot(contains('default_outputs:')));
+      expect(content, contains('active_prd'));
+      expect(content, contains('active_plan'));
+      expect(content, contains('active_story_specs'));
     });
 
     test('skills from earlier ports (absorbed upstream) are gone', () {
@@ -119,7 +125,11 @@ void main() {
     test('SYNC-VERBATIM skills each have Codex agents/openai.yaml with DartClaw branding', () {
       for (final skill in _syncVerbatimSkills) {
         final yamlPath = p.join(skillsDir, skill, 'agents', 'openai.yaml');
-        expect(File(yamlPath).existsSync(), isTrue, reason: '$skill/agents/openai.yaml is required for Codex invocation');
+        expect(
+          File(yamlPath).existsSync(),
+          isTrue,
+          reason: '$skill/agents/openai.yaml is required for Codex invocation',
+        );
         final content = File(yamlPath).readAsStringSync();
         expect(
           content,
@@ -129,7 +139,8 @@ void main() {
         expect(
           content,
           contains('display_name: "DartClaw - '),
-          reason: '$skill: display_name must be rewritten from "AndThen - …" to "DartClaw - …" per the brand-rewrite transform',
+          reason:
+              '$skill: display_name must be rewritten from "AndThen - …" to "DartClaw - …" per the brand-rewrite transform',
         );
         expect(
           content,

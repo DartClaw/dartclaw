@@ -49,41 +49,45 @@ Return a compact structure with these keys:
 - `active_milestone` — current milestone identifier (e.g. `"0.16.5"`), or `null`
 - `active_prd` — workspace-relative PRD path for the active milestone, or `null`
 - `active_plan` — workspace-relative plan path for the active milestone, or `null`
+- `active_story_specs` — parsed story-spec records from the active plan, or `null`
 - `artifact_locations` — canonical artifact-write paths, always emitted as a mapping
 - `notes`
 
 ### Pre-Authored Document Detection
 
-**Default is `null`.** The sibling fields below exist only to fast-path a
-downstream authoring step when the invocation's own variable value is
-literally a path to a pre-existing `.md` file in this project. If the
+**Default is `null`.** Active artifact fields exist only to fast-path a
+downstream authoring step when the invocation's own variable value is literally
+a path to a pre-existing `.md` file in this project, or when the project state
+unambiguously identifies an active artifact that exists on disk. If the
 invocation variable is free-form prose (a description, a requirements
-paragraph, a bug list), emit every sibling field as `null`. Intended /
-future artifact paths belong in `artifact_locations`, never here.
+paragraph, a bug list), do not treat intended/future paths as active artifacts.
+Intended / future artifact paths belong in `artifact_locations`, never in
+`active_prd` / `active_plan`.
 
 If the invocation supplies a workflow variable (commonly `FEATURE` or
 `REQUIREMENTS`) whose value resolves to an existing `.md` file inside this
-project root, classify the file by **basename** and emit a matching field:
+project root, classify the file by **basename** and emit the matching active
+field:
 
 - `spec_path` — basename matches `s\d+-*.md` (per-story FIS convention).
   Being located under a `fis/` directory alone is **not** sufficient — the
-  filename must match the FIS naming pattern.
+  filename must match the FIS naming pattern. Emit this as a sibling of
+  `project_index` because the spec workflow gates on the direct input path.
 - `prd` — basename is `prd.md` (case-insensitive) or ends with `-prd.md`.
+  Emit this as `project_index.active_prd`.
 - `plan` — basename is `plan.md` (case-insensitive) or ends with `-plan.md`.
-
-These fields are emitted as **siblings** of `project_index` inside the
-`<workflow-context>` block — not nested inside the `project_index` object.
-Each is a workspace-relative path string, or `null`.
+  Emit this as `project_index.active_plan` and parse `project_index.active_story_specs`.
 
 Rules:
 
 - **Emit `null` unless the invocation variable itself is a path to an
-  existing `.md` file.** Inline requirements text, bug descriptions, or
-  feature prose must always produce `null` for every sibling field, even
+  existing `.md` file or project state identifies an existing active artifact.**
+  Inline requirements text, bug descriptions, or feature prose must not
+  populate active artifact fields from intended/future paths, even
   when an `active_milestone` or `artifact_locations` path exists. Never
   copy `artifact_locations.prd` / `artifact_locations.plan` into the
-  sibling `prd` / `plan` fields — the sibling fields signal "this file
-  already exists"; `artifact_locations` signals "write here if needed".
+  active fields — active fields signal "this file already exists";
+  `artifact_locations` signals "write here if needed".
 - The file must exist on disk, have a `.md` extension, and resolve inside the
   current project root. Paths that escape the root (absolute paths outside
   it, `..` segments resolving outside it), missing files, and non-markdown
@@ -91,10 +95,15 @@ Rules:
 - The emitted path must also be workspace-relative and contain no `..`
   segments — if the resolved file lives inside the root but the raw variable
   value reaches it via `..`, re-emit the normalized relative form.
-- Emit only the field that matches the filename pattern. Emit the others
+- Emit only the active field that matches the filename pattern. Emit the others
   (and the matching field on no-match) as `null`.
 - When multiple input variables are present, prefer the one that resolves to
   a matching file; if several match different types, emit all matching fields.
+- When emitting `project_index.active_plan`, also emit
+  `project_index.active_story_specs` parsed from the plan's story catalog / FIS
+  references, with one item per story: `id`, `title`, `spec_path`, and
+  `dependencies`. If no executable active plan exists, emit
+  `active_story_specs: null`.
 
 Downstream workflow steps use these as fast-path signals — when set, the
 corresponding authoring step (`dartclaw-spec`, `dartclaw-prd`, `dartclaw-plan`)

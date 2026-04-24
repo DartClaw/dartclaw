@@ -108,10 +108,7 @@ void main() {
       // strips a stray prefix so authors mixing the two syntaxes still succeed.
       expect(evaluator.evaluate('context.step1.status == accepted', context), isTrue);
       expect(evaluator.evaluate('context.step2.tokenCount < 10000', context), isTrue);
-      expect(
-        evaluator.evaluate('context.step1.status == accepted && step2.tokenCount < 10000', context),
-        isTrue,
-      );
+      expect(evaluator.evaluate('context.step1.status == accepted && step2.tokenCount < 10000', context), isTrue);
     });
 
     group('null-literal equality', () {
@@ -139,6 +136,16 @@ void main() {
         final ctx = WorkflowContext(data: {'active_prd': 'null'});
         expect(evaluator.evaluate('active_prd == null', ctx), isTrue);
         expect(evaluator.evaluate('active_prd != null', ctx), isFalse);
+      });
+
+      test('dotted map value can be compared with null literal', () {
+        final ctx = WorkflowContext(
+          data: {
+            'project_index': {'active_prd': 'docs/specs/0.16.5/prd.md', 'active_plan': null},
+          },
+        );
+        expect(evaluator.evaluate('project_index.active_prd != null', ctx), isTrue);
+        expect(evaluator.evaluate('project_index.active_plan == null', ctx), isTrue);
       });
 
       test('numeric gate with missing key still uses empty→0 fallback', () {

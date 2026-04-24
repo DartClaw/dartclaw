@@ -67,67 +67,69 @@ stepDefaults:
 
 steps:
   # Discover the project layout and document/state locations before planning begins.
-  # When REQUIREMENTS is already a path to an existing PRD file in this project,
-  # discover-project emits it as `prd` so the next step's entryGate can skip
-  # authoring. A pre-authored `plan.md` is intentionally NOT fast-pathed here
-  # because the `plan` step must still run to emit `story_specs` for the
-  # foreach controller — the `dartclaw-plan` skill's own reuse path handles
-  # existing plan files.
+  # Existing PRD/plan state lives in `project_index.active_prd` /
+  # `project_index.active_plan`. Discover-project republishes `active_prd` as
+  # the flat `prd` handoff key immediately. It republishes `active_plan` as
+  # the flat `plan` key only when `project_index.active_story_specs` is
+  # present, meaning the reused plan is executable without re-running the
+  # plan step. The flat `story_specs` output remains the foreach handoff key.
   - id: discover-project
     name: Discover Project
     type: custom
     skill: dartclaw-discover-project
     allowedTools: [shell, file_read]
     workflowVariables: [REQUIREMENTS]
-    contextOutputs: [project_index, prd]
+    contextOutputs: [project_index, prd, plan, story_specs]
     outputs:
       project_index:
         format: json
         schema: project-index
-        description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
+        description: Normalized snapshot of the project layout, active artifacts, and state protocol.
       prd:
         format: path
         description: Workspace-relative path to prd.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the prd step.
+      plan:
+        format: path
+        description: Workspace-relative path to plan.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the plan step.
+      story_specs:
+        format: json
+        schema: story-specs
+        description: Per-story records driving the foreach controller; populated from project_index.active_story_specs for an active plan or by the plan step for a synthesized plan.
 
   # Synthesize a PRD from the input requirements, or reuse an existing one at
   # context.project_index.active_prd. Writes prd.md to disk and emits the path
   # + a source tag — never emits the PRD body inline. Also emits a 1-10
   # self-rated confidence score; downstream review/revise steps are gated on
   # this value so high-confidence PRDs skip the review loop entirely. Skipped
-  # entirely when discover-project already populated `prd` — in that case
-  # `prd_source` stays unset and the revise-prd gate below falls through to
-  # a no-op.
+  # entirely when discover-project found `project_index.active_prd`.
   - id: prd
     name: Draft PRD
     type: custom
     skill: dartclaw-prd
-    entryGate: "prd == null"
+    entryGate: "project_index.active_prd == null"
     contextInputs: [project_index]
     workflowVariables: [REQUIREMENTS]
     allowedTools: [shell, file_read, file_write]
-    contextOutputs: [prd, prd_source, prd_confidence]
+    contextOutputs: [prd, prd_confidence]
     outputs:
       prd:
         format: path
         description: Workspace-relative path to prd.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the prd step.
-      prd_source:
-        format: text
-        description: "'existing' when reused from context.project_index.active_prd, 'synthesized' when this step wrote a new file."
       prd_confidence:
         format: json
         schema: non-negative-integer
-        description: "Skill's self-rated 1-10 readiness of the synthesized PRD. `0` when prd_source == existing (pass-through). `<7` triggers the revise-prd step."
+        description: "Skill's self-rated 1-10 readiness of the synthesized PRD. `<7` triggers the revise-prd step when this workflow authored the PRD."
 
   # Review-and-revise pass gated on the PRD skill's own confidence score.
   # The `--fix` flag on dartclaw-review writes a doc-review report and
   # delegates remediation to dartclaw-remediate-findings in one invocation.
-  # Skipped entirely when the PRD was reused (prd_source == existing) or
+  # Skipped entirely when the PRD was reused via project_index.active_prd or
   # when confidence is already >= 7.
   - id: revise-prd
     name: Revise PRD (low confidence)
     type: custom
     skill: dartclaw-review
-    entryGate: "prd_source == synthesized && prd_confidence < 7"
+    entryGate: "project_index.active_prd == null && prd_confidence < 7"
     contextInputs: [project_index, prd, prd_confidence]
     allowedTools: [shell, file_read, file_write]
     prompt: |
@@ -146,6 +148,7 @@ steps:
     name: Plan Stories and Specs
     type: custom
     skill: dartclaw-plan
+    entryGate: "plan == null"
     allowedTools: [shell, file_read, file_write]
     contextInputs: [project_index, prd]
     # Retry once on failure so we recover from a flaky plan pass where the
@@ -155,18 +158,15 @@ steps:
     # fresh turn to fill the gap before the workflow hard-fails).
     onFailure: retry
     maxRetries: 1
-    contextOutputs: [story_specs, plan, plan_source]
+    contextOutputs: [story_specs, plan]
     outputs:
       story_specs:
         format: json
         schema: story-specs
-        description: Per-story records — id, title, spec_path, dependencies. Drives the dependency-aware foreach; exec-spec reads the FIS body (including acceptance criteria) from disk at spec_path.
+        description: Per-story records driving the foreach controller; populated from project_index.active_story_specs for an active plan or by the plan step for a synthesized plan.
       plan:
         format: path
         description: Workspace-relative path to plan.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the plan step.
-      plan_source:
-        format: text
-        description: "'existing' when reused from context.project_index.active_plan, 'synthesized' when this step wrote a new file. Gates plan-review."
 
   # Run the implement/validate/review sub-pipeline independently for each planned story.
   - id: story-pipeline
@@ -227,14 +227,13 @@ steps:
             description: Number of issues flagged by the story-level quick review; 0 means clean.
 
   # Review the batch outcome across all stories and decide whether plan-level remediation is needed.
-  # Skipped when the upstream plan step reused an existing plan (plan_source == existing);
-  # if the pre-existing plan's stories need gap review, run this workflow's
-  # remediation loop on that artifact instead.
+  # Runs regardless of whether the upstream plan step synthesized a new plan
+  # or reused an existing one — the review concerns the implemented batch,
+  # not plan authoring quality.
   - id: plan-review
     name: Review Full Implementation
     type: custom
     skill: dartclaw-review
-    entryGate: "plan_source == synthesized"
     contextInputs: [project_index, story_specs, story_results, plan]
     allowedTools: [file_read]
     contextOutputs: [review_findings, plan-review.findings_count]
@@ -277,6 +276,7 @@ steps:
         name: Re-review After Remediation
         type: custom
         skill: dartclaw-quick-review
+        allowedTools: [file_read]
         contextInputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
         contextOutputs: [review_findings, re-review.findings_count]
         outputs:

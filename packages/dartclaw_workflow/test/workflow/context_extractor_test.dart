@@ -75,12 +75,13 @@ void main() {
   }
 
   WorkflowStep makeStep({
+    String id = 'step1',
     List<String> contextOutputs = const [],
     ExtractionConfig? extraction,
     Map<String, OutputConfig>? outputs,
   }) {
     return WorkflowStep(
-      id: 'step1',
+      id: id,
       name: 'Step 1',
       prompts: ['Do something'],
       contextOutputs: contextOutputs,
@@ -171,6 +172,146 @@ void main() {
     final step = makeStep(contextOutputs: ['research_notes']);
     final outputs = await extractor.extract(step, taskWithSession);
     expect(outputs['research_notes'], equals('JSON extracted value'));
+  });
+
+  test('defaults missing source outputs to synthesized', () async {
+    final task = await createTask();
+    final step = makeStep(contextOutputs: ['plan_source']);
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['plan_source'], 'synthesized');
+  });
+
+  test('discover-project defaults source to existing when paired artifact path is present', () async {
+    final prdPath = p.join(tempDir.path, 'docs', 'specs', 'demo', 'prd.md');
+    File(prdPath)
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# PRD\n');
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>${jsonEncode({
+            'project_index': {'active_prd': p.relative(prdPath, from: tempDir.path)},
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-source-default-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-source-default-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-source-default-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      contextOutputs: ['project_index', 'prd', 'prd_source'],
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'prd': OutputConfig(format: OutputFormat.path),
+        'prd_source': OutputConfig(),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['prd'], 'docs/specs/demo/prd.md');
+    expect(outputs['prd_source'], 'existing');
+  });
+
+  test('discover-project derives flat prd and plan outputs from project_index active artifacts', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {
+              'active_prd': 'docs/specs/demo/prd.md',
+              'active_plan': 'docs/specs/demo/plan.md',
+              'active_story_specs': {
+                'items': [
+                  {'id': 'S01', 'title': 'Existing Story', 'spec_path': 'docs/specs/demo/fis/s01-existing-story.md', 'dependencies': <String>[]},
+                ],
+              },
+            },
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-active-artifacts-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-active-artifacts-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-active-artifacts-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      contextOutputs: const ['project_index', 'prd', 'plan'],
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'prd': OutputConfig(format: OutputFormat.path),
+        'plan': OutputConfig(format: OutputFormat.path),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['prd'], 'docs/specs/demo/prd.md');
+    expect(outputs['plan'], 'docs/specs/demo/plan.md');
+  });
+
+  test('discover-project derives story_specs from project_index.active_story_specs', () async {
+    final activeStorySpecs = {
+      'items': [
+        {
+          'id': 'S01',
+          'title': 'Existing Story',
+          'spec_path': 'docs/specs/demo/fis/s01-existing-story.md',
+          'dependencies': <String>[],
+        },
+      ],
+    };
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {'active_story_specs': activeStorySpecs},
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-story-spec-default-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-story-spec-default-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-story-spec-default-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      contextOutputs: const ['project_index', 'story_specs'],
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['story_specs'], activeStorySpecs);
   });
 
   test('throws MissingArtifactFailure for missing path outputs', () async {
@@ -290,6 +431,129 @@ void main() {
             .having((failure) => failure.reason, 'reason', 'path claimed but not present in worktree diff'),
       ),
     );
+  });
+
+  test('accepts claimed existing path outputs even when they are unchanged in the worktree diff', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-existing-claim'))..createSync();
+    File(p.join(worktree.path, 'docs', 'prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Existing PRD\n');
+    final git = FakeGitGateway()..initWorktree(worktree.path);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"prd":"docs/prd.md"}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-existing-path',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-existing-path', sessionId: session.id, worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-existing-path'))!;
+    final step = makeStep(
+      contextOutputs: ['prd'],
+      outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
+    );
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['prd'], 'docs/prd.md');
+  });
+
+  test('prefers an explicitly claimed path over unrelated diff matches for singular outputs', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-explicit-singular'))..createSync();
+    File(p.join(worktree.path, 'docs', 'prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Existing PRD\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'other/prd.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"prd":"docs/prd.md"}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-explicit-singular',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields(
+      'task-explicit-singular',
+      sessionId: session.id,
+      worktreeJson: {'path': worktree.path},
+    );
+    final taskWithWorktree = (await taskService.get('task-explicit-singular'))!;
+    final step = makeStep(
+      contextOutputs: ['prd'],
+      outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
+    );
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['prd'], 'docs/prd.md');
+  });
+
+  test('preserves unchanged claimed files in list outputs alongside changed ones', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-explicit-list'))..createSync();
+    File(p.join(worktree.path, 'fis', 's01-foo.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Existing Foo\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'fis/s02-bar.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>${jsonEncode({
+            'fis_paths': ['fis/s01-foo.md', 'fis/s02-bar.md'],
+          })}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-explicit-list',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-explicit-list', sessionId: session.id, worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-explicit-list'))!;
+
+    final step = makeStep(
+      contextOutputs: ['fis_paths'],
+      outputs: const {'fis_paths': OutputConfig(format: OutputFormat.lines)},
+    );
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['fis_paths'], ['fis/s01-foo.md', 'fis/s02-bar.md']);
   });
 
   test('throws StateError when singular filesystem output has multiple matches', () async {
@@ -937,6 +1201,39 @@ void main() {
       expect(documentLocations['prd'], equals('docs/prd.md'));
       expect(documentLocations['plan'], equals('docs/plan.md'));
       expect(documentLocations['readme'], equals('README.md'));
+    });
+
+    test('sanitizes active_story_specs spec paths against project_root', () async {
+      final session = await sessionService.getOrCreateMain();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content:
+            '<workflow-context>{"project_index":{"framework":"none","project_root":"/repo/public","active_story_specs":{"items":[{"id":"S01","title":"Safe","spec_path":"/repo/public/docs/specs/demo/fis/s01.md","dependencies":[]},{"id":"S02","title":"Escape","spec_path":"../../private/fis/s02.md","dependencies":[]}]}}}</workflow-context>',
+      );
+
+      await taskService.create(
+        id: 'task-project-index-2',
+        title: 'Test',
+        description: 'Test',
+        type: TaskType.research,
+        autoStart: true,
+      );
+      await taskService.updateFields('task-project-index-2', sessionId: session.id);
+      final taskWithSession = (await taskService.get('task-project-index-2'))!;
+
+      final step = makeStep(
+        contextOutputs: const ['project_index'],
+        outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
+      );
+
+      final outputs = await extractor.extract(step, taskWithSession);
+      final projectIndex = outputs['project_index'] as Map<String, dynamic>;
+      final activeStorySpecs = projectIndex['active_story_specs'] as Map<String, dynamic>;
+      final items = activeStorySpecs['items'] as List<dynamic>;
+
+      expect((items[0] as Map<String, dynamic>)['spec_path'], equals('docs/specs/demo/fis/s01.md'));
+      expect((items[1] as Map<String, dynamic>)['spec_path'], isNull);
     });
   });
 }

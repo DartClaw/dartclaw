@@ -1,6 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show OutputConfig, OutputFormat;
 
 import 'output_resolver.dart';
+import 'story_specs_schema.dart';
 
 /// A built-in schema preset with JSON Schema and prompt fragment.
 class SchemaPreset {
@@ -206,40 +207,7 @@ const storySpecsPreset = SchemaPreset(
   name: 'story-specs',
   defaultResolver: InlineOutput(schemaKey: 'story_specs'),
   fieldResolvers: {'story_specs': InlineOutput(schemaKey: 'story_specs')},
-  schema: {
-    'type': 'object',
-    'additionalProperties': false,
-    'required': ['items'],
-    'properties': {
-      'items': {
-        'type': 'array',
-        'description':
-            'Per-story records used as the foreach iteration source. '
-            'Downstream steps read the authoritative FIS body (including '
-            'acceptance criteria) from `spec_path`.',
-        'items': {
-          'type': 'object',
-          'additionalProperties': false,
-          'required': ['id', 'title', 'spec_path', 'dependencies'],
-          'properties': {
-            'id': {'type': 'string', 'description': 'Story identifier used by downstream foreach steps (e.g. "s01").'},
-            'title': {'type': 'string', 'description': 'Concise story title for display and logs.'},
-            'spec_path': {
-              'type': 'string',
-              'description': 'Workspace-relative path to the FIS file — the authoritative spec body lives here.',
-            },
-            'dependencies': {
-              'type': 'array',
-              'description':
-                  'Ordered prerequisite story IDs for dependency-aware fan-out. '
-                  'Use an empty list for root stories with no prerequisites.',
-              'items': {'type': 'string'},
-            },
-          },
-        },
-      },
-    },
-  },
+  schema: storySpecsSchema,
 );
 
 const fileListPreset = SchemaPreset(
@@ -422,6 +390,7 @@ const projectIndexPreset = SchemaPreset(
         'type': ['string', 'null'],
         'description': 'Workspace-relative plan path for the active milestone, or `null` when absent.',
       },
+      'active_story_specs': nullableStorySpecsSchema,
       'artifact_locations': {
         'type': ['object', 'null'],
         'description':

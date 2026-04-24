@@ -53,6 +53,23 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     return values;
   }
 
+  Map<String, dynamic> _canonicalizeReusableArtifactPaths(
+    WorkflowStep step,
+    Map<String, dynamic> outputs,
+    WorkflowContext context,
+  ) {
+    if (step.id != 'plan') return outputs;
+    final planPath = (outputs['plan'] as String?)?.trim();
+    if (planPath != null && planPath.isNotEmpty) return outputs;
+    final projectIndex = switch (context['project_index']) {
+      final Map<dynamic, dynamic> map => map,
+      _ => null,
+    };
+    final activePlan = (projectIndex?['active_plan'] as String?)?.trim();
+    if (activePlan == null || activePlan.isEmpty) return outputs;
+    return {...outputs, 'plan': activePlan};
+  }
+
   // Workflow-level `variables` are opt-in per step. Only names listed in
   // `step.workflowVariables` are auto-framed as `<NAME>{value}</NAME>` blocks
   // on that step's prompt. Undeclared variables never reach unrelated steps
@@ -431,13 +448,21 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     Map<String, dynamic> outputs,
     WorkflowContext context,
   ) {
-    final planPath = (outputs['plan'] as String?)?.trim();
-    final planDir = (planPath == null || planPath.isEmpty) ? '' : p.dirname(planPath);
-    final projectIndex = context['project_index'];
-    final projectRoot = switch (projectIndex) {
-      final Map<dynamic, dynamic> map => map['project_root'] as String?,
+    final outputProjectIndex = switch (outputs['project_index']) {
+      final Map<dynamic, dynamic> map => map,
       _ => null,
     };
+    final contextProjectIndex = switch (context['project_index']) {
+      final Map<dynamic, dynamic> map => map,
+      _ => null,
+    };
+    final projectIndex = outputProjectIndex ?? contextProjectIndex;
+    final explicitPlanPath = (outputs['plan'] as String?)?.trim();
+    final planPath = explicitPlanPath == null || explicitPlanPath.isEmpty
+        ? (projectIndex?['active_plan'] as String?)?.trim()
+        : explicitPlanPath;
+    final planDir = (planPath == null || planPath.isEmpty) ? '' : p.dirname(planPath);
+    final projectRoot = projectIndex?['project_root'] as String?;
 
     final validation = step_outcome_normalizer.validateStorySpecOutputs(
       outputs,

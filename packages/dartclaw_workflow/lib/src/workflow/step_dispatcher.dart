@@ -256,6 +256,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           'branch/worktree_path context values will be empty',
         );
       }
+      outputs = _canonicalizeReusableArtifactPaths(step, outputs, context);
       final normalizedOutputs = _validateStorySpecOutputs(run, step, outputs, context);
       outputs = normalizedOutputs.outputs;
       final validationFailure = extractionFailure ?? normalizedOutputs.validationFailure;

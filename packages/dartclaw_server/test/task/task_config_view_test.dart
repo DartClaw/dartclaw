@@ -42,6 +42,20 @@ void main() {
       expect(TaskConfigView(_task()).needsWorktree, isFalse);
       expect(TaskConfigView(_task(type: TaskType.coding)).needsWorktree, isTrue);
       expect(TaskConfigView(_task(configJson: {'_workflowNeedsWorktree': true})).needsWorktree, isTrue);
+      expect(
+        TaskConfigView(_task(type: TaskType.coding, workflowStepExecution: _workflowStepExecution())).needsWorktree,
+        isFalse,
+      );
+      expect(
+        TaskConfigView(
+          _task(
+            type: TaskType.coding,
+            workflowStepExecution: _workflowStepExecution(),
+            configJson: {'_workflowNeedsWorktree': true},
+          ),
+        ).needsWorktree,
+        isTrue,
+      );
     });
 
     test('reviewMode and postCompletionStatus validate known modes', () {

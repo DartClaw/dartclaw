@@ -44,7 +44,13 @@ bool stepNeedsWorktree(
 }) {
   if (resolvedWorktreeMode == 'per-map-item') return true;
   if (step.isForeachController || step.contextOutputs.contains('project_index')) return false;
-  return shouldBindWorkflowProject(definition, step, resolved);
+  if (step.project != null) return true;
+  if (!shouldBindWorkflowProject(definition, step, resolved)) return false;
+  final allowedTools = resolved.allowedTools;
+  if (allowedTools != null) {
+    return allowedTools.contains('file_write');
+  }
+  return step.type == 'custom';
 }
 
 /// Returns true when a step should be executed without write tools.
@@ -68,8 +74,8 @@ bool shouldBindWorkflowProject(WorkflowDefinition definition, WorkflowStep step,
   if (step.project != null) return true;
   if (definition.project == null) return false;
   if (step.isMapStep) return true;
+  if (step.contextInputs.contains('project_index')) return true;
   if (step.contextOutputs.contains('project_index')) return true;
-  if (stepEmitsArtifactPath(step)) return false;
   final allowedTools = resolved.allowedTools;
   if (allowedTools != null) {
     return allowedTools.contains('file_write');
@@ -91,12 +97,7 @@ bool stepTouchesProjectBranch(
 }
 
 /// Resolves the runtime `maxParallel` value for map and foreach scopes.
-int? resolveMaxParallel(
-  Object? raw,
-  WorkflowContext context,
-  String stepId, {
-  WorkflowTemplateEngine? templateEngine,
-}) {
+int? resolveMaxParallel(Object? raw, WorkflowContext context, String stepId, {WorkflowTemplateEngine? templateEngine}) {
   if (raw == null) return 1;
   if (raw is int) return raw;
   if (raw is! String) return 1;

@@ -49,7 +49,7 @@ final class TaskConfigView {
 
   bool get needsWorktree {
     if (isWorkflowOrchestrated) {
-      return task.configJson['_workflowNeedsWorktree'] == true;
+      return isCodingTask || task.configJson['_workflowNeedsWorktree'] == true;
     }
     return task.type == TaskType.coding || task.configJson['_workflowNeedsWorktree'] == true;
   }

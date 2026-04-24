@@ -8,6 +8,8 @@
 - `OutputResolver`, `MissingArtifactFailure`, and `ProducedArtifactResolver` for filesystem-first structured-output extraction and artifact propagation checks
 - Extraction-turn measurement fixtures for the baseline and filesystem-first post-change rate
 - Typed `E2EFixture` builder for workflow e2e/scenario setup, a nine-file scripted scenario tier under `test/workflow/scenarios/`, and a frozen-baseline `fitness_test.dart` + `fitness_baseline.json` ratchet for workflow/task architectural regressions
+- 30+ focused contract tests: step outcome protocol (succeeded/failed/needsInput/emitsOwnOutcome/fallback telemetry), approval-hold state preservation, operator lifecycle precedence matrix (cancel/retry/resume illegal combinations), restart idempotency via resume cursors, concurrent checkout serialization via `RepoLock`, local human-edit boundary, ADR-024 analysis-step project-binding rejection, read-only opt-out via `allowedTools`, `BRANCH=` preflight bypass regression, foreach cursor fidelity under partial failure
+- `SkillRegistryImpl.validateRef` now includes the AndThen install command (`scripts/install-skills.sh`) in the error message when an `andthen-*` skill ref is missing, satisfying ADR-025 requirement for a clear missing-prerequisite error
 
 ### Changed
 - Workflow step spawn creates `AgentExecution` + `WorkflowStepExecution` + `Task` atomically in a single transaction; `Task.configJson` is sanitized on spawn so `_workflow*` keys and `model` no longer round-trip through the task row (`model` is canonical on `AgentExecution`)
@@ -15,6 +17,7 @@
 - Workflow task spawn now fails fast with a clear `StateError` when `AgentExecution`/`WorkflowStepExecution` persistence is not wired, instead of silently falling back to the legacy `_workflow*` task-config path. Hosts that previously spawned workflow tasks without the execution repositories must now supply `taskRepository`, `agentExecutionRepository`, `workflowStepExecutionRepository`, and `executionTransactor` (or accept the run pausing with the fail-fast error)
 - Artifact auto-commit returns `ArtifactCommitResult`; load-bearing per-map-item commit failures now fail the producing workflow step before downstream dispatch
 - `ContextExtractor` now resolves path-shaped outputs from `WorkflowGitPort.diffNameOnly`, verifies agent path claims, and limits structured-output extraction turns to narrative fields
+- **Breaking**: shipped `dartclaw-*` workflow skills removed (S51); workflow YAMLs reference `andthen-*` skills directly; `dartclaw-discover-project` is the only remaining DC-native built-in skill. Requires AndThen `>= 0.14.0`
 
 ## 0.15.0
 

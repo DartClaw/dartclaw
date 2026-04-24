@@ -83,11 +83,12 @@ steps:
   - id: spec
     name: Generate Specification
     type: custom
-    skill: dartclaw-spec
+    skill: andthen-spec
     entryGate: "spec_source == synthesized"
     contextInputs: [project_index]
     workflowVariables: [FEATURE]
     contextOutputs: [spec_path, spec_source, spec_confidence]
+    prompt: "Use the spec skill to generate an execution-sized FIS from the provided feature or story."
     outputs:
       spec_path:
         format: path
@@ -101,14 +102,14 @@ steps:
         description: "Skill's self-rated 1-10 readiness of the synthesized FIS (per the Confidence Check in fis-authoring-guidelines.md). `0` when spec_source == existing (pass-through). `<7` triggers the revise-spec step."
 
   # Review-and-revise pass gated on the spec skill's own confidence score.
-  # The `--fix` flag on dartclaw-review writes a doc-review report and
-  # delegates remediation to dartclaw-remediate-findings in one invocation.
+  # The `--fix` flag on andthen-review writes a doc-review report and
+  # delegates remediation to andthen-remediate-findings in one invocation.
   # Skipped entirely when the spec was reused (spec_source == existing) or
   # when confidence is already >= 7.
   - id: revise-spec
     name: Revise Spec (low confidence)
     type: custom
-    skill: dartclaw-review
+    skill: andthen-review
     entryGate: "spec_source == synthesized && spec_confidence < 7"
     contextInputs: [project_index, spec_path, spec_confidence]
     allowedTools: [shell, file_read, file_write]
@@ -122,9 +123,10 @@ steps:
   - id: implement
     name: Implement
     type: custom
-    skill: dartclaw-exec-spec
+    skill: andthen-exec-spec
     contextInputs: [project_index, spec_path]
     contextOutputs: [diff_summary]
+    prompt: "Use the exec-spec skill to execute the provided local FIS with full verification and status gates. When the authoritative FIS is provided as a workspace path, read it from disk with file_read instead of relying on inline excerpts."
     outputs:
       diff_summary:
         format: text
@@ -137,10 +139,11 @@ steps:
   - id: integrated-review
     name: Integrated Review
     type: custom
-    skill: dartclaw-review
+    skill: andthen-review
     allowedTools: [file_read]
     contextInputs: [project_index, spec_path, diff_summary]
     contextOutputs: [review_findings, integrated-review.findings_count]
+    prompt: "Use the review skill to review the provided target and route to the appropriate review mode (code / doc / gap / mixed), with optional --council for multi-perspective adversarial review."
     outputs:
       review_findings:
         format: json
@@ -165,9 +168,10 @@ steps:
       - id: remediate
         name: Remediate Findings
         type: custom
-        skill: dartclaw-remediate-findings
+        skill: andthen-remediate-findings
         contextInputs: [project_index, spec_path, review_findings]
         contextOutputs: [remediation_summary, diff_summary]
+        prompt: "Use the remediate-findings skill to address the findings in the provided review report with minimal safe changes. When the report or requirements baseline names a workspace path, read the authoritative file from disk with file_read instead of relying on inline excerpts."
         outputs:
           remediation_summary:
             format: text
@@ -180,10 +184,11 @@ steps:
       - id: re-review
         name: Re-review Gaps
         type: custom
-        skill: dartclaw-quick-review
+        skill: andthen-quick-review
         allowedTools: [file_read]
         contextInputs: [project_index, spec_path, remediation_summary, diff_summary]
         contextOutputs: [review_findings, re-review.findings_count]
+        prompt: "Use the quick-review skill to run a fast fresh-context review of the recent changes. When the relevant spec or plan is provided as a workspace path, read it from disk with file_read before judging requirements fit."
         outputs:
           review_findings:
             format: json
@@ -198,9 +203,10 @@ steps:
   - id: update-state
     name: Update State
     type: custom
-    skill: dartclaw-update-state
+    skill: andthen-ops
     contextInputs: [project_index, spec_path, diff_summary]
     contextOutputs: [state_update_summary]
+    prompt: "Update the project's state using the discovered protocol. Project index or state instruction: "
     outputs:
       state_update_summary:
         format: text

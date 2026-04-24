@@ -78,12 +78,19 @@ void main() {
 
     await wiring.wire();
 
-    final skillDir = p.join(skillsHomeDir.path, '.claude', 'skills', 'dartclaw-review');
+    final skillDir = p.join(skillsHomeDir.path, '.claude', 'skills', 'dartclaw-discover-project');
     expect(File(p.join(skillDir, 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(skillDir, '.dartclaw-managed')).existsSync(), isTrue);
 
     for (final projectId in ['alpha', 'beta']) {
-      final projectSkillDir = p.join(tempDir.path, 'projects', projectId, '.claude', 'skills', 'dartclaw-review');
+      final projectSkillDir = p.join(
+        tempDir.path,
+        'projects',
+        projectId,
+        '.claude',
+        'skills',
+        'dartclaw-discover-project',
+      );
       expect(Directory(projectSkillDir).existsSync(), isFalse);
     }
   });

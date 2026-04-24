@@ -2,13 +2,13 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-24 00:22 CEST
+Last Updated: 2026-04-24 09:13 CEST
 
 ### Implemented Features (through 0.16.4)
 
 - **Runtime**: 2-layer model (Dart host → Claude Code JSONL + Codex JSON-RPC binaries). Multi-provider `HarnessPool` with per-task provider override. Task orchestrator: lifecycle state machine, parallel execution, optimistic locking. Coding tasks: worktree isolation, diff, merge, PR creation. Standalone AOT binary with embedded templates, static assets, and skills (`tool/build.sh`)
 - **CLI**: `dartclaw init` onboarding wizard (interactive + non-interactive), `dartclaw service` management (LaunchAgent/systemd), connected-by-default workflow execution with SSE lifecycle control (`workflow run/status/pause/resume/cancel`), operational command groups (`tasks`, `config`, `projects`, `sessions`, `agents`, `traces`, `jobs`). Unified instance directory (`~/.dartclaw/`)
-- **Workflows**: Deterministic YAML-defined engine — sequential, parallel, loops (exit gates), map/fan-out. Step types: agent, bash, approval, hybrid, multi-prompt. Skill registry (11 built-in `dartclaw-*` skills), schema presets, crash recovery. Workflow workspace isolation with dedicated `AGENTS.md` guardrails. Trigger surfaces: web launch forms, `/workflow` chat commands, GitHub PR webhooks. Connected server-backed execution with `--standalone` fallback
+- **Workflows**: Deterministic YAML-defined engine — sequential, parallel, loops (exit gates), map/fan-out. Step types: agent, bash, approval, hybrid, multi-prompt. Skill registry with DC-native discovery/validation skills plus AndThen-provided workflow skills, schema presets, crash recovery. Workflow workspace isolation with dedicated `AGENTS.md` guardrails. Trigger surfaces: web launch forms, `/workflow` chat commands, GitHub PR webhooks. Connected server-backed execution with `--standalone` fallback
 - **Channels**: 4 types (WhatsApp/GOWA, Signal/signal-cli, Google Chat/Pub/Sub, Web). Normalized message abstraction, deduplication, mention gating. Google Chat: Cards v2, slash commands, workspace events. Alert routing with severity-aware formatting, per-target throttling, and burst summaries
 - **Crowd coding** (0.12): Multi-user steering via Spaces, sender attribution, thread binding for task-thread routing, channel-based task creation/review
 - **Sessions**: Multi-scope model (web/dm/group/cron/task/heartbeat), deterministic `SessionKey` routing, event bus (30+ events), cursor-based crash recovery, automated maintenance
@@ -25,8 +25,12 @@ Last Updated: 2026-04-24 00:22 CEST
 
 ## Active Stories
 
-- S49 — In Progress: building the workflow scenario-test tier, typed `E2EFixture`, and fitness-baseline ratchet now that dependency-aware `foreach` scheduling is landed.
-- Workflow final gap remediation — Plan Ready: private plan bundle created at `../dartclaw-private/docs/specs/0.16.4/workflow-final-gap-remediation/` (5 stories, 3 phases). Execution starts with S51 final gap triage and closure ledger.
+- S51 — Done: AndThen-as-runtime-prerequisite migration (workflow YAML skill refs migrated to `andthen-*`).
+- S52 — Done: Final gap triage and closure ledger produced.
+- S53 — Done: Status, outcome, accounting, and task boundary remediation (10 focused tests added to `workflow_executor_test.dart`; S36-B and S40-C gaps closed).
+- S54 — Done: Workflow definition, step semantics, and local-path safety (4 new tests added: ADR-024 analysis-step binding, READONLY-OVERRIDE opt-out, S42-A BRANCH= regression, FOREACH-RECOVERY map fidelity/cursor; all S54 ledger items proven or stale/closed; 98 executor tests passing).
+- S55 — Done: Restart, idempotency, and operator race hardening (20 new tests: 17 in `workflow_service_test.dart` + 3 in `workflow_executor_test.dart`; 5 groups: operator lifecycle precedence matrix, restart/retry idempotency via cursors, approval-hold preservation, concurrent checkout via RepoLock, local human-edit boundary).
+- S56 — Blocked (release gate ENV_BLOCKED, operator-deferred): Live release gate and documentation closeout. Scripted verification band clean (analyzer, per-package tests including `packages/dartclaw_server`, built-in workflow validation, resolved workflow output checks, fitness baseline, doc sweep, validator install-hint fix). Live `plan-and-implement` release-gate run explicitly deferred by operator; release tag for 0.16.4 remains blocked until operator runs it and appends evidence. Gap review C1 is remediated; C2 remains blocked on deferred live-run evidence. `s56-release-gate-closeout.md` contains full evidence.
 
 ## Next Planned
 
@@ -34,7 +38,7 @@ Last Updated: 2026-04-24 00:22 CEST
 
 ## Blockers
 
-- `plan-and-implement` live-suite integration failure in `workflow_e2e_integration_test.dart` blocks tagging 0.16.4.
+- Live `plan-and-implement` release-gate run deferred by operator during S56 execution. Tagging 0.16.4 requires operator to explicitly run the gate (see `s56-release-gate-closeout.md`) and record the run ID, terminal status, and artifact path.
 
 ## Recent Decisions
 

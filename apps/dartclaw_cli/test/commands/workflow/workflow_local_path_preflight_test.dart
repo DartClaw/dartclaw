@@ -123,6 +123,54 @@ void main() {
       completes,
     );
   });
+
+  // ── S54: Local-path branch safety — S42-A regression (BRANCH= caller override) ──
+
+  test('S54: configured branch check compares observed branch against configuredBranch, not caller BRANCH override',
+      () async {
+    // S42-A regression: the guard must compare against the project's configuredBranch,
+    // not the caller-supplied BRANCH variable. Passing hasExplicitBranch=true must NOT
+    // bypass a configuredBranch mismatch — it is only used when configuredBranch is empty.
+    _runGit(repoDir.path, ['checkout', '-b', 'feature/foo']);
+
+    // hasExplicitBranch: true simulates a caller passing `-v BRANCH=feature/foo`.
+    // The configured project branch is 'main', so this must still fail.
+    await expectLater(
+      ensureWorkflowLocalPathProjectReady(
+        projectId: 'live-project',
+        localPath: repoDir.path,
+        configuredBranch: 'main',
+        publishEnabled: false,
+        allowDirty: false,
+        hasExplicitBranch: true,
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          allOf([contains('live-project'), contains('feature/foo'), contains('"main"')]),
+        ),
+      ),
+    );
+  });
+
+  test('S54: omitted configuredBranch accepts current HEAD when hasExplicitBranch is true', () async {
+    // Non-destructive implicit HEAD behavior: when no configuredBranch is set,
+    // the preflight must not attempt a checkout switch. An explicit BRANCH hint
+    // (hasExplicitBranch=true) simply suppresses the detached-HEAD failure.
+    // In this case the repo is on 'main' (clean), so it must proceed.
+    await expectLater(
+      ensureWorkflowLocalPathProjectReady(
+        projectId: 'live-project',
+        localPath: repoDir.path,
+        configuredBranch: '',
+        publishEnabled: false,
+        allowDirty: false,
+        hasExplicitBranch: true,
+      ),
+      completes,
+    );
+  });
 }
 
 void _runGit(String workingDirectory, List<String> args) {

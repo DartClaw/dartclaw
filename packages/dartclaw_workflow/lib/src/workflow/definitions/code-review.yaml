@@ -61,11 +61,12 @@ steps:
   - id: review-code
     name: Review Code
     type: custom
-    skill: dartclaw-review
+    skill: andthen-review
     allowedTools: [file_read]
     contextInputs: [project_index]
     workflowVariables: [TARGET, BRANCH, PR_NUMBER, BASE_BRANCH]
     contextOutputs: [review_summary, review-code.findings_count]
+    prompt: "Use the review skill to review the provided target and route to the appropriate review mode (code / doc / gap / mixed), with optional --council for multi-perspective adversarial review."
     outputs:
       review_summary:
         format: json
@@ -90,9 +91,10 @@ steps:
       - id: remediate
         name: Remediate Findings
         type: custom
-        skill: dartclaw-remediate-findings
+        skill: andthen-remediate-findings
         contextInputs: [project_index, review_summary]
         contextOutputs: [remediation_result, remediation_summary, diff_summary]
+        prompt: "Use the remediate-findings skill to address the findings in the provided review report with minimal safe changes. When the report or requirements baseline names a workspace path, read the authoritative file from disk with file_read instead of relying on inline excerpts."
         outputs:
           remediation_result:
             format: json
@@ -109,10 +111,11 @@ steps:
       - id: re-review
         name: Re-review
         type: custom
-        skill: dartclaw-review
+        skill: andthen-review
         allowedTools: [file_read]
         contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
         contextOutputs: [review_summary, re-review.findings_count]
+        prompt: "Use the review skill to review the provided target and route to the appropriate review mode (code / doc / gap / mixed), with optional --council for multi-perspective adversarial review."
         outputs:
           review_summary:
             format: json

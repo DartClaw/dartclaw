@@ -197,16 +197,15 @@ void main() {
       expect(specAndImplement, isNot(contains(RegExp(r'^  BASE_BRANCH:$', multiLine: true))));
       expect(specAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
       expect(specAndImplement, isNot(contains('- id: approve-spec')));
-      // Confidence-gated single-step review-and-revise pass reintroduced
-      // post-S29: runs only when the spec skill self-rates confidence < 7.
-      // The step invokes dartclaw-review and applies findings in place,
-      // overriding the skill's default read-only posture via its prompt.
+      // Confidence-gated single-step review-and-revise pass: runs only when the spec
+      // skill self-rates confidence < 7. Uses andthen-review (ADR-025 migration).
       expect(specAndImplement, contains('- id: revise-spec'));
       expect(specAndImplement, isNot(contains('- id: review-spec')));
       expect(specAndImplement, contains('spec_confidence < 7'));
       expect(specAndImplement, contains('spec_path'));
-      // Unified `dartclaw-review` replaces the separate -code / -doc / -gap specialists (AndThen 0.12.1 re-port).
-      expect(specAndImplement, contains('skill: dartclaw-review'));
+      // Post-ADR-025: all non-discover-project steps use andthen-* skills.
+      expect(specAndImplement, contains('skill: andthen-review'));
+      expect(specAndImplement, isNot(contains('skill: dartclaw-review')));
       expect(specAndImplement, isNot(contains('skill: dartclaw-review-gap')));
 
       expect(planAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
@@ -215,25 +214,29 @@ void main() {
       expect(planAndImplement, contains('- id: revise-prd'));
       expect(planAndImplement, isNot(contains('- id: review-prd')));
       expect(planAndImplement, contains('prd_confidence < 7'));
-      expect(planAndImplement, contains('skill: dartclaw-quick-review'));
-      expect(planAndImplement, contains('skill: dartclaw-review'));
+      expect(planAndImplement, contains('skill: andthen-quick-review'));
+      expect(planAndImplement, contains('skill: andthen-review'));
       expect(planAndImplement, isNot(contains('skill: dartclaw-review-gap')));
-      expect(planAndImplement, contains('skill: dartclaw-plan'));
-      expect(planAndImplement, contains('skill: dartclaw-prd'));
+      expect(planAndImplement, contains('skill: andthen-plan'));
+      expect(planAndImplement, contains('skill: andthen-prd'));
       expect(planAndImplement, isNot(contains('skill: dartclaw-spec-plan')));
+      // final update-state step now uses andthen-ops instead of dartclaw-update-state
+      expect(planAndImplement, contains('skill: andthen-ops'));
+      expect(planAndImplement, isNot(contains('skill: dartclaw-update-state')));
 
       expect(codeReview, contains(RegExp(r'^  PROJECT:$', multiLine: true)));
       expect(codeReview, isNot(contains(RegExp(r'^  REPO:$', multiLine: true))));
       expect(codeReview, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
-      expect(codeReview, contains('skill: dartclaw-review'));
+      expect(codeReview, contains('skill: andthen-review'));
+      expect(codeReview, isNot(contains('skill: dartclaw-review')));
       expect(codeReview, isNot(contains('skill: dartclaw-review-code')));
     });
 
-    test('code-review keeps review and re-review on the unified dartclaw-review specialist', () async {
+    test('code-review keeps review and re-review on the unified andthen-review specialist', () async {
       final source = File(p.join(_workflowDefinitionsDir(), 'code-review.yaml')).readAsStringSync();
-      // `skill: dartclaw-review` (not `-code`, `-doc`, or `-gap`) is the unified review specialist.
-      // Use a negative lookahead so `dartclaw-review` doesn't also match `dartclaw-review-code` etc.
-      final reviewSkillCount = RegExp(r'skill:\s+dartclaw-review(?![-\w])').allMatches(source).length;
+      // `skill: andthen-review` is the unified review specialist post-ADR-025.
+      // Use a negative lookahead so the count doesn't double-count `andthen-review-*` variants.
+      final reviewSkillCount = RegExp(r'skill:\s+andthen-review(?![-\w])').allMatches(source).length;
 
       expect(reviewSkillCount, equals(2));
       expect(source, isNot(contains('extract-diff')));

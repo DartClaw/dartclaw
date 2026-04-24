@@ -941,11 +941,11 @@ description: d
 steps:
   - id: s
     name: S
-    skill: dartclaw-review-code
+    skill: andthen-review
     prompt: Also do this.
 ''';
       final def = parser.parse(yaml);
-      expect(def.steps[0].skill, 'dartclaw-review-code');
+      expect(def.steps[0].skill, 'andthen-review');
       expect(def.steps[0].prompt, 'Also do this.');
     });
 
@@ -956,10 +956,10 @@ description: d
 steps:
   - id: s
     name: S
-    skill: dartclaw-review-code
+    skill: andthen-review
 ''';
       final def = parser.parse(yaml);
-      expect(def.steps[0].skill, 'dartclaw-review-code');
+      expect(def.steps[0].skill, 'andthen-review');
       expect(def.steps[0].prompt, isNull);
       expect(def.steps[0].prompts, isNull);
     });

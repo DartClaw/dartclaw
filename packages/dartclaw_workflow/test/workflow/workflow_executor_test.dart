@@ -38,12 +38,15 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPublishStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowGitStrategy,
+        WorkflowGitException,
         WorkflowGitPort,
         WorkflowExecutor,
         WorkflowStepOutputTransformer,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
         WorkflowVariable,
+        WorkflowWorktreeBinding,
+        TaskType,
         WorkflowStep,
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowGitPortProcess;
@@ -3507,6 +3510,658 @@ void main() {
       final contextData3 = finalRun?.contextJson['data'] as Map?;
       expect(contextData3?['research.branch'], equals(''));
       expect(contextData3?['research.worktree_path'], equals(''));
+    });
+  });
+
+  // ── S53: Status, outcome, accounting, and task boundary ──────────────────────
+
+  group('S53: step outcome protocol and onFailure policy wiring', () {
+    /// Completes a task after inserting an assistant message with the given content.
+    Future<void> completeTaskWithOutcome(
+      String taskId, {
+      required String outcomeContent,
+      TaskStatus finalStatus = TaskStatus.accepted,
+    }) async {
+      final session = await SessionService(baseDir: sessionsDir).createSession(type: SessionType.task);
+      await taskService.updateFields(taskId, sessionId: session.id);
+      await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
+      await completeTask(taskId, status: finalStatus);
+    }
+
+    test('emitsOwnOutcome: true omits step-outcome protocol from prompt', () async {
+      // Regression for S36-B: a skill/step with emitsOwnOutcome: true must NOT
+      // receive the "## Step Outcome Protocol" injection.
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'own-outcome',
+            name: 'Own Outcome Step',
+            prompts: ['Do the work'],
+            emitsOwnOutcome: true,
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      String? capturedDescription;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        capturedDescription = task?.description;
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(capturedDescription, isNotNull);
+      expect(capturedDescription, isNot(contains('## Step Outcome Protocol')));
+      expect(capturedDescription, isNot(contains('<step-outcome>')));
+    });
+
+    test('missing step-outcome tag increments workflow.outcome.fallback and emits a warning', () async {
+      // Regression for S36-B: when the assistant message does NOT contain a
+      // <step-outcome> tag (and the step does not use emitsOwnOutcome), the
+      // executor must fall back to task-lifecycle-derived outcome, increment
+      // workflow.outcome.fallback, and NOT silently accept the empty outcome.
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'no-outcome', name: 'No Outcome', prompts: ['Do something']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId); // completes with accepted — no step-outcome tag
+      });
+
+      await executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      // Workflow should still complete successfully (accepted → succeeded fallback).
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+
+      // The fallback counter must have been incremented exactly once.
+      final counterRaw = await kvService.get('workflow.outcome.fallback');
+      expect(counterRaw, equals('1'));
+    });
+
+    test('onFailure: continueWorkflow continues execution after a failed outcome', () async {
+      // Regression for S36-B: onFailure: continueWorkflow must advance to the
+      // next step even when the step emits a failed outcome.
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.continueWorkflow,
+          ),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      int taskCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        if (taskCount == 1) {
+          // Step 1 emits a failed outcome — with continueWorkflow the run must continue.
+          await completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent: '<step-outcome>{"outcome":"failed","reason":"non-blocking failure"}</step-outcome>',
+          );
+        } else {
+          await completeTask(e.taskId);
+        }
+      });
+
+      await executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(taskCount, equals(2));
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('onFailure: retry retries the step when the outcome is failed (outcome-driven retry)', () async {
+      // Regression for S36-B: onFailure: retry must replay the agent step when
+      // the step emits <step-outcome>{"outcome":"failed",...} and the attempt
+      // count is within the retry limit.
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 1,
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      int taskCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        if (taskCount == 1) {
+          // First attempt: agent emits failed outcome — triggers outcome-based retry.
+          await completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent: '<step-outcome>{"outcome":"failed","reason":"first attempt failed"}</step-outcome>',
+          );
+        } else {
+          // Second attempt (retry): agent succeeds.
+          await completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"fixed"}</step-outcome>',
+          );
+        }
+      });
+
+      await executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(taskCount, equals(2));
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('step.<id>.outcome and reason are written to context after a successful step-outcome tag', () async {
+      // Proves TI03: context records step.<id>.outcome and step.<id>.outcome.reason.
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 's1', name: 'S1', prompts: ['Do step']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"all done"}</step-outcome>',
+        );
+      });
+
+      final context = WorkflowContext();
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(finalRun?.contextJson['data']?['step.s1.outcome'], equals('succeeded'));
+      expect(finalRun?.contextJson['data']?['step.s1.outcome.reason'], equals('all done'));
+    });
+  });
+
+  group('S53: ADR-023 workflow-task boundary', () {
+    test('bash step creates zero tasks', () async {
+      // Proves ADR-023: host-executed steps do not create Task rows.
+      final definition = WorkflowDefinition(
+        name: 'bash-zero-task',
+        description: 'Bash step boundary',
+        steps: const [
+          WorkflowStep(id: 'bash1', name: 'Bash', type: 'bash', prompts: ['echo ok']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      await executor.execute(run, definition, WorkflowContext());
+
+      final tasks = await taskService.list();
+      expect(tasks.where((t) => t.workflowRunId == 'run-1'), isEmpty);
+    });
+
+    test('agent step creates exactly one TaskType.coding task', () async {
+      // Proves ADR-023: agent steps compile to TaskType.coding tasks.
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'agent1', name: 'Agent', prompts: ['Do work']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final workflowTasks = (await taskService.list()).where((t) => t.workflowRunId == 'run-1').toList();
+      expect(workflowTasks, hasLength(1));
+      expect(workflowTasks.first.type, equals(TaskType.coding));
+    });
+
+    test('Task.configJson has no _workflow* keys except the retained token/artifact fields', () async {
+      // Proves ADR-023: workflow-owned state stays in WorkflowStepExecution side-table.
+      // Only _workflowInputTokensNew, _workflowCacheReadTokens, _workflowOutputTokens
+      // are permitted as compatibility fields in Task.configJson.
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do work']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      String? capturedTaskId;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        capturedTaskId = e.taskId;
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(capturedTaskId, isNotNull);
+      final task = await taskService.get(capturedTaskId!);
+      expect(task, isNotNull);
+
+      final allowedWorkflowKeys = {
+        '_workflowInputTokensNew',
+        '_workflowCacheReadTokens',
+        '_workflowOutputTokens',
+      };
+      final forbiddenWorkflowKeys =
+          task!.configJson.keys.where((k) => k.startsWith('_workflow') && !allowedWorkflowKeys.contains(k)).toList();
+      expect(forbiddenWorkflowKeys, isEmpty, reason: 'Found unexpected _workflow* keys: $forbiddenWorkflowKeys');
+    });
+  });
+
+  group('S53: ADR-022 status transitions', () {
+    test('terminal getter is true only for completed, failed, and cancelled', () {
+      // Proves ADR-022: exactly three terminal states.
+      expect(WorkflowRunStatus.completed.terminal, isTrue);
+      expect(WorkflowRunStatus.failed.terminal, isTrue);
+      expect(WorkflowRunStatus.cancelled.terminal, isTrue);
+      expect(WorkflowRunStatus.running.terminal, isFalse);
+      expect(WorkflowRunStatus.pending.terminal, isFalse);
+      expect(WorkflowRunStatus.paused.terminal, isFalse);
+      expect(WorkflowRunStatus.awaitingApproval.terminal, isFalse);
+    });
+
+    test('only failed status has terminal=true among non-completed/cancelled states', () {
+      // Proves ADR-022 status semantics: running and paused are non-terminal;
+      // failed is terminal (enabling the retry-from-failed guard in WorkflowService).
+      // Behavioral retry guard (StateError when not failed) is covered in workflow_service_test.dart.
+      expect(WorkflowRunStatus.running.terminal, isFalse);
+      expect(WorkflowRunStatus.paused.terminal, isFalse);
+      expect(WorkflowRunStatus.awaitingApproval.terminal, isFalse);
+      expect(WorkflowRunStatus.failed.terminal, isTrue);
+    });
+  });
+
+  // ── S54: Workflow definition, step semantics, local-path, and foreach fidelity ─
+
+  group('S54: foreach/map wrapped story_specs fidelity and recovery', () {
+    test('wrapped {items:[...]} story_specs are auto-unwrapped and iterated as individual records', () async {
+      // FOREACH-RECOVERY: the foreach/map controller must accept wrapped `{items:[...]}`
+      // shaped records (as emitted by andthen-plan) and dispatch one child task per item.
+      // Item id and dependencies must be preserved across the foreach boundary.
+      // A simple single-step map (mapOver on the step itself) proves the unwrapping seam.
+      final definition = WorkflowDefinition(
+        name: 'foreach-fidelity',
+        description: 'foreach fidelity test',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['implement story {{map.item.id}}'],
+            mapOver: 'story_specs',
+            maxParallel: 1,
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      // story_specs is wrapped in an {items:[...]} envelope as andthen-plan emits.
+      const wrappedStorySpecs = {
+        'items': [
+          {'id': 'S01', 'title': 'Story One', 'dependencies': <String>[], 'spec_path': 'fis/s01.md'},
+          {'id': 'S02', 'title': 'Story Two', 'dependencies': ['S01'], 'spec_path': 'fis/s02.md'},
+        ],
+      };
+
+      var dispatchedCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        dispatchedCount++;
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(
+        run,
+        definition,
+        WorkflowContext(data: {'story_specs': wrappedStorySpecs}),
+      );
+      await sub.cancel();
+
+      final finalRun = await repository.getById(run.id);
+      // Wrapped items must be unwrapped and both items dispatched as separate tasks.
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(dispatchedCount, equals(2));
+    });
+
+    test('failed map item sets run to failed and preserves cursor at map step', () async {
+      // FOREACH-RECOVERY: when a child map item fails, the foreach controller must stop
+      // and leave currentStepIndex pointing at or before the map step so a retry
+      // can resume at the failing item's boundary.
+      final definition = WorkflowDefinition(
+        name: 'foreach-recovery',
+        description: 'foreach recovery cursor test',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['implement story'],
+            mapOver: 'story_specs',
+            maxParallel: 1,
+          ),
+          WorkflowStep(id: 'update-state', name: 'Update State', prompts: ['update state']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      const storySpecs = {
+        'items': [
+          {'id': 'S01', 'title': 'Story One', 'dependencies': <String>[], 'spec_path': 'fis/s01.md'},
+          {'id': 'S02', 'title': 'Story Two', 'dependencies': <String>[], 'spec_path': 'fis/s02.md'},
+        ],
+      };
+
+      var itemIndex = 0;
+      var updateStateDispatched = false;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        if (task.title.contains('Update State')) {
+          updateStateDispatched = true;
+          await completeTask(e.taskId);
+        } else {
+          // Fail the second item to trigger recovery.
+          if (itemIndex == 1) {
+            await completeTask(e.taskId, status: TaskStatus.failed);
+          } else {
+            await completeTask(e.taskId);
+          }
+          itemIndex++;
+        }
+      });
+
+      await executor.execute(
+        run,
+        definition,
+        WorkflowContext(data: {'story_specs': storySpecs}),
+      );
+      await sub.cancel();
+
+      final finalRun = await repository.getById(run.id);
+      // Run must fail; update-state must NOT have been dispatched.
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(updateStateDispatched, isFalse, reason: 'update-state must not execute when a map item fails');
+      // currentStepIndex must not advance past the map step (index 0).
+      expect(finalRun?.currentStepIndex, equals(0));
+    });
+  });
+
+  // ── S55: Restart, idempotency, and operator race hardening ─────────────────
+  //
+  // S52 closure ledger items routed to S55:
+  //   OPERATOR-RACES       live defect  → action precedence matrix tests (workflow_service_test.dart S55 group)
+  //   RESTART-IDEMPOTENCY  live defect  → retry-after-promotion cursor proof (service test + below)
+  //   CONCURRENT-CHECKOUT  live defect  → RepoLock serialization proof (service test)
+  //   APPROVAL-HOLD        live defect  → worktree/context preservation (service test + below)
+  //   STRUCT-OUTPUT-COMPAT deferred     → PRODUCT-BACKLOG; S54 proved built-in schema compat;
+  //                                       user-authored schema compatibility is not a runtime gap.
+  //
+  // S53/S54 contracts consumed without modification:
+  //   - ADR-022 terminal status semantics (WorkflowRunStatus.terminal, proven in S53 group above)
+  //   - S53 retry cursors (WorkflowExecutionCursor) are the idempotency carriers for map/foreach
+  //   - S54 local-path dirty check is the protected start-time boundary (FR3-AC4)
+  //   - _transitionStepAwaitingApproval does not call _cleanupWorkflowGit (FR3-AC5 preserved by design)
+
+  group('S55: publish failure preserves inspectable recovery state', () {
+    // RESTART-IDEMPOTENCY / FR3-AC2: publish failure must not destroy worktree/branch/artifact
+    // evidence. The run transitions to failed (not completed), so _cleanupWorkflowGit is not
+    // invoked — the run, its context, and any bound worktrees remain readable for recovery.
+
+    test('publish failure transitions run to failed without cleanup of worktree evidence', () async {
+      // FR3-AC2: injected publish failure must set run.status = failed and must NOT call
+      // the cleanup/preserve-worktrees=false path. The run remains in an inspectable state.
+      final cleanupCalls = <({bool preserveWorktrees})>[];
+      final publishExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+              throw const WorkflowGitException('push failed: remote rejected'),
+          cleanupWorkflowGit: ({
+            required runId,
+            required projectId,
+            required status,
+            required preserveWorktrees,
+          }) async {
+            cleanupCalls.add((preserveWorktrees: preserveWorktrees));
+          },
+        ),
+      );
+
+      final definition = WorkflowDefinition(
+        name: 'publish-fail',
+        description: 'Publish failure preservation test',
+        gitStrategy: const WorkflowGitStrategy(publish: WorkflowGitPublishStrategy(enabled: true)),
+        steps: const [],
+        variables: {'PROJECT': const WorkflowVariable(required: false)},
+      );
+
+      final run = WorkflowRun(
+        id: 'publish-fail-run',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'feature/test'},
+        definitionJson: definition.toJson(),
+        workflowWorktree: const WorkflowWorktreeBinding(
+          key: 'publish-fail-run',
+          path: '/tmp/worktrees/wf-publish-fail',
+          branch: 'dartclaw/workflow/publish-fail/integration',
+          workflowRunId: 'publish-fail-run',
+        ),
+      );
+      await repository.insert(run);
+
+      await publishExecutor.execute(
+        run,
+        definition,
+        WorkflowContext(variables: const {'PROJECT': 'my-project', 'BRANCH': 'feature/test'}),
+      );
+
+      final finalRun = await repository.getById(run.id);
+      // Run must be failed — publish failure does not complete or cancel the run.
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(finalRun?.errorMessage, contains('push failed'));
+      // Cleanup (with preserveWorktrees=false) must NOT have been called.
+      // Evidence: the cleanup adapter was not called at all on publish failure.
+      expect(cleanupCalls, isEmpty, reason: 'worktree/artifact evidence must not be cleaned up on publish failure');
+    });
+
+    test('publish failure run retains its run id, error message, and inspectable context', () async {
+      // FR3-AC2: a failed publish must record enough state for operator recovery:
+      // run id, status=failed, error message, and any previously accumulated context.
+      final publishExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+              throw const WorkflowGitException('network unreachable'),
+        ),
+      );
+
+      final definition = WorkflowDefinition(
+        name: 'publish-fail-context',
+        description: 'Publish failure context preservation',
+        gitStrategy: const WorkflowGitStrategy(publish: WorkflowGitPublishStrategy(enabled: true)),
+        steps: const [],
+        variables: {'PROJECT': const WorkflowVariable(required: false)},
+      );
+
+      final run = WorkflowRun(
+        id: 'publish-fail-ctx-run',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'feature/test'},
+        definitionJson: definition.toJson(),
+        contextJson: const {
+          'prior-step.status': 'accepted',
+          'step.prior-step.outcome': 'succeeded',
+          'data': <String, dynamic>{
+            'prior-step.status': 'accepted',
+            'step.prior-step.outcome': 'succeeded',
+          },
+          'variables': <String, dynamic>{},
+        },
+      );
+      await repository.insert(run);
+
+      await publishExecutor.execute(
+        run,
+        definition,
+        WorkflowContext(variables: const {'PROJECT': 'my-project', 'BRANCH': 'feature/test'}),
+      );
+
+      final finalRun = await repository.getById(run.id);
+      expect(finalRun?.id, equals('publish-fail-ctx-run'));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(finalRun?.errorMessage, isNotNull);
+      expect(finalRun?.errorMessage, contains('network unreachable'));
+    });
+  });
+
+  group('S55: awaitingApproval hold preserves worktree/context evidence', () {
+    // APPROVAL-HOLD / FR3-AC5: the approval hold transition (_transitionStepAwaitingApproval)
+    // does not call _cleanupWorkflowGit, so worktree bindings and context are preserved.
+    // This test proves the executor's hold behavior by inspecting what changes at hold time.
+
+    test('needsInput hold transitions to awaitingApproval without losing prior-step context', () async {
+      // FR3-AC5: prior step token/outcome evidence must survive the approval hold.
+      // The run transitions to awaitingApproval; its contextJson retains prior evidence.
+      // needsInput is triggered via the <step-outcome> tag embedded in the agent message.
+      // Prior-step evidence is pre-seeded in contextJson and passed in the WorkflowContext.
+      final approvalRequests = <WorkflowApprovalRequestedEvent>[];
+      final evSub = eventBus.on<WorkflowApprovalRequestedEvent>().listen(approvalRequests.add);
+      final localSessionService = SessionService(baseDir: sessionsDir);
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        final session = await localSessionService.createSession(type: SessionType.task);
+        await taskService.updateFields(task.id, sessionId: session.id);
+        // The review-gate step emits needsInput to trigger the approval hold.
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: 'Blocked pending human decision.\n'
+              '<step-outcome>{"outcome":"needsInput","reason":"human decision required"}</step-outcome>',
+        );
+        await completeTask(e.taskId);
+      });
+
+      final definition = WorkflowDefinition(
+        name: 'hold-preservation',
+        description: 'Hold preservation test',
+        // Single step: review-gate emits needsInput.
+        steps: const [
+          WorkflowStep(id: 'review-gate', name: 'Review Gate', prompts: ['Review and approve']),
+        ],
+      );
+
+      // Pre-seed prior-impl evidence in contextJson as if a prior step completed.
+      final preContext = WorkflowContext(
+        data: {
+          'prior-impl.status': 'accepted',
+          'prior-impl.tokenCount': 100,
+        },
+      );
+
+      final run = WorkflowRun(
+        id: 'hold-preservation-run',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        definitionJson: definition.toJson(),
+        contextJson: preContext.toJson(),
+      );
+      await repository.insert(run);
+
+      await executor.execute(run, definition, preContext);
+
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      await evSub.cancel();
+
+      final finalRun = await repository.getById(run.id);
+      // Run must hold at awaitingApproval.
+      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
+      // Approval event must have fired.
+      expect(approvalRequests, hasLength(1));
+      expect(approvalRequests.first.stepId, equals('review-gate'));
+      // Prior step evidence must be intact in contextJson — no cleanup was called.
+      final data = finalRun?.contextJson['data'] as Map?;
+      expect(data?['prior-impl.status'], equals('accepted'));
+      expect(data?['prior-impl.tokenCount'], equals(100));
     });
   });
 }

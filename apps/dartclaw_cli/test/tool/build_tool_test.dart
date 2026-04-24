@@ -131,11 +131,8 @@ void main() {
     expect(platformEntries, contains('bin/dartclaw'));
     expect(platformEntries, contains('share/dartclaw/templates/layout.html'));
     expect(platformEntries, contains('share/dartclaw/static/app.js'));
-    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-plan/SKILL.md'));
-    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-review/SKILL.md'));
-    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-quick-review/SKILL.md'));
+    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-discover-project/SKILL.md'));
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-validate-workflow/SKILL.md'));
-    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-review/references/verification-patterns.md'));
     expect(platformEntries, contains('share/dartclaw/workflows/spec-and-implement.yaml'));
     expect(platformEntries, contains('share/dartclaw/workflows/plan-and-implement.yaml'));
     expect(platformEntries, contains('share/dartclaw/workflows/code-review.yaml'));
@@ -144,11 +141,8 @@ void main() {
     expect(assetEntries, isNot(contains('bin/dartclaw')));
     expect(assetEntries, contains('templates/layout.html'));
     expect(assetEntries, contains('static/app.js'));
-    expect(assetEntries, contains('skills/dartclaw-plan/SKILL.md'));
-    expect(assetEntries, contains('skills/dartclaw-review/SKILL.md'));
-    expect(assetEntries, contains('skills/dartclaw-quick-review/SKILL.md'));
+    expect(assetEntries, contains('skills/dartclaw-discover-project/SKILL.md'));
     expect(assetEntries, contains('skills/dartclaw-validate-workflow/SKILL.md'));
-    expect(assetEntries, contains('skills/dartclaw-review/references/verification-patterns.md'));
     expect(assetEntries, contains('workflows/spec-and-implement.yaml'));
     expect(assetEntries, contains('workflows/plan-and-implement.yaml'));
     expect(assetEntries, contains('workflows/code-review.yaml'));
@@ -211,7 +205,7 @@ void main() {
     expect(stderrLines.single, startsWith('Downloading assets for v$dartclawVersion ('));
     expect(File(p.join(installPath, 'templates', 'layout.html')).existsSync(), isTrue);
     expect(File(p.join(installPath, 'static', 'app.js')).existsSync(), isTrue);
-    expect(File(p.join(installPath, 'skills', 'dartclaw-plan', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(installPath, 'skills', 'dartclaw-discover-project', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(installPath, 'workflows', 'plan-and-implement.yaml')).existsSync(), isTrue);
 
     final resolved = AssetResolver(

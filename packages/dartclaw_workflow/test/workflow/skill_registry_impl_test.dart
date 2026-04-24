@@ -522,6 +522,38 @@ void main() {
       final error = fresh.validateRef('missing');
       expect(error, contains('No skills discovered'));
     });
+
+    // S51-VALIDATOR-ERROR: andthen-* skill refs include the install hint.
+    test('validateRef for missing andthen-* skill includes install hint', () {
+      final error = registry.validateRef('andthen-spec');
+      expect(error, isNotNull);
+      expect(error, contains('andthen-spec'));
+      expect(error, contains('not found'));
+      expect(error, contains('install-skills.sh'));
+      expect(error, contains('0.14.0'));
+    });
+
+    test('validateRef for missing andthen-* skill with no skills discovered includes install hint', () {
+      final emptyWs = Directory('${tmpDir.path}/empty2')..createSync();
+      final fresh = makeRegistry();
+      fresh.discover(
+        workspaceDir: emptyWs.path,
+        dataDir: dataDir.path,
+        userClaudeSkillsDir: '/nonexistent',
+        userAgentsSkillsDir: '/nonexistent',
+        builtInSkillsDir: '/nonexistent',
+      );
+      final error = fresh.validateRef('andthen-plan');
+      expect(error, isNotNull);
+      expect(error, contains('No skills discovered'));
+      expect(error, contains('install-skills.sh'));
+    });
+
+    test('validateRef for non-andthen missing skill does NOT include install hint', () {
+      final error = registry.validateRef('some-other-skill');
+      expect(error, isNotNull);
+      expect(error, isNot(contains('install-skills.sh')));
+    });
   });
 
   group('SkillRegistryImpl.isNativeFor', () {

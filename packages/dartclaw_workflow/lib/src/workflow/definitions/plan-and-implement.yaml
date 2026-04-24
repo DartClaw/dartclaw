@@ -27,8 +27,8 @@ gitStrategy:
     enabled: true
   # Auto-commit generated artifacts (PRD, plan, per-story FIS) on the workflow
   # branch so parallel per-story worktrees inherit them when created. Required
-  # when artifact-producing steps (dartclaw-prd / dartclaw-plan /
-  # dartclaw-spec) run under worktree: auto with max_parallel > 1.
+  # when artifact-producing steps (andthen-prd / andthen-plan /
+  # andthen-spec) run under worktree: auto with max_parallel > 1.
   artifacts:
     commit: true
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
@@ -105,12 +105,13 @@ steps:
   - id: prd
     name: Draft PRD
     type: custom
-    skill: dartclaw-prd
+    skill: andthen-prd
     entryGate: "project_index.active_prd == null"
     contextInputs: [project_index]
     workflowVariables: [REQUIREMENTS]
     allowedTools: [shell, file_read, file_write]
     contextOutputs: [prd, prd_confidence]
+    prompt: "Use the prd skill to synthesize a PRD from the provided requirements, clarification artifacts, or draft PRD. Writes prd.md only — do not plan stories or create FIS files here."
     outputs:
       prd:
         format: path
@@ -121,14 +122,14 @@ steps:
         description: "Skill's self-rated 1-10 readiness of the synthesized PRD. `<7` triggers the revise-prd step when this workflow authored the PRD."
 
   # Review-and-revise pass gated on the PRD skill's own confidence score.
-  # The `--fix` flag on dartclaw-review writes a doc-review report and
-  # delegates remediation to dartclaw-remediate-findings in one invocation.
+  # The `--fix` flag on andthen-review writes a doc-review report and
+  # delegates remediation to andthen-remediate-findings in one invocation.
   # Skipped entirely when the PRD was reused via project_index.active_prd or
   # when confidence is already >= 7.
   - id: revise-prd
     name: Revise PRD (low confidence)
     type: custom
-    skill: dartclaw-review
+    skill: andthen-review
     entryGate: "project_index.active_prd == null && prd_confidence < 7"
     contextInputs: [project_index, prd, prd_confidence]
     allowedTools: [shell, file_read, file_write]
@@ -147,7 +148,7 @@ steps:
   - id: plan
     name: Plan Stories and Specs
     type: custom
-    skill: dartclaw-plan
+    skill: andthen-plan
     entryGate: "plan == null"
     allowedTools: [shell, file_read, file_write]
     contextInputs: [project_index, prd]
@@ -159,6 +160,7 @@ steps:
     onFailure: retry
     maxRetries: 1
     contextOutputs: [story_specs, plan]
+    prompt: "Use the plan skill to create an implementation plan with story breakdown and FIS specs for every story. Requires an existing prd.md in the input directory — run the prd skill first if one is missing."
     outputs:
       story_specs:
         format: json
@@ -178,12 +180,12 @@ steps:
     contextOutputs: [story_results]
     steps:
       # Implement one story against its generated story spec.
-      # dartclaw-exec-spec reads the FIS body from disk at story.spec_path;
+      # andthen-exec-spec reads the FIS body from disk at story.spec_path;
       # per-story worktrees inherit the committed FIS from the workflow branch.
       - id: implement
         name: Implement Story
         type: custom
-        skill: dartclaw-exec-spec
+        skill: andthen-exec-spec
         allowedTools: [shell, file_read, file_write]
         # Transient Codex CLI exits (exit code 1 with only `thread.started`
         # on stdout, typically under memory pressure with parallel runners)
@@ -191,6 +193,7 @@ steps:
         onFailure: retry
         maxRetries: 1
         prompt: |
+          Use the exec-spec skill to execute the provided local FIS with full verification and status gates. When the authoritative FIS is provided as a workspace path, read it from disk with file_read instead of relying on inline excerpts.
           {{map.item.spec_path}} (story {{map.display_index}} of {{map.length}}):
         contextInputs: [project_index, story_specs]
         contextOutputs: [story_result]
@@ -204,7 +207,7 @@ steps:
       - id: quick-review
         name: Quick Review Story
         type: custom
-        skill: dartclaw-quick-review
+        skill: andthen-quick-review
         allowedTools: [file_read]
         # Same transient-crash mitigation as `implement`; a dropped Codex
         # process on the review turn shouldn't fail the story when a retry
@@ -212,6 +215,7 @@ steps:
         onFailure: retry
         maxRetries: 1
         prompt: |
+          Use the quick-review skill to run a fast fresh-context review of the recent changes. When the relevant spec or plan is provided as a workspace path, read it from disk with file_read before judging requirements fit.
           Story {{map.display_index}}/{{map.length}}:
           <story>{{map.item}}</story>
           <story_result>{{context.story_result}}</story_result>
@@ -233,10 +237,11 @@ steps:
   - id: plan-review
     name: Review Full Implementation
     type: custom
-    skill: dartclaw-review
+    skill: andthen-review
     contextInputs: [project_index, story_specs, story_results, plan]
     allowedTools: [file_read]
     contextOutputs: [review_findings, plan-review.findings_count]
+    prompt: "Use the review skill to review the provided target and route to the appropriate review mode (code / doc / gap / mixed), with optional --council for multi-perspective adversarial review."
     outputs:
       review_findings:
         format: text
@@ -258,9 +263,10 @@ steps:
       - id: remediate
         name: Remediate Findings
         type: custom
-        skill: dartclaw-remediate-findings
+        skill: andthen-remediate-findings
         contextInputs: [project_index, review_findings, story_results]
         contextOutputs: [remediation_summary, diff_summary]
+        prompt: "Use the remediate-findings skill to address the findings in the provided review report with minimal safe changes. When the report or requirements baseline names a workspace path, read the authoritative file from disk with file_read instead of relying on inline excerpts."
         outputs:
           remediation_summary:
             format: text
@@ -275,10 +281,11 @@ steps:
       - id: re-review
         name: Re-review After Remediation
         type: custom
-        skill: dartclaw-quick-review
+        skill: andthen-quick-review
         allowedTools: [file_read]
         contextInputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
         contextOutputs: [review_findings, re-review.findings_count]
+        prompt: "Use the quick-review skill to run a fast fresh-context review of the recent changes. When the relevant spec or plan is provided as a workspace path, read it from disk with file_read before judging requirements fit."
         outputs:
           review_findings:
             format: text
@@ -292,9 +299,10 @@ steps:
   - id: update-state
     name: Update State
     type: custom
-    skill: dartclaw-update-state
+    skill: andthen-ops
     contextInputs: [project_index, story_specs, story_results]
     contextOutputs: [state_update_summary]
+    prompt: "Update the project's state using the discovered protocol. Project index or state instruction: "
     outputs:
       state_update_summary:
         format: text

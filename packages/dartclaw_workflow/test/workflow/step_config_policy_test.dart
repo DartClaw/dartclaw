@@ -127,5 +127,67 @@ void main() {
       expect(stepTouchesProjectBranch(definition, definition.steps.first, roleDefaults: roleDefaults), isFalse);
       expect(stepTouchesProjectBranch(definition, definition.steps.last, roleDefaults: roleDefaults), isTrue);
     });
+
+    // ── S54: ADR-024 step semantics — semantic type does not drive project binding ──
+
+    test('S54: shouldBindWorkflowProject does not bind for authored analysis/research steps', () {
+      // ADR-024: semantic typeAuthored values (analysis, research, writing) must NOT
+      // drive project/worktree binding. Only structural selectors (mapStep, project_index
+      // I/O, allowedTools with file_write, or step.project) may bind the project.
+      const definition = WorkflowDefinition(name: 'wf', description: 'test', project: 'proj', steps: []);
+
+      expect(
+        shouldBindWorkflowProject(
+          definition,
+          const WorkflowStep(id: 'analysis', name: 'Analysis', type: 'analysis', typeAuthored: true),
+          const ResolvedStepConfig(allowedTools: ['file_read']),
+        ),
+        isFalse,
+        reason: 'authored type: analysis with only file_read should not bind the project',
+      );
+
+      expect(
+        shouldBindWorkflowProject(
+          definition,
+          const WorkflowStep(id: 'research', name: 'Research', type: 'research', typeAuthored: true),
+          const ResolvedStepConfig(allowedTools: ['file_read']),
+        ),
+        isFalse,
+        reason: 'authored type: research with only file_read should not bind the project',
+      );
+    });
+
+    test('S54: stepIsReadOnly opts out when allowedTools includes file_write regardless of authored type', () {
+      // ADR-024 / READONLY-OVERRIDE: an authored writing/analysis step that explicitly
+      // lists file_write in allowedTools is intentionally opting out of read-only mode.
+      // The allowedTools override must take precedence over the legacy semantic default.
+      expect(
+        stepIsReadOnly(
+          const WorkflowStep(id: 'w', name: 'Writing', type: 'writing', typeAuthored: true),
+          const ResolvedStepConfig(allowedTools: ['file_write']),
+        ),
+        isFalse,
+        reason: 'authored type: writing + allowedTools: [file_write] should NOT be read-only',
+      );
+
+      expect(
+        stepIsReadOnly(
+          const WorkflowStep(id: 'a', name: 'Analysis', type: 'analysis', typeAuthored: true),
+          const ResolvedStepConfig(allowedTools: ['file_write', 'file_read']),
+        ),
+        isFalse,
+        reason: 'authored type: analysis + allowedTools: [file_write, file_read] should NOT be read-only',
+      );
+
+      // Without allowedTools, the legacy semantic default still applies for untyped steps.
+      expect(
+        stepIsReadOnly(
+          const WorkflowStep(id: 'a2', name: 'Analysis2', type: 'analysis'),
+          const ResolvedStepConfig(),
+        ),
+        isTrue,
+        reason: 'untyped type: analysis (typeAuthored=false) with no allowedTools should remain read-only',
+      );
+    });
   });
 }

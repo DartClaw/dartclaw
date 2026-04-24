@@ -341,14 +341,23 @@ class SkillRegistryImpl implements SkillRegistry {
   @override
   SkillInfo? getByName(String name) => _skills[name];
 
+  // Install hint appended when an andthen-* skill ref is missing.
+  static const _andthenInstallHint =
+      'Install AndThen skills (>= 0.14.0 required) by running scripts/install-skills.sh '
+      'from an AndThen checkout — see https://github.com/IT-HUSET/andthen.';
+
   @override
   String? validateRef(String skillRef) {
     if (_skills.containsKey(skillRef)) return null;
 
     // Build suggestion list from available skills.
     final available = _skills.keys.toList()..sort();
+
+    final isAndthenRef = skillRef.startsWith('andthen-');
+    final installSuffix = isAndthenRef ? ' $_andthenInstallHint' : '';
+
     if (available.isEmpty) {
-      return 'Skill "$skillRef" not found. No skills discovered.';
+      return 'Skill "$skillRef" not found. No skills discovered.$installSuffix';
     }
 
     // Simple prefix/substring match for suggestions.
@@ -357,11 +366,11 @@ class SkillRegistryImpl implements SkillRegistry {
     if (suggestions.isNotEmpty) {
       return 'Skill "$skillRef" not found. '
           'Did you mean: ${suggestions.join(', ')}? '
-          'Available: ${available.join(', ')}';
+          'Available: ${available.join(', ')}$installSuffix';
     }
 
     return 'Skill "$skillRef" not found. '
-        'Available skills: ${available.join(', ')}';
+        'Available skills: ${available.join(', ')}$installSuffix';
   }
 
   @override

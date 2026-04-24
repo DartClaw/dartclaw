@@ -18,12 +18,7 @@ final _log = Logger('WorkflowArtifactCommitter');
 const _artifactCommitAuthorName = 'DartClaw Workflow';
 const _artifactCommitAuthorEmail = 'workflow@dartclaw.local';
 
-const _artifactProducingSkills = <String>{
-  'dartclaw-prd',
-  'dartclaw-plan',
-  'dartclaw-spec',
-  'dartclaw-remediate-findings',
-};
+const _artifactProducingSkills = <String>{'andthen-prd', 'andthen-plan', 'andthen-spec', 'andthen-remediate-findings'};
 
 /// Policy inputs needed to commit path artifacts after a successful step.
 final class ArtifactCommitPolicy {

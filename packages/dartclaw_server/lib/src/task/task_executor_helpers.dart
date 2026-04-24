@@ -18,6 +18,18 @@ extension _TaskExecutorHelpers on TaskExecutor {
     }
   }
 
+  Future<Task> _hydrateWorkflowStepExecution(Task task) async {
+    if (task.workflowStepExecution != null) return task;
+
+    final repository = _workflowStepExecutionRepository;
+    if (repository == null) return task;
+
+    final execution = await repository.getByTaskId(task.id);
+    if (execution == null) return task;
+
+    return task.copyWith(workflowStepExecution: execution);
+  }
+
   Future<_QueuedTaskDisposition> _prepareQueuedTask(Task task) async {
     final projectService = _projectService;
     if (projectService == null) return _QueuedTaskDisposition.ready;

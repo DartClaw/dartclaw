@@ -8,27 +8,27 @@ void main() {
 
   group('SkillPromptBuilder.build', () {
     test('skill + prompt -> skill line + blank line + prompt', () {
-      final result = builder.build(skill: 'dartclaw-review-code', resolvedPrompt: 'Review this file.');
-      expect(result, "Use the 'dartclaw-review-code' skill.\n\nReview this file.");
+      final result = builder.build(skill: 'andthen-review', resolvedPrompt: 'Review this file.');
+      expect(result, "Use the 'andthen-review' skill.\n\nReview this file.");
     });
 
     test('skill + no prompt + contextSummary -> skill line + sections', () {
       final summary = SkillPromptBuilder.formatContextSummary({'findings': 'some findings'});
-      final result = builder.build(skill: 'dartclaw-review-code', contextSummary: summary);
-      expect(result, "Use the 'dartclaw-review-code' skill.\n\n## Findings\n\nsome findings");
+      final result = builder.build(skill: 'andthen-review', contextSummary: summary);
+      expect(result, "Use the 'andthen-review' skill.\n\n## Findings\n\nsome findings");
     });
 
     test('skill + no prompt + contextSummary does not emit legacy "Context:" preamble', () {
       // Regression: pre-Level-1 Case 2 rendered "Use the '...' skill.\n\nContext:\n- k: v".
       // The new sections carry their own `##` headers, so the "Context:" line is gone.
       final summary = SkillPromptBuilder.formatContextSummary({'findings': 'some findings'});
-      final result = builder.build(skill: 'dartclaw-review-code', contextSummary: summary);
+      final result = builder.build(skill: 'andthen-review', contextSummary: summary);
       expect(result, isNot(contains('Context:')));
     });
 
     test('skill + no prompt + no context -> skill line only', () {
-      final result = builder.build(skill: 'dartclaw-review-code');
-      expect(result, "Use the 'dartclaw-review-code' skill.");
+      final result = builder.build(skill: 'andthen-review');
+      expect(result, "Use the 'andthen-review' skill.");
     });
 
     test('no skill + prompt -> passthrough', () {
@@ -83,18 +83,18 @@ void main() {
 
     test('skill + prompt + schema -> skill line + prompt + Required Output Format', () {
       final result = builder.build(
-        skill: 'dartclaw-review-code',
+        skill: 'andthen-review',
         resolvedPrompt: 'Review this.',
         outputs: {'result': const OutputConfig(format: OutputFormat.json, schema: 'verdict')},
       );
-      expect(result, contains("Use the 'dartclaw-review-code' skill."));
+      expect(result, contains("Use the 'andthen-review' skill."));
       expect(result, contains('Review this.'));
       expect(result, contains('## Required Output Format'));
     });
 
     test('context outputs append workflow-context contract', () {
       final result = builder.build(
-        skill: 'dartclaw-review-code',
+        skill: 'andthen-review',
         resolvedPrompt: 'Review this.',
         outputs: {'review_summary': const OutputConfig(format: OutputFormat.json, schema: 'verdict')},
         contextOutputs: const ['review_summary', 'findings_count'],
@@ -118,15 +118,15 @@ void main() {
 
     test('skill + no prompt + skillDefaultPrompt -> skill line + default prompt', () {
       final result = builder.build(
-        skill: 'dartclaw-quick-review',
+        skill: 'andthen-quick-review',
         skillDefaultPrompt: 'Quick-review the recent change set.',
       );
-      expect(result, "Use the 'dartclaw-quick-review' skill.\n\nQuick-review the recent change set.");
+      expect(result, "Use the 'andthen-quick-review' skill.\n\nQuick-review the recent change set.");
     });
 
     test('skill + explicit prompt overrides skillDefaultPrompt', () {
       final result = builder.build(
-        skill: 'dartclaw-quick-review',
+        skill: 'andthen-quick-review',
         resolvedPrompt: 'Custom prompt.',
         skillDefaultPrompt: 'Default prompt that should NOT appear.',
       );

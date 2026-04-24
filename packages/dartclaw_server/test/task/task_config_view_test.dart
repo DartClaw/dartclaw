@@ -44,7 +44,7 @@ void main() {
       expect(TaskConfigView(_task(configJson: {'_workflowNeedsWorktree': true})).needsWorktree, isTrue);
       expect(
         TaskConfigView(_task(type: TaskType.coding, workflowStepExecution: _workflowStepExecution())).needsWorktree,
-        isFalse,
+        isTrue,
       );
       expect(
         TaskConfigView(

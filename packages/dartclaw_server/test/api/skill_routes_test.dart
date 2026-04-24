@@ -6,19 +6,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistryImpl
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-const dartclawSkillNames = <String>{
-  'dartclaw-discover-project',
-  'dartclaw-exec-spec',
-  'dartclaw-plan',
-  'dartclaw-prd',
-  'dartclaw-quick-review',
-  'dartclaw-remediate-findings',
-  'dartclaw-review',
-  'dartclaw-spec',
-  'dartclaw-testing',
-  'dartclaw-update-state',
-  'dartclaw-validate-workflow',
-};
+// DC-native skills shipped with DartClaw (post-ADR-025 migration).
+// The 8 ported SYNC-VERBATIM skills and dartclaw-update-state were removed;
+// workflows now resolve against the user's installed andthen-* skills.
+const dartclawSkillNames = <String>{'dartclaw-discover-project', 'dartclaw-validate-workflow'};
 
 void main() {
   late Directory tmpDir;
@@ -127,8 +118,8 @@ void main() {
 
       final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
       final skills = (body['skills'] as List<dynamic>).cast<Map<String, dynamic>>();
-      expect(body['count'], 11);
-      expect(skills, hasLength(11));
+      expect(body['count'], 2);
+      expect(skills, hasLength(2));
       expect(skills.map((skill) => skill['name'] as String).toSet(), containsAll(dartclawSkillNames));
       expect(skills.every((skill) => skill['source'] == SkillSource.dartclaw.name), isTrue);
     });

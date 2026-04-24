@@ -310,7 +310,7 @@ class TaskExecutor {
     void Function(List<String>?)? setTaskToolFilter,
     void Function(bool)? setTaskReadOnly,
   }) async {
-    var task = runningTask;
+    var task = await _hydrateWorkflowStepExecution(runningTask);
     _log.info(
       'Task execution start: ${task.id} "${task.title}" '
       'type=${task.type.name}, provider=${provider ?? "default"}, '

@@ -895,10 +895,10 @@ void main() {
         if (userClaudeSkillsDir.existsSync()) userClaudeSkillsDir.deleteSync(recursive: true);
       });
 
-      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'dartclaw-review'))..createSync(recursive: true);
+      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'andthen-review'))..createSync(recursive: true);
       File(
         p.join(skillDir.path, 'SKILL.md'),
-      ).writeAsStringSync('---\nname: dartclaw-review\ndescription: Filesystem review skill\n---\n\n# review');
+      ).writeAsStringSync('---\nname: andthen-review\ndescription: Filesystem review skill\n---\n\n# review');
 
       final registry = SkillRegistryImpl();
       registry.discover(
@@ -911,7 +911,7 @@ void main() {
 
       final validator = WorkflowDefinitionValidator()..skillRegistry = registry;
       final def = makeSkillDef(
-        const WorkflowStep(id: 's', name: 'S', skill: 'dartclaw-review', provider: 'claude', prompts: ['p']),
+        const WorkflowStep(id: 's', name: 'S', skill: 'andthen-review', provider: 'claude', prompts: ['p']),
       );
 
       expect(validator.validate(def).errors, isEmpty);
@@ -1847,7 +1847,7 @@ void main() {
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', contextOutputs: ['plan']),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', contextOutputs: ['plan']),
           ],
         );
         final report = validator.validate(def);
@@ -1863,7 +1863,7 @@ void main() {
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', contextOutputs: ['plan']),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', contextOutputs: ['plan']),
             WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 2),
           ],
         );
@@ -1880,7 +1880,7 @@ void main() {
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', contextOutputs: ['plan']),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', contextOutputs: ['plan']),
             WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 1),
           ],
         );
@@ -1897,7 +1897,7 @@ void main() {
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', contextOutputs: ['plan']),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', contextOutputs: ['plan']),
           ],
         );
         final report = validator.validate(def);

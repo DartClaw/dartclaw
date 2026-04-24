@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show RepoLock;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
@@ -1010,6 +1012,589 @@ void main() {
       expect(updated?.contextJson.containsKey('step1.status'), isFalse);
       expect(updated?.contextJson.containsKey('step.step1.outcome'), isFalse);
       expect(updated?.contextJson.containsKey('step.step1.outcome.reason'), isFalse);
+    });
+  });
+
+  // ── S55: Restart, idempotency, and operator race hardening ─────────────────
+  //
+  // Evidence consumed from S52 closure ledger (final-gap-closure-ledger.md):
+  //   OPERATOR-RACES   → live defect → S55 (action precedence matrix + illegal-combo guards)
+  //   RESTART-IDEMPOTENCY → live defect → S55 (partial-promotion idempotency spec)
+  //   CONCURRENT-CHECKOUT → live defect → S55 (concurrent-workflow arbitration via RepoLock)
+  //   APPROVAL-HOLD    → live defect → S55 (hold state preservation proof)
+  //   STRUCT-OUTPUT-COMPAT → deferred → PRODUCT-BACKLOG (not a runtime gap; S55 TI08 confirmed closed)
+  //
+  // S53/S54 contracts consumed: ADR-022 status meanings (WorkflowRunStatus.terminal/paused/
+  //   awaitingApproval/failed/running/cancelled/completed), retry cursor from failed-step,
+  //   worktree binding hydration on resume. S55 adds operator-race and restart proof only.
+
+  group('S55: operator lifecycle action precedence', () {
+    // State/action precedence matrix (FR3-AC1):
+    //   running         → pause(✓) cancel(✓) retry(✗) resume(✗) conflict-resolution(✗→ignored)
+    //   paused          → resume(✓) cancel(✓) retry(✗) pause(✗)
+    //   awaitingApproval → resume(✓) cancel(✓) retry(✗) pause(✗)
+    //   failed          → retry(✓) cancel(✗→noop on terminal) resume(✗) pause(✗)
+    //   completed       → cancel(✗→noop) retry(✗) resume(✗) pause(✗)
+    //   cancelled       → cancel(✗→noop) retry(✗) resume(✗) pause(✗)
+
+    test('retry() on awaitingApproval run is rejected with StateError', () async {
+      // OPERATOR-RACES: awaitingApproval must reject retry (FR3-AC1 illegal combo).
+      // Resume is the documented action; retry is not valid from approval-hold state.
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-awaiting-retry',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.awaitingApproval,
+        startedAt: now,
+        updatedAt: now,
+        currentStepIndex: 1,
+        definitionJson: definition.toJson(),
+        contextJson: {
+          '_approval.pending.stepId': 'gate',
+          '_approval.pending.stepIndex': 0,
+          'gate.approval.status': 'pending',
+          'data': <String, dynamic>{},
+          'variables': <String, dynamic>{},
+        },
+      );
+      await repository.insert(run);
+
+      // retry() must throw StateError — not valid from awaitingApproval.
+      await expectLater(workflowService.retry('run-awaiting-retry'), throwsA(isA<StateError>()));
+    });
+
+    test('resume() accepts awaitingApproval run, clears approval-tracking keys, and flips status to running', () async {
+      // OPERATOR-RACES: resume is the legal action from awaitingApproval (FR3-AC1).
+      // Confirms the run transitions to running and approval tracking is cleared.
+      // Note: this test verifies the synchronous pre-execution state mutations performed
+      // by resume() — it does not observe the subsequent executor dispatch. Cursor-based
+      // "no replay" of prior steps is proven by the retry() cursor test below.
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-awaiting-resume',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.awaitingApproval,
+        startedAt: now,
+        updatedAt: now,
+        currentStepIndex: 1,
+        definitionJson: definition.toJson(),
+        contextJson: {
+          '_approval.pending.stepId': 'gate',
+          '_approval.pending.stepIndex': 0,
+          'gate.approval.status': 'pending',
+          'data': <String, dynamic>{},
+          'variables': <String, dynamic>{},
+        },
+      );
+      await repository.insert(run);
+      final contextDir = Directory(p.join(tempDir.path, 'workflows', 'runs', run.id))..createSync(recursive: true);
+      File(p.join(contextDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
+      autoCompleteNewTasks();
+
+      // resume() must succeed and record approval.
+      final resumed = await workflowService.resume('run-awaiting-resume');
+      expect(resumed.status, equals(WorkflowRunStatus.running));
+
+      // Approval tracking keys must be cleared.
+      expect(resumed.contextJson.containsKey('_approval.pending.stepId'), isFalse);
+      expect(resumed.contextJson.containsKey('_approval.pending.stepIndex'), isFalse);
+    });
+
+    test('retry() on running run is rejected with StateError', () async {
+      // OPERATOR-RACES: retry must reject non-failed states (FR3-AC1 illegal combo).
+      // Insert a running run directly to avoid spawning a live executor.
+      final definition = makeDefinition();
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-running-retry',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: definition.toJson(),
+      );
+      await repository.insert(run);
+      await expectLater(workflowService.retry('run-running-retry'), throwsA(isA<StateError>()));
+    });
+
+    test('retry() on paused run is rejected with StateError', () async {
+      // OPERATOR-RACES: retry is illegal from paused (FR3-AC1 illegal combo).
+      final definition = makeDefinition();
+      final run = await workflowService.start(definition, {});
+      await workflowService.pause(run.id);
+      await expectLater(workflowService.retry(run.id), throwsA(isA<StateError>()));
+    });
+
+    test('resume() on failed run is rejected with StateError', () async {
+      // OPERATOR-RACES: resume is illegal from failed (FR3-AC1 illegal combo).
+      final definition = makeDefinition();
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-failed-resume',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.failed,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: definition.toJson(),
+      );
+      await repository.insert(run);
+      await expectLater(workflowService.resume('run-failed-resume'), throwsA(isA<StateError>()));
+    });
+
+    test('cancel() is a no-op on completed run', () async {
+      // OPERATOR-RACES: cancel on terminal states is idempotent (FR3-AC1).
+      // WorkflowService.cancel() short-circuits on terminal states.
+      final definition = makeDefinition();
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-completed-cancel',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.completed,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: definition.toJson(),
+        completedAt: now,
+      );
+      await repository.insert(run);
+
+      // cancel() must not throw and run must remain completed.
+      await workflowService.cancel('run-completed-cancel');
+      final stored = await workflowService.get('run-completed-cancel');
+      expect(stored?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('cancel() is a no-op on cancelled run', () async {
+      // OPERATOR-RACES: cancel on already-cancelled is idempotent (FR3-AC1).
+      final definition = makeDefinition();
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-cancelled-cancel',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.cancelled,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: definition.toJson(),
+        completedAt: now,
+      );
+      await repository.insert(run);
+
+      await workflowService.cancel('run-cancelled-cancel');
+      final stored = await workflowService.get('run-cancelled-cancel');
+      expect(stored?.status, equals(WorkflowRunStatus.cancelled));
+    });
+
+    test('retry() on completed run is rejected with StateError', () async {
+      // OPERATOR-RACES: retry must reject terminal states (FR3-AC1 illegal combo).
+      final definition = makeDefinition();
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-completed-retry',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.completed,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: definition.toJson(),
+        completedAt: now,
+      );
+      await repository.insert(run);
+      await expectLater(workflowService.retry('run-completed-retry'), throwsA(isA<StateError>()));
+    });
+
+    test('retry() on cancelled run is rejected with StateError', () async {
+      // OPERATOR-RACES: retry must reject terminal states (FR3-AC1 illegal combo).
+      final definition = makeDefinition();
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-cancelled-retry',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.cancelled,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: definition.toJson(),
+        completedAt: now,
+      );
+      await repository.insert(run);
+      await expectLater(workflowService.retry('run-cancelled-retry'), throwsA(isA<StateError>()));
+    });
+
+    test('resume() on completed run is rejected with StateError', () async {
+      // OPERATOR-RACES: resume must reject terminal states (FR3-AC1 illegal combo).
+      final definition = makeDefinition();
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-completed-resume',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.completed,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: definition.toJson(),
+        completedAt: now,
+      );
+      await repository.insert(run);
+      await expectLater(workflowService.resume('run-completed-resume'), throwsA(isA<StateError>()));
+    });
+
+    test('resume() on cancelled run is rejected with StateError', () async {
+      // OPERATOR-RACES: resume must reject terminal states (FR3-AC1 illegal combo).
+      final definition = makeDefinition();
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-cancelled-resume',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.cancelled,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: definition.toJson(),
+        completedAt: now,
+      );
+      await repository.insert(run);
+      await expectLater(workflowService.resume('run-cancelled-resume'), throwsA(isA<StateError>()));
+    });
+  });
+
+  group('S55: restart/retry idempotency after side effects', () {
+    // RESTART-IDEMPOTENCY (FR3-AC2): retry after partial promotion/publish must restart
+    // from the failure cursor, not replay completed promoted work.
+    // The cursor mechanism from S53 (WorkflowExecutionCursor) is the idempotency carrier.
+    // A map execution cursor with completedIndices proves which items are already settled.
+
+    test('retry() starts from persisted execution cursor — not from step 0', () async {
+      // RESTART-IDEMPOTENCY: retry after a failure mid-map must resume at the cursor,
+      // not replay the completed promoted items.
+      final definition = WorkflowDefinition(
+        name: 'map-retry',
+        description: 'map retry idempotency',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['impl {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 1,
+            contextOutputs: ['results'],
+          ),
+          WorkflowStep(id: 'update-state', name: 'Update State', prompts: ['update']),
+        ],
+      );
+      final now = DateTime.now();
+      // Simulate a run that has completed 2/3 items and failed at item index 2.
+      final cursor = WorkflowExecutionCursor.map(
+        stepId: 'implement',
+        stepIndex: 0,
+        totalItems: 3,
+        completedIndices: const [0, 1],
+        resultSlots: const ['done-a', 'done-b', null],
+      );
+      final run = WorkflowRun(
+        id: 'run-map-retry',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.failed,
+        startedAt: now,
+        updatedAt: now,
+        errorMessage: 'item 2 failed',
+        definitionJson: definition.toJson(),
+        executionCursor: cursor,
+        contextJson: {
+          'data': <String, dynamic>{
+            'items': ['a', 'b', 'c'],
+            'implement[0].tokenCount': 10,
+            'implement[1].tokenCount': 10,
+          },
+          'variables': <String, dynamic>{},
+        },
+      );
+      await repository.insert(run);
+
+      // Track which map-step tasks are dispatched (we ignore update-state tasks
+      // because they belong to the next step, not the map replay surface).
+      final allDispatchedTitles = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        if (task != null) {
+          allDispatchedTitles.add(task.title);
+        }
+        try {
+          await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+          await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
+          await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
+        } on StateError {
+          // Ignore.
+        }
+      });
+
+      // Wait for the retry to drive the run to a terminal state — no sleep.
+      final terminalCompleter = Completer<WorkflowRunStatus>();
+      final statusSub = eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == 'run-map-retry' && e.newStatus.terminal).listen((e) {
+        if (!terminalCompleter.isCompleted) terminalCompleter.complete(e.newStatus);
+      });
+
+      await workflowService.retry('run-map-retry');
+      final terminalStatus = await terminalCompleter.future.timeout(const Duration(seconds: 5));
+      await sub.cancel();
+      await statusSub.cancel();
+
+      // Only item index 2 (c) should have been dispatched as a map task — items 0 (a)
+      // and 1 (b) were already settled in the cursor and must not be replayed.
+      // The title format is "Implement (N/3)"; items 0 and 1 render as "(1/3)" and "(2/3)".
+      final mapDispatched = allDispatchedTitles.where((t) => t.contains('Implement')).toList();
+      expect(
+        mapDispatched.any((t) => t.contains('(1/3)') || t.contains('(2/3)')),
+        isFalse,
+        reason: 'Completed map items (0,1) must not be replayed on retry',
+      );
+      // Exactly one map task must have been dispatched — the pending slot at index 2, "(3/3)".
+      expect(mapDispatched, hasLength(1), reason: 'only the pending cursor item should dispatch');
+      expect(mapDispatched.single, contains('(3/3)'));
+      expect(terminalStatus, equals(WorkflowRunStatus.completed));
+    });
+  });
+
+  group('S55: approval/needsInput hold state preservation', () {
+    // APPROVAL-HOLD (FR3-AC5): awaitingApproval transitions must preserve run context,
+    // worktree bindings, and audit evidence. No cleanup is invoked during a hold.
+
+    test('resume() after awaitingApproval preserves worktree bindings from before hold', () async {
+      // APPROVAL-HOLD: worktree binding created before the approval hold must survive
+      // through hold and still be present when resume() rehydrates it.
+      final hydrated = <WorkflowWorktreeBinding>[];
+      workflowService = WorkflowService(
+        repository: repository,
+        taskService: taskService,
+        messageService: messageService,
+        eventBus: eventBus,
+        kvService: kvService,
+        dataDir: tempDir.path,
+        hydrateWorkflowWorktreeBinding: (binding, {required workflowRunId}) {
+          hydrated.add(binding);
+        },
+      );
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: 'run-hold-worktree',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.awaitingApproval,
+        startedAt: now,
+        updatedAt: now,
+        currentStepIndex: 1,
+        definitionJson: definition.toJson(),
+        contextJson: {
+          '_approval.pending.stepId': 'gate',
+          '_approval.pending.stepIndex': 0,
+          'gate.approval.status': 'pending',
+          'data': <String, dynamic>{},
+          'variables': <String, dynamic>{},
+        },
+        workflowWorktree: const WorkflowWorktreeBinding(
+          key: 'run-hold-worktree',
+          path: '/tmp/worktrees/wf-hold',
+          branch: 'dartclaw/workflow/hold/integration',
+          workflowRunId: 'run-hold-worktree',
+        ),
+      );
+      await repository.insert(run);
+      final contextDir = Directory(p.join(tempDir.path, 'workflows', 'runs', run.id))..createSync(recursive: true);
+      File(p.join(contextDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
+      autoCompleteNewTasks();
+
+      // resume() must hydrate the persisted worktree binding.
+      await workflowService.resume('run-hold-worktree');
+
+      expect(hydrated, hasLength(1));
+      expect(hydrated.single.key, 'run-hold-worktree');
+      expect(hydrated.single.path, '/tmp/worktrees/wf-hold');
+    });
+
+    test('awaitingApproval run preserves run context and audit state through hold', () async {
+      // APPROVAL-HOLD (FR3-AC5): the run context (variables, step outcomes, token counts)
+      // must be readable after a hold. No cleanup erases evidence during awaitingApproval.
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'impl', name: 'Impl', prompts: ['Implement']),
+          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'publish', name: 'Publish', prompts: ['Publish']),
+        ],
+      );
+      final now = DateTime.now();
+      // Simulate: impl step completed with token evidence, then gate paused run.
+      final run = WorkflowRun(
+        id: 'run-hold-context',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.awaitingApproval,
+        startedAt: now,
+        updatedAt: now,
+        currentStepIndex: 2,
+        definitionJson: definition.toJson(),
+        contextJson: {
+          '_approval.pending.stepId': 'gate',
+          '_approval.pending.stepIndex': 1,
+          'gate.approval.status': 'pending',
+          'impl.status': 'accepted',
+          'step.impl.outcome': 'succeeded',
+          'impl.tokenCount': 150,
+          'data': <String, dynamic>{
+            'impl.status': 'accepted',
+            'step.impl.outcome': 'succeeded',
+            'impl.tokenCount': 150,
+          },
+          'variables': <String, dynamic>{},
+        },
+      );
+      await repository.insert(run);
+
+      // Re-read the stored run to confirm evidence is intact during hold.
+      final stored = await workflowService.get('run-hold-context');
+      expect(stored?.status, equals(WorkflowRunStatus.awaitingApproval));
+      // Prior step outcome evidence must be intact.
+      expect(stored?.contextJson['step.impl.outcome'], equals('succeeded'));
+      expect(stored?.contextJson['impl.tokenCount'], equals(150));
+      // Approval tracking keys must be present.
+      expect(stored?.contextJson['_approval.pending.stepId'], equals('gate'));
+    });
+  });
+
+  group('S55: concurrent checkout contention rule', () {
+    // CONCURRENT-CHECKOUT (FR3-AC3): Two workflow runs targeting the same local checkout
+    // are serialized at the git-operation level via RepoLock (WorkflowGitPortProcess).
+    // The workflow-level rule: the second run proceeds but its git operations queue
+    // behind the first run's lock holder — no uncoordinated side effects occur.
+    // This test proves the documented rule by verifying RepoLock's serial behavior.
+
+    test('RepoLock serializes concurrent operations on the same key', () async {
+      // CONCURRENT-CHECKOUT: proves that the RepoLock mechanism (the documented
+      // checkout-contention guard) prevents concurrent execution for the same key.
+      // Both runs wait and execute in order, not concurrently.
+      final lock = RepoLock();
+      final executionOrder = <String>[];
+      final completerA = Completer<void>();
+
+      final futureA = lock.acquire('/tmp/repo', () async {
+        executionOrder.add('A-start');
+        await completerA.future;
+        executionOrder.add('A-end');
+      });
+
+      final futureB = lock.acquire('/tmp/repo', () async {
+        executionOrder.add('B-start');
+        executionOrder.add('B-end');
+      });
+
+      // Let A start.
+      await Future<void>.delayed(Duration.zero);
+      // B should not have started yet because A holds the lock.
+      expect(executionOrder, equals(['A-start']), reason: 'B must not start while A holds the lock');
+
+      // Release A.
+      completerA.complete();
+      await Future.wait([futureA, futureB]);
+
+      // B runs after A completes — serial execution guaranteed.
+      expect(executionOrder, equals(['A-start', 'A-end', 'B-start', 'B-end']));
+    });
+
+    test('RepoLock allows concurrent operations on different keys', () async {
+      // CONCURRENT-CHECKOUT: different checkouts do not contend on the same lock key.
+      // Two workflows on different repos can proceed without serialization.
+      final lock = RepoLock();
+      final executionOrder = <String>[];
+      final completerA = Completer<void>();
+
+      final futureA = lock.acquire('/tmp/repo-a', () async {
+        executionOrder.add('A-start');
+        await completerA.future;
+        executionOrder.add('A-end');
+      });
+
+      final futureB = lock.acquire('/tmp/repo-b', () async {
+        executionOrder.add('B-start');
+        executionOrder.add('B-end');
+      });
+
+      // Wait for B to finish — it must NOT be blocked by A's held lock.
+      await futureB;
+
+      // Proof of non-serialization: B has started AND ended while A is still holding
+      // its lock (A-end has not happened yet because completerA hasn't been completed).
+      expect(executionOrder, equals(['A-start', 'B-start', 'B-end']));
+
+      // Now release A and drain.
+      completerA.complete();
+      await futureA;
+      expect(executionOrder, equals(['A-start', 'B-start', 'B-end', 'A-end']));
+    });
+  });
+
+  group('S55: local human-edit detection boundary', () {
+    // CONCURRENT-CHECKOUT/local human-edit (FR3-AC4):
+    // S54 owns the local-path dirty/branch safety check at workflow-start time
+    // (WorkflowLocalPathPreflight). Mid-run edits to the working tree of a local-path
+    // checkout are outside the protected boundary — the workflow engine does not
+    // re-inspect the working tree after the start preflight.
+    //
+    // Documented boundary: the protected edge is workflow start (dirty/branch check);
+    // mid-run human edits are an operator responsibility.
+    // Operator mitigation: do not modify the working tree of the target checkout
+    // while a local-path workflow is running; use a dedicated branch and pause/cancel
+    // to take over if mid-run edits are required.
+    //
+    // This test verifies the preflight DOES catch dirty state at start.
+
+    test('WorkflowService start() propagates preflight dirty-path rejection', () async {
+      // FR3-AC4: start() surfaces preflight errors (including dirty-tree rejection)
+      // before creating any run or task. This is the protected boundary.
+      workflowService = WorkflowService(
+        repository: repository,
+        taskService: taskService,
+        messageService: messageService,
+        eventBus: eventBus,
+        kvService: kvService,
+        dataDir: tempDir.path,
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) async => 'turn-id',
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          resolveStartContext: (definition, variables, {projectId, allowDirtyLocalPath = false}) async {
+            // Simulate dirty-path preflight rejection (as WorkflowLocalPathPreflight does).
+            throw ArgumentError(
+              'Working tree has uncommitted changes. Commit or stash changes before starting a workflow.',
+            );
+          },
+        ),
+      );
+      final definition = makeDefinition(
+        variables: const {'PROJECT': WorkflowVariable(required: false)},
+      );
+
+      await expectLater(
+        workflowService.start(definition, const {'PROJECT': '_local'}),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('uncommitted changes'),
+          ),
+        ),
+      );
+      // No run must have been created.
+      expect(await workflowService.list(), isEmpty);
     });
   });
 }

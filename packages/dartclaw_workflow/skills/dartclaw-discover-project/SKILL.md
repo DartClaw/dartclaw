@@ -11,7 +11,15 @@ workflow:
 
 Read-only project discovery for workflow steps. Detect the active SDD framework, normalize the project document index, and provide a compact state protocol contract for later steps.
 
-> **SCOPE — READ-ONLY.** This skill is strictly read-only. Do not write, create, edit, delete, move, or otherwise modify **any** file in the project, including PRDs, plans, FIS files, source code, tests, configuration, documentation, or state files. Do not run `git add`, `git commit`, `sed -i`, `cat > file`, `echo > file`, `uv add`, `pip install`, migrations, or any shell command that mutates the working tree. When your invocation carries a `REQUIREMENTS` workflow variable or similarly-named input that *describes future work* (bug fixes, feature implementations, story breakdowns), you must **not** execute that work. Treat it as context for framework detection only — downstream workflow steps (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-exec-spec`) own the implementation. Your entire output is the normalized project index and state protocol — nothing more.
+> **DC-NATIVE SKILL — SCOPE NOTE** (ADR-025): This is one of two DC-native skills retained after the AndThen-as-runtime-prerequisite migration. It provides two distinct capabilities:
+>
+> **Load-bearing workspace-index outputs** (consumed by downstream workflow steps): `project_name`, `framework`, `document_locations`, `state_protocol`, `active_milestone`, `active_prd`, `active_plan`, `active_story_specs`, `artifact_locations`, `notes`. These outputs are load-bearing — built-in workflows depend on them to route artifact paths and enable context-reuse gates.
+>
+> **Latent multi-framework detection** (`framework:` field): the framework value is latent option value for a future SDD bundle swap (selecting the right andthen-spec/andthen-plan variant per framework). It is not consumed for routing in current shipped workflows. Do not remove or simplify this detection logic.
+>
+> See [`docs/adrs/025-andthen-as-runtime-prerequisite.md`](../../../../../adrs/025-andthen-as-runtime-prerequisite.md) for migration context.
+
+> **SCOPE — READ-ONLY.** This skill is strictly read-only. Do not write, create, edit, delete, move, or otherwise modify **any** file in the project, including PRDs, plans, FIS files, source code, tests, configuration, documentation, or state files. Do not run `git add`, `git commit`, `sed -i`, `cat > file`, `echo > file`, `uv add`, `pip install`, migrations, or any shell command that mutates the working tree. When your invocation carries a `REQUIREMENTS` workflow variable or similarly-named input that *describes future work* (bug fixes, feature implementations, story breakdowns), you must **not** execute that work. Treat it as context for framework detection only — downstream workflow steps (`andthen-prd`, `andthen-plan`, `andthen-exec-spec`) own the implementation. Your entire output is the normalized project index and state protocol — nothing more.
 
 ## VARIABLES
 
@@ -106,7 +114,7 @@ Rules:
   `active_story_specs: null`.
 
 Downstream workflow steps use these as fast-path signals — when set, the
-corresponding authoring step (`dartclaw-spec`, `dartclaw-prd`, `dartclaw-plan`)
+corresponding authoring step (`andthen-spec`, `andthen-prd`, `andthen-plan`)
 is skipped via an `entryGate` and the pre-existing file is used directly.
 Emitting a future-write path here instead of `null` skips the authoring
 step and the next step is handed a reference to a file that does not yet
@@ -114,7 +122,7 @@ exist — which causes the workflow to fail downstream.
 
 ### Active Milestone and Artifact Locations
 
-Downstream artifact-producing skills (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`) read these
+Downstream artifact-producing skills (`andthen-prd`, `andthen-plan`, `andthen-spec`) read these
 keys to decide whether to reuse existing artifacts or synthesize new ones, and where to write them.
 
 Resolution order for `active_milestone` (first match wins):

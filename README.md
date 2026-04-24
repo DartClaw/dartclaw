@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-banner-1280-8bit.png" alt="DartClaw" width="720">
+</p>
+
 # DartClaw
 
 _Agentic powers. No dependency black holes. Secure by design._
@@ -16,10 +20,14 @@ _Agentic powers. No dependency black holes. Secure by design._
 ```bash
 git clone <repo-url> && cd dartclaw
 dart pub get
+bash tool/build.sh
 export ANTHROPIC_API_KEY="sk-ant-..."
-dart run dartclaw_cli:dartclaw serve
-# Open http://127.0.0.1:3000
+./build/dartclaw init
+./build/dartclaw serve
+# Open http://127.0.0.1:3333
 ```
+
+The recommended runtime entrypoint is the standalone `dartclaw` binary. When you are working from a checkout, build it with `bash tool/build.sh` and run `./build/dartclaw`. Use `dart run dartclaw_cli:dartclaw ...` only for source-based development and `--dev` hot-reload workflows.
 
 ## What is DartClaw?
 
@@ -59,7 +67,7 @@ Two layers with clear trust boundaries:
 - **Agent CLI** -- at least one: `claude` (Claude Code) or `codex` (OpenAI Codex CLI)
 - **SQLite** -- system library (bundled on macOS/most Linux)
 - **Docker** -- optional, for container isolation
-- **API key** -- `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` depending on configured providers
+- **API key** -- `ANTHROPIC_API_KEY` (Claude) and/or `CODEX_API_KEY` (Codex CLI — primary; `OPENAI_API_KEY` is accepted as a legacy fallback)
 
 ### AOT Binary
 

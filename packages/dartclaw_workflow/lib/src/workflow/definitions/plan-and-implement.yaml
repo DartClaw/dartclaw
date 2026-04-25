@@ -23,6 +23,7 @@ project: "{{PROJECT}}"
 gitStrategy:
   bootstrap: true
   worktree: auto
+  promotion: merge
   publish:
     enabled: true
   # Auto-commit generated artifacts (PRD, plan, per-story FIS) on the workflow
@@ -33,6 +34,15 @@ gitStrategy:
     commit: true
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
     project: "{{PROJECT}}"
+  merge_resolve:
+    enabled: true
+    max_attempts: 2
+    token_ceiling: 100000
+    escalation: serialize-remaining
+    verification:
+      format: "dart format --set-exit-if-changed ."
+      analyze: "dart analyze"
+      test: "dart test"
 
 stepDefaults:
   # `revise*` is listed before the literal `prd` / `plan` matches so the

@@ -1,4 +1,3 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show MergeResolveEscalation;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
 

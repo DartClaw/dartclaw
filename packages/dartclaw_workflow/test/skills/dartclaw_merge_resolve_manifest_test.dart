@@ -53,8 +53,8 @@ void main() {
 
       test('workflow.default_prompt is a non-empty string', () {
         final workflow = frontmatter['workflow'];
-        expect(workflow, isA<Map>());
-        final prompt = (workflow as Map)['default_prompt'];
+        expect(workflow, isA<Map<Object?, Object?>>());
+        final prompt = (workflow as Map<Object?, Object?>)['default_prompt'];
         expect(prompt, isA<String>());
         expect((prompt as String).trim(), isNotEmpty);
       });
@@ -62,12 +62,12 @@ void main() {
 
     // TI03 — four output fields with correct formats
     group('output declarations', () {
-      late Map<dynamic, dynamic> defaultOutputs;
+      late Map<Object?, Object?> defaultOutputs;
 
       setUp(() {
-        final workflow = frontmatter['workflow'] as Map;
-        expect(workflow['default_outputs'], isA<Map>(), reason: 'workflow.default_outputs must be a map');
-        defaultOutputs = workflow['default_outputs'] as Map;
+        final workflow = frontmatter['workflow'] as Map<Object?, Object?>;
+        expect(workflow['default_outputs'], isA<Map<Object?, Object?>>(), reason: 'workflow.default_outputs must be a map');
+        defaultOutputs = workflow['default_outputs'] as Map<Object?, Object?>;
       });
 
       test('declares merge_resolve.outcome output', () {

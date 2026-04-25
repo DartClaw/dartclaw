@@ -514,6 +514,10 @@ class CliWorkflowWiring {
             preAttemptSha: preAttemptSha,
           );
         },
+        captureWorkflowBranchSha: ({required projectId, required branch}) async {
+          final projectDir = await _resolveWorkflowProjectDir(projectId);
+          return captureWorkflowBranchSha(projectDir: projectDir, branch: branch);
+        },
         reserveTurn: turns.reserveTurn,
         reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => turns.reserveTurn(
           sessionId,

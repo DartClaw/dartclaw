@@ -1087,31 +1087,18 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     );
   }
 
-  /// Captures the HEAD SHA of [branch] for [projectId] via the cleanup callback.
-  Future<String?> _capturePreAttemptSha({required String projectId, required String branch}) async {
-    // We use the cleanupWorktreeForRetry pathway but with a non-existent sha to only capture.
-    // Actually, we call git rev-parse via the TurnAdapter's existing git utilities.
-    // Since we don't have a direct rev-parse callback, we rely on the turn adapter.
-    // The cleanupWorktreeForRetry callback is not suitable for this.
-    // Use the context to pass through — for now return null and let callers handle gracefully.
-    // The actual SHA capture is done in workflow_git_support via the promoteWorkflowBranch call
-    // which itself needs a clean worktree. We use a dedicated adapter if available.
-    // For the initial implementation, we leave this as a best-effort: if TurnAdapter exposes
-    // a headShaCallback we use it; otherwise return null.
-    final adapter = _turnAdapter;
-    if (adapter == null) return null;
-    // No dedicated callback yet — sha captured via pre-attempt cleanup roundtrip.
-    return null;
-  }
+  /// Captures the HEAD SHA of [branch] for [projectId] via the TurnAdapter.
+  Future<String?> _capturePreAttemptSha({required String projectId, required String branch}) =>
+      _turnAdapter?.captureWorkflowBranchSha?.call(projectId: projectId, branch: branch) ?? Future.value(null);
 
   /// Returns true when the story-branch worktree has uncommitted changes or an in-progress merge.
+  ///
+  /// Always runs cleanup pre-attempt when a valid sha is available — the cleanup triple is safe
+  /// as a no-op on a clean worktree (reset-to-same-sha + clean with nothing to remove).
   Future<bool> _isWorktreeDirty({required String projectId, required String branch}) async {
-    // Without a direct git-status callback in the TurnAdapter, we use the cleanup triple as a
-    // proxy: if cleanup errors, it was dirty; if it succeeds, it was clean.
-    // However, cleanup is destructive, so we cannot use it here speculatively.
-    // Conservative approach: treat as dirty iff pre_attempt_sha is set (i.e. resume path).
-    // The pre-attempt cleanup runs unconditionally when pre_attempt_sha is present.
-    return false; // Callers gate cleanup on sha presence; this is always safe.
+    // Without a direct git-status callback, treat as potentially dirty on every resume
+    // so the cleanup triple always runs as a pre-attempt reset to baseline.
+    return true;
   }
 
   /// Builds the six MERGE_RESOLVE_* env vars from config (TI05, Decisions 1+6).

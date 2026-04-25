@@ -151,6 +151,14 @@ class WorkflowTurnAdapter {
   })?
   cleanupWorktreeForRetry;
 
+  /// Returns the current HEAD SHA of [branch] in [projectId]'s worktree via
+  /// `git rev-parse <branch>`. Returns null when the ref cannot be resolved.
+  final Future<String?> Function({
+    required String projectId,
+    required String branch,
+  })?
+  captureWorkflowBranchSha;
+
   const WorkflowTurnAdapter({
     required this.reserveTurn,
     this.reserveTurnWithWorkflowWorkspaceDir,
@@ -164,5 +172,6 @@ class WorkflowTurnAdapter {
     this.publishWorkflowBranch,
     this.cleanupWorkflowGit,
     this.cleanupWorktreeForRetry,
+    this.captureWorkflowBranchSha,
   });
 }

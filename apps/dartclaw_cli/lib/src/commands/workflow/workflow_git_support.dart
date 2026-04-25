@@ -125,6 +125,17 @@ Future<String?> _cleanupWorktreeForRetryUnlocked({
   return null;
 }
 
+/// Returns the current HEAD SHA of [branch] via `git rev-parse`, or null on failure.
+Future<String?> captureWorkflowBranchSha({required String projectDir, required String branch}) {
+  return _workflowGitRepoLock.acquire(_repoLockKey(projectDir), () async {
+    final worktreePath = await _findWorktreePathForBranch(projectDir: projectDir, branch: branch) ?? projectDir;
+    final result = await _workflowGit(['rev-parse', branch], workingDirectory: worktreePath);
+    if (result.exitCode != 0) return null;
+    final sha = (result.stdout as String).trim();
+    return sha.isNotEmpty ? sha : null;
+  });
+}
+
 Future<WorkflowGitPromotionResult> promoteWorkflowBranchLocally({
   required String projectDir,
   required String runId,

@@ -28,6 +28,7 @@ String _skillsDir() {
 const _expectedSkillDirs = <String>{
   'dartclaw-discover-project',
   'dartclaw-validate-workflow',
+  'dartclaw-merge-resolve',
 };
 
 void main() {
@@ -38,7 +39,7 @@ void main() {
       skillsDir = _skillsDir();
     });
 
-    test('ships exactly the 2 DC-native skill directories', () {
+    test('ships exactly the 3 DC-native skill directories', () {
       final skillDirs = Directory(skillsDir)
           .listSync()
           .whereType<Directory>()
@@ -49,10 +50,11 @@ void main() {
         skillDirs,
         equals(_expectedSkillDirs),
         reason:
-            'Post-ADR-025 migration: only DC-native skills (dartclaw-discover-project, '
-            'dartclaw-validate-workflow) should remain. The 8 ported SYNC-VERBATIM skills '
-            'and dartclaw-update-state were removed; their functionality now resolves via '
-            'the user-installed andthen-* skills (runtime prerequisite: AndThen >= 0.14.3).',
+            'Post-ADR-025 migration: DC-native skills are dartclaw-discover-project, '
+            'dartclaw-validate-workflow, and dartclaw-merge-resolve (added S59). '
+            'The 8 ported SYNC-VERBATIM skills and dartclaw-update-state were removed; '
+            'their functionality now resolves via the user-installed andthen-* skills '
+            '(runtime prerequisite: AndThen >= 0.14.3).',
       );
     });
 

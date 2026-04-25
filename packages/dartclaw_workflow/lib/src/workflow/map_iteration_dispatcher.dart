@@ -294,6 +294,13 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
             mapCtx.inFlightCount--;
             emitIterationFailure();
             return;
+          case WorkflowGitPromotionSerializeRemaining():
+            // This dispatcher does not participate in serialize-remaining; treat as error.
+            mapCtx.recordFailure(iterIndex, 'promotion failed: unexpected serialize-remaining sentinel', taskId);
+            await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+            mapCtx.inFlightCount--;
+            emitIterationFailure();
+            return;
         }
       }
 

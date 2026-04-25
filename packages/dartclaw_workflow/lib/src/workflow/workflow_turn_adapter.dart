@@ -47,6 +47,12 @@ class WorkflowGitPromotionError extends WorkflowGitPromotionResult {
   const WorkflowGitPromotionError(this.message);
 }
 
+/// Sentinel returned by `_handleMergeResolveEscalation` when `serializeRemaining`
+/// fires. The outer loop observes this to drain siblings and re-queue.
+class WorkflowGitPromotionSerializeRemaining extends WorkflowGitPromotionResult {
+  const WorkflowGitPromotionSerializeRemaining();
+}
+
 /// Result of deterministic workflow publish.
 class WorkflowGitPublishResult {
   /// `success`, `manual`, or `failed`.

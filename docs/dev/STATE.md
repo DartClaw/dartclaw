@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-24 09:13 CEST
+Last Updated: 2026-04-25 23:55 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -21,16 +21,20 @@ Last Updated: 2026-04-24 09:13 CEST
 
 ## Current Phase
 
-**0.16.4** — release prep, reopened mid-milestone for workflow step semantics redesign. Filesystem-first structured-output extraction is code-complete. Final workflow gap remediation plan is ready to execute from the private bundle's S51 closure ledger.
+**0.16.4** — release prep. Agent-resolved-merge bundle (S57-S64) just landed: cross-harness LLM-driven conflict resolution, retry loop with structured artifacts, serialize-remaining drain, built-in YAML adoption with cross-harness E2E tests, and a workflow test-suite overhaul. Final gap review PASS. Release tag for 0.16.4 still blocked on the deferred `plan-and-implement` release-gate run from S56.
 
 ## Active Stories
 
-- S51 — Done: AndThen-as-runtime-prerequisite migration (workflow YAML skill refs migrated to `andthen-*`).
-- S52 — Done: Final gap triage and closure ledger produced.
-- S53 — Done: Status, outcome, accounting, and task boundary remediation (10 focused tests added to `workflow_executor_test.dart`; S36-B and S40-C gaps closed).
-- S54 — Done: Workflow definition, step semantics, and local-path safety (4 new tests added: ADR-024 analysis-step binding, READONLY-OVERRIDE opt-out, S42-A BRANCH= regression, FOREACH-RECOVERY map fidelity/cursor; all S54 ledger items proven or stale/closed; 98 executor tests passing).
-- S55 — Done: Restart, idempotency, and operator race hardening (20 new tests: 17 in `workflow_service_test.dart` + 3 in `workflow_executor_test.dart`; 5 groups: operator lifecycle precedence matrix, restart/retry idempotency via cursors, approval-hold preservation, concurrent checkout via RepoLock, local human-edit boundary).
-- S56 — Blocked (release gate ENV_BLOCKED, operator-deferred): Live release gate and documentation closeout. Scripted verification band clean (analyzer, per-package tests including `packages/dartclaw_server`, built-in workflow validation, resolved workflow output checks, fitness baseline, doc sweep, validator install-hint fix). Live `plan-and-implement` release-gate run explicitly deferred by operator; release tag for 0.16.4 remains blocked until operator runs it and appends evidence. Gap review C1 is remediated; C2 remains blocked on deferred live-run evidence. `s56-release-gate-closeout.md` contains full evidence.
+- S51-S55 — Done (workflow step semantics redesign + remediation).
+- S56 — Blocked (release gate ENV_BLOCKED, operator-deferred): Live release gate and documentation closeout. Scripted verification band clean. Live `plan-and-implement` release-gate run explicitly deferred by operator; release tag for 0.16.4 remains blocked until operator runs it and appends evidence. `s56-release-gate-closeout.md` contains full evidence.
+- S57 — Done: Harness env-var injection contract + Codex `!`-operator SPIKE-1 (GO; Codex matches Claude Code via POSIX shell expansion). Six `MERGE_RESOLVE_*` env-var names locked in `dartclaw_core`.
+- S58 — Done: `gitStrategy.merge_resolve` schema + validator rules + parser threading (HIGH parser-gap remediation). Five validator rules with byte-identical PRD wording.
+- S59 — Done: `dartclaw-merge-resolve` skill (markdown-driven, all-or-nothing commit, four output fields). Cross-harness via the `!` bang operator.
+- S60 — Done (after CRITICAL-heavy remediation): Plumbing wiring — retry loop, atomic capture+clean callback, structured artifact persistence (9 v1 fields including `started_at`/`elapsed_ms`), `fail` escalation propagation, server-side wiring, crash recovery with `interrupted by server restart` artifact. 7-test component suite.
+- S61 — Done (after HIGH remediation): `serialize-remaining` drain — `WorkflowSerializationEnactedEvent` with accurate `drainedIterationCount`, single `serialize_remaining_phase` flag (no two-flag race), parallel 30s-cap timeout. 10 component tests including S2/S4/S5/S6 scenarios.
+- S62 — Done: Built-in `plan-and-implement` and `spec-and-implement` adopt `merge_resolve:` block; 12-cell cross-harness E2E test suite (P1-P5 × 2 harnesses + Issue C BPC-27 reproduction).
+- S63 — Done: Public `merge_resolve` user-guide section (PASS no findings).
+- S64 — Done (after HIGH remediation): Workflow test suite overhaul — Phase 0 stabilize (listener-race fix in `step_dispatcher` + `map_iteration_dispatcher`), Phase 1 honesty cleanup, Phase 2 behavioral gaps (bash escape on `{{VAR}}` for symmetry, schema strictness as warnings, max_parallel/loops parser tightening), Phase 3 executor-mega-file split, Phase 4 fakeAsync replaces real-time waits, Phase 5 unit-test additions. Phase 6 (fitness classification) deferred per FIS.
 
 ## Next Planned
 
@@ -42,6 +46,7 @@ Last Updated: 2026-04-24 09:13 CEST
 
 ## Recent Decisions
 
+- Agent-resolved-merge contract (S57-S64): bash `{{VAR}}` substitutions are now shell-escaped for symmetry with `{{context.X}}` (security-by-design; breaking change documented in user guide). Schema validator enforces `additionalProperties` / `enum` / `minimum` / `maximum` as warnings (soft-validate contract). `escalation: serialize-remaining` is the default; per-attempt structured artifacts carry 9 v1 fields scoped per iteration. `WorkflowSerializationEnactedEvent` carries an accurate `drainedIterationCount`.
 - Dependency-aware fan-out is now a shared `mapOver` / `foreach` contract: dependency-aware records must carry `id` + `dependencies`, `story_specs` now preserves that adjacency, and promotion conflicts keep downstream stories pending for retry/resume.
 - Final workflow gap remediation will execute sequentially from S51 -> S52 -> S53 -> S54 -> S55; S52/S53 are not parallel because they share executor, dispatcher, task-boundary, and built-in workflow surfaces.
 - S46 task_executor.dart decomposition completed: task executor reduced to 771 LOC with extracted task config, workflow turn extraction, read-only guard, budget policy, runner-pool coordination, workflow worktree binding, and one-shot workflow runner seams.

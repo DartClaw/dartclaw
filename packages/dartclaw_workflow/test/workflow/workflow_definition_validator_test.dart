@@ -1995,6 +1995,244 @@ void main() {
         expect(report.warnings.any((w) => w.message.contains('review-prd')), isTrue);
       });
     });
+
+    group('gitStrategy.merge_resolve validation', () {
+      WorkflowDefinition mrDef({required MergeResolveConfig mergeResolve, String? promotion}) => WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        gitStrategy: WorkflowGitStrategy(promotion: promotion, mergeResolve: mergeResolve),
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+      );
+
+      // TI04 — BPC-17 row 1
+      test('enabled:true with promotion:squash emits exact BPC-17 row 1 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: true), promotion: 'squash');
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.enabled requires gitStrategy.promotion: merge',
+          ),
+          isTrue,
+        );
+      });
+
+      test('enabled:true with promotion:none emits exact BPC-17 row 1 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: true), promotion: 'none');
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.enabled requires gitStrategy.promotion: merge',
+          ),
+          isTrue,
+        );
+      });
+
+      test('enabled:true with absent promotion emits BPC-17 row 1 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: true));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.enabled requires gitStrategy.promotion: merge',
+          ),
+          isTrue,
+        );
+      });
+
+      test('enabled:false with promotion:squash produces no merge_resolve error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: false), promotion: 'squash');
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.message.contains('merge_resolve.enabled')), isFalse);
+      });
+
+      test('enabled:true with promotion:merge produces no row-1 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: true), promotion: 'merge');
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.message.contains('merge_resolve.enabled')), isFalse);
+      });
+
+      // TI05 — BPC-17 row 2
+      test('max_attempts:0 emits exact BPC-17 row 2 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(maxAttempts: 0));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message == 'WorkflowDefinitionError: gitStrategy.merge_resolve.max_attempts must be between 1 and 5',
+          ),
+          isTrue,
+        );
+      });
+
+      test('max_attempts:6 emits exact BPC-17 row 2 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(maxAttempts: 6));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message == 'WorkflowDefinitionError: gitStrategy.merge_resolve.max_attempts must be between 1 and 5',
+          ),
+          isTrue,
+        );
+      });
+
+      test('max_attempts:1 is valid', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(maxAttempts: 1));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('max_attempts')), isFalse);
+      });
+
+      test('max_attempts:5 is valid', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(maxAttempts: 5));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('max_attempts')), isFalse);
+      });
+
+      // TI06 — BPC-17 row 3
+      test('token_ceiling:9999 emits exact BPC-17 row 3 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(tokenCeiling: 9999));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.token_ceiling must be between 10000 and 500000',
+          ),
+          isTrue,
+        );
+      });
+
+      test('token_ceiling:500001 emits exact BPC-17 row 3 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(tokenCeiling: 500001));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.token_ceiling must be between 10000 and 500000',
+          ),
+          isTrue,
+        );
+      });
+
+      test('token_ceiling:10000 is valid', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(tokenCeiling: 10000));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('token_ceiling')), isFalse);
+      });
+
+      test('token_ceiling:500000 is valid', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(tokenCeiling: 500000));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('token_ceiling')), isFalse);
+      });
+
+      // TI07 — BPC-17 row 4
+      test('escalation:pause emits exact BPC-17 row 4 error only', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'escalation': 'pause'}));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                "WorkflowDefinitionError: gitStrategy.merge_resolve.escalation: 'pause' is reserved for a future release",
+          ),
+          isTrue,
+        );
+        expect(
+          errors.any((e) => e.message.contains('must be one of')),
+          isFalse,
+          reason: 'pause must not also trigger the generic enum error',
+        );
+      });
+
+      test('escalation:yolo emits generic enum error (not pause message)', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'escalation': 'yolo'}));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.escalation must be one of serialize-remaining, fail',
+          ),
+          isTrue,
+        );
+        expect(errors.any((e) => e.message.contains("'pause' is reserved")), isFalse);
+      });
+
+      test('escalation:serialize-remaining is valid', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'escalation': 'serialize-remaining'}));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('escalation')), isFalse);
+      });
+
+      test('escalation:fail is valid', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'escalation': 'fail'}));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('escalation')), isFalse);
+      });
+
+      // TI08 — BPC-17 row 5
+      test('unknown top-level key emits exact BPC-17 row 5 error', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'foo': 'bar'}));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) => e.message == "WorkflowDefinitionError: unknown field 'foo' under gitStrategy.merge_resolve",
+          ),
+          isTrue,
+        );
+      });
+
+      test('unknown verification key emits exact BPC-17 row 5 error with verification path', () {
+        final def = mrDef(
+          mergeResolve: MergeResolveConfig.fromJson({
+            'verification': {'lint': 'x'},
+          }),
+        );
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                "WorkflowDefinitionError: unknown field 'lint' under gitStrategy.merge_resolve.verification",
+          ),
+          isTrue,
+        );
+      });
+
+      test('two unknown top-level keys produce two errors', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'foo': 1, 'bar': 2}));
+        final errors = validator.validate(def).errors;
+        expect(errors.where((e) => e.message.contains('under gitStrategy.merge_resolve')).length, 2);
+      });
+
+      // TI09 — Backward compat: merge_resolve absent
+      test('definition with no merge_resolve produces zero new errors', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(promotion: 'merge'),
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
+        );
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.message.contains('merge_resolve')), isFalse);
+      });
+
+      test('merge_resolve:enabled:false with any promotion passes validation', () {
+        for (final promo in ['squash', 'none', 'merge', null]) {
+          final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: false), promotion: promo);
+          expect(
+            validator.validate(def).errors.any((e) => e.message.contains('merge_resolve')),
+            isFalse,
+            reason: 'promotion=$promo should not trigger merge_resolve errors when disabled',
+          );
+        }
+      });
+    });
   });
 
   group('map alias (`as:`) validation', () {

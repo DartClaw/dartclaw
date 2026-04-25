@@ -161,6 +161,89 @@ extension _WorkflowGitStrategyRules on WorkflowDefinitionValidator {
         ),
       );
     }
+
+    _validateMergeResolve(strategy, errors);
+  }
+
+  void _validateMergeResolve(WorkflowGitStrategy strategy, List<ValidationError> errors) {
+    final mr = strategy.mergeResolve;
+
+    // TI04 — BPC-14/17 row 1: enabled:true requires promotion:merge
+    if (mr.enabled && strategy.promotion != 'merge') {
+      errors.add(
+        ValidationError(
+          message:
+              'WorkflowDefinitionError: gitStrategy.merge_resolve.enabled requires '
+              'gitStrategy.promotion: merge',
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
+    }
+
+    // TI05 — BPC-15/17 row 2: max_attempts range 1–5
+    if (mr.maxAttempts < 1 || mr.maxAttempts > 5) {
+      errors.add(
+        ValidationError(
+          message:
+              'WorkflowDefinitionError: gitStrategy.merge_resolve.max_attempts '
+              'must be between 1 and 5',
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
+    }
+
+    // TI06 — BPC-16/17 row 3: token_ceiling range 10000–500000
+    if (mr.tokenCeiling < 10000 || mr.tokenCeiling > 500000) {
+      errors.add(
+        ValidationError(
+          message:
+              'WorkflowDefinitionError: gitStrategy.merge_resolve.token_ceiling '
+              'must be between 10000 and 500000',
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
+    }
+
+    // TI07 — BPC-17 row 4: escalation:pause reserved; generic enum check
+    final rawEsc = mr.rawEscalation;
+    if (rawEsc != null) {
+      if (rawEsc == 'pause') {
+        errors.add(
+          ValidationError(
+            message:
+                "WorkflowDefinitionError: gitStrategy.merge_resolve.escalation: 'pause' is reserved for a future release",
+            type: ValidationErrorType.invalidReference,
+          ),
+        );
+      } else if (mr.escalation == null) {
+        errors.add(
+          ValidationError(
+            message:
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.escalation '
+                'must be one of serialize-remaining, fail',
+            type: ValidationErrorType.invalidReference,
+          ),
+        );
+      }
+    }
+
+    // TI08 — BPC-17 row 5: unknown fields under merge_resolve: and verification:
+    for (final name in mr.unknownFields) {
+      errors.add(
+        ValidationError(
+          message: "WorkflowDefinitionError: unknown field '$name' under gitStrategy.merge_resolve",
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
+    }
+    for (final name in mr.verification.unknownFields) {
+      errors.add(
+        ValidationError(
+          message: "WorkflowDefinitionError: unknown field '$name' under gitStrategy.merge_resolve.verification",
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
+    }
   }
 
   String _resolvedWorktreeModeForValidation(WorkflowDefinition definition, WorkflowGitStrategy strategy) {

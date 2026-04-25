@@ -901,6 +901,144 @@ class WorkflowGitPublishStrategy {
       WorkflowGitPublishStrategy(enabled: json['enabled'] as bool?);
 }
 
+/// Escalation policy when all merge-resolve attempts are exhausted.
+///
+/// YAML string → enum mapping:
+/// - `serialize-remaining` → [serializeRemaining]
+/// - `fail` → [fail]
+///
+/// The string `pause` is intentionally NOT mapped here — it is reserved for
+/// a future release and surfaced as a validator error via
+/// [MergeResolveConfig.rawEscalation].
+enum MergeResolveEscalation {
+  serializeRemaining,
+  fail;
+
+  static MergeResolveEscalation? tryParse(String? value) => switch (value) {
+    'serialize-remaining' => serializeRemaining,
+    'fail' => fail,
+    _ => null,
+  };
+
+  String toYamlString() => switch (this) {
+    serializeRemaining => 'serialize-remaining',
+    fail => 'fail',
+  };
+}
+
+/// Verification command configuration nested under [MergeResolveConfig].
+///
+/// All fields are optional — absent/empty block means markers + `git diff
+/// --check` only (BPC-19). Unknown keys are captured in [unknownFields] so
+/// the validator can emit a BPC-17 error without making [fromJson] throwing.
+class MergeResolveVerificationConfig {
+  /// Shell command to run for format verification (e.g. `dart format --set-exit-if-changed .`).
+  final String? format;
+
+  /// Shell command to run for static analysis (e.g. `dart analyze`).
+  final String? analyze;
+
+  /// Shell command to run for tests (e.g. `dart test`).
+  final String? test;
+
+  /// Unknown keys captured at parse time for validator surfacing.
+  final List<String> unknownFields;
+
+  const MergeResolveVerificationConfig({this.format, this.analyze, this.test, this.unknownFields = const []});
+
+  Map<String, dynamic> toJson() => {
+    if (format != null) 'format': format,
+    if (analyze != null) 'analyze': analyze,
+    if (test != null) 'test': test,
+  };
+
+  factory MergeResolveVerificationConfig.fromJson(Object? raw) {
+    final json = switch (raw) {
+      Map<String, dynamic> m => m,
+      Map<Object?, Object?> m => Map<String, dynamic>.from(m),
+      _ => <String, dynamic>{},
+    };
+    const knownKeys = {'format', 'analyze', 'test'};
+    final unknown = json.keys.where((k) => !knownKeys.contains(k)).toList();
+    return MergeResolveVerificationConfig(
+      format: json['format'] as String?,
+      analyze: json['analyze'] as String?,
+      test: json['test'] as String?,
+      unknownFields: unknown,
+    );
+  }
+}
+
+/// Typed configuration for the `merge_resolve:` block under `gitStrategy:`.
+///
+/// BPC-18 defaults apply when the block is absent or fields are omitted:
+/// `enabled: false`, `maxAttempts: 2`, `tokenCeiling: 100000`,
+/// `escalation: serialize-remaining`, `verification: {}`.
+///
+/// [rawEscalation] preserves the authored string when it does not map to a
+/// known [MergeResolveEscalation] value (e.g. the reserved `pause`) so the
+/// validator can emit the correct BPC-17 message without `fromJson` throwing.
+///
+/// Unknown top-level keys are captured in [unknownFields] for the same reason.
+class MergeResolveConfig {
+  final bool enabled;
+  final int maxAttempts;
+  final int tokenCeiling;
+
+  /// Parsed escalation value. `null` when the authored string is unrecognised.
+  final MergeResolveEscalation? escalation;
+
+  /// Raw escalation string from YAML — `null` when the key was absent.
+  final String? rawEscalation;
+
+  final MergeResolveVerificationConfig verification;
+
+  /// Unknown top-level keys captured at parse time for validator surfacing.
+  final List<String> unknownFields;
+
+  const MergeResolveConfig({
+    this.enabled = false,
+    this.maxAttempts = 2,
+    this.tokenCeiling = 100000,
+    this.escalation = MergeResolveEscalation.serializeRemaining,
+    this.rawEscalation,
+    this.verification = const MergeResolveVerificationConfig(),
+    this.unknownFields = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+    if (enabled) 'enabled': enabled,
+    if (maxAttempts != 2) 'max_attempts': maxAttempts,
+    if (tokenCeiling != 100000) 'token_ceiling': tokenCeiling,
+    if (escalation != null && escalation != MergeResolveEscalation.serializeRemaining)
+      'escalation': escalation!.toYamlString()
+    else if (rawEscalation != null)
+      'escalation': rawEscalation,
+    if (verification.format != null || verification.analyze != null || verification.test != null)
+      'verification': verification.toJson(),
+  };
+
+  factory MergeResolveConfig.fromJson(Object? raw) {
+    final json = switch (raw) {
+      Map<String, dynamic> m => m,
+      Map<Object?, Object?> m => Map<String, dynamic>.from(m),
+      _ => <String, dynamic>{},
+    };
+    const knownKeys = {'enabled', 'max_attempts', 'token_ceiling', 'escalation', 'verification'};
+    final unknown = json.keys.where((k) => !knownKeys.contains(k)).toList();
+    final rawEsc = json['escalation'] as String?;
+    return MergeResolveConfig(
+      enabled: (json['enabled'] as bool?) ?? false,
+      maxAttempts: (json['max_attempts'] as int?) ?? 2,
+      tokenCeiling: (json['token_ceiling'] as int?) ?? 100000,
+      escalation: MergeResolveEscalation.tryParse(rawEsc),
+      rawEscalation: rawEsc,
+      verification: MergeResolveVerificationConfig.fromJson(json['verification']),
+      unknownFields: unknown,
+    );
+  }
+}
+
 /// Worktree strategy configuration nested under [WorkflowGitStrategy].
 class WorkflowGitWorktreeStrategy {
   /// Worktree mode (`shared`, `per-task`, `per-map-item`, `inline`, `auto`).
@@ -961,6 +1099,17 @@ class WorkflowGitStrategy {
   /// emit a migration hint while still hydrating the nested runtime surface.
   final bool legacyExternalArtifactMountLocation;
 
+  /// Nullable backing field — null when `merge_resolve:` is absent from YAML
+  /// so [toJson] omits the key for pre-feature definitions.
+  final MergeResolveConfig? _mergeResolve;
+
+  /// Typed agent-resolved-merge configuration.
+  ///
+  /// Returns a default [MergeResolveConfig] (BPC-18 defaults) when the
+  /// `merge_resolve:` block was absent from the YAML, so callers never need a
+  /// null check.
+  MergeResolveConfig get mergeResolve => _mergeResolve ?? const MergeResolveConfig();
+
   /// Convenience projection of the configured worktree mode.
   String? get worktreeMode => worktree?.mode;
 
@@ -993,7 +1142,8 @@ class WorkflowGitStrategy {
     this.publish,
     this.artifacts,
     this.legacyExternalArtifactMountLocation = false,
-  });
+    MergeResolveConfig? mergeResolve,
+  }) : _mergeResolve = mergeResolve;
 
   Map<String, dynamic> toJson() => {
     if (bootstrap != null) 'bootstrap': bootstrap,
@@ -1001,6 +1151,7 @@ class WorkflowGitStrategy {
     if (promotion != null) 'promotion': promotion,
     if (publish != null) 'publish': publish!.toJson(),
     if (artifacts != null) 'artifacts': artifacts!.toJson(),
+    if (_mergeResolve != null) 'merge_resolve': _mergeResolve.toJson(),
   };
 
   factory WorkflowGitStrategy.fromJson(Map<String, dynamic> json) => WorkflowGitStrategy(
@@ -1021,6 +1172,10 @@ class WorkflowGitStrategy {
       _ => null,
     },
     legacyExternalArtifactMountLocation: json['legacyExternalArtifactMountLocation'] == true,
+    mergeResolve: switch (json['merge_resolve']) {
+      null => null,
+      final value => MergeResolveConfig.fromJson(value),
+    },
   );
 }
 

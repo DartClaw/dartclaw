@@ -68,7 +68,7 @@
       "packages/dartclaw_workflow/lib/src/workflow/step_dispatcher.dart": 432,
       "packages/dartclaw_workflow/lib/src/workflow/step_outcome_normalizer.dart": 172,
       "packages/dartclaw_workflow/lib/src/workflow/validation/workflow_gate_rules.dart": 109,
-      "packages/dartclaw_workflow/lib/src/workflow/validation/workflow_git_strategy_rules.dart": 252,
+      "packages/dartclaw_workflow/lib/src/workflow/validation/workflow_git_strategy_rules.dart": 335,
       "packages/dartclaw_workflow/lib/src/workflow/validation/workflow_output_schema_rules.dart": 186,
       "packages/dartclaw_workflow/lib/src/workflow/validation/workflow_reference_rules.dart": 251,
       "packages/dartclaw_workflow/lib/src/workflow/validation/workflow_step_type_rules.dart": 353,

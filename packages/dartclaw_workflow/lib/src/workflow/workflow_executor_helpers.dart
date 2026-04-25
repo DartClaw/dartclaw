@@ -433,6 +433,10 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
       case WorkflowGitPromotionError(:final message):
         outputs['${step.id}.promotion'] = 'failed';
         return 'promotion failed: $message';
+      case WorkflowGitPromotionSerializeRemaining():
+        // This helper is used for non-foreach promotion; sentinel is unreachable here.
+        outputs['${step.id}.promotion'] = 'failed';
+        return 'promotion failed: unexpected serialize-remaining sentinel';
     }
   }
 

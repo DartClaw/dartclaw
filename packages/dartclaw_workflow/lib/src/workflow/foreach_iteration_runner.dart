@@ -112,12 +112,17 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     _restoreForeachProgress(mapCtx, completedIds, resumeCursor, collectionLength: collection.length);
     await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
     final inFlight = <int, Future<void>>{};
+    // Maps in-flight iteration index → task id for drain cancellation (S61).
+    final iterTaskIds = <int, String>{};
     final settledIndices = mapCtx.completedIndices;
     final pending = Queue<int>.from(
       List.generate(collection.length, (i) => i).where((i) => !settledIndices.contains(i)),
     );
     var totalTokens = 0;
+    // Drain-failure message is set by the drain path; when non-null, abort loop.
+    String? drainFailureMessage;
     while (pending.isNotEmpty || inFlight.isNotEmpty) {
+      if (drainFailureMessage != null) break;
       if (mapCtx.budgetExhausted) {
         while (pending.isNotEmpty) {
           mapCtx.recordCancelled(pending.removeFirst(), 'Cancelled: budget exhausted');
@@ -132,8 +137,9 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         );
         break;
       }
+      final isSerialMode = context['_merge_resolve.${controllerStep.id}.is_serial_mode'] == true;
       final poolAvailable = _turnAdapter?.availableRunnerCount?.call();
-      final concurrencyCap = mapCtx.effectiveConcurrency(poolAvailable);
+      final concurrencyCap = isSerialMode ? 1 : mapCtx.effectiveConcurrency(poolAvailable);
       while (inFlight.length < concurrencyCap && pending.isNotEmpty) {
         int? nextIndex;
         if (depGraph.hasDependencies) {
@@ -194,8 +200,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               promotedIds: promotedIds,
               projectId: effectiveProjectId,
               controllerMaxParallel: maxParallel,
+              iterTaskIds: iterTaskIds,
             ).then((_) {
               inFlight.remove(iterIndex);
+              iterTaskIds.remove(iterIndex);
               final itemId = mapCtx.itemId(iterIndex);
               if (itemId != null) completedIds.add(itemId);
             });
@@ -231,12 +239,36 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       }
       if (inFlight.isEmpty) break;
       await Future.any(inFlight.values);
+
+      // S61: if serialize-remaining fired during this tick, perform drain + re-queue.
+      final serializeIter = context['_merge_resolve.${controllerStep.id}.serializing_iter_index'];
+      if (serializeIter is int && context['_merge_resolve.${controllerStep.id}.drain_done'] != true) {
+        final drainResult = await _drainAndRequeue(
+          run: run,
+          controllerStep: controllerStep,
+          context: context,
+          mapCtx: mapCtx,
+          pending: pending,
+          inFlight: inFlight,
+          iterTaskIds: iterTaskIds,
+          failingIterIndex: serializeIter,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        if (drainResult != null) {
+          drainFailureMessage = drainResult;
+        }
+      }
+
       final refreshedRun = await _repository.getById(run.id) ?? run;
       run = refreshedRun;
       if (_workflowBudgetExceeded(run, definition)) {
         mapCtx.budgetExhausted = true;
       }
       await Future<void>.delayed(Duration.zero);
+    }
+    if (drainFailureMessage != null) {
+      return MapStepResult(results: const [], totalTokens: 0, success: false, error: drainFailureMessage);
     }
     if (inFlight.isNotEmpty) {
       await Future.wait(inFlight.values, eagerError: false);
@@ -264,9 +296,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       for (final index in mapCtx.failedIndices) {
         final slot = mapCtx.results[index];
         final message = slot is Map ? slot['message'] : slot;
-        WorkflowExecutor._log.warning(
-          "Foreach step '${controllerStep.id}' iteration [$index] failed: $message",
-        );
+        WorkflowExecutor._log.warning("Foreach step '${controllerStep.id}' iteration [$index] failed: $message");
       }
       final hasPromotionConflict = mapCtx.failedIndices.any((index) {
         final slot = mapCtx.results[index];
@@ -300,6 +330,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     required Set<String> promotedIds,
     required String? projectId,
     required int? controllerMaxParallel,
+    required Map<int, String> iterTaskIds,
   }) async {
     final iterData = Map<String, dynamic>.from(context.data);
     iterData['map.item'] = mapContext.item;
@@ -352,7 +383,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         );
         return;
       }
-      if (childIndex == 0) firstTaskId = result.task?.id;
+      if (childIndex == 0) {
+        firstTaskId = result.task?.id;
+        if (firstTaskId != null) iterTaskIds[iterIndex] = firstTaskId;
+      }
       final tokenCount = result.tokenCount;
       iterTokens += tokenCount;
       context['${childStep.id}[$iterIndex].tokenCount'] = tokenCount;
@@ -622,6 +656,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
                 if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
                 context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
                 context['${controllerStep.id}[$iterIndex].promotion_sha'] = commitSha;
+              case WorkflowGitPromotionSerializeRemaining():
+                // Outer loop will drain siblings and re-queue this iteration.
+                mapCtx.inFlightCount--;
+                return;
               case WorkflowGitPromotionConflict():
               case WorkflowGitPromotionError():
                 // Escalation returned conflict/error: fall through to immediate-failure path.
@@ -711,6 +749,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             ),
           );
           return;
+        case WorkflowGitPromotionSerializeRemaining():
+          // Direct promote() never returns this sentinel; only _resolveMergePromotionConflict does.
+          mapCtx.inFlightCount--;
+          return;
       }
     }
     mapCtx.recordResult(iterIndex, iterResult);
@@ -799,7 +841,8 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
 
     // Emit one WARNING per run when verification is absent.
     final verif = config.verification;
-    final verificationAbsent = (verif.format == null || verif.format!.isEmpty) &&
+    final verificationAbsent =
+        (verif.format == null || verif.format!.isEmpty) &&
         (verif.analyze == null || verif.analyze!.isEmpty) &&
         (verif.test == null || verif.test!.isEmpty);
     if (verificationAbsent && context['_merge_resolve.warning_emitted'] != true) {
@@ -1001,7 +1044,8 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           ? 'skill task failed to start'
           : switch (resolveResult.task?.status) {
               TaskStatus.cancelled => 'cancelled',
-              TaskStatus.failed => (resolveResult.outputs['merge_resolve.error_message'] as String?)?.trim() ?? 'failed',
+              TaskStatus.failed =>
+                (resolveResult.outputs['merge_resolve.error_message'] as String?)?.trim() ?? 'failed',
               _ => (resolveResult.outputs['merge_resolve.error_message'] as String?)?.trim(),
             };
       final agentSessionId = resolveResult?.task?.sessionId ?? '';
@@ -1149,10 +1193,18 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
 
     // TI16: attempts exhausted — escalate.
     return _handleMergeResolveEscalation(
-      config.escalation ?? MergeResolveEscalation.serializeRemaining,
-      initialConflictingFiles,
-      initialConflictDetails,
-      lastAttempt,
+      mode: config.escalation ?? MergeResolveEscalation.serializeRemaining,
+      conflictingFiles: initialConflictingFiles,
+      conflictDetails: initialConflictDetails,
+      lastAttempt: lastAttempt,
+      run: run,
+      controllerStep: controllerStep,
+      context: context,
+      mapCtx: mapCtx,
+      stepIndex: stepIndex,
+      promotedIds: promotedIds,
+      iterIndex: iterIndex,
+      attemptCounter: attemptCounter,
     );
   }
 
@@ -1161,11 +1213,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       _turnAdapter?.captureWorkflowBranchSha?.call(projectId: projectId, branch: branch) ?? Future.value(null);
 
   /// Builds the six MERGE_RESOLVE_* env vars from config (TI05, Decisions 1+6).
-  Map<String, String> _buildMergeResolveEnv(
-    MergeResolveConfig cfg,
-    String integrationBranch,
-    String storyBranch,
-  ) {
+  Map<String, String> _buildMergeResolveEnv(MergeResolveConfig cfg, String integrationBranch, String storyBranch) {
     final env = <String, String>{
       'MERGE_RESOLVE_INTEGRATION_BRANCH': integrationBranch,
       'MERGE_RESOLVE_STORY_BRANCH': storyBranch,
@@ -1210,14 +1258,16 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     final artifactFile = File(artifactPath);
     await artifactFile.parent.create(recursive: true);
     await artifactFile.writeAsString(artifactJson);
-    await repo.insertArtifact(TaskArtifact(
-      id: _uuid.v4(),
-      taskId: taskId,
-      name: name,
-      kind: ArtifactKind.data,
-      path: artifactPath,
-      createdAt: DateTime.now(),
-    ));
+    await repo.insertArtifact(
+      TaskArtifact(
+        id: _uuid.v4(),
+        taskId: taskId,
+        name: name,
+        kind: ArtifactKind.data,
+        path: artifactPath,
+        createdAt: DateTime.now(),
+      ),
+    );
     await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
   }
 
@@ -1262,26 +1312,139 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
   }
 
-  /// Dispatch method for max-attempts exhaustion (TI16, Decision 8).
+  /// Dispatch method for max-attempts exhaustion (Decision 8, S61).
   ///
   /// `fail` → returns WorkflowGitPromotionConflict immediately.
-  /// `serializeRemaining` → throws UnimplementedError (seam for S61).
-  WorkflowGitPromotionResult _handleMergeResolveEscalation(
-    MergeResolveEscalation mode,
-    List<String> conflictingFiles,
-    String conflictDetails,
-    MergeResolveAttemptArtifact? lastAttempt,
-  ) {
+  /// `serializeRemaining` → sets serial-mode flag, fires event, returns sentinel.
+  Future<WorkflowGitPromotionResult> _handleMergeResolveEscalation({
+    required MergeResolveEscalation mode,
+    required List<String> conflictingFiles,
+    required String conflictDetails,
+    required MergeResolveAttemptArtifact? lastAttempt,
+    required WorkflowRun run,
+    required WorkflowStep controllerStep,
+    required WorkflowContext context,
+    required MapStepContext mapCtx,
+    required int stepIndex,
+    required Set<String> promotedIds,
+    required int iterIndex,
+    required int attemptCounter,
+  }) async {
     switch (mode) {
       case MergeResolveEscalation.fail:
-        final files = lastAttempt?.conflictedFiles.isNotEmpty == true
-            ? lastAttempt!.conflictedFiles
-            : conflictingFiles;
+        final files = lastAttempt?.conflictedFiles.isNotEmpty == true ? lastAttempt!.conflictedFiles : conflictingFiles;
         return WorkflowGitPromotionConflict(conflictingFiles: files, details: conflictDetails);
       case MergeResolveEscalation.serializeRemaining:
-        // S61: serialize-remaining drain not yet wired
-        throw UnimplementedError('S61: serialize-remaining drain not yet wired');
+        final flagKey = '_merge_resolve.${controllerStep.id}.is_serial_mode';
+        // BPC-11: idempotent — if already serial, return sentinel without re-firing event.
+        if (context[flagKey] == true) {
+          return const WorkflowGitPromotionSerializeRemaining();
+        }
+        // Mark serial mode BEFORE issuing any cancel signals (crash safety — see Constraints).
+        context[flagKey] = true;
+        context['_merge_resolve.${controllerStep.id}.serializing_iter_index'] = iterIndex;
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        // Fire exactly one event per run per step.
+        _eventBus.fire(
+          WorkflowSerializationEnactedEvent(
+            runId: run.id,
+            foreachStepId: controllerStep.id,
+            failingIterationIndex: iterIndex,
+            failedAttemptNumber: attemptCounter,
+            drainedIterationCount: 0, // updated after drain in _drainAndRequeue
+            timestamp: DateTime.now(),
+          ),
+        );
+        // Clear parallel-mode pre_attempt_sha for this iteration (BPC-13).
+        context.remove('_merge_resolve.${controllerStep.id}.$iterIndex.pre_attempt_sha');
+        return const WorkflowGitPromotionSerializeRemaining();
     }
+  }
+
+  /// Cancels in-flight sibling iterations, awaits settlement, rebuilds [pending]
+  /// with [failingIterIndex] at head followed by drained siblings (BPC-12).
+  ///
+  /// Returns null on success. Returns an error message when a sibling is stuck
+  /// (BPC-32) — caller must abort the foreach with that message.
+  Future<String?> _drainAndRequeue({
+    required WorkflowRun run,
+    required WorkflowStep controllerStep,
+    required WorkflowContext context,
+    required MapStepContext mapCtx,
+    required Queue<int> pending,
+    required Map<int, Future<void>> inFlight,
+    required Map<int, String> iterTaskIds,
+    required int failingIterIndex,
+    required int stepIndex,
+    required Set<String> promotedIds,
+  }) async {
+    // Idempotent: only drain once per step per run.
+    if (context['_merge_resolve.${controllerStep.id}.drain_done'] == true) return null;
+    context['_merge_resolve.${controllerStep.id}.drain_done'] = true;
+
+    // Cancel all in-flight siblings (all in-flight, since the failing iter already exited).
+    final siblingIndices = inFlight.keys.toList(growable: false);
+    for (final idx in siblingIndices) {
+      final taskId = iterTaskIds[idx];
+      if (taskId != null) {
+        try {
+          await _taskService.transition(taskId, TaskStatus.cancelled, trigger: 'serialize-remaining drain');
+        } catch (e) {
+          WorkflowExecutor._log.warning("Workflow '${run.id}': drain cancel failed for task $taskId: $e");
+        }
+      }
+    }
+
+    // Await all siblings with timeout (BPC-32: stuck-task path).
+    const drainTimeout = Duration(seconds: 30);
+    for (final idx in siblingIndices) {
+      final future = inFlight[idx];
+      if (future == null) continue;
+      try {
+        await future.timeout(drainTimeout);
+      } on TimeoutException {
+        final stuckTaskId = iterTaskIds[idx] ?? 'unknown';
+        return 'serialize-remaining drain failed: task $stuckTaskId did not honor cancellation within timeout';
+      } catch (_) {
+        // Non-timeout exceptions from the sibling are fine — iteration has settled.
+      }
+    }
+
+    // Discard parallel-mode pre_attempt_sha for all re-queued iterations (BPC-13).
+    context.remove('_merge_resolve.${controllerStep.id}.$failingIterIndex.pre_attempt_sha');
+    for (final idx in siblingIndices) {
+      context.remove('_merge_resolve.${controllerStep.id}.$idx.pre_attempt_sha');
+    }
+
+    // Rebuild pending: failing iter at head (BPC-12), drained siblings after, remaining pending preserved.
+    final oldPending = pending.toList();
+    pending.clear();
+    pending.add(failingIterIndex);
+    for (final idx in siblingIndices) {
+      if (!mapCtx.completedIndices.contains(idx)) {
+        pending.add(idx);
+      }
+    }
+    for (final idx in oldPending) {
+      if (idx != failingIterIndex && !siblingIndices.contains(idx)) {
+        pending.add(idx);
+      }
+    }
+
+    final drainedCount = siblingIndices.length;
+    WorkflowExecutor._log.info(
+      "Workflow '${run.id}': serialize-remaining enacted for step '${controllerStep.id}'; "
+      'drained $drainedCount sibling(s), failing iter $failingIterIndex placed at head.',
+    );
+    await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+    return null;
   }
 
   Future<void> _persistForeachProgress(

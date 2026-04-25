@@ -404,6 +404,47 @@ final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
       'cancelled: $cancelledCount, tokens: $totalTokens)';
 }
 
+/// Fired once when a merge-conflict escalation triggers serialize-remaining mode
+/// for a foreach step — parallel execution is halted and remaining iterations
+/// will run serially.
+///
+/// Exactly one event is emitted per run per step (idempotency via
+/// `_merge_resolve.<stepId>.is_serial_mode` flag).
+final class WorkflowSerializationEnactedEvent extends WorkflowLifecycleEvent {
+  @override
+  final String runId;
+
+  /// Identifier of the foreach step that entered serial mode.
+  final String foreachStepId;
+
+  /// Zero-based index of the iteration whose merge conflict triggered escalation.
+  final int failingIterationIndex;
+
+  /// Attempt number (1-based) of the failing merge attempt.
+  final int failedAttemptNumber;
+
+  /// Number of in-flight sibling iterations that were cancelled during drain.
+  final int drainedIterationCount;
+
+  @override
+  final DateTime timestamp;
+
+  WorkflowSerializationEnactedEvent({
+    required this.runId,
+    required this.foreachStepId,
+    required this.failingIterationIndex,
+    required this.failedAttemptNumber,
+    required this.drainedIterationCount,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'WorkflowSerializationEnactedEvent(run: $runId, step: $foreachStepId, '
+      'failingIter: $failingIterationIndex, attempt: $failedAttemptNumber, '
+      'drained: $drainedIterationCount)';
+}
+
 /// Fired when a workflow step is skipped because its [entryGate] expression
 /// evaluated false.
 ///

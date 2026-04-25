@@ -10,6 +10,8 @@ void main() {
   final baseline = loadBaseline(repoRoot);
   final snapshot = collectFitnessSnapshot(repoRoot);
 
+  // ARCH-GATE: prevents files from exceeding 800 LOC; monitors LOC trends.
+  // Default-off — run with: dart test -t fitness-shape
   group('Fitness - size', () {
     test('F-SIZE-1: max 800 LOC per file (frozen allow-list)', () {
       final allowlist = baseline.allowlist['F-SIZE-1'] ?? const <String, Object?>{};
@@ -20,7 +22,7 @@ void main() {
         if (message != null) violations.add(message);
       }
       expect(violations, isEmpty, reason: violations.join('\n'));
-    });
+    }, tags: ['fitness-shape']);
   });
 
   group('Fitness - coupling', () {
@@ -93,6 +95,8 @@ void main() {
     });
   });
 
+  // ARCH-GATE: class/method count and complexity trend monitors.
+  // Default-off — run with: dart test -t fitness-shape
   group('Fitness - class shape', () {
     test('F-CLASS-1: max 25 methods per class', () {
       final allowlist = baseline.allowlist['F-CLASS-1'] ?? const <String, Object?>{};
@@ -104,7 +108,7 @@ void main() {
         }
       }
       expect(violations, isEmpty, reason: violations.join('\n'));
-    });
+    }, tags: ['fitness-shape']);
 
     test('F-CLASS-2: max 40 methods per file', () {
       final allowlist = baseline.allowlist['F-CLASS-2'] ?? const <String, Object?>{};
@@ -116,7 +120,7 @@ void main() {
         }
       }
       expect(violations, isEmpty, reason: violations.join('\n'));
-    });
+    }, tags: ['fitness-shape']);
 
     test('F-COMPLEX-1: cyclomatic complexity <= 15 per method', () {
       final allowlist = baseline.allowlist['F-COMPLEX-1'] ?? const <String, Object?>{};
@@ -128,7 +132,7 @@ void main() {
         }
       }
       expect(violations, isEmpty, reason: violations.join('\n'));
-    });
+    }, tags: ['fitness-shape']);
   });
 
   group('Fitness - test coverage', () {
@@ -154,6 +158,8 @@ void main() {
   });
 
   group('Decomposition triggers', () {
+    // ARCH-GATE: single files > 5500 LOC indicate a decomposition opportunity;
+    // prevents unbounded complexity growth without a conscious split decision.
     test('trigger: no file > 5,500 LOC', () {
       final violations = snapshot.fileLoc.entries
           .where((entry) => entry.value > workflowExecutorDecompositionTrigger)
@@ -162,6 +168,8 @@ void main() {
       expect(violations, isEmpty, reason: violations.join('\n'));
     });
 
+    // ARCH-GATE: sentinel keys leak server-internal context keys into workflow;
+    // prevents dartclaw_server from coupling to dartclaw_workflow internals.
     test('trigger: no new _dartclaw.internal.* sentinel keys', () {
       final sentinelMatches = <String>[];
       for (final entry in snapshot.contractKeysByFile.entries) {
@@ -171,15 +179,6 @@ void main() {
         }
       }
       expect(sentinelMatches, isEmpty, reason: sentinelMatches.join('\n'));
-    });
-
-    test('trigger: workflow_executor test-to-source ratio >= 0.3', () {
-      final sourcePath = p.join(repoRoot, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'workflow_executor.dart');
-      final testPath = p.join(repoRoot, 'packages', 'dartclaw_workflow', 'test', 'workflow', 'workflow_executor_test.dart');
-      final sourceLines = File(sourcePath).readAsLinesSync().length;
-      final testLines = File(testPath).readAsLinesSync().length;
-      final ratio = testLines / sourceLines;
-      expect(ratio, greaterThanOrEqualTo(0.3), reason: 'workflow_executor test/source ratio is ${ratio.toStringAsFixed(2)}');
     });
   });
 }

@@ -1,3 +1,6 @@
+@Tags(['component'])
+library;
+
 import 'dart:async';
 import 'dart:io';
 
@@ -1268,7 +1271,7 @@ void main() {
     });
   });
 
-  group('S19: foreach execution', () {
+  group('foreach execution', () {
     test('dependency-aware foreach duplicate ids fail before dispatch', () async {
       final definition = WorkflowDefinition(
         name: 'foreach-duplicate-id',

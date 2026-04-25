@@ -177,6 +177,9 @@ void main() {
   var artifactCounter = 0;
 
   setUpAll(() async {
+    if (!await _codexAvailable()) {
+      markTestSkipped('codex binary not available — run with Codex CLI installed');
+    }
     fixturesRoot = _fixturesRoot();
     fixtureTemplateDir = _stepIsolationFixtureTemplateDir(fixturesRoot);
     final parser = WorkflowDefinitionParser();
@@ -364,10 +367,6 @@ void main() {
   // every per-story assertion.
 
   test('discover-project returns the built-in project index contract', () async {
-    if (!await _codexAvailable()) {
-      return;
-    }
-
     final result = await executeStep(
       step: _stepById(specDefinition, 'discover-project'),
       context: WorkflowContext(
@@ -385,10 +384,6 @@ void main() {
   test(
     'plan emits story-plan stories and story-specs in a single pass from the reviewed PRD',
     () async {
-      if (!await _codexAvailable()) {
-        return;
-      }
-
       final result = await executeStep(
         step: _stepById(planDefinition, 'plan'),
         context: WorkflowContext(
@@ -411,8 +406,8 @@ void main() {
                 '## Executive Summary\n\n'
                 'Add a tiny integration-tested note file and keep the implementation minimal.\n\n'
                 '## User Stories\n\n'
-                '- US01: Author a single markdown note file.\n'
-                '- US02: Validate that the note content matches expectations.\n',
+                '- Author a single markdown note file.\n'
+                '- Validate that the note content matches expectations.\n',
           },
         ),
       );
@@ -449,10 +444,6 @@ void main() {
   test(
     'integrated-review returns verdict with findings_count for a trivial markdown change',
     () async {
-      if (!await _codexAvailable()) {
-        return;
-      }
-
       final result = await executeStep(
         step: _stepById(specDefinition, 'integrated-review'),
         context: WorkflowContext(
@@ -514,10 +505,6 @@ void main() {
   );
 
   test('quick-review returns a summary and numeric findings count', () async {
-    if (!await _codexAvailable()) {
-      return;
-    }
-
     final result = await executeStep(
       step: _stepById(planDefinition, 'quick-review'),
       context: WorkflowContext(
@@ -562,10 +549,6 @@ void main() {
   }, timeout: const Timeout(Duration(minutes: 5)));
 
   test('plan-review returns zero findings for a trivially clean two-story batch', () async {
-    if (!await _codexAvailable()) {
-      return;
-    }
-
     _writeMarkdownNote(fixtureDir, 'notes/alpha.md', 'Alpha Note', 'Validated');
     _writeMarkdownNote(fixtureDir, 'notes/beta.md', 'Beta Note', 'Validated');
 
@@ -653,10 +636,6 @@ void main() {
   test(
     're-review returns zero findings after a trivially clean remediation pass',
     () async {
-      if (!await _codexAvailable()) {
-        return;
-      }
-
       _writeMarkdownNote(fixtureDir, 'notes/alpha.md', 'Alpha Note', 'Validated');
       _writeMarkdownNote(fixtureDir, 'notes/beta.md', 'Beta Note', 'Validated');
 

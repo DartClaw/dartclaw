@@ -521,10 +521,18 @@ class WorkflowDefinitionParser {
   }
 
   WorkflowLoop _parseLoop(YamlMap raw) {
+    final id = raw['id'];
+    if (id == null || id is! String || id.isEmpty) {
+      throw FormatException('Legacy loop entry must have a non-empty "id" field.');
+    }
+    final maxIterations = raw['maxIterations'];
+    if (maxIterations == null || maxIterations is! int || maxIterations <= 0) {
+      throw FormatException('Legacy loop "$id" must have integer "maxIterations" > 0.');
+    }
     return WorkflowLoop(
-      id: raw['id'] as String,
+      id: id,
       steps: _parseStringList(raw['steps']),
-      maxIterations: raw['maxIterations'] as int,
+      maxIterations: maxIterations,
       entryGate: raw['entryGate'] as String?,
       exitGate: (raw['exitGate'] as String?) ?? '',
       finally_: raw['finally'] as String?,

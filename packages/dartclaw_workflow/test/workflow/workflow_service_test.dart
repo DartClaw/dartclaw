@@ -1,3 +1,6 @@
+@Tags(['component'])
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -777,7 +780,7 @@ void main() {
     expect(statuses, containsAll([WorkflowRunStatus.running, WorkflowRunStatus.paused, WorkflowRunStatus.cancelled]));
   });
 
-  group('S03 (0.16.1): approval resume/cancel semantics', () {
+  group('approval resume/cancel semantics', () {
     /// Inserts a paused run with approval metadata as if the executor had paused it.
     Future<WorkflowRun> insertApprovalPausedRun({
       String runId = 'run-approval',
@@ -940,7 +943,7 @@ void main() {
     });
   });
 
-  group('S36: retry()', () {
+  group('retry()', () {
     WorkflowRun buildFailedRun({
       String runId = 'run-failed',
       String failingStepId = 'step1',
@@ -1015,7 +1018,7 @@ void main() {
     });
   });
 
-  // ── S55: Restart, idempotency, and operator race hardening ─────────────────
+  // Restart, idempotency, and operator race hardening ─────────────────
   //
   // Evidence consumed from S52 closure ledger (final-gap-closure-ledger.md):
   //   OPERATOR-RACES   → live defect → S55 (action precedence matrix + illegal-combo guards)
@@ -1028,7 +1031,7 @@ void main() {
   //   awaitingApproval/failed/running/cancelled/completed), retry cursor from failed-step,
   //   worktree binding hydration on resume. S55 adds operator-race and restart proof only.
 
-  group('S55: operator lifecycle action precedence', () {
+  group('operator lifecycle action precedence', () {
     // State/action precedence matrix (FR3-AC1):
     //   running         → pause(✓) cancel(✓) retry(✗) resume(✗) conflict-resolution(✗→ignored)
     //   paused          → resume(✓) cancel(✓) retry(✗) pause(✗)
@@ -1264,7 +1267,7 @@ void main() {
     });
   });
 
-  group('S55: restart/retry idempotency after side effects', () {
+  group('restart/retry idempotency after side effects', () {
     // RESTART-IDEMPOTENCY (FR3-AC2): retry after partial promotion/publish must restart
     // from the failure cursor, not replay completed promoted work.
     // The cursor mechanism from S53 (WorkflowExecutionCursor) is the idempotency carrier.
@@ -1362,7 +1365,7 @@ void main() {
     });
   });
 
-  group('S55: approval/needsInput hold state preservation', () {
+  group('approval/needsInput hold state preservation', () {
     // APPROVAL-HOLD (FR3-AC5): awaitingApproval transitions must preserve run context,
     // worktree bindings, and audit evidence. No cleanup is invoked during a hold.
 
@@ -1471,7 +1474,7 @@ void main() {
     });
   });
 
-  group('S55: concurrent checkout contention rule', () {
+  group('concurrent checkout contention rule', () {
     // CONCURRENT-CHECKOUT (FR3-AC3): Two workflow runs targeting the same local checkout
     // are serialized at the git-operation level via RepoLock (WorkflowGitPortProcess).
     // The workflow-level rule: the second run proceeds but its git operations queue
@@ -1542,7 +1545,7 @@ void main() {
     });
   });
 
-  group('S55: local human-edit detection boundary', () {
+  group('local human-edit detection boundary', () {
     // CONCURRENT-CHECKOUT/local human-edit (FR3-AC4):
     // S54 owns the local-path dirty/branch safety check at workflow-start time
     // (WorkflowLocalPathPreflight). Mid-run edits to the working tree of a local-path
@@ -1595,6 +1598,52 @@ void main() {
       );
       // No run must have been created.
       expect(await workflowService.list(), isEmpty);
+    });
+  });
+
+  group('recovery boundary', () {
+    test('recoverIncompleteRuns() skips run with corrupt definitionJson without crashing', () async {
+      final now = DateTime.now();
+      final badRun = WorkflowRun(
+        id: 'corrupt-json-run',
+        definitionName: 'bad-workflow',
+        status: WorkflowRunStatus.running,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: {'__corrupt': true, 'not_a_real_def': 42},
+      );
+      await repository.insert(badRun);
+
+      // Should complete without throwing — skips the corrupt run gracefully.
+      await expectLater(workflowService.recoverIncompleteRuns(), completes);
+
+      // The corrupt run must remain in 'running' state (not attempted).
+      final stored = await workflowService.get('corrupt-json-run');
+      expect(stored?.status, equals(WorkflowRunStatus.running));
+    });
+
+    test('recoverIncompleteRuns() skips completed and cancelled runs', () async {
+      final now = DateTime.now();
+      final definition = makeDefinition();
+      for (final status in [WorkflowRunStatus.completed, WorkflowRunStatus.cancelled]) {
+        final run = WorkflowRun(
+          id: 'terminal-${status.name}',
+          definitionName: 'test-workflow',
+          status: status,
+          startedAt: now,
+          updatedAt: now,
+          definitionJson: definition.toJson(),
+        );
+        await repository.insert(run);
+      }
+
+      // No exception, no spurious executor spawns for terminal runs.
+      await expectLater(workflowService.recoverIncompleteRuns(), completes);
+
+      for (final status in [WorkflowRunStatus.completed, WorkflowRunStatus.cancelled]) {
+        final stored = await workflowService.get('terminal-${status.name}');
+        expect(stored?.status, equals(status));
+      }
     });
   });
 }

@@ -604,7 +604,7 @@ void main() {
     });
   });
 
-  group('S03: loop finalizer validation', () {
+  group('loop finalizer validation', () {
     test('valid finalizer: step exists and not in loop steps -> no error', () {
       final def = WorkflowDefinition(
         name: 'wf',
@@ -693,7 +693,7 @@ void main() {
     });
   });
 
-  group('S03: stepDefaults validation', () {
+  group('stepDefaults validation', () {
     test('stepDefaults pattern matching steps -> no warning emitted', () {
       // We verify no errors are produced; logging is tested separately.
       final def = WorkflowDefinition(
@@ -955,7 +955,7 @@ void main() {
     });
   });
 
-  group('S06: mapOver validation', () {
+  group('mapOver validation', () {
     test('mapOver referencing a prior contextOutput is valid', () {
       final def = WorkflowDefinition(
         name: 'wf',
@@ -1023,7 +1023,7 @@ void main() {
     });
   });
 
-  group('S07: map step constraint validation', () {
+  group('map step constraint validation', () {
     test('map step with parallel:true produces contextInconsistency error', () {
       final def = WorkflowDefinition(
         name: 'wf',
@@ -1143,7 +1143,7 @@ void main() {
     });
   });
 
-  group('S01 (0.16.1): hybrid step validation rules', () {
+  group('hybrid step validation rules', () {
     test('unknown step type produces a warning, not an error', () {
       final def = WorkflowDefinition(
         name: 'wf',
@@ -1558,7 +1558,7 @@ void main() {
       expect(report.isEmpty, isFalse);
     });
 
-    group('S04 (0.16.1): continueSession illegal-target validation', () {
+    group('continueSession illegal-target validation', () {
       test('continueSession on bash step is a hard error', () {
         final def = WorkflowDefinition(
           name: 'wf',
@@ -1710,7 +1710,7 @@ void main() {
     });
   });
 
-  group('S19: foreach node validation', () {
+  group('foreach node validation', () {
     test('valid foreach controller with children passes validation', () {
       final def = WorkflowDefinition(
         name: 'wf',

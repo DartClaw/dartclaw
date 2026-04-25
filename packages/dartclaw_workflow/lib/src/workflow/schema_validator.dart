@@ -21,7 +21,13 @@ class SchemaValidator {
       final List<dynamic> types => types.whereType<String>().toList(growable: false),
       _ => const <String>[],
     };
-    if (expectedTypes.isEmpty) return;
+
+    if (expectedTypes.isEmpty) {
+      // No type constraint — still check enum.
+      _validateEnum(value, schema, path, warnings);
+      return;
+    }
+
     if (value == null) {
       if (expectedTypes.contains('null')) return;
       warnings.add('${_at(path)}Expected ${expectedTypes.join(' or ')}, got null');
@@ -44,17 +50,22 @@ class SchemaValidator {
       _validateArray(value, schema, path, warnings);
       return;
     }
-    if (expectedTypes.contains('string')) {
-      if (value is String) return;
+    if (expectedTypes.contains('string') && value is String) {
+      _validateEnum(value, schema, path, warnings);
+      return;
     }
-    if (expectedTypes.contains('integer')) {
-      if (value is int || (value is double && value == value.toInt())) return;
+    if (expectedTypes.contains('integer') && (value is int || (value is double && value == value.toInt()))) {
+      _validateEnum(value, schema, path, warnings);
+      _validateNumericBounds(value as num, schema, path, warnings);
+      return;
     }
-    if (expectedTypes.contains('number')) {
-      if (value is num) return;
+    if (expectedTypes.contains('number') && value is num) {
+      _validateEnum(value, schema, path, warnings);
+      _validateNumericBounds(value, schema, path, warnings);
+      return;
     }
-    if (expectedTypes.contains('boolean')) {
-      if (value is bool) return;
+    if (expectedTypes.contains('boolean') && value is bool) {
+      return;
     }
 
     warnings.add('${_at(path)}Expected ${expectedTypes.join(' or ')}, got ${value.runtimeType}');
@@ -69,16 +80,36 @@ class SchemaValidator {
     }
 
     final properties = schema['properties'] as Map<String, dynamic>?;
-    if (properties == null) return;
-    for (final entry in properties.entries) {
-      final fieldValue = value[entry.key];
-      if (fieldValue == null) continue; // Missing optional fields are fine.
-      _validateValue(
-        fieldValue,
-        entry.value as Map<String, dynamic>,
-        path.isEmpty ? entry.key : '$path.${entry.key}',
-        warnings,
-      );
+    if (properties != null) {
+      for (final entry in properties.entries) {
+        final fieldValue = value[entry.key];
+        if (fieldValue == null) continue; // Missing optional fields are fine.
+        _validateValue(
+          fieldValue,
+          entry.value as Map<String, dynamic>,
+          path.isEmpty ? entry.key : '$path.${entry.key}',
+          warnings,
+        );
+      }
+    }
+
+    _validateAdditionalProperties(value, schema, path, warnings);
+  }
+
+  void _validateAdditionalProperties(
+    Map<String, dynamic> value,
+    Map<String, dynamic> schema,
+    String path,
+    List<String> warnings,
+  ) {
+    final additionalProperties = schema['additionalProperties'];
+    if (additionalProperties == false) {
+      final properties = schema['properties'] as Map<String, dynamic>? ?? {};
+      for (final key in value.keys) {
+        if (!properties.containsKey(key)) {
+          warnings.add('${_at(path)}Unexpected property "$key"');
+        }
+      }
     }
   }
 
@@ -90,5 +121,26 @@ class SchemaValidator {
     }
   }
 
+  void _validateEnum(Object? value, Map<String, dynamic> schema, String path, List<String> warnings) {
+    final enumValues = schema['enum'] as List?;
+    if (enumValues == null) return;
+    if (!enumValues.contains(value)) {
+      warnings.add('${_at(path)}Value ${_quote(value)} is not one of: ${enumValues.map(_quote).join(', ')}');
+    }
+  }
+
+  void _validateNumericBounds(num value, Map<String, dynamic> schema, String path, List<String> warnings) {
+    final minimum = schema['minimum'];
+    final maximum = schema['maximum'];
+    if (minimum is num && value < minimum) {
+      warnings.add('${_at(path)}Value $value is less than minimum $minimum');
+    }
+    if (maximum is num && value > maximum) {
+      warnings.add('${_at(path)}Value $value is greater than maximum $maximum');
+    }
+  }
+
   String _at(String path) => path.isEmpty ? '' : 'At $path: ';
+
+  String _quote(Object? v) => v is String ? '"$v"' : '$v';
 }

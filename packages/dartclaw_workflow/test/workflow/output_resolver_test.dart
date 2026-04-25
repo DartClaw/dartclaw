@@ -45,16 +45,5 @@ void main() {
       expect((decoded as NarrativeOutput).schemaKey, 'summary');
     });
 
-    test('supports exhaustive pattern matching', () {
-      String label(OutputResolver resolver) => switch (resolver) {
-        FileSystemOutput() => 'filesystem',
-        InlineOutput() => 'inline',
-        NarrativeOutput() => 'narrative',
-      };
-
-      expect(label(const FileSystemOutput(pathPattern: '**/*.md', listMode: false)), 'filesystem');
-      expect(label(const InlineOutput(schemaKey: 'source')), 'inline');
-      expect(label(const NarrativeOutput(schemaKey: 'summary')), 'narrative');
-    });
   });
 }

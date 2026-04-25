@@ -808,7 +808,7 @@ steps:
     });
   });
 
-  group('S03: loop finalizer parsing', () {
+  group('loop finalizer parsing', () {
     test('parses loop with finally field', () {
       const yaml = '''
 name: n
@@ -850,9 +850,79 @@ loops:
       final def = parser.parse(yaml);
       expect(def.loops[0].finally_, isNull);
     });
+
+    test('legacy loop missing id throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: loop-step
+    name: Loop Step
+    prompt: p
+loops:
+  - steps:
+      - loop-step
+    maxIterations: 3
+    exitGate: loop-step.done == true
+''';
+      expect(() => parser.parse(yaml), throwsA(isA<FormatException>()));
+    });
+
+    test('legacy loop missing maxIterations throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: loop-step
+    name: Loop Step
+    prompt: p
+loops:
+  - id: loop1
+    steps:
+      - loop-step
+    exitGate: loop-step.done == true
+''';
+      expect(() => parser.parse(yaml), throwsA(isA<FormatException>()));
+    });
+
+    test('legacy loop maxIterations zero throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: loop-step
+    name: Loop Step
+    prompt: p
+loops:
+  - id: loop1
+    steps:
+      - loop-step
+    maxIterations: 0
+    exitGate: loop-step.done == true
+''';
+      expect(() => parser.parse(yaml), throwsA(isA<FormatException>()));
+    });
+
+    test('legacy loop maxIterations negative throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: loop-step
+    name: Loop Step
+    prompt: p
+loops:
+  - id: loop1
+    steps:
+      - loop-step
+    maxIterations: -5
+    exitGate: loop-step.done == true
+''';
+      expect(() => parser.parse(yaml), throwsA(isA<FormatException>()));
+    });
   });
 
-  group('S03: stepDefaults parsing', () {
+  group('stepDefaults parsing', () {
     test('parses stepDefaults with multiple entries', () {
       const yaml = '''
 name: n
@@ -932,7 +1002,7 @@ stepDefaults:
     });
   });
 
-  group('S03: step maxCostUsd parsing', () {
+  group('step maxCostUsd parsing', () {
     test('parses step maxCostUsd as double', () {
       const yaml = '''
 name: n
@@ -1032,7 +1102,7 @@ steps:
     });
   });
 
-  group('S06: map step fields', () {
+  group('map step fields', () {
     test('parses map_over (snake_case) field', () {
       const yaml = '''
 name: n
@@ -1430,7 +1500,7 @@ steps:
     });
   });
 
-  group('S01 (0.16.1): hybrid step fields (bash, approval, continueSession, onError, workdir)', () {
+  group('hybrid step fields (bash, approval, continueSession, onError, workdir)', () {
     test('bash step without prompt or skill parses successfully', () {
       const yaml = '''
 name: n
@@ -1650,7 +1720,7 @@ steps:
     });
   });
 
-  group('S19: foreach step parsing', () {
+  group('foreach step parsing', () {
     test('parses valid inline foreach step with child steps', () {
       const yaml = '''
 name: foreach-wf

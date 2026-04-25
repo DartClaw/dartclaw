@@ -30,6 +30,7 @@ import 'workflow_git_port.dart';
 import 'workflow_runner_types.dart';
 import 'workflow_task_factory.dart' as workflow_task_factory;
 import 'workflow_template_engine.dart';
+import 'merge_resolve_attempt_artifact.dart';
 import 'workflow_task_config.dart';
 import 'workflow_turn_adapter.dart';
 export 'workflow_runner_types.dart';

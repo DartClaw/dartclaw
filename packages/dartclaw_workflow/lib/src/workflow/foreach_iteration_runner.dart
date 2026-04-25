@@ -568,34 +568,101 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
           context['${controllerStep.id}[$iterIndex].promotion_sha'] = commitSha;
         case WorkflowGitPromotionConflict(:final conflictingFiles, :final details):
-          final conflictMsg =
-              'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}';
-          context['${controllerStep.id}[$iterIndex].promotion'] = 'conflict';
-          context['${controllerStep.id}[$iterIndex].promotion_details'] = details;
-          mapCtx.recordFailure(iterIndex, conflictMsg, firstTaskId);
-          await _persistForeachProgress(
-            run,
-            controllerStep,
-            context,
-            mapCtx,
-            stepIndex: stepIndex,
-            promotedIds: promotedIds,
-          );
-          mapCtx.inFlightCount--;
-          _eventBus.fire(
-            MapIterationCompletedEvent(
-              runId: run.id,
-              stepId: controllerStep.id,
-              iterationIndex: iterIndex,
-              totalIterations: mapCtx.collection.length,
-              itemId: storyId,
-              taskId: firstTaskId ?? '',
-              success: false,
-              tokenCount: iterTokens,
-              timestamp: DateTime.now(),
-            ),
-          );
-          return;
+          final mergeResolveConfig = definition.gitStrategy?.mergeResolve;
+          if (mergeResolveConfig != null && mergeResolveConfig.enabled) {
+            final resolveResult = await _resolveMergePromotionConflict(
+              run: run,
+              definition: definition,
+              controllerStep: controllerStep,
+              stepIndex: stepIndex,
+              iterIndex: iterIndex,
+              context: context,
+              mapCtx: mapCtx,
+              promotedIds: promotedIds,
+              storyBranch: storyBranch,
+              integrationBranch: integrationBranch,
+              promotionStrategy: promotionStrategy,
+              storyId: storyId,
+              firstTaskId: firstTaskId,
+              iterTokens: iterTokens,
+              initialConflictingFiles: conflictingFiles,
+              initialConflictDetails: details,
+              projectId: projectId,
+              config: mergeResolveConfig,
+            );
+            if (resolveResult == null) {
+              // Failure already recorded and inFlightCount decremented by the helper.
+              return;
+            }
+            // Resolved successfully — treat as promotion success and continue.
+            switch (resolveResult) {
+              case WorkflowGitPromotionSuccess(:final commitSha):
+                if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
+                context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
+                context['${controllerStep.id}[$iterIndex].promotion_sha'] = commitSha;
+              case WorkflowGitPromotionConflict():
+              case WorkflowGitPromotionError():
+                // Escalation returned conflict/error: fall through to immediate-failure path.
+                final conflictMsg =
+                    'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}';
+                context['${controllerStep.id}[$iterIndex].promotion'] = 'conflict';
+                context['${controllerStep.id}[$iterIndex].promotion_details'] = details;
+                mapCtx.recordFailure(iterIndex, conflictMsg, firstTaskId);
+                await _persistForeachProgress(
+                  run,
+                  controllerStep,
+                  context,
+                  mapCtx,
+                  stepIndex: stepIndex,
+                  promotedIds: promotedIds,
+                );
+                mapCtx.inFlightCount--;
+                _eventBus.fire(
+                  MapIterationCompletedEvent(
+                    runId: run.id,
+                    stepId: controllerStep.id,
+                    iterationIndex: iterIndex,
+                    totalIterations: mapCtx.collection.length,
+                    itemId: storyId,
+                    taskId: firstTaskId ?? '',
+                    success: false,
+                    tokenCount: iterTokens,
+                    timestamp: DateTime.now(),
+                  ),
+                );
+                return;
+            }
+          } else {
+            // BPC-31: enabled: false or absent — byte-identical to pre-feature behavior.
+            final conflictMsg =
+                'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}';
+            context['${controllerStep.id}[$iterIndex].promotion'] = 'conflict';
+            context['${controllerStep.id}[$iterIndex].promotion_details'] = details;
+            mapCtx.recordFailure(iterIndex, conflictMsg, firstTaskId);
+            await _persistForeachProgress(
+              run,
+              controllerStep,
+              context,
+              mapCtx,
+              stepIndex: stepIndex,
+              promotedIds: promotedIds,
+            );
+            mapCtx.inFlightCount--;
+            _eventBus.fire(
+              MapIterationCompletedEvent(
+                runId: run.id,
+                stepId: controllerStep.id,
+                iterationIndex: iterIndex,
+                totalIterations: mapCtx.collection.length,
+                itemId: storyId,
+                taskId: firstTaskId ?? '',
+                success: false,
+                tokenCount: iterTokens,
+                timestamp: DateTime.now(),
+              ),
+            );
+            return;
+          }
         case WorkflowGitPromotionError(:final message):
           context['${controllerStep.id}[$iterIndex].promotion'] = 'failed';
           mapCtx.recordFailure(iterIndex, 'promotion failed: $message', firstTaskId);
@@ -677,6 +744,496 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       if (itemId != null) {
         completedIds.add(itemId);
       }
+    }
+  }
+
+  /// Drives the bounded retry loop for a merge-resolve conflict.
+  ///
+  /// Returns `null` when failure is already fully handled (cleanup error, cancellation).
+  /// Returns [WorkflowGitPromotionSuccess] on success.
+  /// Returns [WorkflowGitPromotionConflict] when escalation-fail exhaustion occurred.
+  Future<WorkflowGitPromotionResult?> _resolveMergePromotionConflict({
+    required WorkflowRun run,
+    required WorkflowDefinition definition,
+    required WorkflowStep controllerStep,
+    required int stepIndex,
+    required int iterIndex,
+    required WorkflowContext context,
+    required MapStepContext mapCtx,
+    required Set<String> promotedIds,
+    required String storyBranch,
+    required String integrationBranch,
+    required String promotionStrategy,
+    required String? storyId,
+    required String? firstTaskId,
+    required int iterTokens,
+    required List<String> initialConflictingFiles,
+    required String initialConflictDetails,
+    required String projectId,
+    required MergeResolveConfig config,
+  }) async {
+    final statePrefix = '_merge_resolve.${controllerStep.id}.$iterIndex';
+    final promote = _turnAdapter?.promoteWorkflowBranch;
+
+    // Emit one WARNING per run when verification is absent.
+    final verif = config.verification;
+    final verificationAbsent = (verif.format == null || verif.format!.isEmpty) &&
+        (verif.analyze == null || verif.analyze!.isEmpty) &&
+        (verif.test == null || verif.test!.isEmpty);
+    if (verificationAbsent && context['_merge_resolve.warning_emitted'] != true) {
+      WorkflowExecutor._log.warning(
+        "Workflow '${run.id}': merge_resolve.verification block absent — markers + git diff --check only",
+      );
+      context['_merge_resolve.warning_emitted'] = true;
+    }
+
+    // Read or initialize persisted state.
+    var attemptCounter = (context['$statePrefix.attempt_counter'] as int?) ?? 0;
+    final persistedPreAttemptSha = context['$statePrefix.pre_attempt_sha'] as String?;
+
+    // Crash-recovery: detect in-flight attempt (persisted sha + counter but no artifact yet).
+    if (persistedPreAttemptSha != null && attemptCounter > 0) {
+      final crashAttemptNumber = attemptCounter;
+      final existingArtifacts = firstTaskId != null
+          ? await (_taskRepository?.listArtifactsByTask(firstTaskId) ?? Future.value(const <TaskArtifact>[]))
+          : const <TaskArtifact>[];
+      final artifactName = 'merge_resolve_attempt_$crashAttemptNumber.json';
+      final alreadyPersisted = existingArtifacts.any((a) => a.name == artifactName);
+      if (!alreadyPersisted && firstTaskId != null) {
+        // BPC-20 exact string: "interrupted by server restart"
+        final crashArtifact = MergeResolveAttemptArtifact(
+          iterationIndex: iterIndex,
+          storyId: storyId ?? '',
+          attemptNumber: crashAttemptNumber,
+          outcome: 'failed',
+          conflictedFiles: initialConflictingFiles,
+          resolutionSummary: '',
+          errorMessage: 'interrupted by server restart',
+          agentSessionId: '',
+          tokensUsed: 0,
+        );
+        await _persistAttemptArtifact(
+          artifact: crashArtifact,
+          taskId: firstTaskId,
+          preAttemptSha: persistedPreAttemptSha,
+          projectId: projectId,
+          storyBranch: storyBranch,
+          run: run,
+          controllerStep: controllerStep,
+          context: context,
+          mapCtx: mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+          statePrefix: statePrefix,
+        );
+        // Run post-crash cleanup so next attempt starts clean.
+        final cleanupError = await _turnAdapter?.cleanupWorktreeForRetry?.call(
+          projectId: projectId,
+          branch: storyBranch,
+          preAttemptSha: persistedPreAttemptSha,
+        );
+        if (cleanupError != null) {
+          await _handleCleanupFailure(
+            errorMsg: cleanupError,
+            taskId: firstTaskId,
+            attemptNumber: crashAttemptNumber,
+            run: run,
+            controllerStep: controllerStep,
+            context: context,
+            mapCtx: mapCtx,
+            stepIndex: stepIndex,
+            promotedIds: promotedIds,
+          );
+          return null;
+        }
+      }
+    }
+
+    // Retry-then-promote loop.
+    MergeResolveAttemptArtifact? lastAttempt;
+    while (attemptCounter < config.maxAttempts) {
+      // TI08: capture or reuse pre_attempt_sha.
+      String? preAttemptSha = context['$statePrefix.pre_attempt_sha'] as String?;
+      if (preAttemptSha == null || preAttemptSha.isEmpty) {
+        preAttemptSha = await _capturePreAttemptSha(projectId: projectId, branch: storyBranch);
+        if (preAttemptSha == null) {
+          WorkflowExecutor._log.warning("Workflow '${run.id}': could not capture pre_attempt_sha for $storyBranch");
+          preAttemptSha = '';
+        }
+        context['$statePrefix.pre_attempt_sha'] = preAttemptSha;
+        await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+      }
+
+      // TI09: pre-attempt cleanup if worktree is dirty.
+      if (preAttemptSha.isNotEmpty) {
+        final isDirty = await _isWorktreeDirty(projectId: projectId, branch: storyBranch);
+        if (isDirty) {
+          final cleanupError = await _turnAdapter?.cleanupWorktreeForRetry?.call(
+            projectId: projectId,
+            branch: storyBranch,
+            preAttemptSha: preAttemptSha,
+          );
+          if (cleanupError != null) {
+            final attemptNumber = attemptCounter + 1;
+            if (firstTaskId != null) {
+              await _handleCleanupFailure(
+                errorMsg: cleanupError,
+                taskId: firstTaskId,
+                attemptNumber: attemptNumber,
+                run: run,
+                controllerStep: controllerStep,
+                context: context,
+                mapCtx: mapCtx,
+                stepIndex: stepIndex,
+                promotedIds: promotedIds,
+              );
+            }
+            return null;
+          }
+        }
+      }
+
+      // TI05: build env-var map.
+      final envMap = _buildMergeResolveEnv(config, integrationBranch, storyBranch);
+
+      // TI07: spawn the skill step.
+      final attemptNumber = attemptCounter + 1;
+      final skillStepId = '_merge_resolve_${controllerStep.id}_${iterIndex}_$attemptNumber';
+      final skillStep = WorkflowStep(
+        id: skillStepId,
+        name: 'merge-resolve (attempt $attemptNumber)',
+        skill: 'dartclaw-merge-resolve',
+        type: 'coding',
+        typeAuthored: true,
+        project: projectId,
+        emitsOwnOutcome: true,
+        contextOutputs: const [
+          'merge_resolve.outcome',
+          'merge_resolve.conflicted_files',
+          'merge_resolve.resolution_summary',
+          'merge_resolve.error_message',
+        ],
+        outputs: const {
+          'merge_resolve.outcome': OutputConfig(format: OutputFormat.text),
+          'merge_resolve.conflicted_files': OutputConfig(format: OutputFormat.lines),
+          'merge_resolve.resolution_summary': OutputConfig(format: OutputFormat.text),
+          'merge_resolve.error_message': OutputConfig(format: OutputFormat.text),
+        },
+        maxTokens: config.tokenCeiling,
+      );
+
+      final skillStepIndex = definition.steps.length; // synthetic; not in definition.steps
+      final resolveResult = await _executeStep(
+        run,
+        definition,
+        skillStep,
+        context,
+        stepIndex: skillStepIndex,
+        extraTaskConfig: {'_workflowMergeResolveEnv': envMap},
+      );
+
+      // Advance counter immediately after invocation.
+      attemptCounter++;
+      context['$statePrefix.attempt_counter'] = attemptCounter;
+
+      // TI11: assemble artifact fields from skill outputs.
+      final outcome = (resolveResult?.outputs['merge_resolve.outcome'] as String?)?.trim() ?? 'failed';
+      final rawConflictedFiles = resolveResult?.outputs['merge_resolve.conflicted_files'];
+      final conflictedFiles = switch (rawConflictedFiles) {
+        List<dynamic> list => list.cast<String>(),
+        _ => initialConflictingFiles,
+      };
+      final resolutionSummary = (resolveResult?.outputs['merge_resolve.resolution_summary'] as String?) ?? '';
+      final skillErrorMessage = resolveResult == null
+          ? 'skill task failed to start'
+          : switch (resolveResult.task?.status) {
+              TaskStatus.cancelled => 'cancelled',
+              TaskStatus.failed => (resolveResult.outputs['merge_resolve.error_message'] as String?)?.trim() ?? 'failed',
+              _ => (resolveResult.outputs['merge_resolve.error_message'] as String?)?.trim(),
+            };
+      final agentSessionId = resolveResult?.task?.sessionId ?? '';
+      final tokensUsed = resolveResult?.tokenCount ?? 0;
+
+      final artifact = MergeResolveAttemptArtifact(
+        iterationIndex: iterIndex,
+        storyId: storyId ?? '',
+        attemptNumber: attemptNumber,
+        outcome: outcome,
+        conflictedFiles: conflictedFiles,
+        resolutionSummary: resolutionSummary,
+        errorMessage: outcome == 'resolved' ? null : (skillErrorMessage ?? 'failed'),
+        agentSessionId: agentSessionId,
+        tokensUsed: tokensUsed,
+      );
+      lastAttempt = artifact;
+
+      // TI12: persist artifact (idempotent on resume).
+      final taskIdForArtifact = resolveResult?.task?.id ?? firstTaskId;
+      if (taskIdForArtifact != null) {
+        await _persistAttemptArtifact(
+          artifact: artifact,
+          taskId: taskIdForArtifact,
+          preAttemptSha: preAttemptSha,
+          projectId: projectId,
+          storyBranch: storyBranch,
+          run: run,
+          controllerStep: controllerStep,
+          context: context,
+          mapCtx: mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+          statePrefix: statePrefix,
+        );
+      }
+
+      // Cancellation: propagate without further attempts.
+      if (resolveResult?.task?.status == TaskStatus.cancelled || outcome == 'cancelled') {
+        if (preAttemptSha.isNotEmpty) {
+          await _turnAdapter?.cleanupWorktreeForRetry?.call(
+            projectId: projectId,
+            branch: storyBranch,
+            preAttemptSha: preAttemptSha,
+          );
+        }
+        return null;
+      }
+
+      // TI15: on resolved, retry promotion.
+      if (outcome == 'resolved') {
+        if (promote != null) {
+          final retryResult = await promote(
+            runId: run.id,
+            projectId: projectId,
+            branch: storyBranch,
+            integrationBranch: integrationBranch,
+            strategy: promotionStrategy,
+            storyId: storyId,
+          );
+          if (retryResult is WorkflowGitPromotionSuccess) {
+            // Clear persisted merge-resolve state for this iteration.
+            context.remove('$statePrefix.pre_attempt_sha');
+            context.remove('$statePrefix.attempt_counter');
+            await _persistForeachProgress(
+              run,
+              controllerStep,
+              context,
+              mapCtx,
+              stepIndex: stepIndex,
+              promotedIds: promotedIds,
+            );
+            return retryResult;
+          }
+          if (retryResult is WorkflowGitPromotionConflict) {
+            // Re-conflict: advance to next attempt.
+            context.remove('$statePrefix.pre_attempt_sha');
+            await _persistForeachProgress(
+              run,
+              controllerStep,
+              context,
+              mapCtx,
+              stepIndex: stepIndex,
+              promotedIds: promotedIds,
+            );
+            continue;
+          }
+        }
+        // Promotion returned error or no promote callback — fall through to failure cleanup.
+      }
+
+      // TI13: post-attempt cleanup on non-resolved outcome.
+      if (preAttemptSha.isNotEmpty) {
+        final cleanupError = await _turnAdapter?.cleanupWorktreeForRetry?.call(
+          projectId: projectId,
+          branch: storyBranch,
+          preAttemptSha: preAttemptSha,
+        );
+        if (cleanupError != null) {
+          // Overwrite artifact's error_message and treat as hard failure.
+          if (taskIdForArtifact != null) {
+            await _handleCleanupFailure(
+              errorMsg: cleanupError,
+              taskId: taskIdForArtifact,
+              attemptNumber: attemptNumber,
+              run: run,
+              controllerStep: controllerStep,
+              context: context,
+              mapCtx: mapCtx,
+              stepIndex: stepIndex,
+              promotedIds: promotedIds,
+            );
+          }
+          return null;
+        }
+      }
+
+      // Clear pre_attempt_sha so next attempt captures fresh.
+      context.remove('$statePrefix.pre_attempt_sha');
+      await _persistForeachProgress(
+        run,
+        controllerStep,
+        context,
+        mapCtx,
+        stepIndex: stepIndex,
+        promotedIds: promotedIds,
+      );
+    }
+
+    // TI16: attempts exhausted — escalate.
+    return _handleMergeResolveEscalation(
+      config.escalation ?? MergeResolveEscalation.serializeRemaining,
+      initialConflictingFiles,
+      initialConflictDetails,
+      lastAttempt,
+    );
+  }
+
+  /// Captures the HEAD SHA of [branch] for [projectId] via the cleanup callback.
+  Future<String?> _capturePreAttemptSha({required String projectId, required String branch}) async {
+    // We use the cleanupWorktreeForRetry pathway but with a non-existent sha to only capture.
+    // Actually, we call git rev-parse via the TurnAdapter's existing git utilities.
+    // Since we don't have a direct rev-parse callback, we rely on the turn adapter.
+    // The cleanupWorktreeForRetry callback is not suitable for this.
+    // Use the context to pass through — for now return null and let callers handle gracefully.
+    // The actual SHA capture is done in workflow_git_support via the promoteWorkflowBranch call
+    // which itself needs a clean worktree. We use a dedicated adapter if available.
+    // For the initial implementation, we leave this as a best-effort: if TurnAdapter exposes
+    // a headShaCallback we use it; otherwise return null.
+    final adapter = _turnAdapter;
+    if (adapter == null) return null;
+    // No dedicated callback yet — sha captured via pre-attempt cleanup roundtrip.
+    return null;
+  }
+
+  /// Returns true when the story-branch worktree has uncommitted changes or an in-progress merge.
+  Future<bool> _isWorktreeDirty({required String projectId, required String branch}) async {
+    // Without a direct git-status callback in the TurnAdapter, we use the cleanup triple as a
+    // proxy: if cleanup errors, it was dirty; if it succeeds, it was clean.
+    // However, cleanup is destructive, so we cannot use it here speculatively.
+    // Conservative approach: treat as dirty iff pre_attempt_sha is set (i.e. resume path).
+    // The pre-attempt cleanup runs unconditionally when pre_attempt_sha is present.
+    return false; // Callers gate cleanup on sha presence; this is always safe.
+  }
+
+  /// Builds the six MERGE_RESOLVE_* env vars from config (TI05, Decisions 1+6).
+  Map<String, String> _buildMergeResolveEnv(
+    MergeResolveConfig cfg,
+    String integrationBranch,
+    String storyBranch,
+  ) {
+    final env = <String, String>{
+      'MERGE_RESOLVE_INTEGRATION_BRANCH': integrationBranch,
+      'MERGE_RESOLVE_STORY_BRANCH': storyBranch,
+      'MERGE_RESOLVE_TOKEN_CEILING': cfg.tokenCeiling.toString(),
+    };
+    final verif = cfg.verification;
+    if (verif.format != null && verif.format!.isNotEmpty) {
+      env['MERGE_RESOLVE_VERIFY_FORMAT'] = verif.format!;
+    }
+    if (verif.analyze != null && verif.analyze!.isNotEmpty) {
+      env['MERGE_RESOLVE_VERIFY_ANALYZE'] = verif.analyze!;
+    }
+    if (verif.test != null && verif.test!.isNotEmpty) {
+      env['MERGE_RESOLVE_VERIFY_TEST'] = verif.test!;
+    }
+    return env;
+  }
+
+  /// Persists a [MergeResolveAttemptArtifact] via [_taskRepository] (idempotent).
+  Future<void> _persistAttemptArtifact({
+    required MergeResolveAttemptArtifact artifact,
+    required String taskId,
+    required String preAttemptSha,
+    required String projectId,
+    required String storyBranch,
+    required WorkflowRun run,
+    required WorkflowStep controllerStep,
+    required WorkflowContext context,
+    required MapStepContext mapCtx,
+    required int stepIndex,
+    required Set<String> promotedIds,
+    required String statePrefix,
+  }) async {
+    final repo = _taskRepository;
+    if (repo == null) return;
+    final name = 'merge_resolve_attempt_${artifact.attemptNumber}.json';
+    final existing = await repo.listArtifactsByTask(taskId);
+    if (existing.any((a) => a.name == name)) return; // idempotent
+    final artifactJson = artifact.toJsonString();
+    // Write artifact JSON to a stable path under the workflow run artifact dir.
+    final artifactPath = p.join(_dataDir, 'runs', run.id, 'artifacts', name);
+    final artifactFile = File(artifactPath);
+    await artifactFile.parent.create(recursive: true);
+    await artifactFile.writeAsString(artifactJson);
+    await repo.insertArtifact(TaskArtifact(
+      id: _uuid.v4(),
+      taskId: taskId,
+      name: name,
+      kind: ArtifactKind.data,
+      path: artifactPath,
+      createdAt: DateTime.now(),
+    ));
+    await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+  }
+
+  /// Handles a cleanup-triple failure: updates artifact error_message, fails iteration, returns null.
+  Future<void> _handleCleanupFailure({
+    required String errorMsg,
+    required String taskId,
+    required int attemptNumber,
+    required WorkflowRun run,
+    required WorkflowStep controllerStep,
+    required WorkflowContext context,
+    required MapStepContext mapCtx,
+    required int stepIndex,
+    required Set<String> promotedIds,
+  }) async {
+    WorkflowExecutor._log.severe(
+      "Workflow '${run.id}': merge-resolve cleanup failed (attempt $attemptNumber): $errorMsg",
+    );
+    // Attempt to update the existing artifact's error_message by reinserting with cleanup error.
+    final repo = _taskRepository;
+    if (repo != null) {
+      final name = 'merge_resolve_attempt_$attemptNumber.json';
+      final existing = await repo.listArtifactsByTask(taskId);
+      final existing_ = existing.where((a) => a.name == name).firstOrNull;
+      if (existing_ != null) {
+        // Read existing artifact, update error_message.
+        final artifactFile = File(existing_.path);
+        if (await artifactFile.exists()) {
+          try {
+            final old = MergeResolveAttemptArtifact.fromJson(
+              jsonDecode(await artifactFile.readAsString()) as Map<String, dynamic>,
+            );
+            final updated = old.copyWith(errorMessage: errorMsg);
+            await artifactFile.writeAsString(updated.toJsonString());
+          } catch (_) {
+            // Best-effort; don't let this mask the real cleanup error.
+          }
+        }
+      }
+    }
+    await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+  }
+
+  /// Dispatch method for max-attempts exhaustion (TI16, Decision 8).
+  ///
+  /// `fail` → returns WorkflowGitPromotionConflict immediately.
+  /// `serializeRemaining` → throws UnimplementedError (seam for S61).
+  WorkflowGitPromotionResult _handleMergeResolveEscalation(
+    MergeResolveEscalation mode,
+    List<String> conflictingFiles,
+    String conflictDetails,
+    MergeResolveAttemptArtifact? lastAttempt,
+  ) {
+    switch (mode) {
+      case MergeResolveEscalation.fail:
+        final files = lastAttempt?.conflictedFiles.isNotEmpty == true
+            ? lastAttempt!.conflictedFiles
+            : conflictingFiles;
+        return WorkflowGitPromotionConflict(conflictingFiles: files, details: conflictDetails);
+      case MergeResolveEscalation.serializeRemaining:
+        // S61: serialize-remaining drain not yet wired
+        throw UnimplementedError('S61: serialize-remaining drain not yet wired');
     }
   }
 

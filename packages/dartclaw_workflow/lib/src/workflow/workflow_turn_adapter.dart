@@ -138,6 +138,19 @@ class WorkflowTurnAdapter {
     required bool preserveWorktrees,
   })?
   cleanupWorkflowGit;
+
+  /// Cleanup triple for merge-resolve retry: `git merge --abort` (best-effort)
+  /// + `git reset --hard <sha>` + `git clean -fd`, inside `_workflowGitRepoLock`.
+  ///
+  /// Returns null on success. Returns an error string when any non-best-effort
+  /// step fails; callers must treat that as a hard workflow failure.
+  final Future<String?> Function({
+    required String projectId,
+    required String branch,
+    required String preAttemptSha,
+  })?
+  cleanupWorktreeForRetry;
+
   const WorkflowTurnAdapter({
     required this.reserveTurn,
     this.reserveTurnWithWorkflowWorkspaceDir,
@@ -150,5 +163,6 @@ class WorkflowTurnAdapter {
     this.promoteWorkflowBranch,
     this.publishWorkflowBranch,
     this.cleanupWorkflowGit,
+    this.cleanupWorktreeForRetry,
   });
 }

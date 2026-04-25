@@ -74,6 +74,14 @@ final class WorkflowOneShotRunner {
       final String value when value.trim().isNotEmpty => value,
       _ => null,
     };
+    final mergeResolveEnvRaw = task.configJson['_workflowMergeResolveEnv'];
+    final mergeResolveEnv = mergeResolveEnvRaw is Map
+        ? Map<String, String>.fromEntries(
+            mergeResolveEnvRaw.entries
+                .where((e) => e.value is String)
+                .map((e) => MapEntry(e.key.toString(), e.value as String)),
+          )
+        : null;
     final startedAt = DateTime.now();
     var inputTokens = 0;
     var outputTokens = 0;
@@ -165,6 +173,7 @@ final class WorkflowOneShotRunner {
         effort: effortOverride,
         appendSystemPrompt: appendSystemPrompt,
         sandboxOverride: sandboxOverride,
+        extraEnvironment: mergeResolveEnv,
       );
       final usage = normalizeWorkflowCliUsage(turnResult);
       providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
@@ -211,6 +220,7 @@ final class WorkflowOneShotRunner {
           jsonSchema: structuredSchema,
           appendSystemPrompt: null,
           sandboxOverride: sandboxOverride,
+          extraEnvironment: mergeResolveEnv,
         );
         final usage = normalizeWorkflowCliUsage(turnResult);
         providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;

@@ -1707,6 +1707,50 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
 
+    test('workflow waits through single task retry before applying workflow retry', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 1,
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      final taskIds = <String>[];
+      int queueCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskIds.add(e.taskId);
+        queueCount++;
+        if (queueCount == 1) {
+          await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+          await taskService.updateFields(e.taskId, retryCount: 1);
+          await taskService.transition(e.taskId, TaskStatus.failed, trigger: 'system');
+          await taskService.transition(e.taskId, TaskStatus.queued, trigger: 'retry');
+        } else {
+          await completeTask(e.taskId);
+        }
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(queueCount, equals(2));
+      expect(taskIds.toSet(), hasLength(1), reason: 'task-level retry must not spawn a duplicate workflow step task');
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
     test('workflow pauses after all retries exhausted', () async {
       // maxRetries: 2 so the first retry is allowed (retryCount 1 < maxRetries 2).
       // Second failure increments retryCount to 2, making retryCount(2) >= maxRetries(2)
@@ -3794,13 +3838,10 @@ void main() {
       final task = await taskService.get(capturedTaskId!);
       expect(task, isNotNull);
 
-      final allowedWorkflowKeys = {
-        '_workflowInputTokensNew',
-        '_workflowCacheReadTokens',
-        '_workflowOutputTokens',
-      };
-      final forbiddenWorkflowKeys =
-          task!.configJson.keys.where((k) => k.startsWith('_workflow') && !allowedWorkflowKeys.contains(k)).toList();
+      final allowedWorkflowKeys = {'_workflowInputTokensNew', '_workflowCacheReadTokens', '_workflowOutputTokens'};
+      final forbiddenWorkflowKeys = task!.configJson.keys
+          .where((k) => k.startsWith('_workflow') && !allowedWorkflowKeys.contains(k))
+          .toList();
       expect(forbiddenWorkflowKeys, isEmpty, reason: 'Found unexpected _workflow* keys: $forbiddenWorkflowKeys');
     });
   });
@@ -3857,7 +3898,12 @@ void main() {
       const wrappedStorySpecs = {
         'items': [
           {'id': 'S01', 'title': 'Story One', 'dependencies': <String>[], 'spec_path': 'fis/s01.md'},
-          {'id': 'S02', 'title': 'Story Two', 'dependencies': ['S01'], 'spec_path': 'fis/s02.md'},
+          {
+            'id': 'S02',
+            'title': 'Story Two',
+            'dependencies': ['S01'],
+            'spec_path': 'fis/s02.md',
+          },
         ],
       };
 
@@ -3870,11 +3916,7 @@ void main() {
         await completeTask(e.taskId);
       });
 
-      await executor.execute(
-        run,
-        definition,
-        WorkflowContext(data: {'story_specs': wrappedStorySpecs}),
-      );
+      await executor.execute(run, definition, WorkflowContext(data: {'story_specs': wrappedStorySpecs}));
       await sub.cancel();
 
       final finalRun = await repository.getById(run.id);
@@ -3934,11 +3976,7 @@ void main() {
         }
       });
 
-      await executor.execute(
-        run,
-        definition,
-        WorkflowContext(data: {'story_specs': storySpecs}),
-      );
+      await executor.execute(run, definition, WorkflowContext(data: {'story_specs': storySpecs}));
       await sub.cancel();
 
       final finalRun = await repository.getById(run.id);
@@ -3982,14 +4020,10 @@ void main() {
           waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
           publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
               throw const WorkflowGitException('push failed: remote rejected'),
-          cleanupWorkflowGit: ({
-            required runId,
-            required projectId,
-            required status,
-            required preserveWorktrees,
-          }) async {
-            cleanupCalls.add((preserveWorktrees: preserveWorktrees));
-          },
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((preserveWorktrees: preserveWorktrees));
+              },
         ),
       );
 
@@ -4065,10 +4099,7 @@ void main() {
         contextJson: const {
           'prior-step.status': 'accepted',
           'step.prior-step.outcome': 'succeeded',
-          'data': <String, dynamic>{
-            'prior-step.status': 'accepted',
-            'step.prior-step.outcome': 'succeeded',
-          },
+          'data': <String, dynamic>{'prior-step.status': 'accepted', 'step.prior-step.outcome': 'succeeded'},
           'variables': <String, dynamic>{},
         },
       );
@@ -4102,7 +4133,9 @@ void main() {
       final evSub = eventBus.on<WorkflowApprovalRequestedEvent>().listen(approvalRequests.add);
       final localSessionService = SessionService(baseDir: sessionsDir);
 
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
         await Future<void>.delayed(Duration.zero);
         final task = await taskService.get(e.taskId);
         if (task == null) return;
@@ -4112,7 +4145,8 @@ void main() {
         await messageService.insertMessage(
           sessionId: session.id,
           role: 'assistant',
-          content: 'Blocked pending human decision.\n'
+          content:
+              'Blocked pending human decision.\n'
               '<step-outcome>{"outcome":"needsInput","reason":"human decision required"}</step-outcome>',
         );
         await completeTask(e.taskId);
@@ -4128,12 +4162,7 @@ void main() {
       );
 
       // Pre-seed prior-impl evidence in contextJson as if a prior step completed.
-      final preContext = WorkflowContext(
-        data: {
-          'prior-impl.status': 'accepted',
-          'prior-impl.tokenCount': 100,
-        },
-      );
+      final preContext = WorkflowContext(data: {'prior-impl.status': 'accepted', 'prior-impl.tokenCount': 100});
 
       final run = WorkflowRun(
         id: 'hold-preservation-run',

@@ -269,6 +269,54 @@ void main() {
     expect(outputs['plan'], 'docs/specs/demo/plan.md');
   });
 
+  test('discover-project ignores claimed future artifact paths when no active artifacts exist', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {
+              'project_root': tempDir.path,
+              'active_prd': null,
+              'active_plan': null,
+              'active_story_specs': null,
+              'artifact_locations': {'prd': 'docs/specs/future/prd.md', 'plan': 'docs/specs/future/plan.md'},
+            },
+            'prd': 'docs/specs/future/prd.md',
+            'plan': 'docs/specs/future/plan.md',
+            'story_specs': {'items': <Map<String, dynamic>>[]},
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-future-artifact-paths-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-future-artifact-paths-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-future-artifact-paths-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      contextOutputs: const ['project_index', 'prd', 'plan', 'story_specs'],
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'prd': OutputConfig(format: OutputFormat.path),
+        'plan': OutputConfig(format: OutputFormat.path),
+        'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['prd'], isEmpty);
+    expect(outputs['plan'], isEmpty);
+    expect(outputs['story_specs'], {'items': <Map<String, dynamic>>[]});
+  });
+
   test('discover-project derives story_specs from project_index.active_story_specs', () async {
     final activeStorySpecs = {
       'items': [

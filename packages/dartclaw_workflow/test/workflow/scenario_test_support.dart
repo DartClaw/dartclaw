@@ -21,7 +21,7 @@ final class ScenarioTaskHarness {
   late EventBus eventBus;
   late SqliteTaskRepository taskRepository;
   late TaskService tasks;
-  late _FakeTaskWorker _worker;
+  late ScriptedAgentWorker _worker;
   late TurnManager turns;
   late ArtifactCollector collector;
   late KvService kvService;
@@ -53,7 +53,7 @@ final class ScenarioTaskHarness {
       executionTransactor: harness.executionTransactor,
       eventBus: harness.eventBus,
     );
-    harness._worker = _FakeTaskWorker();
+    harness._worker = ScriptedAgentWorker();
     harness.turns = TurnManager(
       messages: harness.messages,
       worker: harness._worker,
@@ -108,8 +108,42 @@ final class ScenarioTaskHarness {
     return Function.apply(TaskExecutor.new, const [], namedArgs) as TaskExecutor;
   }
 
+  /// Direct access to the scripted worker so component tests can `enqueue`
+  /// per-turn responses without the legacy single-response fields.
+  ScriptedAgentWorker get worker => _worker;
+
   void setWorkerResponseText(String value) {
     _worker.responseText = value;
+  }
+
+  /// Auto-drives a freshly-queued task through running → review → accepted.
+  ///
+  /// Installs a subscription on [TaskStatusChangedEvent] that mirrors the
+  /// minimal state machine the real TaskService invokes on happy-path
+  /// completion. Returns the subscription so tests can cancel it during
+  /// tearDown.
+  ///
+  /// This is the component-tier equivalent of the per-test "listen for queued
+  /// then transition" boilerplate that appears at the top of every scenario.
+  StreamSubscription<TaskStatusChangedEvent> autoAcceptQueuedTasks({
+    FutureOr<void> Function(Task task)? onQueued,
+  }) {
+    return eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((event) async {
+      final task = await tasks.get(event.taskId);
+      if (task == null) return;
+      await onQueued?.call(task);
+      try {
+        await tasks.transition(event.taskId, TaskStatus.running, trigger: 'test');
+      } on StateError {
+        // Task may already be running.
+      }
+      try {
+        await tasks.transition(event.taskId, TaskStatus.review, trigger: 'test');
+      } on StateError {
+        // Task may already be in review.
+      }
+      await tasks.transition(event.taskId, TaskStatus.accepted, trigger: 'test');
+    });
   }
 
   void writeRelativeOnTurn(String relativePath, {String content = ''}) {
@@ -318,7 +352,64 @@ final class StaticPathWorktreeManager extends WorktreeManager {
   Future<void> cleanup(String taskId, {Project? project}) async {}
 }
 
-class _FakeTaskWorker implements AgentHarness {
+/// Declarative one-off response for [ScriptedAgentWorker.enqueue].
+///
+/// Each turn consumes the next queued response in FIFO order. When the queue
+/// is empty the worker falls back to the legacy single-response fields
+/// ([ScriptedAgentWorker.responseText] etc.) for backward compatibility with
+/// existing scenarios.
+final class ScriptedResponse {
+  /// Text streamed as a [DeltaEvent] before the turn returns.
+  final String assistantContent;
+
+  /// Usage payload returned from `turn()` — keys mirror what the real
+  /// Codex/Claude harnesses expose (`input_tokens`, `cached_input_tokens`,
+  /// `output_tokens`).
+  final Map<String, dynamic> usage;
+
+  /// When non-null the turn waits this long before returning. Useful for
+  /// activity-watchdog / hang-detection tests.
+  final Duration? delay;
+
+  /// When true the turn throws instead of returning — simulates a mid-turn
+  /// provider crash.
+  final bool crash;
+
+  /// Error to throw when [crash] is true. Defaults to a generic StateError.
+  final Object? crashError;
+
+  /// When true the turn never returns (emits nothing, awaits forever). Tests
+  /// that want a bounded hang should prefer [delay] with a finite duration.
+  final bool hang;
+
+  /// Optional side effect executed once the turn has been invoked but before
+  /// the response is streamed. Typical use: write a file into the worktree
+  /// to simulate the agent's on-disk effect.
+  final FutureOr<void> Function(String sessionId, String? directory)? onInvoked;
+
+  const ScriptedResponse({
+    this.assistantContent = '',
+    this.usage = const {},
+    this.delay,
+    this.crash = false,
+    this.crashError,
+    this.hang = false,
+    this.onInvoked,
+  });
+}
+
+/// Scriptable [AgentHarness] double for component / scenario tests.
+///
+/// Usage patterns:
+///  1. Legacy single-response: set [responseText] / [shouldFail]. Every turn
+///     returns the same content. Kept for scenarios that only need one turn.
+///  2. FIFO-queued responses: call [enqueue] per turn. Each call to [turn]
+///     consumes the next entry. This is the preferred mode for component
+///     tests exercising retry / multi-turn sequences.
+///  3. Hybrid: queue a few responses; leftover turns fall through to the
+///     legacy fields (useful for "first attempt crashes, everything after
+///     succeeds" patterns).
+class ScriptedAgentWorker implements AgentHarness {
   @override
   String skillActivationLine(String skill) => "Use the '$skill' skill.";
 
@@ -333,6 +424,37 @@ class _FakeTaskWorker implements AgentHarness {
   void Function(String sessionId)? onTurn;
   void Function(String sessionId, String? directory)? onTurnWithDirectory;
   Future<void> Function(String sessionId)? beforeComplete;
+
+  /// Number of times `turn()` has been invoked — useful for retry assertions.
+  int turnCount = 0;
+
+  /// FIFO queue of scripted responses. Consumed left-to-right per `turn()`.
+  final List<ScriptedResponse> _queue = [];
+
+  /// Add a response to the end of the queue.
+  void enqueue(ScriptedResponse response) => _queue.add(response);
+
+  /// Convenience: enqueue a plain assistant content response.
+  void enqueueContent(String content, {Map<String, dynamic> usage = const {}, Duration? delay}) {
+    enqueue(ScriptedResponse(assistantContent: content, usage: usage, delay: delay));
+  }
+
+  /// Convenience: enqueue a crash-then-success pattern. Produces [retries]
+  /// crash responses followed by one success response.
+  void enqueueCrashThenSuccess({
+    required String successContent,
+    int retries = 1,
+    Object? crashError,
+    Map<String, dynamic> successUsage = const {},
+  }) {
+    for (var i = 0; i < retries; i++) {
+      enqueue(ScriptedResponse(crash: true, crashError: crashError));
+    }
+    enqueue(ScriptedResponse(assistantContent: successContent, usage: successUsage));
+  }
+
+  /// Number of responses still queued.
+  int get remainingResponses => _queue.length;
 
   @override
   bool get supportsCostReporting => true;
@@ -376,6 +498,7 @@ class _FakeTaskWorker implements AgentHarness {
     String? effort,
     int? maxTurns,
   }) async {
+    turnCount++;
     onTurn?.call(sessionId);
     onTurnWithDirectory?.call(sessionId, directory);
     lastModel = model;
@@ -384,6 +507,29 @@ class _FakeTaskWorker implements AgentHarness {
     if (waitFor != null) {
       await waitFor(sessionId);
     }
+
+    // Scripted-queue path: takes precedence over legacy single-response fields
+    // when a response is queued for this turn.
+    if (_queue.isNotEmpty) {
+      final response = _queue.removeAt(0);
+      await response.onInvoked?.call(sessionId, directory);
+      if (response.hang) {
+        // Await indefinitely — caller is expected to cancel the surrounding
+        // task or fail the test on watchdog.
+        await Completer<void>().future;
+      }
+      if (response.delay != null) {
+        await Future<void>.delayed(response.delay!);
+      }
+      if (response.crash) {
+        throw response.crashError ?? StateError('simulated crash');
+      }
+      if (response.assistantContent.isNotEmpty) {
+        _eventsCtrl.add(DeltaEvent(response.assistantContent));
+      }
+      return Map<String, dynamic>.from(response.usage);
+    }
+
     if (shouldFail) {
       throw StateError('simulated crash');
     }

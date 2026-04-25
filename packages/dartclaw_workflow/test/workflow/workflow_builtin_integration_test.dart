@@ -588,7 +588,7 @@ void main() {
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('integrated-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('remediate'), isEmpty);
-    expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('update-state'), isEmpty);
     expect(trace.tasksForStep('integrated-review').single.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
   });
 
@@ -645,7 +645,7 @@ void main() {
     expect(trace.tasksForStep('spec').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('implement').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('remediate'), isEmpty);
-    expect(trace.tasksForStep('update-state').single.configJson.containsKey('readOnly'), isFalse);
+    expect(trace.tasksForStep('update-state'), isEmpty);
   });
 
   test('spec-and-implement discovery prompt excludes authored feature text', () async {
@@ -1164,8 +1164,7 @@ void main() {
     expect(trace.tasksForStep('plan-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('plan-review').single.type, TaskType.coding);
     expect(trace.tasksForStep('plan-review').single.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
-    expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('update-state').single.type, TaskType.coding);
+    expect(trace.tasksForStep('update-state'), isEmpty);
   });
 
   test(
@@ -1443,11 +1442,13 @@ void main() {
     final plan = trace.tasksForStep('plan').single.description;
 
     // Both `prd` and `discover-project` opt in to REQUIREMENTS via
-    // `workflowVariables: [REQUIREMENTS]` — the engine frames it as a
-    // multi-line <REQUIREMENTS> block in both step prompts. The plan step
-    // and all downstream steps must not receive the raw requirements string.
+    // `workflowVariables: [REQUIREMENTS]`. Promptless discovery gets the
+    // variable auto-framed, while `prd` passes it as the explicit skill input
+    // with --auto. The plan step and all downstream steps must not receive the
+    // raw requirements string.
     expect(discover, contains('<REQUIREMENTS>\n$requirements\n</REQUIREMENTS>'));
-    expect(prd, contains('<REQUIREMENTS>\n$requirements\n</REQUIREMENTS>'));
+    expect(prd, contains('$requirements --auto'));
+    expect(prd, isNot(contains('<REQUIREMENTS>')));
     expect(plan, isNot(contains(requirements)));
     expect(plan, isNot(contains('<REQUIREMENTS>')));
   });
@@ -1532,7 +1533,8 @@ void main() {
     );
 
     final implementPrompt = trace.tasksForStep('implement').single.description;
-    expect(implementPrompt, contains('docs/specs/demo/fis/s01-story-one.md (story 1 of 1):'));
+    expect(implementPrompt, contains('docs/specs/demo/fis/s01-story-one.md'));
+    expect(implementPrompt, isNot(contains('(story 1 of 1):')));
   });
 
   test('plan-and-implement reuses an active PRD as the flat handoff for the plan step', () async {
@@ -1884,7 +1886,8 @@ void main() {
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.count('plan'), 0, reason: 'the reused plan already had an active story catalog');
     final implementPrompt = trace.tasksForStep('implement').single.description;
-    expect(implementPrompt, contains('docs/specs/reused/fis/s01-relative-story.md (story 1 of 1):'));
+    expect(implementPrompt, contains('docs/specs/reused/fis/s01-relative-story.md'));
+    expect(implementPrompt, isNot(contains('(story 1 of 1):')));
   });
 
   test(

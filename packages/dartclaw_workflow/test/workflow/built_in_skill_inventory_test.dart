@@ -52,7 +52,7 @@ void main() {
             'Post-ADR-025 migration: only DC-native skills (dartclaw-discover-project, '
             'dartclaw-validate-workflow) should remain. The 8 ported SYNC-VERBATIM skills '
             'and dartclaw-update-state were removed; their functionality now resolves via '
-            'the user-installed andthen-* skills (runtime prerequisite: AndThen >= 0.14.0).',
+            'the user-installed andthen-* skills (runtime prerequisite: AndThen >= 0.14.3).',
       );
     });
 

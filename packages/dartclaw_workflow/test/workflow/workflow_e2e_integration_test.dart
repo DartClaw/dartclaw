@@ -56,6 +56,25 @@ Future<bool> _ghAuthenticated() async {
   }
 }
 
+Future<bool> _gitSshAuthenticated() async {
+  try {
+    final result = await Process.run('ssh', [
+      '-o',
+      'BatchMode=yes',
+      '-o',
+      'ConnectTimeout=10',
+      '-o',
+      'StrictHostKeyChecking=accept-new',
+      '-T',
+      'git@github.com',
+    ]);
+    final output = '${result.stdout}\n${result.stderr}';
+    return output.contains("You've successfully authenticated");
+  } catch (_) {
+    return false;
+  }
+}
+
 WorkflowStepOutputTransformer _forceSinglePlanReviewRemediationLoop({
   required String remediationPlan,
   required String implementationSummary,
@@ -570,10 +589,7 @@ void expectPreservedArtifactsHaveNonZeroTokenKeys(Directory artifactDir, {requir
 }
 
 void expectNoMissingFisFallbacks(Directory artifactDir) {
-  final banned = [
-    'fallback because FIS file is missing',
-    'MISSING REQUIREMENT',
-  ];
+  final banned = ['fallback because FIS file is missing', 'MISSING REQUIREMENT'];
   final offenders = <String>[];
   for (final file in artifactDir.listSync().whereType<File>().where((file) => file.path.endsWith('.json'))) {
     final text = file.readAsStringSync();
@@ -698,6 +714,18 @@ void expectWorkflowCreatedPr(Map<String, dynamic> contextJson, {required String?
   expect(prView.exitCode, 0, reason: 'gh pr view failed for $prUrl: ${prView.stderr}');
 }
 
+void expectWorkflowPublishedBranchOnly(Map<String, dynamic> contextJson, {required String expectedBranch}) {
+  final contextData = (contextJson['data'] as Map?)?.cast<String, dynamic>() ?? contextJson;
+  expectPublishSuccess(contextJson);
+  expect(contextData['publish.branch'], expectedBranch, reason: 'publish.branch should match the pushed branch');
+  expect(contextData['publish.remote'], 'origin', reason: 'publish.remote should be "origin"');
+  expect(
+    contextData['publish.pr_url'] as String? ?? '',
+    isEmpty,
+    reason: 'publish.pr_url should stay empty when gh PR creation is unavailable',
+  );
+}
+
 // ---------------------------------------------------------------------------
 // TI05: PR cleanup helpers
 // ---------------------------------------------------------------------------
@@ -707,9 +735,19 @@ Future<void> _closePr(String prUrl) async {
   await Process.run('gh', ['pr', 'close', prUrl, '--delete-branch']);
 }
 
-Future<void> _closePrByBranch(String branch, String repo) async {
+Future<void> _closePrByBranch(String branch, String repo, {String? projectDir}) async {
   if (branch.isEmpty) return;
-  await Process.run('gh', ['pr', 'close', branch, '--repo', repo, '--delete-branch']);
+  final ghResult = await Process.run('gh', ['pr', 'close', branch, '--repo', repo, '--delete-branch']);
+  if (ghResult.exitCode == 0 || projectDir == null) return;
+  await Process.run(
+    'git',
+    ['push', 'origin', '--delete', branch],
+    workingDirectory: projectDir,
+    environment: const {
+      'GIT_TERMINAL_PROMPT': '0',
+      'GIT_SSH_COMMAND': 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new',
+    },
+  );
 }
 
 Future<void> _cloneTodoAppFixtureRepo(String targetDir) async {
@@ -735,11 +773,7 @@ Future<void> _cloneTodoAppFixtureRepo(String targetDir) async {
     if (!useHttps) 'GIT_SSH_COMMAND': 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new',
   };
 
-  final result = await Process.run(
-    'git',
-    ['clone', '--depth', '1', cloneUri, targetDir],
-    environment: cloneEnv,
-  );
+  final result = await Process.run('git', ['clone', '--depth', '1', cloneUri, targetDir], environment: cloneEnv);
   if (result.exitCode != 0) {
     final mode = useHttps ? 'HTTPS+token' : 'SSH (ssh-agent)';
     throw StateError(
@@ -804,6 +838,7 @@ void main() {
   E2EFixtureInstance? fixture;
   final createdPrUrls = <String>[];
   final createdBranches = <String>[];
+  var canCreateGitHubPr = false;
 
   CliWorkflowWiring? wiring;
   LogService? logService;
@@ -826,13 +861,20 @@ void main() {
       );
       return;
     }
-    if (!_hasGitHubTokenEnv() && !await _ghAuthenticated()) {
+    final hasGitHubToken = _hasGitHubTokenEnv();
+    canCreateGitHubPr = hasGitHubToken || await _ghAuthenticated();
+    if (!hasGitHubToken && !await _gitSshAuthenticated()) {
       fail(
-        'GitHub auth is required for workflow e2e. Either export GITHUB_TOKEN or authenticate gh '
-        'for the SSH/PR-create fallback path.',
+        'GitHub git access is required for workflow e2e. Either export GITHUB_TOKEN, or ensure your SSH key '
+        'is loaded via `ssh-add` so the fixture repo can be cloned and workflow branches can be pushed.',
       );
     }
-
+    if (!canCreateGitHubPr) {
+      Logger('E2E.Setup').warning(
+        'gh PR creation is unavailable; workflow e2e will validate branch publish only. '
+        'Export GITHUB_TOKEN or fix `gh auth status` to enable PR URL assertions.',
+      );
+    }
   });
 
   tearDownAll(() async {
@@ -875,7 +917,7 @@ void main() {
       await _closePr(url);
     }
     for (final branch in createdBranches) {
-      await _closePrByBranch(branch, 'DartClaw/workflow-test-todo-app');
+      await _closePrByBranch(branch, 'DartClaw/workflow-test-todo-app', projectDir: fixtureDir);
     }
 
     if (fixture != null) {
@@ -930,18 +972,20 @@ void main() {
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
       workflowStepOutputTransformer: outputTransformer,
-      prCreator: ({required runId, required projectId, required branch}) async {
-        // Mirror the server-backed PrCreator contract: never throw — surface
-        // errors as status='failed' so the workflow's publish step records a
-        // clean failure and the test's `expect(finalStatus, isNot(failed))`
-        // safety net below reports it clearly.
-        try {
-          final url = await createPr(branch: branch, title: resolvedTitle);
-          return CliWorkflowPrResult(status: 'success', prUrl: url);
-        } catch (e) {
-          return CliWorkflowPrResult(status: 'failed', prUrl: '', error: 'createPr failed: $e');
-        }
-      },
+      prCreator: canCreateGitHubPr
+          ? ({required runId, required projectId, required branch}) async {
+              // Mirror the server-backed PrCreator contract: never throw — surface
+              // errors as status='failed' so the workflow's publish step records a
+              // clean failure and the test's `expect(finalStatus, isNot(failed))`
+              // safety net below reports it clearly.
+              try {
+                final url = await createPr(branch: branch, title: resolvedTitle);
+                return CliWorkflowPrResult(status: 'success', prUrl: url);
+              } catch (e) {
+                return CliWorkflowPrResult(status: 'failed', prUrl: '', error: 'createPr failed: $e');
+              }
+            }
+          : null,
     );
     await w.wire();
     wiring = w;
@@ -1068,10 +1112,7 @@ void main() {
       // steps (revise-spec runs only when spec_source=synthesized & confidence<7;
       // remediate/re-review only when integrated-review finds issues) are
       // excluded — assert their runs separately if they occur.
-      // When paused after remediation loop exhaustion, update-state won't run.
-      final expectedOrder = finalStatus == WorkflowRunStatus.completed
-          ? ['discover-project', 'spec', 'implement', 'integrated-review', 'update-state']
-          : ['discover-project', 'spec', 'implement', 'integrated-review'];
+      final expectedOrder = ['discover-project', 'spec', 'implement', 'integrated-review'];
       expectStepOrder(recorder, expectedOrder);
 
       // Assert context handoff: discover output flows into spec
@@ -1104,10 +1145,16 @@ void main() {
 
         final publishBranch = _findPublishedBranch(fixtureDir, run.id);
         expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
+        final branch = publishBranch!;
 
-        // Assert the workflow itself produced the PR URL via its publish
-        // callback (injected test prCreator → `gh pr create` → URL → context).
-        expectWorkflowCreatedPr(completedRun.contextJson, expectedBranch: publishBranch);
+        if (canCreateGitHubPr) {
+          // Assert the workflow itself produced the PR URL via its publish
+          // callback (injected test prCreator → `gh pr create` → URL → context).
+          expectWorkflowCreatedPr(completedRun.contextJson, expectedBranch: branch);
+        } else {
+          createdBranches.add(branch);
+          expectWorkflowPublishedBranchOnly(completedRun.contextJson, expectedBranch: branch);
+        }
       }
     } finally {
       Directory.current = savedCwd;
@@ -1188,28 +1235,16 @@ void main() {
 
       // This E2E forces at least one remediation-loop iteration when plan-review
       // would otherwise be clean, so the remediation loop should always appear.
-      final coreSteps = finalStatus == WorkflowRunStatus.completed
-          ? [
-              'discover-project',
-              'prd',
-              'plan',
-              'implement',
-              'quick-review',
-              'plan-review',
-              'remediate',
-              're-review',
-              'update-state',
-            ]
-          : [
-              'discover-project',
-              'prd',
-              'plan',
-              'implement',
-              'quick-review',
-              'plan-review',
-              'remediate',
-              're-review',
-            ];
+      final coreSteps = [
+        'discover-project',
+        'prd',
+        'plan',
+        'implement',
+        'quick-review',
+        'plan-review',
+        'remediate',
+        're-review',
+      ];
       expectStepOrder(recorder, coreSteps);
 
       // merged plan step now emits both stories and story_specs in a single pass — runs exactly once.
@@ -1249,10 +1284,16 @@ void main() {
 
         final publishBranch = _findPublishedBranch(fixtureDir, run.id);
         expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
+        final branch = publishBranch!;
 
-        // Assert the workflow itself produced the PR URL via its publish
-        // callback (injected test prCreator → `gh pr create` → URL → context).
-        expectWorkflowCreatedPr(completedRun.contextJson, expectedBranch: publishBranch);
+        if (canCreateGitHubPr) {
+          // Assert the workflow itself produced the PR URL via its publish
+          // callback (injected test prCreator → `gh pr create` → URL → context).
+          expectWorkflowCreatedPr(completedRun.contextJson, expectedBranch: branch);
+        } else {
+          createdBranches.add(branch);
+          expectWorkflowPublishedBranchOnly(completedRun.contextJson, expectedBranch: branch);
+        }
       }
     } finally {
       Directory.current = savedCwd;

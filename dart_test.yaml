@@ -1,4 +1,5 @@
 tags:
   contract:
+  component:
   integration:
     skip: "Requires live API credentials — run explicitly with: dart test --run-skipped -t integration"

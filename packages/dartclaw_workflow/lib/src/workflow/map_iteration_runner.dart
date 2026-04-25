@@ -373,6 +373,13 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     // 12. Return result.
     if (mapCtx.hasFailures) {
       final failCount = mapCtx.failedIndices.length;
+      for (final index in mapCtx.failedIndices) {
+        final slot = mapCtx.results[index];
+        final message = slot is Map ? slot['message'] : slot;
+        WorkflowExecutor._log.warning(
+          "Map step '${step.id}' iteration [$index] failed: $message",
+        );
+      }
       final hasPromotionConflict = mapCtx.failedIndices.any((index) {
         final slot = mapCtx.results[index];
         return slot is Map && (slot['message'] as String?)?.startsWith('promotion-conflict') == true;

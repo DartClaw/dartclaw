@@ -1,8 +1,7 @@
 name: spec-and-implement
 description: >-
   Full feature pipeline — discover the project, write a specification,
-  implement it with exec-spec, run integrated review, and update state in
-  authored order.
+  implement it with exec-spec, and run integrated review in authored order.
 variables:
   FEATURE:
     required: true
@@ -42,9 +41,6 @@ stepDefaults:
     provider: "@reviewer"
     model: "@reviewer"
   - match: "remediate"
-    provider: "@executor"
-    model: "@executor"
-  - match: "update-state"
     provider: "@executor"
     model: "@executor"
   - match: "*"
@@ -88,7 +84,7 @@ steps:
     contextInputs: [project_index]
     workflowVariables: [FEATURE]
     contextOutputs: [spec_path, spec_source, spec_confidence]
-    prompt: "Use the spec skill to generate an execution-sized FIS from the provided feature or story."
+    prompt: "{{FEATURE}} --auto"
     outputs:
       spec_path:
         format: path
@@ -113,7 +109,7 @@ steps:
     entryGate: "spec_source == synthesized && spec_confidence < 7"
     contextInputs: [project_index, spec_path, spec_confidence]
     allowedTools: [shell, file_read, file_write]
-    prompt: "Review `{{context.spec_path}}` with `--mode doc --fix` (spec skill confidence {{context.spec_confidence}}/10)."
+    prompt: "{{context.spec_path}} --mode doc --fix --auto"
     # revise-spec modifies the FIS file in place at the same path. No new
     # context value is produced — downstream steps continue reading
     # {{context.spec_path}} written by the spec step, which now points at the
@@ -126,7 +122,7 @@ steps:
     skill: andthen-exec-spec
     contextInputs: [project_index, spec_path]
     contextOutputs: [diff_summary]
-    prompt: "Use the exec-spec skill to execute the provided local FIS with full verification and status gates. When the authoritative FIS is provided as a workspace path, read it from disk with file_read instead of relying on inline excerpts."
+    prompt: "{{context.spec_path}} --auto"
     outputs:
       diff_summary:
         format: text
@@ -143,7 +139,7 @@ steps:
     allowedTools: [file_read]
     contextInputs: [project_index, spec_path, diff_summary]
     contextOutputs: [review_findings, integrated-review.findings_count]
-    prompt: "Use the review skill to review the provided target and route to the appropriate review mode (code / doc / gap / mixed), with optional --council for multi-perspective adversarial review."
+    prompt: "{{context.spec_path}} --mode gap,code --auto"
     outputs:
       review_findings:
         format: json
@@ -171,7 +167,7 @@ steps:
         skill: andthen-remediate-findings
         contextInputs: [project_index, spec_path, review_findings]
         contextOutputs: [remediation_summary, diff_summary]
-        prompt: "Use the remediate-findings skill to address the findings in the provided review report with minimal safe changes. When the report or requirements baseline names a workspace path, read the authoritative file from disk with file_read instead of relying on inline excerpts."
+        prompt: "{{context.review_findings}} --auto"
         outputs:
           remediation_summary:
             format: text
@@ -188,7 +184,7 @@ steps:
         allowedTools: [file_read]
         contextInputs: [project_index, spec_path, remediation_summary, diff_summary]
         contextOutputs: [review_findings, re-review.findings_count]
-        prompt: "Use the quick-review skill to run a fast fresh-context review of the recent changes. When the relevant spec or plan is provided as a workspace path, read it from disk with file_read before judging requirements fit."
+        prompt: "{{context.spec_path}} --auto"
         outputs:
           review_findings:
             format: json
@@ -198,16 +194,3 @@ steps:
             format: json
             schema: non-negative-integer
             description: Number of remaining issues after this re-review; 0 exits the remediation loop.
-
-  # Record the finished workflow outcome in the project state document.
-  - id: update-state
-    name: Update State
-    type: custom
-    skill: andthen-ops
-    contextInputs: [project_index, spec_path, diff_summary]
-    contextOutputs: [state_update_summary]
-    prompt: "Update the project's state using the discovered protocol. Project index or state instruction: "
-    outputs:
-      state_update_summary:
-        format: text
-        schema: state-update-summary

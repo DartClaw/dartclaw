@@ -29,6 +29,7 @@ dependencies:
   dartclaw_workflow:
     path: ../dartclaw_workflow
   http: ^1.6.0
+  path: ^1.9.0
 
 dev_dependencies:
   dartclaw_storage:

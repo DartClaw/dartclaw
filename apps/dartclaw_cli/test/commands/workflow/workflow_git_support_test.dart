@@ -117,6 +117,105 @@ void main() {
     expect((tree.stdout as String).split('\n'), contains('notes/note.md'));
   });
 
+  test('promoteWorkflowBranchLocally serializes concurrent promotions into one integration worktree', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+    final storyOneWorktree = p.join(tempDir.path, 'story-one-worktree');
+    final storyTwoWorktree = p.join(tempDir.path, 'story-two-worktree');
+    const integrationBranch = 'dartclaw/workflow/run123/integration';
+
+    expect((await _git(repoDir.path, ['init', '-b', 'main'])).exitCode, 0);
+    expect((await _git(repoDir.path, ['config', 'user.name', 'Workflow Test'])).exitCode, 0);
+    expect((await _git(repoDir.path, ['config', 'user.email', 'workflow@test.local'])).exitCode, 0);
+
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('base\n');
+    expect((await _git(repoDir.path, ['add', 'README.md'])).exitCode, 0);
+    expect((await _git(repoDir.path, ['commit', '-m', 'initial'])).exitCode, 0);
+
+    expect((await _git(repoDir.path, ['branch', integrationBranch])).exitCode, 0);
+    expect((await _git(repoDir.path, ['branch', 'feature/story-1'])).exitCode, 0);
+    expect((await _git(repoDir.path, ['branch', 'feature/story-2'])).exitCode, 0);
+    expect((await _git(repoDir.path, ['worktree', 'add', storyOneWorktree, 'feature/story-1'])).exitCode, 0);
+    expect((await _git(repoDir.path, ['worktree', 'add', storyTwoWorktree, 'feature/story-2'])).exitCode, 0);
+
+    File(p.join(storyOneWorktree, 'notes', 'story-one.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('# Story One\n');
+    File(p.join(storyTwoWorktree, 'notes', 'story-two.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('# Story Two\n');
+
+    final results = await Future.wait([
+      promoteWorkflowBranchLocally(
+        projectDir: repoDir.path,
+        runId: 'run-123',
+        branch: 'feature/story-1',
+        integrationBranch: integrationBranch,
+        strategy: 'squash',
+        storyId: 'S01',
+      ),
+      promoteWorkflowBranchLocally(
+        projectDir: repoDir.path,
+        runId: 'run-123',
+        branch: 'feature/story-2',
+        integrationBranch: integrationBranch,
+        strategy: 'squash',
+        storyId: 'S02',
+      ),
+    ]);
+
+    expect(results, everyElement(isA<WorkflowGitPromotionSuccess>()));
+
+    final status = await _git(repoDir.path, ['status', '--porcelain', '--untracked-files=all']);
+    expect((status.stdout as String).trim(), isEmpty);
+
+    final tree = await _git(repoDir.path, ['ls-tree', '-r', '--name-only', integrationBranch]);
+    final files = (tree.stdout as String).split('\n');
+    expect(files, containsAll(['notes/story-one.md', 'notes/story-two.md']));
+  });
+
+  test('promoteWorkflowBranchLocally merges in a temporary integration worktree when checkout is dirty', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+    final worktreeDir = p.join(tempDir.path, 'feature-worktree');
+    const integrationBranch = 'dartclaw/workflow/run123/integration';
+
+    expect((await _git(repoDir.path, ['init', '-b', 'main'])).exitCode, 0);
+    expect((await _git(repoDir.path, ['config', 'user.name', 'Workflow Test'])).exitCode, 0);
+    expect((await _git(repoDir.path, ['config', 'user.email', 'workflow@test.local'])).exitCode, 0);
+
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('base\n');
+    File(p.join(repoDir.path, 'docs', 'STATE.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('clean\n');
+    expect((await _git(repoDir.path, ['add', 'README.md', 'docs/STATE.md'])).exitCode, 0);
+    expect((await _git(repoDir.path, ['commit', '-m', 'initial'])).exitCode, 0);
+
+    expect((await _git(repoDir.path, ['branch', integrationBranch])).exitCode, 0);
+    expect((await _git(repoDir.path, ['branch', 'feature/story-1'])).exitCode, 0);
+    expect((await _git(repoDir.path, ['worktree', 'add', worktreeDir, 'feature/story-1'])).exitCode, 0);
+
+    File(p.join(worktreeDir, 'notes', 'note.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('# Note\n');
+    File(p.join(repoDir.path, 'docs', 'STATE.md')).writeAsStringSync('dirty in main checkout\n');
+
+    final result = await promoteWorkflowBranchLocally(
+      projectDir: repoDir.path,
+      runId: 'run-123',
+      branch: 'feature/story-1',
+      integrationBranch: integrationBranch,
+      strategy: 'squash',
+      storyId: 'S01',
+    );
+
+    expect(result, isA<WorkflowGitPromotionSuccess>());
+
+    final tree = await _git(repoDir.path, ['ls-tree', '-r', '--name-only', integrationBranch]);
+    expect((tree.stdout as String).split('\n'), contains('notes/note.md'));
+
+    final status = await _git(repoDir.path, ['status', '--porcelain', '--untracked-files=all']);
+    expect((status.stdout as String).trim(), 'M docs/STATE.md');
+  });
+
   test('publishWorkflowBranchLocally refreshes the origin tracking ref after push', () async {
     final remoteDir = Directory(p.join(tempDir.path, 'remote.git'))..createSync(recursive: true);
     final repoDir = Directory(p.join(tempDir.path, 'repo'));

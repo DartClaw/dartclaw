@@ -439,8 +439,8 @@ const validationSummaryPreset = SchemaPreset(
   description: 'Summary of validation outcomes for this step (build, tests, analyzer, and any refinements applied).',
 );
 
-/// Canonical text shape for `state_update_summary` outputs emitted by the
-/// final `update-state` step of every workflow.
+/// Canonical text shape for `state_update_summary` outputs emitted by
+/// user-authored or legacy workflows that still include an update-state step.
 const stateUpdateSummaryPreset = SchemaPreset(
   name: 'state-update-summary',
   defaultResolver: NarrativeOutput(schemaKey: 'state_update_summary'),

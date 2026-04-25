@@ -19,6 +19,8 @@ TurnRunner _buildRunner({
   required KvService kvService,
   SessionResetService? resetService,
   String providerId = 'claude',
+  Duration stallTimeout = Duration.zero,
+  TurnProgressAction stallAction = TurnProgressAction.warn,
 }) {
   return TurnRunner(
     harness: harness,
@@ -29,6 +31,8 @@ TurnRunner _buildRunner({
     kv: kvService,
     resetService: resetService,
     providerId: providerId,
+    stallTimeout: stallTimeout,
+    stallAction: stallAction,
   );
 }
 
@@ -724,5 +728,105 @@ void main() {
     expect(events, hasLength(1));
     expect(events[0], isA<TextDeltaProgressEvent>());
     expect((events[0] as TextDeltaProgressEvent).text, 'only');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Stall-timeout wiring — regression for 2026-04-24 E2E issue #9 where the
+  // plan-review turn hung silently for 27 minutes while a Codex sub-agent
+  // waited on shell verification. The stall monitor is supposed to surface
+  // that silence; these tests pin the wiring so a regression flips from a
+  // 75-minute E2E failure to a <2-second unit failure.
+  // ---------------------------------------------------------------------------
+  group('stall timeout', () {
+    test('stallAction=cancel produces TurnStatus.cancelled when turn emits no progress', () async {
+      final stallRunner = _buildRunner(
+        harness: worker,
+        messages: messages,
+        workspaceDir: workspaceDir,
+        sessions: sessions,
+        turnState: turnState,
+        kvService: kvService,
+        stallTimeout: const Duration(milliseconds: 200),
+        stallAction: TurnProgressAction.cancel,
+      );
+
+      // Never complete the worker turn — it's the hung-sub-agent case.
+      // The turn invocation awaits indefinitely; only the stall monitor
+      // surfaces the silence.
+      final session = await sessions.getOrCreateMain();
+
+      final turnId = await stallRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'stall'},
+      ]);
+
+      final outcome = await stallRunner
+          .waitForOutcome(session.id, turnId)
+          .timeout(const Duration(seconds: 5), onTimeout: () => fail('Stall action=cancel did not cancel the turn'));
+
+      expect(outcome.status, TurnStatus.cancelled);
+      expect(stallRunner.isActive(session.id), isFalse);
+    });
+
+    test('stallAction=warn lets the turn complete normally once progress resumes', () async {
+      final stallRunner = _buildRunner(
+        harness: worker,
+        messages: messages,
+        workspaceDir: workspaceDir,
+        sessions: sessions,
+        turnState: turnState,
+        kvService: kvService,
+        stallTimeout: const Duration(milliseconds: 150),
+        stallAction: TurnProgressAction.warn,
+      );
+
+      unawaited(() async {
+        await worker.turnInvoked;
+        // Sleep past the stall timeout without emitting events — expect a
+        // warning log but no cancellation.
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        worker.emit(DeltaEvent('finally some progress'));
+        worker.completeSuccess(_turnResult(inputTokens: 1, outputTokens: 1));
+      }());
+
+      final session = await sessions.getOrCreateMain();
+      final turnId = await stallRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'warn only'},
+      ]);
+
+      final outcome = await stallRunner.waitForOutcome(session.id, turnId).timeout(const Duration(seconds: 5));
+
+      expect(outcome.status, TurnStatus.completed);
+      expect(outcome.responseText, 'finally some progress');
+    });
+
+    test('stallAction=cancel emits TurnStallProgressEvent before cancelling', () async {
+      final stallRunner = _buildRunner(
+        harness: worker,
+        messages: messages,
+        workspaceDir: workspaceDir,
+        sessions: sessions,
+        turnState: turnState,
+        kvService: kvService,
+        stallTimeout: const Duration(milliseconds: 120),
+        stallAction: TurnProgressAction.cancel,
+      );
+
+      final stallEvents = <TurnStallProgressEvent>[];
+      final sub = stallRunner.progressEvents.listen((event) {
+        if (event is TurnStallProgressEvent) stallEvents.add(event);
+      });
+      addTearDown(sub.cancel);
+
+      final session = await sessions.getOrCreateMain();
+      final turnId = await stallRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'stall with event'},
+      ]);
+
+      await stallRunner.waitForOutcome(session.id, turnId).timeout(const Duration(seconds: 5));
+
+      expect(stallEvents, isNotEmpty, reason: 'stall monitor must emit TurnStallProgressEvent before cancelling');
+      expect(stallEvents.first.action, 'cancel');
+      expect(stallEvents.first.stallTimeout.inMilliseconds, greaterThanOrEqualTo(120));
+    });
   });
 }

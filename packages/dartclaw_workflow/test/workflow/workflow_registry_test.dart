@@ -220,8 +220,8 @@ void main() {
       expect(planAndImplement, contains('skill: andthen-plan'));
       expect(planAndImplement, contains('skill: andthen-prd'));
       expect(planAndImplement, isNot(contains('skill: dartclaw-spec-plan')));
-      // final update-state step now uses andthen-ops instead of dartclaw-update-state
-      expect(planAndImplement, contains('skill: andthen-ops'));
+      expect(planAndImplement, isNot(contains('- id: update-state')));
+      expect(planAndImplement, isNot(contains('skill: andthen-ops')));
       expect(planAndImplement, isNot(contains('skill: dartclaw-update-state')));
 
       expect(codeReview, contains(RegExp(r'^  PROJECT:$', multiLine: true)));

@@ -820,7 +820,7 @@ DartClaw ships two DC-native skills and resolves all other workflow steps throug
 - `dartclaw-discover-project` — workspace-index extraction, multi-framework detection
 - `dartclaw-validate-workflow` — workflow YAML validation helper
 
-**Runtime prerequisite — [AndThen](https://github.com/IT-HUSET/andthen) `>= 0.14.0`**:
+**Runtime prerequisite — [AndThen](https://github.com/IT-HUSET/andthen) `>= 0.14.3`**:
 
 The built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review`) resolve all non-discover-project steps against the user's AndThen installation via the `andthen-` prefix. Key skills used:
 
@@ -837,6 +837,8 @@ The built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review
 ```
 
 Skills land in `~/.claude/skills/andthen-*/` (Claude) and `~/.agents/skills/andthen-*/` (Codex). If AndThen skills are missing, `dartclaw workflow validate` reports each unresolved skill name; install AndThen and re-run to confirm.
+
+> **Note for Claude Code users**: AndThen also ships as a Claude Code plugin. The plugin install (under `~/.claude/plugins/marketplaces/...`) is *not* a substitute — DartClaw discovers skills from `~/.claude/skills/` and `~/.agents/skills/` only. Run `install-skills.sh` even if you already have the plugin enabled.
 
 DC-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`) are discovered from the built-in skills directory and materialized to the harness directories automatically.
 

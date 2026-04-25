@@ -261,6 +261,13 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       ),
     );
     if (mapCtx.hasFailures) {
+      for (final index in mapCtx.failedIndices) {
+        final slot = mapCtx.results[index];
+        final message = slot is Map ? slot['message'] : slot;
+        WorkflowExecutor._log.warning(
+          "Foreach step '${controllerStep.id}' iteration [$index] failed: $message",
+        );
+      }
       final hasPromotionConflict = mapCtx.failedIndices.any((index) {
         final slot = mapCtx.results[index];
         return slot is Map && (slot['message'] as String?)?.startsWith('promotion-conflict') == true;

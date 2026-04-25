@@ -91,19 +91,18 @@ List<dynamic> _normalizeStoryList(Object? raw) {
 }
 
 void expectStorySpecShape(Object? raw) {
+  // Matches the `story-specs` preset schema: items require id, title,
+  // spec_path, dependencies. (FIS body content lives on disk at spec_path
+  // rather than being carried inline.)
   expect(raw, isA<Map<Object?, Object?>>());
   final storySpec = raw! as Map<Object?, Object?>;
   expect(storySpec['id'], isA<String>());
   expect((storySpec['id'] as String).trim(), isNotEmpty);
   expect(storySpec['title'], isA<String>());
   expect((storySpec['title'] as String).trim(), isNotEmpty);
-  expect(storySpec['description'], isA<String>());
-  expect(storySpec['type'], isA<String>());
+  expect(storySpec['spec_path'], isA<String>());
+  expect((storySpec['spec_path'] as String).trim(), isNotEmpty);
   expect(storySpec['dependencies'], isA<List<Object?>>());
-  expect(storySpec['key_files'], isA<List<Object?>>());
-  expect(storySpec['effort'], isA<String>());
-  expect(storySpec['spec'], isA<String>());
-  expect((storySpec['spec'] as String).trim(), isNotEmpty);
 }
 
 void _writeMarkdownNote(String rootDir, String relativePath, String heading, String bullet) {
@@ -197,7 +196,9 @@ void main() {
     // `DARTCLAW_CODEX_ISOLATED_PROFILE=1`. Defaults off so day-to-day runs
     // keep using the user's personal profile.
     final useIsolatedProfile = Platform.environment['DARTCLAW_CODEX_ISOLATED_PROFILE']?.trim() == '1';
-    final profileDataDir = useIsolatedProfile ? Directory.systemTemp.createTempSync('dartclaw_codex_profile_').path : null;
+    final profileDataDir = useIsolatedProfile
+        ? Directory.systemTemp.createTempSync('dartclaw_codex_profile_').path
+        : null;
     runner = WorkflowCliRunner(
       providers: {
         'codex': WorkflowCliProviderConfig(
@@ -253,10 +254,10 @@ void main() {
       contextSummary: step.prompt == null && step.contextInputs.isNotEmpty
           ? SkillPromptBuilder.formatContextSummary(
               {for (final key in step.contextInputs) key: context[key] ?? ''},
-              outputConfigs: SkillPromptBuilder.collectInputConfigs(
-                [...planDefinition.steps, ...specDefinition.steps],
-                step.contextInputs,
-              ),
+              outputConfigs: SkillPromptBuilder.collectInputConfigs([
+                ...planDefinition.steps,
+                ...specDefinition.steps,
+              ], step.contextInputs),
             )
           : null,
       outputs: step.outputs,
@@ -272,7 +273,10 @@ void main() {
       type: TaskType.research,
       autoStart: true,
     );
-    await taskService.updateFields(task.id, sessionId: session.id);
+    // Attach the fixture directory as the task worktree so
+    // ContextExtractor._resolveFileSystemOutput can locate artifacts written
+    // by the skill (e.g. plan.md) against an actual filesystem root.
+    await taskService.updateFields(task.id, sessionId: session.id, worktreeJson: {'path': fixtureDir});
 
     final turnResult = await runner.executeTurn(
       provider: 'codex',
@@ -353,23 +357,11 @@ void main() {
     expect(projectIndex['state_protocol'], isA<Map<Object?, Object?>>());
   }
 
-  void expectStoryPlanShape(List<dynamic> stories) {
-    expect(stories, isNotEmpty);
-    for (final story in stories) {
-      expect(story, isA<Map<Object?, Object?>>());
-      final typed = story as Map<Object?, Object?>;
-      expect(typed['id'], isA<String>());
-      expect((typed['id'] as String).trim(), isNotEmpty);
-      expect(typed['title'], isA<String>());
-      expect((typed['title'] as String).trim(), isNotEmpty);
-      expect(typed['description'], isA<String>());
-      expect(typed['acceptance_criteria'], isA<List<Object?>>());
-      expect(typed['type'], isA<String>());
-      expect(typed['dependencies'], isA<List<Object?>>());
-      expect(typed['key_files'], isA<List<Object?>>());
-      expect(typed['effort'], isA<String>());
-    }
-  }
+  // Deliberately not re-introduced: the previous `expectStoryPlanShape` helper
+  // asserted on a richer story-plan preset (acceptance_criteria, type,
+  // key_files, effort) that the current workflow does not declare — the plan
+  // step only emits the `story-specs` shape. Use `expectStorySpecShape` for
+  // every per-story assertion.
 
   test('discover-project returns the built-in project index contract', () async {
     if (!await _codexAvailable()) {
@@ -390,57 +382,69 @@ void main() {
     expectProjectIndexShape(result.outputs['project_index']);
   }, timeout: const Timeout(Duration(minutes: 5)));
 
-  test('plan emits story-plan stories and story-specs in a single pass from the reviewed PRD', () async {
-    if (!await _codexAvailable()) {
-      return;
-    }
+  test(
+    'plan emits story-plan stories and story-specs in a single pass from the reviewed PRD',
+    () async {
+      if (!await _codexAvailable()) {
+        return;
+      }
 
-    final result = await executeStep(
-      step: _stepById(planDefinition, 'plan'),
-      context: WorkflowContext(
-        variables: const {
-          'REQUIREMENTS':
-              'Create a tiny note-taking improvement: add one markdown note file and a follow-up validation step.',
-          'PROJECT': 'workflow-testing',
-          'BRANCH': 'main',
-          'MAX_PARALLEL': '1',
-        },
-        data: {
-          'project_index': {
-            'framework': 'markdown',
-            'project_root': fixtureDir,
-            'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
-            'state_protocol': {'state_file': 'STATE.md'},
+      final result = await executeStep(
+        step: _stepById(planDefinition, 'plan'),
+        context: WorkflowContext(
+          variables: const {
+            'REQUIREMENTS':
+                'Create a tiny note-taking improvement: add one markdown note file and a follow-up validation step.',
+            'PROJECT': 'workflow-testing',
+            'BRANCH': 'main',
+            'MAX_PARALLEL': '1',
           },
-          'prd':
-              '# Product Requirements Document\n\n'
-              '## Executive Summary\n\n'
-              'Add a tiny integration-tested note file and keep the implementation minimal.\n\n'
-              '## User Stories\n\n'
-              '- US01: Author a single markdown note file.\n'
-              '- US02: Validate that the note content matches expectations.\n',
-        },
-      ),
-    );
+          data: {
+            'project_index': {
+              'framework': 'markdown',
+              'project_root': fixtureDir,
+              'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
+              'state_protocol': {'state_file': 'STATE.md'},
+            },
+            'prd':
+                '# Product Requirements Document\n\n'
+                '## Executive Summary\n\n'
+                'Add a tiny integration-tested note file and keep the implementation minimal.\n\n'
+                '## User Stories\n\n'
+                '- US01: Author a single markdown note file.\n'
+                '- US02: Validate that the note content matches expectations.\n',
+          },
+        ),
+      );
 
-    final stories = _normalizeStoryList(result.outputs['stories']);
-    expectStoryPlanShape(stories);
+      // The plan step declares `story_specs` (story-specs schema) and `plan`
+      // (format=path). The richer `stories` output was removed when the plan
+      // bundle was collapsed onto the one-story-per-FIS invariant; assert on
+      // `story_specs` + `plan` instead.
+      final storySpecsList = _normalizeStoryList(result.outputs['story_specs']);
+      expect(storySpecsList, isNotEmpty);
+      final firstStorySpec = storySpecsList.first;
+      expectStorySpecShape(firstStorySpec);
 
-    final storySpecsList = _normalizeStoryList(result.outputs['story_specs']);
-    expect(storySpecsList, isNotEmpty);
-    final firstStorySpec = storySpecsList.first;
-    expectStorySpecShape(firstStorySpec);
+      expect(
+        result.outputs['plan'],
+        isA<String>(),
+        reason: 'plan output should be a workspace-relative path. Artifact: ${result.artifactPath}',
+      );
+      expect((result.outputs['plan'] as String).trim(), isNotEmpty);
 
-    final resolvedStorySpec = templateEngine.resolveWithMap(
-      '{{map.item}}',
-      WorkflowContext(data: result.outputs, variables: const {}),
-      MapContext(item: firstStorySpec as Object, index: 0, length: storySpecsList.length),
-    );
-    expect(resolvedStorySpec.trim(), contains('"id"'));
-    expect(resolvedStorySpec.trim(), contains('"spec_path"'));
-    // AC is resolved from the FIS body at spec_path, not carried inline.
-    expect(resolvedStorySpec.trim(), isNot(contains('"acceptance_criteria"')));
-  }, timeout: const Timeout(Duration(minutes: 5)));
+      final resolvedStorySpec = templateEngine.resolveWithMap(
+        '{{map.item}}',
+        WorkflowContext(data: result.outputs, variables: const {}),
+        MapContext(item: firstStorySpec as Object, index: 0, length: storySpecsList.length),
+      );
+      expect(resolvedStorySpec.trim(), contains('"id"'));
+      expect(resolvedStorySpec.trim(), contains('"spec_path"'));
+      // AC is resolved from the FIS body at spec_path, not carried inline.
+      expect(resolvedStorySpec.trim(), isNot(contains('"acceptance_criteria"')));
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
 
   test(
     'integrated-review returns verdict with findings_count for a trivial markdown change',
@@ -483,7 +487,12 @@ void main() {
         artifactLabel: 'integrated-review-trivial-markdown-change',
       );
 
-      final findingsCount = result.outputs['findings_count'];
+      // integrated-review step declares the scoped output key
+      // `integrated-review.findings_count` (so the remediation loop gate
+      // `integrated-review.findings_count > 0` disambiguates it from
+      // re-review.findings_count). ContextExtractor stores results under the
+      // literal declared key — assert on that key directly.
+      final findingsCount = result.outputs['integrated-review.findings_count'];
       final reviewFindings = result.outputs['review_findings'];
 
       expect(
@@ -497,8 +506,8 @@ void main() {
         numericCount,
         isNotNull,
         reason:
-            'findings_count should be parseable as int, got: $findingsCount (${findingsCount.runtimeType}). '
-            'Artifact: ${result.artifactPath}',
+            'integrated-review.findings_count should be parseable as int, got: $findingsCount '
+            '(${findingsCount.runtimeType}). Artifact: ${result.artifactPath}',
       );
     },
     timeout: const Timeout(Duration(minutes: 5)),
@@ -628,9 +637,17 @@ void main() {
       artifactLabel: 'plan-review-clean-two-story-batch',
     );
 
-    expect(result.outputs['implementation_summary'], isA<String>());
-    expect((result.outputs['implementation_summary'] as String).trim(), isNotEmpty);
-    expect(_requireFindingsCount(result, 'findings_count'), 0, reason: 'Artifact: ${result.artifactPath}');
+    // plan-review only declares `review_findings` and the scoped
+    // `plan-review.findings_count` output. Assert on those — the batch-level
+    // `implementation_summary` key used by e2e overrides is not a real
+    // extractor output.
+    expect(result.outputs['review_findings'], isA<String>());
+    expect((result.outputs['review_findings'] as String).trim(), isNotEmpty);
+    expect(
+      _requireFindingsCount(result, 'plan-review.findings_count'),
+      0,
+      reason: 'Artifact: ${result.artifactPath}',
+    );
   }, timeout: const Timeout(Duration(minutes: 5)));
 
   test(
@@ -707,9 +724,16 @@ void main() {
         artifactLabel: 're-review-clean-remediation-pass',
       );
 
-      expect(result.outputs['remediation_plan'], isA<String>());
-      expect((result.outputs['remediation_plan'] as String).trim(), isNotEmpty);
-      expect(_requireFindingsCount(result, 'findings_count'), 0, reason: 'Artifact: ${result.artifactPath}');
+      // re-review declares `review_findings` and the scoped
+      // `re-review.findings_count` output. The `remediation_plan` key used by
+      // e2e overrides is not extracted here.
+      expect(result.outputs['review_findings'], isA<String>());
+      expect((result.outputs['review_findings'] as String).trim(), isNotEmpty);
+      expect(
+        _requireFindingsCount(result, 're-review.findings_count'),
+        0,
+        reason: 'Artifact: ${result.artifactPath}',
+      );
     },
     timeout: const Timeout(Duration(minutes: 5)),
   );

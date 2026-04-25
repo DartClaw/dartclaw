@@ -66,7 +66,11 @@ steps:
     contextInputs: [project_index]
     workflowVariables: [TARGET, BRANCH, PR_NUMBER, BASE_BRANCH]
     contextOutputs: [review_summary, review-code.findings_count]
-    prompt: "Use the review skill to review the provided target and route to the appropriate review mode (code / doc / gap / mixed), with optional --council for multi-perspective adversarial review."
+    prompt: |
+      {{TARGET}} --auto
+      branch={{BRANCH}}
+      pr={{PR_NUMBER}}
+      base={{BASE_BRANCH}}
     outputs:
       review_summary:
         format: json
@@ -94,7 +98,7 @@ steps:
         skill: andthen-remediate-findings
         contextInputs: [project_index, review_summary]
         contextOutputs: [remediation_result, remediation_summary, diff_summary]
-        prompt: "Use the remediate-findings skill to address the findings in the provided review report with minimal safe changes. When the report or requirements baseline names a workspace path, read the authoritative file from disk with file_read instead of relying on inline excerpts."
+        prompt: "{{context.review_summary}} --auto"
         outputs:
           remediation_result:
             format: json
@@ -115,7 +119,7 @@ steps:
         allowedTools: [file_read]
         contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
         contextOutputs: [review_summary, re-review.findings_count]
-        prompt: "Use the review skill to review the provided target and route to the appropriate review mode (code / doc / gap / mixed), with optional --council for multi-perspective adversarial review."
+        prompt: "{{context.remediation_summary}} --mode code --auto"
         outputs:
           review_summary:
             format: json

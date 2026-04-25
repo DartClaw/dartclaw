@@ -17,7 +17,7 @@
 - Workflow task spawn now fails fast with a clear `StateError` when `AgentExecution`/`WorkflowStepExecution` persistence is not wired, instead of silently falling back to the legacy `_workflow*` task-config path. Hosts that previously spawned workflow tasks without the execution repositories must now supply `taskRepository`, `agentExecutionRepository`, `workflowStepExecutionRepository`, and `executionTransactor` (or accept the run pausing with the fail-fast error)
 - Artifact auto-commit returns `ArtifactCommitResult`; load-bearing per-map-item commit failures now fail the producing workflow step before downstream dispatch
 - `ContextExtractor` now resolves path-shaped outputs from `WorkflowGitPort.diffNameOnly`, verifies agent path claims, and limits structured-output extraction turns to narrative fields
-- **Breaking**: shipped `dartclaw-*` workflow skills removed (S51); workflow YAMLs reference `andthen-*` skills directly; `dartclaw-discover-project` is the only remaining DC-native built-in skill. Requires AndThen `>= 0.14.0`
+- **Breaking**: shipped `dartclaw-*` workflow skills removed (S51); workflow YAMLs reference `andthen-*` skills directly; `dartclaw-discover-project` and `dartclaw-validate-workflow` are the remaining DC-native built-in skills. Requires AndThen `>= 0.14.3` (standalone install with `andthen-` prefix)
 
 ## 0.15.0
 

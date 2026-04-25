@@ -1,11 +1,14 @@
 import 'dart:math' show min;
 
+import 'package:logging/logging.dart';
+
 /// Runtime state accumulator for a map/fan-out step execution.
 ///
 /// Tracks the collection, concurrency config, in-flight count, result slots
 /// (index-ordered), and budget exhaustion state. Local to [WorkflowExecutor]
 /// for the duration of a single map step — not persisted.
 class MapStepContext {
+  static final Logger _log = Logger('MapStepContext');
   /// The resolved JSON array being iterated.
   final List<dynamic> collection;
 
@@ -47,6 +50,7 @@ class MapStepContext {
     results[index] = {'error': true, 'message': message, 'task_id': taskId};
     failedIndices.add(index);
     completedIndices.add(index);
+    _log.warning('Map iteration [$index] failed (task=$taskId): $message');
   }
 
   /// Records a cancelled iteration at [index].

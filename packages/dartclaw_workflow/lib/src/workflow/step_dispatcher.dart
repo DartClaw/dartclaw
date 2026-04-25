@@ -172,6 +172,12 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       final completer = Completer<Task>();
       final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) async {
         if (event.newStatus == TaskStatus.failed) {
+          // Task-level retry transitions through failed before immediately
+          // re-queueing the same task. Give that re-queue a chance to land so
+          // workflow-level retries do not spawn a duplicate step attempt.
+          if (event.trigger == 'system') {
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
           final t = await _taskService.get(taskId);
           if (t == null) return;
           if (t.status == TaskStatus.queued || t.status == TaskStatus.running) return;

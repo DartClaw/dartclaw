@@ -130,6 +130,11 @@ class ContextExtractor {
         );
       }
 
+      if (_isDiscoverProjectCanonicalOutput(step, outputKey)) {
+        outputs[outputKey] = defaultContextOutput(step, outputs, outputKey) ?? '';
+        continue;
+      }
+
       final resolver = outputResolverFor(outputKey, config);
       switch (resolver) {
         case FileSystemOutput():
@@ -254,6 +259,10 @@ class ContextExtractor {
     }
 
     return outputs;
+  }
+
+  bool _isDiscoverProjectCanonicalOutput(WorkflowStep step, String outputKey) {
+    return step.id == 'discover-project' && const {'prd', 'plan', 'story_specs'}.contains(outputKey);
   }
 
   Future<Object?> _resolveFileSystemOutput(

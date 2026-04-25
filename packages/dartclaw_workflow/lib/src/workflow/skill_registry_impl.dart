@@ -343,7 +343,7 @@ class SkillRegistryImpl implements SkillRegistry {
 
   // Install hint appended when an andthen-* skill ref is missing.
   static const _andthenInstallHint =
-      'Install AndThen skills (>= 0.14.0 required) by running scripts/install-skills.sh '
+      'Install AndThen skills (>= 0.14.3 required) by running scripts/install-skills.sh '
       'from an AndThen checkout — see https://github.com/IT-HUSET/andthen.';
 
   @override

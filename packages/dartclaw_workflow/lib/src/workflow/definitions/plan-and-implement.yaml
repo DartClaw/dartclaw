@@ -1,7 +1,7 @@
 name: plan-and-implement
 description: >-
   Multi-story pipeline — discover the project, draft a PRD, plan and spec all stories in one pass,
-  implement + validate + review each story, iterate plan-level remediation, and update state.
+  implement + validate + review each story, and iterate plan-level remediation.
 variables:
   REQUIREMENTS:
     required: true
@@ -58,9 +58,6 @@ stepDefaults:
   - match: "remediate"
     provider: "@executor"
     model: "@executor"
-  - match: "update-state"
-    provider: "@executor"
-    model: "@executor"
   - match: "*"
     provider: "@workflow"
     model: "@workflow"
@@ -111,7 +108,7 @@ steps:
     workflowVariables: [REQUIREMENTS]
     allowedTools: [shell, file_read, file_write]
     contextOutputs: [prd, prd_confidence]
-    prompt: "Use the prd skill to synthesize a PRD from the provided requirements, clarification artifacts, or draft PRD. Writes prd.md only — do not plan stories or create FIS files here."
+    prompt: "{{REQUIREMENTS}} --auto"
     outputs:
       prd:
         format: path
@@ -134,8 +131,7 @@ steps:
     contextInputs: [project_index, prd, prd_confidence]
     allowedTools: [shell, file_read, file_write]
     prompt: |
-      Review `{{context.prd}}` with `--mode doc --fix`
-      (PRD skill confidence {{context.prd_confidence}}/10).
+      {{context.prd}} --mode doc --fix --auto
     # revise-prd modifies the PRD file in place at the same path. No new
     # context value is produced — downstream steps continue reading
     # {{context.prd}} written by the prd step, which now points at the
@@ -160,7 +156,7 @@ steps:
     onFailure: retry
     maxRetries: 1
     contextOutputs: [story_specs, plan]
-    prompt: "Use the plan skill to create an implementation plan with story breakdown and FIS specs for every story. Requires an existing prd.md in the input directory — run the prd skill first if one is missing."
+    prompt: "{{context.prd}} --auto"
     outputs:
       story_specs:
         format: json
@@ -192,15 +188,14 @@ steps:
         # have been observed mid-turn. Retry once before failing the story.
         onFailure: retry
         maxRetries: 1
-        prompt: |
-          Use the exec-spec skill to execute the provided local FIS with full verification and status gates. When the authoritative FIS is provided as a workspace path, read it from disk with file_read instead of relying on inline excerpts.
-          {{map.item.spec_path}} (story {{map.display_index}} of {{map.length}}):
+        prompt: "{{map.item.spec_path}} --auto"
         contextInputs: [project_index, story_specs]
         contextOutputs: [story_result]
         outputs:
           story_result:
             format: text
             schema: story-result
+            description: Per-story implementation result. Sibling or baseline failures are non-blocking when this story's scoped acceptance checks pass.
 
       # Review the implemented story against its spec and acceptance criteria.
       # exec-spec already ran analysis/tests/linting; this step gates the outcome.
@@ -214,12 +209,8 @@ steps:
         # would succeed.
         onFailure: retry
         maxRetries: 1
-        prompt: |
-          Use the quick-review skill to run a fast fresh-context review of the recent changes. When the relevant spec or plan is provided as a workspace path, read it from disk with file_read before judging requirements fit.
-          Story {{map.display_index}}/{{map.length}}:
-          <story>{{map.item}}</story>
-          <story_result>{{context.story_result}}</story_result>
-        contextInputs: [project_index]
+        prompt: "{{map.item}} --auto"
+        contextInputs: [project_index, story_result]
         contextOutputs: [quick_review_summary, quick_review_findings_count]
         outputs:
           quick_review_summary:
@@ -241,7 +232,7 @@ steps:
     contextInputs: [project_index, story_specs, story_results, plan]
     allowedTools: [file_read]
     contextOutputs: [review_findings, plan-review.findings_count]
-    prompt: "Use the review skill to review the provided target and route to the appropriate review mode (code / doc / gap / mixed), with optional --council for multi-perspective adversarial review."
+    prompt: "{{context.plan}} --mode gap,code --auto"
     outputs:
       review_findings:
         format: text
@@ -266,7 +257,7 @@ steps:
         skill: andthen-remediate-findings
         contextInputs: [project_index, review_findings, story_results]
         contextOutputs: [remediation_summary, diff_summary]
-        prompt: "Use the remediate-findings skill to address the findings in the provided review report with minimal safe changes. When the report or requirements baseline names a workspace path, read the authoritative file from disk with file_read instead of relying on inline excerpts."
+        prompt: "{{context.review_findings}} --auto"
         outputs:
           remediation_summary:
             format: text
@@ -285,7 +276,7 @@ steps:
         allowedTools: [file_read]
         contextInputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
         contextOutputs: [review_findings, re-review.findings_count]
-        prompt: "Use the quick-review skill to run a fast fresh-context review of the recent changes. When the relevant spec or plan is provided as a workspace path, read it from disk with file_read before judging requirements fit."
+        prompt: "{{context.plan}} --auto"
         outputs:
           review_findings:
             format: text
@@ -294,16 +285,3 @@ steps:
             format: json
             schema: non-negative-integer
             description: Number of remaining plan-level issues after this re-review; 0 exits the remediation loop.
-
-  # Record the completed plan execution state back into the project state document.
-  - id: update-state
-    name: Update State
-    type: custom
-    skill: andthen-ops
-    contextInputs: [project_index, story_specs, story_results]
-    contextOutputs: [state_update_summary]
-    prompt: "Update the project's state using the discovered protocol. Project index or state instruction: "
-    outputs:
-      state_update_summary:
-        format: text
-        schema: state-update-summary

@@ -150,20 +150,12 @@ class WorkflowTurnAdapter {
   ///
   /// Returns null on success. Returns an error string when any non-best-effort
   /// step fails; callers must treat that as a hard workflow failure.
-  final Future<String?> Function({
-    required String projectId,
-    required String branch,
-    required String preAttemptSha,
-  })?
+  final Future<String?> Function({required String projectId, required String branch, required String preAttemptSha})?
   cleanupWorktreeForRetry;
 
   /// Returns the current HEAD SHA of [branch] in [projectId]'s worktree via
   /// `git rev-parse <branch>`. Returns null when the ref cannot be resolved.
-  final Future<String?> Function({
-    required String projectId,
-    required String branch,
-  })?
-  captureWorkflowBranchSha;
+  final Future<String?> Function({required String projectId, required String branch})? captureWorkflowBranchSha;
 
   const WorkflowTurnAdapter({
     required this.reserveTurn,

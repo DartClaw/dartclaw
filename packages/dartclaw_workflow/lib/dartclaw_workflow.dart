@@ -9,6 +9,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         LoopIterationCompletedEvent,
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
+        WorkflowSerializationEnactedEvent,
         MessageService,
         SessionService,
         ParallelGroupCompletedEvent,

@@ -296,9 +296,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       for (final index in mapCtx.failedIndices) {
         final slot = mapCtx.results[index];
         final message = slot is Map ? slot['message'] : slot;
-        WorkflowExecutor._log.warning(
-          "Foreach step '${controllerStep.id}' iteration [$index] failed: $message",
-        );
+        WorkflowExecutor._log.warning("Foreach step '${controllerStep.id}' iteration [$index] failed: $message");
       }
       final hasPromotionConflict = mapCtx.failedIndices.any((index) {
         final slot = mapCtx.results[index];
@@ -843,7 +841,8 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
 
     // Emit one WARNING per run when verification is absent.
     final verif = config.verification;
-    final verificationAbsent = (verif.format == null || verif.format!.isEmpty) &&
+    final verificationAbsent =
+        (verif.format == null || verif.format!.isEmpty) &&
         (verif.analyze == null || verif.analyze!.isEmpty) &&
         (verif.test == null || verif.test!.isEmpty);
     if (verificationAbsent && context['_merge_resolve.warning_emitted'] != true) {
@@ -927,7 +926,14 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           preAttemptSha = '';
         }
         context['$statePrefix.pre_attempt_sha'] = preAttemptSha;
-        await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
       }
 
       // TI09: pre-attempt cleanup if worktree is dirty.
@@ -1014,7 +1020,8 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           ? 'skill task failed to start'
           : switch (resolveResult.task?.status) {
               TaskStatus.cancelled => 'cancelled',
-              TaskStatus.failed => (resolveResult.outputs['merge_resolve.error_message'] as String?)?.trim() ?? 'failed',
+              TaskStatus.failed =>
+                (resolveResult.outputs['merge_resolve.error_message'] as String?)?.trim() ?? 'failed',
               _ => (resolveResult.outputs['merge_resolve.error_message'] as String?)?.trim(),
             };
       final agentSessionId = resolveResult?.task?.sessionId ?? '';
@@ -1176,11 +1183,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
   }
 
   /// Builds the six MERGE_RESOLVE_* env vars from config (TI05, Decisions 1+6).
-  Map<String, String> _buildMergeResolveEnv(
-    MergeResolveConfig cfg,
-    String integrationBranch,
-    String storyBranch,
-  ) {
+  Map<String, String> _buildMergeResolveEnv(MergeResolveConfig cfg, String integrationBranch, String storyBranch) {
     final env = <String, String>{
       'MERGE_RESOLVE_INTEGRATION_BRANCH': integrationBranch,
       'MERGE_RESOLVE_STORY_BRANCH': storyBranch,
@@ -1225,14 +1228,16 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     final artifactFile = File(artifactPath);
     await artifactFile.parent.create(recursive: true);
     await artifactFile.writeAsString(artifactJson);
-    await repo.insertArtifact(TaskArtifact(
-      id: _uuid.v4(),
-      taskId: taskId,
-      name: name,
-      kind: ArtifactKind.data,
-      path: artifactPath,
-      createdAt: DateTime.now(),
-    ));
+    await repo.insertArtifact(
+      TaskArtifact(
+        id: _uuid.v4(),
+        taskId: taskId,
+        name: name,
+        kind: ArtifactKind.data,
+        path: artifactPath,
+        createdAt: DateTime.now(),
+      ),
+    );
     await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
   }
 
@@ -1296,9 +1301,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
   }) async {
     switch (mode) {
       case MergeResolveEscalation.fail:
-        final files = lastAttempt?.conflictedFiles.isNotEmpty == true
-            ? lastAttempt!.conflictedFiles
-            : conflictingFiles;
+        final files = lastAttempt?.conflictedFiles.isNotEmpty == true ? lastAttempt!.conflictedFiles : conflictingFiles;
         return WorkflowGitPromotionConflict(conflictingFiles: files, details: conflictDetails);
       case MergeResolveEscalation.serializeRemaining:
         final flagKey = '_merge_resolve.${controllerStep.id}.is_serial_mode';
@@ -1309,7 +1312,14 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         // Mark serial mode BEFORE issuing any cancel signals (crash safety — see Constraints).
         context[flagKey] = true;
         context['_merge_resolve.${controllerStep.id}.serializing_iter_index'] = iterIndex;
-        await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
         // Fire exactly one event per run per step.
         _eventBus.fire(
           WorkflowSerializationEnactedEvent(

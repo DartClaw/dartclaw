@@ -7,7 +7,7 @@ workflow:
   default_prompt: "Run dartclaw-merge-resolve to resolve any merge conflicts on this story branch against the integration branch, verify the result, and commit all-or-nothing."
   default_outputs:
     merge_resolve.outcome:
-      format: text
+      format: enum string with allowed values resolved/failed/cancelled
       description: "Outcome of the merge resolution attempt: one of 'resolved', 'failed', or 'cancelled'."
     merge_resolve.conflicted_files:
       format: json
@@ -78,7 +78,7 @@ Attempt a mechanical merge of the integration branch:
 !sh -c 'git merge "$MERGE_RESOLVE_INTEGRATION_BRANCH" --no-edit && echo MERGE_OK || echo MERGE_FAIL'
 ```
 
-- If output is `MERGE_OK`: no conflict markers were produced — proceed directly to **STEP 4** (verification).
+- If output is `MERGE_OK`: no conflict markers were produced — set `merge_resolve.conflicted_files = []` and proceed directly to **STEP 4** (verification).
 - If output is `MERGE_FAIL`: conflict markers were produced — proceed to **STEP 3** (semantic resolution).
 
 **Note**: `!git merge "$MERGE_RESOLVE_INTEGRATION_BRANCH" --no-edit` is the canonical merge invocation. Do NOT use `git merge --abort`, `git reset --hard`, or `git clean -fd` — cleanup is plumbing's responsibility (BPC-29).
@@ -100,17 +100,13 @@ Run these checks in order. For each check, use output-encoded status (not bare e
 
 ### 4a. No remaining conflict markers
 
-Scan every file that was in the conflict list (from STEP 1) for any remaining `<<<<<<<` marker, then run `git diff --check` via the bang operator:
-
-```
-!git diff --check
-```
-
-If the command exits non-zero (any output produced): there are unresolved whitespace/marker issues — enter the remediation loop (STEP 5). Use output-encoded status:
+Scan every file that was in the conflict list (from STEP 1) for any remaining `<<<<<<<` marker, then run `git diff --check` via the bang operator using output-encoded status:
 
 ```
 !sh -c 'git diff --check && echo DIFF_CHECK_OK || echo DIFF_CHECK_FAIL'
 ```
+
+`DIFF_CHECK_FAIL` indicates unresolved whitespace/marker issues — enter the remediation loop (STEP 5).
 
 ### 4b. Optional format verification
 

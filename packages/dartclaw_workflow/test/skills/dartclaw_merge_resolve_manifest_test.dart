@@ -74,6 +74,15 @@ void main() {
         expect(defaultOutputs.containsKey('merge_resolve.outcome'), isTrue);
       });
 
+      test('merge_resolve.outcome declares enum format with the three allowed values', () {
+        final cfg = defaultOutputs['merge_resolve.outcome'] as Map<Object?, Object?>;
+        final fmt = cfg['format'] as String;
+        expect(fmt, contains('enum'), reason: 'TI03 requires enum-typed format');
+        for (final v in ['resolved', 'failed', 'cancelled']) {
+          expect(fmt, contains(v), reason: 'enum format must list "$v"');
+        }
+      });
+
       test('declares merge_resolve.conflicted_files output', () {
         expect(defaultOutputs.containsKey('merge_resolve.conflicted_files'), isTrue);
       });
@@ -185,8 +194,10 @@ void main() {
 
     // TI08 — verification chain with output-encoded status
     group('verification chain', () {
-      test('contains !git diff --check', () {
-        expect(content, contains('!git diff --check'));
+      test('contains git diff --check via output-encoded form', () {
+        expect(content, contains('git diff --check'));
+        expect(content, contains('DIFF_CHECK_OK'));
+        expect(content, contains('DIFF_CHECK_FAIL'));
       });
 
       test('uses output-encoded status for format verification', () {

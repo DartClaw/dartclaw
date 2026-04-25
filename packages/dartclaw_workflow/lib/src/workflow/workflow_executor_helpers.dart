@@ -400,6 +400,10 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
       return 'promotion failed: step has no project binding';
     }
 
+    if (task.worktreeJson == null) {
+      // No worktree was bound to this task — nothing to promote.
+      return null;
+    }
     final branch = (task.worktreeJson?['branch'] as String?)?.trim();
     if (branch == null || branch.isEmpty) {
       outputs['${step.id}.promotion'] = 'failed';

@@ -19,8 +19,18 @@ project: "{{PROJECT}}"
 gitStrategy:
   bootstrap: true
   worktree: shared
+  promotion: merge
   publish:
     enabled: true
+  merge_resolve:
+    enabled: true
+    max_attempts: 2
+    token_ceiling: 100000
+    escalation: serialize-remaining
+    verification:
+      format: "dart format --set-exit-if-changed ."
+      analyze: "dart analyze"
+      test: "dart test"
 
 stepDefaults:
   # `revise*` is listed before the literal `spec` match so the validator's

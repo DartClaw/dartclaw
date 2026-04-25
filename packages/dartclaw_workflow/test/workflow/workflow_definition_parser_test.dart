@@ -920,6 +920,22 @@ loops:
 ''';
       expect(() => parser.parse(yaml), throwsA(isA<FormatException>()));
     });
+
+    test('loops as non-list scalar throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+loops: not_a_list
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('"loops"'))),
+      );
+    });
   });
 
   group('stepDefaults parsing', () {
@@ -1439,6 +1455,40 @@ steps:
       nested: bad
 ''';
       expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('max_parallel 0 throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    max_parallel: 0
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('positive integer'))),
+      );
+    });
+
+    test('max_parallel negative throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    max_parallel: -2
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('positive integer'))),
+      );
     });
 
     test('parses max_items (snake_case)', () {

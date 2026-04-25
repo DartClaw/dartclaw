@@ -488,7 +488,15 @@ class WorkflowDefinitionParser {
   /// Returns null if absent.
   Object? _parseMaxParallel(Object? raw, String stepId, String? sourcePath) {
     if (raw == null) return null;
-    if (raw is int) return raw;
+    if (raw is int) {
+      if (raw <= 0) {
+        throw FormatException(
+          'Step "$stepId": "max_parallel" must be a positive integer, '
+          '"unlimited", or a template string${_at(sourcePath)}.',
+        );
+      }
+      return raw;
+    }
     if (raw is String) return raw;
     throw FormatException(
       'Step "$stepId": "max_parallel" must be an integer or string '
@@ -516,7 +524,8 @@ class WorkflowDefinitionParser {
   }
 
   List<WorkflowLoop> _parseLoops(Object? raw) {
-    if (raw is! YamlList) return const [];
+    if (raw == null) return const [];
+    if (raw is! YamlList) throw FormatException('Field "loops" must be a list of loop entries.');
     return raw.map((l) => _parseLoop(l as YamlMap)).toList(growable: false);
   }
 

@@ -988,7 +988,7 @@ steps:
 ```
 
 **Key behaviors:**
-- `{{context.*}}` substitutions in the command are shell-escaped to prevent injection
+- `{{context.*}}` and `{{VAR}}` substitutions in the command are shell-escaped to prevent injection (consistent escape contract; if you need literal unescaped content, write it directly in the command template)
 - stdout is captured and fed to the normal `text`/`json`/`lines` extraction pipeline
 - stdout is truncated at 64 KB with a `[truncated]` marker if exceeded
 - stderr is captured separately without truncation

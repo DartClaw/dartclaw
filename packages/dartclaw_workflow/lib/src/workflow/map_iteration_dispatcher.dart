@@ -24,20 +24,26 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
   }) async {
     final taskId = _uuid.v4();
 
-    // Subscribe before create to avoid race condition.
+    // Subscribe before create to avoid race condition. Listener is synchronous
+    // and filters the transient retry-in-progress signal so the SQLite read
+    // can never race a teardown — same pattern as step_dispatcher's Phase 0
+    // fix (S64).
     final completer = Completer<Task>();
-    final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) async {
-      if (event.newStatus == TaskStatus.failed) {
-        final t = await _taskService.get(taskId);
-        if (t == null) return;
-        if (t.status == TaskStatus.queued || t.status == TaskStatus.running) return;
-        if (t.retryCount < t.maxRetries) return;
-        if (!completer.isCompleted) completer.complete(t);
-      } else if (event.newStatus.terminal) {
-        if (!completer.isCompleted) {
-          final t = await _taskService.get(taskId);
-          if (t != null) completer.complete(t);
-        }
+    final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) {
+      if (event.newStatus == TaskStatus.failed && event.trigger == 'retry-in-progress') {
+        // Transient failed state before a task-level retry re-queues. The
+        // matching queued(trigger:'retry') event will follow synchronously;
+        // no DB read or delay needed — just ignore this transition.
+        return;
+      }
+      if (event.newStatus == TaskStatus.queued || event.newStatus == TaskStatus.running) {
+        // Task re-queued for retry or still active — not terminal.
+        return;
+      }
+      if (event.newStatus.terminal && !completer.isCompleted) {
+        _taskService.get(taskId).then((t) {
+          if (t != null && !completer.isCompleted) completer.complete(t);
+        });
       }
     });
 

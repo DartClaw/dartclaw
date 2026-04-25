@@ -1,6 +1,5 @@
-@Tags(['component'])
-library;
-
+// Pure unit test — SchemaValidator has no SQLite, filesystem, or
+// service dependencies. Default tier so it runs on -x component too.
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
 
@@ -203,6 +202,43 @@ void main() {
       test('returns no warnings when schema has no type', () {
         // Edge case: schema without 'type' field — validator does nothing.
         expect(validator.validate({'any': 'value'}, {}), isEmpty);
+      });
+    });
+
+    group('explicit-null property values', () {
+      test('explicit null value against typed property fires warning', () {
+        // Regression: previously _validateObject skipped any field whose
+        // value was null, conflating "absent" with "explicit null". A
+        // payload like {priority: null} bypassed type/enum/bounds checks.
+        const schema = {
+          'type': 'object',
+          'properties': {
+            'priority': {'type': 'string', 'enum': ['low', 'medium', 'high']},
+          },
+        };
+        final warnings = validator.validate({'priority': null}, schema);
+        expect(warnings, hasLength(1));
+        expect(warnings.first, contains('got null'));
+      });
+
+      test('truly absent property remains skipped (not required)', () {
+        const schema = {
+          'type': 'object',
+          'properties': {
+            'priority': {'type': 'string'},
+          },
+        };
+        expect(validator.validate(<String, dynamic>{}, schema), isEmpty);
+      });
+
+      test('explicit null is fine when type allows null', () {
+        const schema = {
+          'type': 'object',
+          'properties': {
+            'priority': {'type': ['string', 'null']},
+          },
+        };
+        expect(validator.validate({'priority': null}, schema), isEmpty);
       });
     });
 

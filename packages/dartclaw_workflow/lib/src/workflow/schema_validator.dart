@@ -82,8 +82,8 @@ class SchemaValidator {
     final properties = schema['properties'] as Map<String, dynamic>?;
     if (properties != null) {
       for (final entry in properties.entries) {
+        if (!value.containsKey(entry.key)) continue; // Truly missing — skip.
         final fieldValue = value[entry.key];
-        if (fieldValue == null) continue; // Missing optional fields are fine.
         _validateValue(
           fieldValue,
           entry.value as Map<String, dynamic>,

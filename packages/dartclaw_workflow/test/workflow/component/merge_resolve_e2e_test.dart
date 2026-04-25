@@ -463,6 +463,11 @@ void main() {
         expect(evt.runId, run.id);
         expect(evt.foreachStepId, isNotEmpty);
         expect(evt.failedAttemptNumber, equals(2));
+        // P3 is a single-story foreach (last-unfinished-iteration case),
+        // so drainedIterationCount is correctly 0. The accuracy of this
+        // field for the mid-flight case is asserted in S61's S2 test
+        // (serialize_remaining_escalation_test.dart, S2 group).
+        expect(evt.drainedIterationCount, equals(0), reason: 'P3 single-story foreach: no in-flight siblings to drain');
 
         // Two failed artifacts for the conflicting story.
         if (conflictingStoryTaskId != null) {
@@ -640,14 +645,18 @@ void main() {
           reason: 'cancellation of merge-resolve task must not produce WorkflowRunStatus.completed',
         );
 
-        // If an artifact was written, it must have outcome=cancelled.
-        if (storyTaskId != null) {
-          final artifacts = await _readArtifacts(h, storyTaskId!);
-          for (final a in artifacts) {
-            if (a.outcome == 'cancelled') {
-              expect(a.errorMessage, isNotNull, reason: 'cancelled artifact must have error_message');
-              _assertArtifactFields(a);
-            }
+        // Story task should have been observed by the listener.
+        expect(storyTaskId, isNotNull, reason: 'cancellation test must have observed the merge-resolve task id');
+        // Cancellation-artifact persistence is exercised more directly in
+        // S60's component tests (merge_resolve_plumbing_test.dart). The
+        // fake-harness path here may not always traverse the same artifact
+        // persistence seam — when an artifact is written, validate its shape.
+        final artifacts = await _readArtifacts(h, storyTaskId!);
+        for (final a in artifacts) {
+          if (a.outcome == 'cancelled') {
+            expect(a.errorMessage, isNotNull, reason: 'cancelled artifact must have error_message');
+            expect(a.errorMessage!.trim(), isNotEmpty, reason: 'cancelled artifact error_message must not be blank');
+            _assertArtifactFields(a);
           }
         }
       });

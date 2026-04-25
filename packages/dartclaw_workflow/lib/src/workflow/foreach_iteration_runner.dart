@@ -591,7 +591,29 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               config: mergeResolveConfig,
             );
             if (resolveResult == null) {
-              // Failure already recorded and inFlightCount decremented by the helper.
+              mapCtx.recordFailure(iterIndex, 'merge-resolve failed', firstTaskId);
+              await _persistForeachProgress(
+                run,
+                controllerStep,
+                context,
+                mapCtx,
+                stepIndex: stepIndex,
+                promotedIds: promotedIds,
+              );
+              mapCtx.inFlightCount--;
+              _eventBus.fire(
+                MapIterationCompletedEvent(
+                  runId: run.id,
+                  stepId: controllerStep.id,
+                  iterationIndex: iterIndex,
+                  totalIterations: mapCtx.collection.length,
+                  itemId: storyId,
+                  taskId: firstTaskId ?? '',
+                  success: false,
+                  tokenCount: iterTokens,
+                  timestamp: DateTime.now(),
+                ),
+              );
               return;
             }
             // Resolved successfully — treat as promotion success and continue.

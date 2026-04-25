@@ -819,7 +819,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       final existingArtifacts = firstTaskId != null
           ? await (_taskRepository?.listArtifactsByTask(firstTaskId) ?? Future.value(const <TaskArtifact>[]))
           : const <TaskArtifact>[];
-      final artifactName = 'merge_resolve_attempt_$crashAttemptNumber.json';
+      final artifactName = 'merge_resolve_iter_${iterIndex}_attempt_$crashAttemptNumber.json';
       final alreadyPersisted = existingArtifacts.any((a) => a.name == artifactName);
       if (!alreadyPersisted && firstTaskId != null) {
         // BPC-20 exact string: "interrupted by server restart"
@@ -858,6 +858,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           await _handleCleanupFailure(
             errorMsg: cleanupError,
             taskId: firstTaskId,
+            iterIndex: iterIndex,
             attemptNumber: crashAttemptNumber,
             run: run,
             controllerStep: controllerStep,
@@ -874,44 +875,72 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     // Retry-then-promote loop.
     MergeResolveAttemptArtifact? lastAttempt;
     while (attemptCounter < config.maxAttempts) {
-      // TI08: capture or reuse pre_attempt_sha.
-      String? preAttemptSha = context['$statePrefix.pre_attempt_sha'] as String?;
-      if (preAttemptSha == null || preAttemptSha.isEmpty) {
-        preAttemptSha = await _capturePreAttemptSha(projectId: projectId, branch: storyBranch);
-        if (preAttemptSha == null) {
-          WorkflowExecutor._log.warning("Workflow '${run.id}': could not capture pre_attempt_sha for $storyBranch");
-          preAttemptSha = '';
+      // TI08+TI09: atomically capture SHA + dirty-check + cleanup under one lock.
+      String preAttemptSha = context['$statePrefix.pre_attempt_sha'] as String? ?? '';
+      final captureAndClean = _turnAdapter?.captureAndCleanWorktreeForRetry;
+      if (captureAndClean != null) {
+        final ccResult = await captureAndClean(
+          projectId: projectId,
+          branch: storyBranch,
+          preAttemptSha: preAttemptSha.isNotEmpty ? preAttemptSha : null,
+        );
+        if (preAttemptSha.isEmpty && ccResult.sha != null) {
+          preAttemptSha = ccResult.sha!;
+          context['$statePrefix.pre_attempt_sha'] = preAttemptSha;
+          await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
         }
-        context['$statePrefix.pre_attempt_sha'] = preAttemptSha;
-        await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-      }
-
-      // TI09: pre-attempt cleanup if worktree is dirty.
-      if (preAttemptSha.isNotEmpty) {
-        final isDirty = await _isWorktreeDirty(projectId: projectId, branch: storyBranch);
-        if (isDirty) {
-          final cleanupError = await _turnAdapter?.cleanupWorktreeForRetry?.call(
-            projectId: projectId,
-            branch: storyBranch,
-            preAttemptSha: preAttemptSha,
-          );
-          if (cleanupError != null) {
-            final attemptNumber = attemptCounter + 1;
-            if (firstTaskId != null) {
-              await _handleCleanupFailure(
-                errorMsg: cleanupError,
-                taskId: firstTaskId,
+        if (ccResult.cleanupError != null) {
+          final attemptNumber = attemptCounter + 1;
+          if (firstTaskId != null) {
+            await _persistAttemptArtifact(
+              artifact: MergeResolveAttemptArtifact(
+                iterationIndex: iterIndex,
+                storyId: storyId ?? '',
                 attemptNumber: attemptNumber,
-                run: run,
-                controllerStep: controllerStep,
-                context: context,
-                mapCtx: mapCtx,
-                stepIndex: stepIndex,
-                promotedIds: promotedIds,
-              );
-            }
-            return null;
+                outcome: 'failed',
+                conflictedFiles: initialConflictingFiles,
+                resolutionSummary: '',
+                errorMessage: ccResult.cleanupError,
+                agentSessionId: '',
+                tokensUsed: 0,
+              ),
+              taskId: firstTaskId,
+              preAttemptSha: preAttemptSha,
+              projectId: projectId,
+              storyBranch: storyBranch,
+              run: run,
+              controllerStep: controllerStep,
+              context: context,
+              mapCtx: mapCtx,
+              stepIndex: stepIndex,
+              promotedIds: promotedIds,
+              statePrefix: statePrefix,
+            );
+            await _handleCleanupFailure(
+              errorMsg: ccResult.cleanupError!,
+              taskId: firstTaskId,
+              iterIndex: iterIndex,
+              attemptNumber: attemptNumber,
+              run: run,
+              controllerStep: controllerStep,
+              context: context,
+              mapCtx: mapCtx,
+              stepIndex: stepIndex,
+              promotedIds: promotedIds,
+            );
           }
+          return null;
+        }
+      } else {
+        // Fallback: separate calls when combined callback is not wired.
+        if (preAttemptSha.isEmpty) {
+          final sha = await _capturePreAttemptSha(projectId: projectId, branch: storyBranch);
+          if (sha == null) {
+            WorkflowExecutor._log.warning("Workflow '${run.id}': could not capture pre_attempt_sha for $storyBranch");
+          }
+          preAttemptSha = sha ?? '';
+          context['$statePrefix.pre_attempt_sha'] = preAttemptSha;
+          await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
         }
       }
 
@@ -945,6 +974,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       );
 
       final skillStepIndex = definition.steps.length; // synthetic; not in definition.steps
+      final attemptStartedAt = DateTime.now();
       final resolveResult = await _executeStep(
         run,
         definition,
@@ -953,6 +983,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         stepIndex: skillStepIndex,
         extraTaskConfig: {'_workflowMergeResolveEnv': envMap},
       );
+      final attemptElapsedMs = DateTime.now().difference(attemptStartedAt).inMilliseconds;
 
       // Advance counter immediately after invocation.
       attemptCounter++;
@@ -986,15 +1017,16 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         errorMessage: outcome == 'resolved' ? null : (skillErrorMessage ?? 'failed'),
         agentSessionId: agentSessionId,
         tokensUsed: tokensUsed,
+        startedAt: attemptStartedAt,
+        elapsedMs: attemptElapsedMs,
       );
       lastAttempt = artifact;
 
       // TI12: persist artifact (idempotent on resume).
-      final taskIdForArtifact = resolveResult?.task?.id ?? firstTaskId;
-      if (taskIdForArtifact != null) {
+      if (firstTaskId != null) {
         await _persistAttemptArtifact(
           artifact: artifact,
-          taskId: taskIdForArtifact,
+          taskId: firstTaskId,
           preAttemptSha: preAttemptSha,
           projectId: projectId,
           storyBranch: storyBranch,
@@ -1011,11 +1043,25 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       // Cancellation: propagate without further attempts.
       if (resolveResult?.task?.status == TaskStatus.cancelled || outcome == 'cancelled') {
         if (preAttemptSha.isNotEmpty) {
-          await _turnAdapter?.cleanupWorktreeForRetry?.call(
+          final cancelCleanupError = await _turnAdapter?.cleanupWorktreeForRetry?.call(
             projectId: projectId,
             branch: storyBranch,
             preAttemptSha: preAttemptSha,
           );
+          if (cancelCleanupError != null && firstTaskId != null) {
+            await _handleCleanupFailure(
+              errorMsg: cancelCleanupError,
+              taskId: firstTaskId,
+              iterIndex: iterIndex,
+              attemptNumber: attemptNumber,
+              run: run,
+              controllerStep: controllerStep,
+              context: context,
+              mapCtx: mapCtx,
+              stepIndex: stepIndex,
+              promotedIds: promotedIds,
+            );
+          }
         }
         return null;
       }
@@ -1071,10 +1117,11 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         );
         if (cleanupError != null) {
           // Overwrite artifact's error_message and treat as hard failure.
-          if (taskIdForArtifact != null) {
+          if (firstTaskId != null) {
             await _handleCleanupFailure(
               errorMsg: cleanupError,
-              taskId: taskIdForArtifact,
+              taskId: firstTaskId,
+              iterIndex: iterIndex,
               attemptNumber: attemptNumber,
               run: run,
               controllerStep: controllerStep,
@@ -1112,16 +1159,6 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
   /// Captures the HEAD SHA of [branch] for [projectId] via the TurnAdapter.
   Future<String?> _capturePreAttemptSha({required String projectId, required String branch}) =>
       _turnAdapter?.captureWorkflowBranchSha?.call(projectId: projectId, branch: branch) ?? Future.value(null);
-
-  /// Returns true when the story-branch worktree has uncommitted changes or an in-progress merge.
-  ///
-  /// Always runs cleanup pre-attempt when a valid sha is available — the cleanup triple is safe
-  /// as a no-op on a clean worktree (reset-to-same-sha + clean with nothing to remove).
-  Future<bool> _isWorktreeDirty({required String projectId, required String branch}) async {
-    // Without a direct git-status callback, treat as potentially dirty on every resume
-    // so the cleanup triple always runs as a pre-attempt reset to baseline.
-    return true;
-  }
 
   /// Builds the six MERGE_RESOLVE_* env vars from config (TI05, Decisions 1+6).
   Map<String, String> _buildMergeResolveEnv(
@@ -1164,7 +1201,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
   }) async {
     final repo = _taskRepository;
     if (repo == null) return;
-    final name = 'merge_resolve_attempt_${artifact.attemptNumber}.json';
+    final name = 'merge_resolve_iter_${artifact.iterationIndex}_attempt_${artifact.attemptNumber}.json';
     final existing = await repo.listArtifactsByTask(taskId);
     if (existing.any((a) => a.name == name)) return; // idempotent
     final artifactJson = artifact.toJsonString();
@@ -1188,6 +1225,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
   Future<void> _handleCleanupFailure({
     required String errorMsg,
     required String taskId,
+    required int iterIndex,
     required int attemptNumber,
     required WorkflowRun run,
     required WorkflowStep controllerStep,
@@ -1202,7 +1240,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     // Attempt to update the existing artifact's error_message by reinserting with cleanup error.
     final repo = _taskRepository;
     if (repo != null) {
-      final name = 'merge_resolve_attempt_$attemptNumber.json';
+      final name = 'merge_resolve_iter_${iterIndex}_attempt_$attemptNumber.json';
       final existing = await repo.listArtifactsByTask(taskId);
       final existing_ = existing.where((a) => a.name == name).firstOrNull;
       if (existing_ != null) {

@@ -554,6 +554,32 @@ class ServiceWiring {
             await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: gitDir);
           }
         },
+        cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async {
+          final resolvedProject = await project.projectService.get(projectId);
+          if (resolvedProject == null) return 'project "$projectId" not found';
+          return cleanupWorktreeForRetry(
+            projectDir: resolvedProject.localPath,
+            branch: branch,
+            preAttemptSha: preAttemptSha,
+          );
+        },
+        captureWorkflowBranchSha: ({required projectId, required branch}) async {
+          final resolvedProject = await project.projectService.get(projectId);
+          if (resolvedProject == null) return null;
+          return captureWorkflowBranchSha(projectDir: resolvedProject.localPath, branch: branch);
+        },
+        captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async {
+          final resolvedProject = await project.projectService.get(projectId);
+          if (resolvedProject == null) {
+            return (sha: null, isDirty: false, cleanupError: 'project "$projectId" not found');
+          }
+          final result = await captureAndCleanWorktreeForRetry(
+            projectDir: resolvedProject.localPath,
+            branch: branch,
+            preAttemptSha: preAttemptSha,
+          );
+          return (sha: result.sha, isDirty: result.isDirty, cleanupError: result.cleanupError);
+        },
         reserveTurn: serverTurns.reserveTurn,
         reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => serverTurns.reserveTurn(
           sessionId,

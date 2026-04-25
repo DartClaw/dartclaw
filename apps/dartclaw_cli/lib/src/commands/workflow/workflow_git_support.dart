@@ -136,6 +136,61 @@ Future<String?> captureWorkflowBranchSha({required String projectDir, required S
   });
 }
 
+/// Result of [captureAndCleanWorktreeForRetry] — holds lock across SHA capture,
+/// dirty check, and cleanup triple so no external mutation window exists.
+final class CaptureAndCleanResult {
+  final String? sha;
+  final bool isDirty;
+  final String? cleanupError;
+
+  const CaptureAndCleanResult({required this.sha, required this.isDirty, this.cleanupError});
+}
+
+/// Under a single [_workflowGitRepoLock] scope:
+///  1. Captures HEAD SHA of [branch] (returns null on failure).
+///  2. Checks whether the worktree is dirty via `git status --porcelain`.
+///  3. If dirty, runs the cleanup triple (merge-abort + reset + clean).
+///
+/// Returns a [CaptureAndCleanResult] with all three values.
+Future<CaptureAndCleanResult> captureAndCleanWorktreeForRetry({
+  required String projectDir,
+  required String branch,
+  String? preAttemptSha,
+}) {
+  return _workflowGitRepoLock.acquire(_repoLockKey(projectDir), () async {
+    final worktreePath = await _findWorktreePathForBranch(projectDir: projectDir, branch: branch) ?? projectDir;
+
+    final revResult = await _workflowGit(['rev-parse', branch], workingDirectory: worktreePath);
+    final sha = revResult.exitCode == 0 ? (revResult.stdout as String).trim() : null;
+
+    final statusResult = await _workflowGit(
+      ['status', '--porcelain', '--untracked-files=all'],
+      workingDirectory: worktreePath,
+    );
+    final isDirty = statusResult.exitCode == 0
+        ? (statusResult.stdout as String).trim().isNotEmpty
+        : true; // conservatively assume dirty on error
+
+    if (!isDirty) return CaptureAndCleanResult(sha: sha?.isEmpty == true ? null : sha, isDirty: false);
+
+    final effectiveSha = preAttemptSha ?? sha;
+    if (effectiveSha == null || effectiveSha.isEmpty) {
+      return CaptureAndCleanResult(sha: null, isDirty: true, cleanupError: 'cleanup failed: no SHA available for reset');
+    }
+
+    final cleanupError = await _cleanupWorktreeForRetryUnlocked(
+      projectDir: projectDir,
+      branch: branch,
+      preAttemptSha: effectiveSha,
+    );
+    return CaptureAndCleanResult(
+      sha: sha?.isEmpty == true ? null : sha,
+      isDirty: true,
+      cleanupError: cleanupError,
+    );
+  });
+}
+
 Future<WorkflowGitPromotionResult> promoteWorkflowBranchLocally({
   required String projectDir,
   required String runId,

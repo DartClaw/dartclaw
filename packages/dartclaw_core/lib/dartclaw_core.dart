@@ -82,6 +82,15 @@ export 'src/harness/codex_protocol_adapter.dart' show CodexProtocolAdapter;
 export 'src/harness/codex_settings.dart' show CodexSettings;
 export 'src/harness/harness_config.dart' show HarnessConfig;
 export 'src/harness/harness_factory.dart' show HarnessFactory, HarnessFactoryConfig;
+export 'src/harness/merge_resolve_env_vars.dart'
+    show
+        mergeResolveIntegrationBranchEnvVar,
+        mergeResolveStoryBranchEnvVar,
+        mergeResolveTokenCeilingEnvVar,
+        mergeResolveVerifyFormatEnvVar,
+        mergeResolveVerifyAnalyzeEnvVar,
+        mergeResolveVerifyTestEnvVar,
+        mergeResolveEnvVarNames;
 export 'src/harness/mcp_tool.dart' show McpTool;
 export 'src/harness/claude_protocol.dart' show claudeHardeningEnvVars;
 export 'src/harness/process_types.dart' show ProcessFactory, CommandProbe, DelayFactory, HealthProbe;

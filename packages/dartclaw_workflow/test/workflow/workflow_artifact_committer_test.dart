@@ -1,3 +1,6 @@
+@Tags(['component'])
+library;
+
 import 'dart:io';
 
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway;
@@ -10,6 +13,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowGitArtifactsStrategy,
+        WorkflowGitPort,
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowRun,
@@ -505,6 +509,146 @@ void main() {
       expect(result.failed, isTrue);
       expect(result.fatal, isTrue);
       expect(result.failureReason, contains('add failed'));
+    });
+
+    group('artifact-commit boundary matrix', () {
+      final planStep = const WorkflowStep(
+        id: 'plan',
+        name: 'Plan',
+        contextOutputs: ['plan'],
+        outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+      );
+
+      ArtifactCommitPolicy makePolicy({
+        required Directory repoDir,
+        WorkflowGitPort? port,
+        String? project,
+        Task? task,
+      }) {
+        return ArtifactCommitPolicy(
+          run: _run(),
+          definition: WorkflowDefinition(
+            name: 'wf',
+            description: 'test',
+            project: project ?? 'proj',
+            gitStrategy: const WorkflowGitStrategy(
+              worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+              artifacts: WorkflowGitArtifactsStrategy(commit: true),
+            ),
+            steps: [planStep],
+          ),
+          step: planStep,
+          context: WorkflowContext(data: {'plan': 'plan.md'}),
+          task:
+              task ??
+              Task(
+                id: 'task-1',
+                title: 'Task',
+                description: 'Task',
+                type: TaskType.coding,
+                createdAt: DateTime(2026, 1, 1),
+              ),
+          projectService: null,
+          dataDir: tempDir.path,
+          templateEngine: WorkflowTemplateEngine(),
+          workflowGitPort: port,
+        );
+      }
+
+      test('no WorkflowGitPort returns failed result', () async {
+        final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
+        File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
+
+        final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: null));
+
+        expect(result.failed, isTrue);
+        expect(result.failureReason, contains('no WorkflowGitPort'));
+      });
+
+      test('unresolved project returns failed result', () async {
+        final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
+        File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
+        final git = FakeGitGateway()..initWorktree(repoDir.path);
+
+        final policy = ArtifactCommitPolicy(
+          run: _run(),
+          definition: const WorkflowDefinition(
+            name: 'wf',
+            description: 'test',
+            // No project at all — cannot resolve.
+            gitStrategy: WorkflowGitStrategy(
+              worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+              artifacts: WorkflowGitArtifactsStrategy(commit: true),
+            ),
+            steps: [
+              WorkflowStep(
+                id: 'plan',
+                name: 'Plan',
+                contextOutputs: ['plan'],
+                outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+              ),
+            ],
+          ),
+          step: planStep,
+          context: WorkflowContext(data: {'plan': 'plan.md'}),
+          task: Task(id: 't', title: 'T', description: 'T', type: TaskType.coding, createdAt: DateTime(2026, 1, 1)),
+          projectService: null,
+          dataDir: tempDir.path,
+          templateEngine: WorkflowTemplateEngine(),
+          workflowGitPort: git,
+        );
+
+        final result = await maybeCommitStepArtifacts(policy);
+
+        expect(result.failed, isTrue);
+        expect(result.failureReason, contains('no project id'));
+      });
+
+      test('missing directory returns failed result', () async {
+        final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'));
+        // Intentionally NOT creating repoDir — directory does not exist.
+        final git = FakeGitGateway()..initWorktree('/nonexistent');
+
+        final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: git));
+
+        expect(result.failed, isTrue);
+        expect(result.failureReason, contains('does not exist'));
+      });
+
+      test('staged empty + artifact missing at HEAD returns failed result', () async {
+        final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
+        File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
+        // initWorktree with empty files dict — HEAD commit has no files.
+        final git = FakeGitGateway()..initWorktree(repoDir.path, files: {});
+        // Add plan.md to the working tree but it won't stage (already in modified but not HEAD).
+        // To simulate: add untracked, then don't call add before we run the policy.
+        // Actually to get staged-empty with missing-at-HEAD: don't add untracked to the git index.
+        // The committer calls git.add(), which moves untracked → staged.
+        // For staged-empty we need the file to NOT be in staged after add.
+        // The FakeGitGateway.add only stages files that are in `modified` or `untracked`.
+        // If the file is not there, add() is a no-op → staged stays empty.
+        // And pathExistsAtRef(HEAD) returns false if it's not in the HEAD commit.
+        // The file is on disk but not tracked in git at all.
+        // Don't call addUntracked — file exists on disk but git doesn't know about it.
+
+        final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: git));
+
+        expect(result.failed, isTrue);
+        expect(result.failureReason, contains('missing at HEAD'));
+      });
+
+      test('staged empty + artifact present at HEAD returns skipped result', () async {
+        final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
+        File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
+        // Commit the file so it IS present at HEAD.
+        final git = FakeGitGateway()..initWorktree(repoDir.path, files: {'plan.md': 'plan'});
+        // File is in HEAD commit, nothing staged — returns skipped (already committed).
+
+        final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: git));
+
+        expect(result.failed, isFalse);
+        expect(result.committedPaths, isEmpty); // already at HEAD — skipped
+      });
     });
   });
 }

@@ -161,6 +161,9 @@ String resolveBashWorkdir({
 }
 
 /// Resolves template references in a shell command.
+///
+/// Both `{{context.key}}` and `{{VAR}}` substitutions are shell-escaped via
+/// [shellEscape] — callers must not double-escape.
 String resolveBashCommand(String command, WorkflowContext context) {
   return command.replaceAllMapped(RegExp(r'\{\{([^}]+)\}\}'), (match) {
     final ref = match.group(1)!.trim();
@@ -180,7 +183,7 @@ String resolveBashCommand(String command, WorkflowContext context) {
     if (value == null) {
       throw ArgumentError('Bash command references undefined variable: {{$ref}}');
     }
-    return value;
+    return shellEscape(value);
   });
 }
 

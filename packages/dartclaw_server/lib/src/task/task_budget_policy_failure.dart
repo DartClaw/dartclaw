@@ -54,7 +54,9 @@ final class TaskFailureHandler {
           sessionId: null,
           configJson: retryConfigJson,
         );
-        await _tasks.transition(task.id, TaskStatus.failed, trigger: 'system');
+        // Use 'retry-in-progress' so listeners can distinguish this transient
+        // failed state from a permanent failure (both otherwise use 'system').
+        await _tasks.transition(task.id, TaskStatus.failed, trigger: 'retry-in-progress');
         await _tasks.transition(task.id, TaskStatus.queued, trigger: 'retry');
         return;
       }

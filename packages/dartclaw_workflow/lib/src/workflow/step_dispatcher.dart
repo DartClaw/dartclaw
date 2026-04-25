@@ -170,24 +170,21 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     while (true) {
       final taskId = _uuid.v4();
       final completer = Completer<Task>();
-      final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) async {
-        if (event.newStatus == TaskStatus.failed) {
-          // Task-level retry transitions through failed before immediately
-          // re-queueing the same task. Give that re-queue a chance to land so
-          // workflow-level retries do not spawn a duplicate step attempt.
-          if (event.trigger == 'system') {
-            await Future<void>.delayed(const Duration(milliseconds: 20));
-          }
-          final t = await _taskService.get(taskId);
-          if (t == null) return;
-          if (t.status == TaskStatus.queued || t.status == TaskStatus.running) return;
-          if (t.retryCount < t.maxRetries) return;
-          if (!completer.isCompleted) completer.complete(t);
-        } else if (event.newStatus.terminal) {
-          if (!completer.isCompleted) {
-            final t = await _taskService.get(taskId);
-            if (t != null) completer.complete(t);
-          }
+      final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) {
+        if (event.newStatus == TaskStatus.failed && event.trigger == 'retry-in-progress') {
+          // Transient failed state before a task-level retry re-queues. The
+          // matching queued(trigger:'retry') event will follow synchronously;
+          // no DB read or delay needed — just ignore this transition.
+          return;
+        }
+        if (event.newStatus == TaskStatus.queued || event.newStatus == TaskStatus.running) {
+          // Task re-queued for retry or still active — not terminal.
+          return;
+        }
+        if (event.newStatus.terminal && !completer.isCompleted) {
+          _taskService.get(taskId).then((t) {
+            if (t != null && !completer.isCompleted) completer.complete(t);
+          });
         }
       });
 

@@ -1,3 +1,6 @@
+@Tags(['component'])
+library;
+
 import 'dart:async';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';

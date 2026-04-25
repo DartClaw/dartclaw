@@ -3,3 +3,5 @@ tags:
   component:
   integration:
     skip: "Requires live API credentials — run explicitly with: dart test --run-skipped -t integration"
+  fitness-shape:
+    skip: "Shape-trend monitors — run explicitly during release prep: dart test -t fitness-shape"

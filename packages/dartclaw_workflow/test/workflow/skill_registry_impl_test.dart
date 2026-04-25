@@ -1,3 +1,6 @@
+@Tags(['component'])
+library;
+
 import 'dart:io';
 
 import 'package:dartclaw_models/dartclaw_models.dart' show SkillSource;
@@ -523,14 +526,15 @@ void main() {
       expect(error, contains('No skills discovered'));
     });
 
-    // S51-VALIDATOR-ERROR: andthen-* skill refs include the install hint.
     test('validateRef for missing andthen-* skill includes install hint', () {
       final error = registry.validateRef('andthen-spec');
       expect(error, isNotNull);
-      expect(error, contains('andthen-spec'));
-      expect(error, contains('not found'));
-      expect(error, contains('install-skills.sh'));
-      expect(error, contains('0.14.0'));
+      expect(error, contains('andthen-spec'), reason: 'error message should name the missing skill');
+      expect(error, contains('not found'), reason: 'error message should indicate skill was not found');
+      expect(error, contains('install-skills.sh'), reason: 'error message should include the install hint');
+      // Version requirement must be present (non-empty); exact version is in
+      // the source constant — test the behavioral contract, not the literal.
+      expect(RegExp(r'\d+\.\d+').hasMatch(error!), isTrue, reason: 'error message should include a version requirement');
     });
 
     test('validateRef for missing andthen-* skill with no skills discovered includes install hint', () {

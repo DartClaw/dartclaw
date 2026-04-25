@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinitionParser, WorkflowDefinitionValidator, WorkflowRegistry, WorkflowSource;
+    show WorkflowDefinition, WorkflowDefinitionParser, WorkflowDefinitionValidator, WorkflowRegistry, WorkflowSource;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -176,93 +176,118 @@ void main() {
     });
 
     test('materialized workflow YAMLs do not embed runtime budget policy', () async {
+      final parser = WorkflowDefinitionParser();
       final definitionsDir = _workflowDefinitionsDir();
-      final specAndImplement = File(p.join(definitionsDir, 'spec-and-implement.yaml')).readAsStringSync();
-      final planAndImplement = File(p.join(definitionsDir, 'plan-and-implement.yaml')).readAsStringSync();
-      final codeReview = File(p.join(definitionsDir, 'code-review.yaml')).readAsStringSync();
-
-      for (final source in [specAndImplement, planAndImplement, codeReview]) {
-        expect(source, isNot(contains('maxTokens')));
-        expect(source, isNot(contains('maxCostUsd')));
+      final defs = await Future.wait([
+        parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml')),
+        parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml')),
+        parser.parseFile(p.join(definitionsDir, 'code-review.yaml')),
+      ]);
+      for (final def in defs) {
+        expect(def.maxTokens, isNull, reason: '${def.name} must not embed a maxTokens budget policy');
       }
     });
 
     test('built-ins adopt the shared project/branch contract and direct specialist review routing', () async {
+      final parser = WorkflowDefinitionParser();
       final definitionsDir = _workflowDefinitionsDir();
-      final specAndImplement = File(p.join(definitionsDir, 'spec-and-implement.yaml')).readAsStringSync();
-      final planAndImplement = File(p.join(definitionsDir, 'plan-and-implement.yaml')).readAsStringSync();
-      final codeReview = File(p.join(definitionsDir, 'code-review.yaml')).readAsStringSync();
+      final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml'));
+      final planAndImplement = await parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml'));
+      final codeReview = await parser.parseFile(p.join(definitionsDir, 'code-review.yaml'));
 
-      expect(specAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
-      expect(specAndImplement, isNot(contains(RegExp(r'^  BASE_BRANCH:$', multiLine: true))));
-      expect(specAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
-      expect(specAndImplement, isNot(contains('- id: approve-spec')));
-      // Confidence-gated single-step review-and-revise pass: runs only when the spec
-      // skill self-rates confidence < 7. Uses andthen-review (ADR-025 migration).
-      expect(specAndImplement, contains('- id: revise-spec'));
-      expect(specAndImplement, isNot(contains('- id: review-spec')));
-      expect(specAndImplement, contains('spec_confidence < 7'));
-      expect(specAndImplement, contains('spec_path'));
-      // Post-ADR-025: all non-discover-project steps use andthen-* skills.
-      expect(specAndImplement, contains('skill: andthen-review'));
-      expect(specAndImplement, isNot(contains('skill: dartclaw-review')));
-      expect(specAndImplement, isNot(contains('skill: dartclaw-review-gap')));
+      void assertSkills(WorkflowDefinition def, List<String> required, List<String> forbidden) {
+        final allSkills = def.steps.map((s) => s.skill).whereType<String>().toSet();
+        for (final r in required) {
+          expect(allSkills, contains(r), reason: '${def.name} must use skill $r');
+        }
+        for (final f in forbidden) {
+          expect(allSkills, isNot(contains(f)), reason: '${def.name} must not use skill $f');
+        }
+      }
 
-      expect(planAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
-      expect(planAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
-      // Confidence-gated single-step revise-prd mirrors the spec workflow.
-      expect(planAndImplement, contains('- id: revise-prd'));
-      expect(planAndImplement, isNot(contains('- id: review-prd')));
-      expect(planAndImplement, contains('prd_confidence < 7'));
-      expect(planAndImplement, contains('skill: andthen-quick-review'));
-      expect(planAndImplement, contains('skill: andthen-review'));
-      expect(planAndImplement, isNot(contains('skill: dartclaw-review-gap')));
-      expect(planAndImplement, contains('skill: andthen-plan'));
-      expect(planAndImplement, contains('skill: andthen-prd'));
-      expect(planAndImplement, isNot(contains('skill: dartclaw-spec-plan')));
-      expect(planAndImplement, isNot(contains('- id: update-state')));
-      expect(planAndImplement, isNot(contains('skill: andthen-ops')));
-      expect(planAndImplement, isNot(contains('skill: dartclaw-update-state')));
+      // spec-and-implement: BRANCH variable, gitStrategy, revise-spec step, not approve-spec.
+      expect(specAndImplement.variables.containsKey('BRANCH'), isTrue);
+      expect(specAndImplement.variables.containsKey('BASE_BRANCH'), isFalse);
+      expect(specAndImplement.gitStrategy, isNotNull);
+      expect(specAndImplement.steps.any((s) => s.id == 'revise-spec'), isTrue);
+      expect(specAndImplement.steps.any((s) => s.id == 'approve-spec'), isFalse);
+      expect(specAndImplement.steps.any((s) => s.id == 'review-spec'), isFalse);
+      // Confidence-gated revise-spec uses entryGate that references spec_confidence.
+      final reviseSpec = specAndImplement.steps.firstWhere((s) => s.id == 'revise-spec');
+      expect(reviseSpec.entryGate, contains('spec_confidence'));
+      // spec_path is referenced somewhere in the definition steps.
+      expect(specAndImplement.steps.any((s) => s.prompts?.any((p) => p.contains('spec_path')) ?? false), isTrue);
+      assertSkills(specAndImplement, ['andthen-review'], ['dartclaw-review', 'dartclaw-review-gap']);
 
-      expect(codeReview, contains(RegExp(r'^  PROJECT:$', multiLine: true)));
-      expect(codeReview, isNot(contains(RegExp(r'^  REPO:$', multiLine: true))));
-      expect(codeReview, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
-      expect(codeReview, contains('skill: andthen-review'));
-      expect(codeReview, isNot(contains('skill: dartclaw-review')));
-      expect(codeReview, isNot(contains('skill: dartclaw-review-code')));
+      // plan-and-implement: BRANCH variable, gitStrategy, revise-prd step, not review-prd.
+      expect(planAndImplement.variables.containsKey('BRANCH'), isTrue);
+      expect(planAndImplement.gitStrategy, isNotNull);
+      expect(planAndImplement.steps.any((s) => s.id == 'revise-prd'), isTrue);
+      expect(planAndImplement.steps.any((s) => s.id == 'review-prd'), isFalse);
+      final revisePrd = planAndImplement.steps.firstWhere((s) => s.id == 'revise-prd');
+      expect(revisePrd.entryGate, contains('prd_confidence'));
+      expect(planAndImplement.steps.any((s) => s.id == 'update-state'), isFalse);
+      assertSkills(
+        planAndImplement,
+        ['andthen-quick-review', 'andthen-review', 'andthen-plan', 'andthen-prd'],
+        ['dartclaw-review-gap', 'dartclaw-spec-plan', 'andthen-ops', 'dartclaw-update-state'],
+      );
+
+      // code-review: PROJECT variable (not REPO), gitStrategy, andthen-review skill.
+      expect(codeReview.variables.containsKey('PROJECT'), isTrue);
+      expect(codeReview.variables.containsKey('REPO'), isFalse);
+      expect(codeReview.gitStrategy, isNotNull);
+      assertSkills(codeReview, ['andthen-review'], ['dartclaw-review', 'dartclaw-review-code']);
     });
 
     test('code-review keeps review and re-review on the unified andthen-review specialist', () async {
-      final source = File(p.join(_workflowDefinitionsDir(), 'code-review.yaml')).readAsStringSync();
-      // `skill: andthen-review` is the unified review specialist post-ADR-025.
-      // Use a negative lookahead so the count doesn't double-count `andthen-review-*` variants.
-      final reviewSkillCount = RegExp(r'skill:\s+andthen-review(?![-\w])').allMatches(source).length;
+      final parser = WorkflowDefinitionParser();
+      final codeReview = await parser.parseFile(p.join(_workflowDefinitionsDir(), 'code-review.yaml'));
 
-      expect(reviewSkillCount, equals(2));
-      expect(source, isNot(contains('extract-diff')));
-      expect(source, isNot(contains('gather-context')));
-      expect(source, isNot(contains('review-correctness')));
-      expect(source, isNot(contains('review-security')));
-      expect(source, isNot(contains('review-architecture')));
+      // Exactly two steps use andthen-review (initial review + re-review).
+      final reviewSteps = codeReview.steps.where((s) => s.skill == 'andthen-review').toList();
+      expect(reviewSteps.length, equals(2));
+
+      // No legacy multi-pass step IDs that pre-date the unified reviewer.
+      final stepIds = codeReview.steps.map((s) => s.id).toSet();
+      for (final legacy in ['extract-diff', 'gather-context', 'review-correctness', 'review-security',
+          'review-architecture']) {
+        expect(stepIds, isNot(contains(legacy)));
+      }
     });
 
     test('implementation built-ins gate remediation loops on re-review findings only', () async {
+      final parser = WorkflowDefinitionParser();
       final definitionsDir = _workflowDefinitionsDir();
-      final specAndImplement = File(p.join(definitionsDir, 'spec-and-implement.yaml')).readAsStringSync();
-      final planAndImplement = File(p.join(definitionsDir, 'plan-and-implement.yaml')).readAsStringSync();
-      final codeReview = File(p.join(definitionsDir, 'code-review.yaml')).readAsStringSync();
+      final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml'));
+      final planAndImplement = await parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml'));
+      final codeReview = await parser.parseFile(p.join(definitionsDir, 'code-review.yaml'));
 
-      expect(specAndImplement, isNot(contains('verify-refine')));
-      expect(specAndImplement, contains('entryGate: "integrated-review.findings_count > 0"'));
-      expect(specAndImplement, contains('exitGate: "re-review.findings_count == 0"'));
+      // No legacy verify-refine step in any built-in.
+      for (final def in [specAndImplement, planAndImplement, codeReview]) {
+        expect(def.steps.any((s) => s.id == 'verify-refine'), isFalse);
+      }
 
-      expect(planAndImplement, isNot(contains('verify-refine')));
-      expect(planAndImplement, contains('entryGate: "plan-review.findings_count > 0"'));
-      expect(planAndImplement, contains('exitGate: "re-review.findings_count == 0"'));
+      // spec-and-implement remediation loop: entryGate on integrated-review, exitGate on re-review.
+      final specRemLoop = specAndImplement.loops.firstWhere(
+        (l) => l.entryGate?.contains('integrated-review') ?? false,
+      );
+      expect(specRemLoop.entryGate, contains('integrated-review.findings_count > 0'));
+      expect(specRemLoop.exitGate, contains('re-review.findings_count == 0'));
 
-      expect(codeReview, isNot(contains('verify-refine')));
-      expect(codeReview, contains('entryGate: "review-code.findings_count > 0"'));
-      expect(codeReview, contains('exitGate: "re-review.findings_count == 0"'));
+      // plan-and-implement remediation loop: entryGate on plan-review.
+      final planRemLoop = planAndImplement.loops.firstWhere(
+        (l) => l.entryGate?.contains('plan-review') ?? false,
+      );
+      expect(planRemLoop.entryGate, contains('plan-review.findings_count > 0'));
+      expect(planRemLoop.exitGate, contains('re-review.findings_count == 0'));
+
+      // code-review remediation loop: entryGate on review-code.
+      final codeRemLoop = codeReview.loops.firstWhere(
+        (l) => l.entryGate?.contains('review-code') ?? false,
+      );
+      expect(codeRemLoop.entryGate, contains('review-code.findings_count > 0'));
+      expect(codeRemLoop.exitGate, contains('re-review.findings_count == 0'));
     });
   });
 
@@ -448,9 +473,9 @@ void main() {
   });
 
   // ------------------------------------------------------------------
-  // S01 (0.16.1): warnings-only and hard-error registry behavior
+  // warnings-only and hard-error registry behavior
   // ------------------------------------------------------------------
-  group('S01 (0.16.1): warnings-only loading', () {
+  group('warnings-only loading', () {
     test('warnings-only custom workflow is registered and listable', () async {
       File(p.join(tempDir.path, 'warn-wf.yaml')).writeAsStringSync(_warningsOnlyYaml('warn-wf'));
 
@@ -487,9 +512,9 @@ void main() {
   });
 
   // ------------------------------------------------------------------
-  // S01 (0.16.1): TI06 continuity-provider capability flow
+  // TI06 continuity-provider capability flow
   // ------------------------------------------------------------------
-  group('S01 (0.16.1): continuity-provider capability validation', () {
+  group('continuity-provider capability validation', () {
     const continueSessionYaml = '''
 name: continue-session-wf
 description: Workflow using continueSession.

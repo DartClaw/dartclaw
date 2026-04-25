@@ -128,9 +128,9 @@ void main() {
       expect(stepTouchesProjectBranch(definition, definition.steps.last, roleDefaults: roleDefaults), isTrue);
     });
 
-    // ── S54: ADR-024 step semantics — semantic type does not drive project binding ──
+    // ADR-024 step semantics — semantic type does not drive project binding ──
 
-    test('S54: shouldBindWorkflowProject does not bind for authored analysis/research steps', () {
+    test('shouldBindWorkflowProject does not bind for authored analysis/research steps', () {
       // ADR-024: semantic typeAuthored values (analysis, research, writing) must NOT
       // drive project/worktree binding. Only structural selectors (mapStep, project_index
       // I/O, allowedTools with file_write, or step.project) may bind the project.
@@ -157,7 +157,7 @@ void main() {
       );
     });
 
-    test('S54: stepIsReadOnly opts out when allowedTools includes file_write regardless of authored type', () {
+    test('stepIsReadOnly opts out when allowedTools includes file_write regardless of authored type', () {
       // ADR-024 / READONLY-OVERRIDE: an authored writing/analysis step that explicitly
       // lists file_write in allowedTools is intentionally opting out of read-only mode.
       // The allowedTools override must take precedence over the legacy semantic default.

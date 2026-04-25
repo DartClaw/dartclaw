@@ -506,6 +506,18 @@ class CliWorkflowWiring {
           if (preserveWorktrees) return;
           await _cleanupWorkflowGitRun(runId);
         },
+        cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async {
+          final projectDir = await _resolveWorkflowProjectDir(projectId);
+          return cleanupWorktreeForRetry(
+            projectDir: projectDir,
+            branch: branch,
+            preAttemptSha: preAttemptSha,
+          );
+        },
+        captureWorkflowBranchSha: ({required projectId, required branch}) async {
+          final projectDir = await _resolveWorkflowProjectDir(projectId);
+          return captureWorkflowBranchSha(projectDir: projectDir, branch: branch);
+        },
         reserveTurn: turns.reserveTurn,
         reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => turns.reserveTurn(
           sessionId,

@@ -68,6 +68,74 @@ Future<void> commitWorkflowWorktreeChangesIfNeeded({
   }
 }
 
+/// Runs the cleanup triple on [branch]'s worktree, inside the repo lock.
+///
+/// Sequence: `git merge --abort` (best-effort; log + continue on failure),
+/// `git reset --hard <preAttemptSha>`, `git clean -fd`.
+///
+/// Returns null on success. Returns an error string when reset or clean fails.
+Future<String?> cleanupWorktreeForRetry({
+  required String projectDir,
+  required String branch,
+  required String preAttemptSha,
+}) {
+  return _workflowGitRepoLock.acquire(_repoLockKey(projectDir), () async {
+    return _cleanupWorktreeForRetryUnlocked(
+      projectDir: projectDir,
+      branch: branch,
+      preAttemptSha: preAttemptSha,
+    );
+  });
+}
+
+Future<String?> _cleanupWorktreeForRetryUnlocked({
+  required String projectDir,
+  required String branch,
+  required String preAttemptSha,
+}) async {
+  final worktreePath = await _findWorktreePathForBranch(projectDir: projectDir, branch: branch) ?? projectDir;
+
+  // Best-effort: abort any in-progress merge; ignore failure.
+  final abortResult = await _workflowGit(['merge', '--abort'], workingDirectory: worktreePath);
+  if (abortResult.exitCode != 0) {
+    final detail = (abortResult.stderr as String).trim();
+    if (detail.isNotEmpty && !detail.contains('There is no merge to abort') && !detail.contains('MERGE_HEAD')) {
+      // Non-trivial abort failure; log but continue.
+      stderr.writeln('[workflow-git] cleanup: merge --abort ignored: $detail');
+    }
+  }
+
+  final resetResult = await _workflowGit(
+    ['reset', '--hard', preAttemptSha],
+    workingDirectory: worktreePath,
+  );
+  if (resetResult.exitCode != 0) {
+    final detail = (resetResult.stderr as String).trim();
+    return 'cleanup failed: git reset --hard exit=${resetResult.exitCode} path=$worktreePath'
+        '${detail.isEmpty ? '' : ': $detail'}';
+  }
+
+  final cleanResult = await _workflowGit(['clean', '-fd'], workingDirectory: worktreePath);
+  if (cleanResult.exitCode != 0) {
+    final detail = (cleanResult.stderr as String).trim();
+    return 'cleanup failed: git clean -fd exit=${cleanResult.exitCode} path=$worktreePath'
+        '${detail.isEmpty ? '' : ': $detail'}';
+  }
+
+  return null;
+}
+
+/// Returns the current HEAD SHA of [branch] via `git rev-parse`, or null on failure.
+Future<String?> captureWorkflowBranchSha({required String projectDir, required String branch}) {
+  return _workflowGitRepoLock.acquire(_repoLockKey(projectDir), () async {
+    final worktreePath = await _findWorktreePathForBranch(projectDir: projectDir, branch: branch) ?? projectDir;
+    final result = await _workflowGit(['rev-parse', branch], workingDirectory: worktreePath);
+    if (result.exitCode != 0) return null;
+    final sha = (result.stdout as String).trim();
+    return sha.isNotEmpty ? sha : null;
+  });
+}
+
 Future<WorkflowGitPromotionResult> promoteWorkflowBranchLocally({
   required String projectDir,
   required String runId,

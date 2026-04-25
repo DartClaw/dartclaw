@@ -222,6 +222,7 @@ class WorkflowCliRunner {
     Map<String, dynamic>? jsonSchema,
     String? appendSystemPrompt,
     String? sandboxOverride,
+    Map<String, String>? extraEnvironment,
   }) async {
     final providerConfig = providers[provider];
     if (providerConfig == null) {
@@ -267,7 +268,10 @@ class WorkflowCliRunner {
       // was injected at construction, prepare + layer in CODEX_HOME/HOME
       // overrides so this invocation sees the managed profile instead of
       // the user's `~/.codex` (bypassing the bloated global skill registry).
-      final resolvedEnvironment = await _resolveProcessEnvironment(provider, providerConfig);
+      final baseEnvironment = await _resolveProcessEnvironment(provider, providerConfig);
+      final resolvedEnvironment = extraEnvironment == null || extraEnvironment.isEmpty
+          ? baseEnvironment
+          : {...baseEnvironment, ...extraEnvironment};
 
       final process = await _startProcess(
         executable: command.$1,

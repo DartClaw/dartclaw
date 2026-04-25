@@ -23,6 +23,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     MapContext? mapCtx,
     int? enclosingMaxParallel,
     bool promoteAfterSuccess = false,
+    Map<String, dynamic>? extraTaskConfig,
   }) async {
     if (step.type == 'bash') {
       return _executeBashStep(run, step, context);
@@ -156,7 +157,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       mapCtx: mapCtx,
     );
     final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);
-    taskConfig = {...taskConfig};
+    taskConfig = {...taskConfig, if (extraTaskConfig != null) ...extraTaskConfig};
     if (followUpPrompts.isNotEmpty) {
       taskConfig['_workflowFollowUpPrompts'] = followUpPrompts;
     }

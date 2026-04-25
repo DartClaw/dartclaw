@@ -51,6 +51,7 @@ export 'src/workflow/workflow_definition_parser.dart';
 export 'src/workflow/workflow_definition_resolver.dart';
 export 'src/workflow/workflow_definition_source.dart';
 export 'src/workflow/workflow_definition_validator.dart';
+export 'src/workflow/merge_resolve_attempt_artifact.dart';
 export 'src/workflow/workflow_executor.dart';
 export 'src/workflow/workflow_git_port.dart';
 export 'src/workflow/workflow_output_contract.dart';

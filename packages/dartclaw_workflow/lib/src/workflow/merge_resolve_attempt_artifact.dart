@@ -1,9 +1,9 @@
 import 'dart:convert';
 
-/// Structured artifact produced for each merge-resolution attempt (Decision 9, 9 v1 fields).
+/// Structured artifact produced for each merge-resolution attempt (Decision 9, 11 fields).
 ///
 /// Persisted as JSON via `TaskRepository.insertArtifact` with
-/// `name: merge_resolve_attempt_<n>.json` and `kind: ArtifactKind.data`.
+/// `name: merge_resolve_iter_<iterIndex>_attempt_<n>.json` and `kind: ArtifactKind.data`.
 final class MergeResolveAttemptArtifact {
   final int iterationIndex;
   final String storyId;
@@ -14,6 +14,8 @@ final class MergeResolveAttemptArtifact {
   final String? errorMessage;
   final String agentSessionId;
   final int tokensUsed;
+  final DateTime? startedAt;
+  final int? elapsedMs;
 
   const MergeResolveAttemptArtifact({
     required this.iterationIndex,
@@ -25,6 +27,8 @@ final class MergeResolveAttemptArtifact {
     this.errorMessage,
     required this.agentSessionId,
     required this.tokensUsed,
+    this.startedAt,
+    this.elapsedMs,
   });
 
   Map<String, dynamic> toJson() => {
@@ -37,6 +41,8 @@ final class MergeResolveAttemptArtifact {
     'error_message': errorMessage,
     'agent_session_id': agentSessionId,
     'tokens_used': tokensUsed,
+    if (startedAt != null) 'started_at': startedAt!.toIso8601String(),
+    if (elapsedMs != null) 'elapsed_ms': elapsedMs,
   };
 
   String toJsonString() => jsonEncode(toJson());
@@ -52,12 +58,15 @@ final class MergeResolveAttemptArtifact {
         errorMessage: json['error_message'] as String?,
         agentSessionId: json['agent_session_id'] as String? ?? '',
         tokensUsed: json['tokens_used'] as int? ?? 0,
+        startedAt: json['started_at'] != null ? DateTime.tryParse(json['started_at'] as String) : null,
+        elapsedMs: json['elapsed_ms'] as int?,
       );
 
   MergeResolveAttemptArtifact copyWith({
     String? outcome,
     String? errorMessage,
     bool clearErrorMessage = false,
+    int? elapsedMs,
   }) => MergeResolveAttemptArtifact(
     iterationIndex: iterationIndex,
     storyId: storyId,
@@ -68,5 +77,7 @@ final class MergeResolveAttemptArtifact {
     errorMessage: clearErrorMessage ? null : (errorMessage ?? this.errorMessage),
     agentSessionId: agentSessionId,
     tokensUsed: tokensUsed,
+    startedAt: startedAt,
+    elapsedMs: elapsedMs ?? this.elapsedMs,
   );
 }

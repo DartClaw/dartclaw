@@ -159,6 +159,19 @@ class WorkflowTurnAdapter {
   })?
   captureWorkflowBranchSha;
 
+  /// Atomically captures HEAD SHA, checks dirty state, and (if dirty) runs
+  /// the cleanup triple — all under a single repo lock.
+  ///
+  /// Returns `({sha, isDirty, cleanupError})`. Use this instead of calling
+  /// [captureWorkflowBranchSha] + [cleanupWorktreeForRetry] separately to
+  /// avoid a mutation window between the two lock acquisitions.
+  final Future<({String? sha, bool isDirty, String? cleanupError})> Function({
+    required String projectId,
+    required String branch,
+    String? preAttemptSha,
+  })?
+  captureAndCleanWorktreeForRetry;
+
   const WorkflowTurnAdapter({
     required this.reserveTurn,
     this.reserveTurnWithWorkflowWorkspaceDir,
@@ -173,5 +186,6 @@ class WorkflowTurnAdapter {
     this.cleanupWorkflowGit,
     this.cleanupWorktreeForRetry,
     this.captureWorkflowBranchSha,
+    this.captureAndCleanWorktreeForRetry,
   });
 }

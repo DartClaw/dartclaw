@@ -350,11 +350,35 @@ void main() {
       });
 
       test('two consecutive HarnessFactory.create() calls with distinct env maps each use their own values', () async {
+        // Re-register 'codex' with a creator that threads a controlled
+        // processFactory through HarnessFactoryConfig. This exercises the
+        // factory's dispatch + config-passing path end to end (assertion is
+        // on the harness produced by factory.create), proving mutation
+        // isolation between two consecutive create() calls with distinct
+        // environment maps.
         final factory = HarnessFactory();
         final captured = <String>[];
+        Map<String, String>? spawnEnv;
+        late FakeCodexProcess currentFakeProcess;
+
+        factory.register('codex', (config) {
+          return CodexHarness(
+            cwd: config.cwd,
+            executable: config.executable,
+            processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+              spawnEnv = environment == null ? null : Map<String, String>.from(environment);
+              return currentFakeProcess;
+            },
+            commandProbe: defaultCommandProbe,
+            delayFactory: noOpDelay,
+            environment: config.environment,
+            providerOptions: const {'use_system_codex_home': false},
+          );
+        });
 
         for (final branch in ['integration/0.16.4', 'integration/0.17.0']) {
-          final fakeProcess = FakeCodexProcess();
+          currentFakeProcess = FakeCodexProcess();
+          spawnEnv = null;
           final config = HarnessFactoryConfig(
             cwd: '/tmp',
             executable: 'codex',
@@ -366,25 +390,7 @@ void main() {
           final harness = factory.create('codex', config) as CodexHarness;
           addTearDown(() async => harness.dispose());
 
-          Map<String, String>? spawnEnv;
-          final patched = CodexHarness(
-            cwd: '/tmp',
-            executable: 'codex',
-            processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-              spawnEnv = environment == null ? null : Map<String, String>.from(environment);
-              return fakeProcess;
-            },
-            commandProbe: defaultCommandProbe,
-            delayFactory: noOpDelay,
-            environment: {
-              mergeResolveIntegrationBranchEnvVar: branch,
-              'OPENAI_API_KEY': 'sk-test',
-            },
-            providerOptions: const {'use_system_codex_home': false},
-          );
-          addTearDown(() async => patched.dispose());
-
-          await startHarness(patched, fakeProcess);
+          await startHarness(harness, currentFakeProcess);
           captured.add(spawnEnv![mergeResolveIntegrationBranchEnvVar]!);
         }
 

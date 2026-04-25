@@ -561,6 +561,70 @@ Split-repo profiles declare `gitStrategy.worktree.externalArtifactMount` to prop
 - `mode: per-story-copy` (default, least-privilege): each worktree receives only the single FIS file its story owns, copied at the same relative path used in `fromProject`. `file_read({{map.item.spec_path}})` resolves identically in both workspaces.
 - `mode: bind-mount` (opt-in, requires README justification): bind-mounts the whole FIS directory read-only — every worktree can read every sibling's FIS. Useful for cross-story references but broadens the sandbox.
 
+#### Agent-Resolved Merge Conflicts (`merge_resolve`)
+
+When a `per-map-item` foreach runs multiple story branches in parallel, two stories can touch the same files, producing a promotion conflict on the integration branch. The `merge_resolve` feature lets DartClaw invoke an LLM-driven skill to resolve those conflicts in-place, retry promotion, and — when all attempts are exhausted — either serialize the remaining queue or fail fast. It requires `promotion: merge` and activates only when `enabled: true` is set. See [Workflow-Owned Git Lifecycle](#workflow-owned-git-lifecycle) above for the surrounding `gitStrategy:` block.
+
+```yaml
+gitStrategy:
+  bootstrap: true
+  worktree:
+    mode: per-map-item
+  promotion: merge
+
+  merge_resolve:
+    enabled: true
+    max_attempts: 2
+    token_ceiling: 100000
+    escalation: serialize-remaining
+    verification:
+      format: "dart format --set-exit-if-changed ."
+      analyze: "dart analyze"
+      test: "dart test"
+```
+
+**Configuration fields**
+
+| Field | Type | Default | Range / Values | Notes |
+|---|---|---|---|---|
+| `enabled` | bool | `false` | `true`, `false` | Must be `true` to activate; requires `promotion: merge` |
+| `max_attempts` | int | `2` | `1`–`5` | Bounded retry attempts per conflict |
+| `token_ceiling` | int | `100000` | `10000`–`500000` | Per-attempt token budget; enforced by the harness |
+| `escalation` | enum | `serialize-remaining` | `serialize-remaining`, `fail` | Action when `max_attempts` is exhausted |
+| `verification.format` | string | _(absent)_ | Any shell command | Run after each resolution attempt |
+| `verification.analyze` | string | _(absent)_ | Any shell command | Run after each resolution attempt |
+| `verification.test` | string | _(absent)_ | Any shell command | Run after each resolution attempt |
+
+When all three `verification` sub-fields are absent or empty, the skill falls back to conflict-marker scanning and `git diff --check` only, and emits a structured warning on the first attempt of each run.
+
+**Escalation modes**
+
+- **`serialize-remaining`** (default): when `max_attempts` is exhausted, DartClaw drains all in-flight foreach iterations (cancelling their tasks), re-queues them with `max_parallel: 1`, and places the failing iteration at the head of the new serial queue. Exactly one `WorkflowSerializationEnactedEvent` is emitted on the workflow event bus per run. Serial re-runs have full access to the integration branch history and proceed one-at-a-time, eliminating the conflict source.
+
+- **`fail`**: propagates the conflict immediately — the iteration is marked failed, and the workflow transitions to `failed`. All per-attempt artifacts remain available for forensic review.
+
+**What you'll see — per-attempt artifacts**
+
+Every resolution attempt (successful, failed, or cancelled) produces exactly one structured artifact. The artifact contains these 9 fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `iteration_index` | int | 0-based foreach iteration index |
+| `story_id` | string | Story id from the collection item (empty if unknown) |
+| `attempt_number` | int | 1-indexed |
+| `outcome` | enum | `resolved`, `failed`, or `cancelled` |
+| `conflicted_files` | list[string] | Sorted relative paths from `git diff --name-only --diff-filter=U` |
+| `resolution_summary` | string | Prose from the skill explaining resolution decisions; empty string if none |
+| `error_message` | string \| null | Populated when `outcome != resolved`; `null` otherwise |
+| `agent_session_id` | string | Links to the agent execution record for forensic detail |
+| `tokens_used` | int | From harness usage report |
+
+##### Limitations
+
+**`disableSkillShellExecution` org-policy limitation** — when the `disableSkillShellExecution` security policy is enabled in `dartclaw.yaml` (or applied via org policy), the merge-resolve skill cannot execute git operations via `!` bang commands. As a result, `merge_resolve` cannot function under that policy. If your deployment has `disableSkillShellExecution: true`, leave `enabled: false` (or omit the `merge_resolve:` block entirely).
+
+**Wrong-but-clean merge** — verification is best-effort. It catches whatever `format`, `analyze`, and `test` can catch — but semantic mistakes that pass all three checks slip through. If the skill produces a resolution that compiles, lints, and passes tests but is logically incorrect, verification will not detect it. Treat `merge_resolve` as a time-saving automation for mechanical conflicts, not as a correctness oracle.
+
 ### Inline Loops
 
 Use inline loop blocks in `steps:` when remediation or validation must repeat in-place.

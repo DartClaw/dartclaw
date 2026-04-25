@@ -1,3 +1,4 @@
+import 'package:dartclaw_models/dartclaw_models.dart' show MergeResolveEscalation;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
 
@@ -254,6 +255,37 @@ steps:
     test('parses gitStrategy.worktree: auto', () {
       final def = parser.parse(_autoWorktreeYaml);
       expect(def.gitStrategy?.worktreeMode, 'auto');
+    });
+
+    test('threads gitStrategy.merge_resolve from YAML through to WorkflowGitStrategy', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  promotion: merge
+  merge_resolve:
+    enabled: true
+    max_attempts: 3
+    token_ceiling: 200000
+    escalation: fail
+    verification:
+      format: dart format --set-exit-if-changed .
+      analyze: dart analyze
+      test: dart test
+steps:
+  - id: s1
+    name: S
+    prompt: hi
+''';
+      final def = parser.parse(yaml);
+      final mr = def.gitStrategy!.mergeResolve;
+      expect(mr.enabled, isTrue);
+      expect(mr.maxAttempts, 3);
+      expect(mr.tokenCeiling, 200000);
+      expect(mr.escalation, MergeResolveEscalation.fail);
+      expect(mr.verification.format, 'dart format --set-exit-if-changed .');
+      expect(mr.verification.analyze, 'dart analyze');
+      expect(mr.verification.test, 'dart test');
     });
 
     test('parses workflow-level project', () {

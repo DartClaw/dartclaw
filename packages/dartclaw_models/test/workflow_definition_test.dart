@@ -1008,6 +1008,12 @@ void main() {
       expect(cfg.escalation, isNull);
     });
 
+    test('fromJson defaults absent escalation to serializeRemaining (BPC-18)', () {
+      final cfg = MergeResolveConfig.fromJson({'enabled': true});
+      expect(cfg.escalation, MergeResolveEscalation.serializeRemaining);
+      expect(cfg.rawEscalation, isNull);
+    });
+
     test('fromJson handles Map<Object?, Object?>', () {
       final raw = <Object?, Object?>{'enabled': true, 'max_attempts': 4};
       final cfg = MergeResolveConfig.fromJson(raw);

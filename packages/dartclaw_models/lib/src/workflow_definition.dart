@@ -1031,7 +1031,9 @@ class MergeResolveConfig {
       enabled: (json['enabled'] as bool?) ?? false,
       maxAttempts: (json['max_attempts'] as int?) ?? 2,
       tokenCeiling: (json['token_ceiling'] as int?) ?? 100000,
-      escalation: MergeResolveEscalation.tryParse(rawEsc),
+      escalation: rawEsc == null
+          ? MergeResolveEscalation.serializeRemaining
+          : MergeResolveEscalation.tryParse(rawEsc),
       rawEscalation: rawEsc,
       verification: MergeResolveVerificationConfig.fromJson(json['verification']),
       unknownFields: unknown,

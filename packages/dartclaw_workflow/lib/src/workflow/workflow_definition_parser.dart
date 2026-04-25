@@ -607,6 +607,7 @@ class WorkflowDefinitionParser {
       worktree = WorkflowGitWorktreeStrategy(mode: worktree.mode, externalArtifactMount: flatMount);
     }
 
+    final rawMergeResolve = raw['merge_resolve'] ?? raw['mergeResolve'];
     return WorkflowGitStrategy(
       bootstrap: raw['bootstrap'] as bool?,
       worktree: worktree,
@@ -614,6 +615,7 @@ class WorkflowDefinitionParser {
       publish: publish,
       artifacts: artifacts,
       legacyExternalArtifactMountLocation: legacyExternalArtifactMountLocation,
+      mergeResolve: rawMergeResolve != null ? MergeResolveConfig.fromJson(rawMergeResolve) : null,
     );
   }
 

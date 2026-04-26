@@ -782,7 +782,8 @@ class WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
-    await _cleanupWorkflowGit(completed, preserveWorktrees: false);
+    final cleanupEnabled = definition.gitStrategy?.cleanupEnabled ?? true;
+    await _cleanupWorkflowGit(completed, preserveWorktrees: !cleanupEnabled);
     _log.info("Workflow '${run.definitionName}' (${run.id}) completed successfully");
   }
 

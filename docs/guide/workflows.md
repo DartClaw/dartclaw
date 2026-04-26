@@ -516,6 +516,8 @@ gitStrategy:
       source: "{{map.item.spec_path}}"
   publish:
     enabled: true
+  cleanup:
+    enabled: true                                   # default; set false to retain worktrees + branches for debugging
   artifacts:
     commit: true                                    # default true if ≥1 artifact-producing step
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
@@ -534,6 +536,7 @@ Key runtime behavior:
 - In promotion-aware `per-map-item` runs, dependents wait on the promoted set, not just the completed set. Promotion conflicts keep downstream items undispatched until retry / resume.
 - Publish runs deterministically at workflow completion (`publish.status`, `publish.branch`, `publish.remote`, `publish.pr_url`) rather than relying on task-accept side effects.
 - For GitHub-backed projects, deterministic publish uses the project's configured `github-token` credential for both branch push and PR creation. It does not depend on `gh auth login` or ambient SSH state.
+- `cleanup.enabled` (default `true`) removes workflow-owned worktrees and deletes the workflow's local branches — the workflow-root branch (`dartclaw/workflow/<runToken>`), the integration branch (`.../integration`), and any per-task story branches — when the run reaches a terminal status (completed, cancelled, or failed). Set `false` to retain them for post-mortem inspection; operators are then responsible for manual cleanup. A publish failure preserves evidence regardless of this flag.
 
 #### File-Based Artifact Contract
 

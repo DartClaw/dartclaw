@@ -444,7 +444,7 @@ class WorkflowService {
         _log.warning('Failed to cancel workflow task ${task.id}: $e');
       }
     }
-    await _invokeWorkflowGitCleanup(cancelled, preserveWorktrees: false);
+    await _invokeWorkflowGitCleanup(cancelled);
   }
 
   Future<WorkflowRun?> get(String runId) => _repository.getById(runId);
@@ -706,7 +706,7 @@ class WorkflowService {
               updatedAt: DateTime.now(),
             );
             await _repository.update(failed);
-            await _invokeWorkflowGitCleanup(failed, preserveWorktrees: false);
+            await _invokeWorkflowGitCleanup(failed);
             _fireStatusChanged(
               runId: run.id,
               definitionName: run.definitionName,
@@ -769,15 +769,27 @@ class WorkflowService {
     await atomicWriteJson(file, context.toJson());
   }
 
-  Future<void> _invokeWorkflowGitCleanup(WorkflowRun run, {required bool preserveWorktrees}) async {
+  Future<void> _invokeWorkflowGitCleanup(WorkflowRun run) async {
     final cleanup = _turnAdapter?.cleanupWorkflowGit;
     if (cleanup == null) return;
     final projectId = run.variablesJson['PROJECT']?.trim();
     if (projectId == null || projectId.isEmpty) return;
+    final preserveWorktrees = !_resolveCleanupEnabled(run);
     try {
       await cleanup(runId: run.id, projectId: projectId, status: run.status.name, preserveWorktrees: preserveWorktrees);
     } catch (e, st) {
       _log.warning("Workflow '${run.id}' cleanup callback failed", e, st);
+    }
+  }
+
+  bool _resolveCleanupEnabled(WorkflowRun run) {
+    try {
+      return WorkflowDefinition.fromJson(run.definitionJson).gitStrategy?.cleanupEnabled ?? true;
+    } catch (e, st) {
+      // Preserve worktrees/branches when we can't read the operator's intent —
+      // destroying potential evidence on a parse failure is the worst default.
+      _log.warning("Workflow '${run.id}': failed to resolve cleanup config; preserving worktrees", e, st);
+      return false;
     }
   }
 

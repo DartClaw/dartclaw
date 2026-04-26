@@ -52,6 +52,7 @@ export 'src/workflow_definition.dart'
         WorkflowVariable,
         WorkflowLoop,
         WorkflowGitPublishStrategy,
+        WorkflowGitCleanupStrategy,
         WorkflowGitArtifactsStrategy,
         WorkflowGitExternalArtifactMount,
         WorkflowGitWorktreeStrategy,

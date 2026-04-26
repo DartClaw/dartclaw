@@ -68,6 +68,9 @@ stepDefaults:
   - match: "remediate"
     provider: "@executor"
     model: "@executor"
+  - match: "refactor"
+    provider: "@executor"
+    model: "@executor"
   - match: "*"
     provider: "@workflow"
     model: "@workflow"
@@ -213,13 +216,20 @@ steps:
         name: Quick Review Story
         type: custom
         skill: andthen-quick-review
-        allowedTools: [file_read]
+        # Pin to @executor so the continued harness session is honored —
+        # continueSession requires the same provider family as the root
+        # (implement) step. The *review* stepDefault would otherwise route
+        # this to @reviewer and trigger a runtime fallback warning.
+        provider: "@executor"
+        model: "@executor"
+        continueSession: true
+        allowedTools: [shell, file_read, file_write]
         # Same transient-crash mitigation as `implement`; a dropped Codex
         # process on the review turn shouldn't fail the story when a retry
         # would succeed.
         onFailure: retry
         maxRetries: 1
-        prompt: "{{map.item}} --auto"
+        prompt: "--fix --auto"
         contextInputs: [project_index, story_result]
         contextOutputs: [quick_review_summary, quick_review_findings_count]
         outputs:
@@ -231,43 +241,100 @@ steps:
             schema: non-negative-integer
             description: Number of issues flagged by the story-level quick review; 0 means clean.
 
+  # Refactor pass after implementation, before review. Cleans up code
+  # shape from the parallel story pipeline (consistency, dead code, small
+  # simplifications) so the reviews see polished output. Note: the
+  # andthen-refactor skill currently has no `--auto` flag and may ask for
+  # confirmation if it judges changes substantial — monitor for pauses
+  # under unattended runs and tighten the prompt scope if needed.
+  - id: refactor
+    name: Refactor After Implementation
+    type: custom
+    skill: andthen-refactor
+    contextInputs: [project_index, story_specs, story_results, plan]
+    allowedTools: [shell, file_read, file_write]
+    contextOutputs: [refactor_summary]
+    prompt: "{{context.plan}} - refactor only the changes introduced on the current branch (vs the base ref); preserve behavior; no scope creep into untouched packages."
+    outputs:
+      refactor_summary:
+        format: text
+        description: Summary of refactoring changes applied to implementation work for this plan.
+
   # Review the batch outcome across all stories and decide whether plan-level remediation is needed.
   # Runs regardless of whether the upstream plan step synthesized a new plan
   # or reused an existing one — the review concerns the implemented batch,
   # not plan authoring quality.
+  #
+  # plan-review and architecture-review form a parallel group: consecutive
+  # `parallel: true` steps execute concurrently via Future.wait and merge
+  # their outputs back into context before the workflow continues serially
+  # to remediation-loop. Each writes to distinct context keys so the merge
+  # is conflict-free; the @reviewer alias resolves to whichever agents the
+  # runtime has configured for the reviewer role (potentially two
+  # different harnesses).
   - id: plan-review
     name: Review Full Implementation
     type: custom
     skill: andthen-review
+    parallel: true
     contextInputs: [project_index, story_specs, story_results, plan]
     allowedTools: [file_read]
     contextOutputs: [review_findings, plan-review.findings_count]
     prompt: "{{context.plan}} --mode gap,code --auto"
     outputs:
       review_findings:
-        format: text
-        description: Summary of all issues identified during the review that require remediation.
+        format: path
+        description: Workspace-relative path to the review report file written by andthen-review.
       plan-review.findings_count:
         format: json
         schema: non-negative-integer
         description: Total number of issues requiring remediation; 0 means the remediation loop can exit.
+
+  # Architecture review running in parallel with plan-review. Independent
+  # concern (modularity, coupling, anti-patterns, fitness) from gap/code
+  # review. Code path is implicit — the skill scans the project — but the
+  # prompt narrows attention to this branch's changes so the review stays
+  # proportional to what the plan actually delivered.
+  - id: architecture-review
+    name: Architecture Review
+    type: custom
+    skill: andthen-architecture
+    parallel: true
+    contextInputs: [project_index, story_specs, story_results, plan]
+    allowedTools: [shell, file_read]
+    contextOutputs: [architecture_review_findings, architecture-review.findings_count]
+    prompt: "{{context.plan}} --mode review --auto. Scope the review to changes introduced on the current branch (vs the base ref) — skip packages untouched by this plan."
+    outputs:
+      architecture_review_findings:
+        format: path
+        description: Workspace-relative path to the architecture review report file written by andthen-architecture.
+      architecture-review.findings_count:
+        format: json
+        schema: non-negative-integer
+        description: Number of architecture findings; combined with plan-review.findings_count to gate the remediation loop.
 
   # Iterate plan-level remediation until validation and re-review both pass or the loop is exhausted.
   - id: remediation-loop
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    entryGate: "plan-review.findings_count > 0"
+    entryGate: "plan-review.findings_count > 0 || architecture-review.findings_count > 0"
     exitGate: "re-review.findings_count == 0"
     steps:
-      # Apply the remediation plan produced by the plan-level review.
+      # Single remediation pass that addresses findings from both the
+      # plan/code review and the architecture review. Both findings
+      # report paths are passed; the skill applies minimal fixes across
+      # implementation and document artifacts. The remediate skill
+      # re-validates each finding against the current workspace before
+      # editing, so already-fixed findings on later iterations are
+      # classified `already fixed` and skipped.
       - id: remediate
         name: Remediate Findings
         type: custom
         skill: andthen-remediate-findings
-        contextInputs: [project_index, review_findings, story_results]
+        contextInputs: [project_index, review_findings, architecture_review_findings, story_results]
         contextOutputs: [remediation_summary, diff_summary]
-        prompt: "{{context.review_findings}} --auto"
+        prompt: "{{context.review_findings}} {{context.architecture_review_findings}} --auto"
         outputs:
           remediation_summary:
             format: text
@@ -276,21 +343,23 @@ steps:
             format: text
             schema: diff-summary
 
-      # Re-review the full implementation after remediation using the updated summaries and diff.
-      # The remediation skill is responsible for running analysis/tests/linting on
-      # its edits; this review gates loop exit.
+      # Re-review the full implementation after remediation. Mirrors
+      # plan-review's invocation shape so the output is a fresh review
+      # report file path consumable by the next iteration's remediate
+      # step. No session continuity — andthen-review reads the plan and
+      # the current workspace state on each iteration.
       - id: re-review
         name: Re-review After Remediation
         type: custom
-        skill: andthen-quick-review
+        skill: andthen-review
         allowedTools: [file_read]
         contextInputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
         contextOutputs: [review_findings, re-review.findings_count]
-        prompt: "{{context.plan}} --auto"
+        prompt: "{{context.plan}} --mode gap,code --auto"
         outputs:
           review_findings:
-            format: text
-            description: Summary of all issues identified during the review that require remediation.
+            format: path
+            description: Workspace-relative path to the review report file written by andthen-review.
           re-review.findings_count:
             format: json
             schema: non-negative-integer

@@ -115,6 +115,7 @@ Adhere to system prompt "CRITICAL RULES and GUARDRAILS" before doing any work.
 - Single-threaded (add isolates only if profiling shows bottleneck)
 - Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_server/lib/src/static/` — see `VENDORS.md` in that directory for versions and upgrade instructions
 - Never use references to specific story IDs or titles in code, filenames, documentation etc (project/development documents are the exception).
+- **Code is source of truth, not comments**: To avoid documentation rot, keep code documentation/comments minimal and focused on rationale (why, not what). If comments are outdated or incorrect, fix or remove them — do not let them mislead. Always strive for self-explanatory and readable code that minimizes (or eliminates) the need for comments.
 
 ### Timestamps
 **Always** run `date '+%Y-%m-%d %H:%M %Z'` before writing timestamps. Never guess — internal time may be wrong timezone.

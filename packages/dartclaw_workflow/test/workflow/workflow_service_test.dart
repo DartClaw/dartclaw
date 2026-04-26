@@ -17,6 +17,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
         WorkflowExecutionCursor,
+        WorkflowGitCleanupStrategy,
+        WorkflowGitStrategy,
         WorkflowLoop,
         WorkflowRun,
         WorkflowRunStatus,
@@ -516,6 +518,67 @@ void main() {
 
     expect((await taskService.get(task.id))?.status, TaskStatus.cancelled);
     expect(cleanupObservedNonTerminalCounts, equals([0]));
+  });
+
+  group('cancel() cleanup honors gitStrategy.cleanup', () {
+    Future<bool?> cancelAndCapturePreserve(WorkflowGitStrategy? strategy) async {
+      bool? observed;
+      workflowService = WorkflowService(
+        repository: repository,
+        taskService: taskService,
+        messageService: messageService,
+        eventBus: eventBus,
+        kvService: kvService,
+        dataDir: tempDir.path,
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) async => 'turn-id',
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                observed = preserveWorktrees;
+              },
+        ),
+      );
+      final definition = WorkflowDefinition(
+        name: 'test-workflow',
+        description: 'cleanup config',
+        gitStrategy: strategy,
+        steps: const [
+          WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['noop']),
+        ],
+      );
+      final run = WorkflowRun(
+        id: 'cancel-cleanup-${strategy?.cleanup?.enabled ?? 'default'}',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-app'},
+        definitionJson: definition.toJson(),
+      );
+      await repository.insert(run);
+      await workflowService.cancel(run.id);
+      return observed;
+    }
+
+    test('default strategy → preserveWorktrees=false', () async {
+      expect(await cancelAndCapturePreserve(null), isFalse);
+    });
+
+    test('cleanup.enabled: true → preserveWorktrees=false', () async {
+      expect(
+        await cancelAndCapturePreserve(const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true))),
+        isFalse,
+      );
+    });
+
+    test('cleanup.enabled: false → preserveWorktrees=true', () async {
+      expect(
+        await cancelAndCapturePreserve(const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false))),
+        isTrue,
+      );
+    });
   });
 
   test('cancel() propagates to the active turn when the cancellation subscriber is installed', () async {
@@ -1323,7 +1386,9 @@ void main() {
       // Track which map-step tasks are dispatched (we ignore update-state tasks
       // because they belong to the next step, not the map replay surface).
       final allDispatchedTitles = <String>[];
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
         await Future<void>.delayed(Duration.zero);
         final task = await taskService.get(e.taskId);
         if (task != null) {
@@ -1340,9 +1405,12 @@ void main() {
 
       // Wait for the retry to drive the run to a terminal state — no sleep.
       final terminalCompleter = Completer<WorkflowRunStatus>();
-      final statusSub = eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == 'run-map-retry' && e.newStatus.terminal).listen((e) {
-        if (!terminalCompleter.isCompleted) terminalCompleter.complete(e.newStatus);
-      });
+      final statusSub = eventBus
+          .on<WorkflowRunStatusChangedEvent>()
+          .where((e) => e.runId == 'run-map-retry' && e.newStatus.terminal)
+          .listen((e) {
+            if (!terminalCompleter.isCompleted) terminalCompleter.complete(e.newStatus);
+          });
 
       await workflowService.retry('run-map-retry');
       final terminalStatus = await terminalCompleter.future.timeout(const Duration(seconds: 5));
@@ -1582,19 +1650,11 @@ void main() {
           },
         ),
       );
-      final definition = makeDefinition(
-        variables: const {'PROJECT': WorkflowVariable(required: false)},
-      );
+      final definition = makeDefinition(variables: const {'PROJECT': WorkflowVariable(required: false)});
 
       await expectLater(
         workflowService.start(definition, const {'PROJECT': '_local'}),
-        throwsA(
-          isA<ArgumentError>().having(
-            (e) => e.message,
-            'message',
-            contains('uncommitted changes'),
-          ),
-        ),
+        throwsA(isA<ArgumentError>().having((e) => e.message, 'message', contains('uncommitted changes'))),
       );
       // No run must have been created.
       expect(await workflowService.list(), isEmpty);

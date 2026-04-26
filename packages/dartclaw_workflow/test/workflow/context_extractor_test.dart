@@ -272,6 +272,45 @@ void main() {
     expect(outputs['plan'], 'docs/specs/demo/plan.md');
   });
 
+  test('discover-project drops claimed spec_path when spec_source is not existing', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {'project_root': tempDir.path},
+            'spec_path': 'docs/specs/bug-001/s01-future-fix.md',
+            'spec_source': 'synthesized',
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-future-spec-path-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-future-spec-path-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-future-spec-path-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      contextOutputs: const ['project_index', 'spec_path', 'spec_source'],
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'spec_path': OutputConfig(format: OutputFormat.path),
+        'spec_source': OutputConfig(),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['spec_path'], isEmpty);
+    expect(outputs['spec_source'], 'synthesized');
+  });
+
   test('discover-project ignores claimed future artifact paths when no active artifacts exist', () async {
     final session = await sessionService.getOrCreateMain();
     await messageService.insertMessage(

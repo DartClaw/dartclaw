@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-26 07:40 CEST
+Last Updated: 2026-04-26 08:59 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -21,19 +21,19 @@ Last Updated: 2026-04-26 07:40 CEST
 
 ## Current Phase
 
-**0.16.4** — release prep. Agent-resolved-merge bundle (S57-S64) implemented and component-tier proofs landed; the 2026-04-26 gap reviews (codex + claude) caught a CRITICAL wiring gap (synthetic merge-resolve task did not bind to the conflicted iteration's worktree) plus HIGH lock-coverage gap and the test-suite blind spot that hid both. Remediation 2026-04-26: C1 (mapCtx propagated through `_executeStep`), H1 (new `runResolverAttemptUnderLock` callback wraps each attempt under `_workflowGitRepoLock`; `RepoLock` made zone-reentrant), M1 (`outcome: cancelled` explicit), M2 (event cardinality run-scoped), L1 (test configs aligned). S60 re-marked Done. S62 remains In Progress blocked on new story **S65** (real-harness integration E2E) — 0.16.4 release tag deferred until S65 ships.
+**0.16.4** — release prep. Agent-resolved-merge bundle (S57-S65) implemented and component-tier plus real-harness proofs landed. The 2026-04-26 gap reviews (codex + claude) caught a CRITICAL wiring gap (synthetic merge-resolve task did not bind to the conflicted iteration's worktree) plus HIGH lock-coverage gap and the test-suite blind spot that hid both. Remediation 2026-04-26: C1 (mapCtx propagated through `_executeStep`), H1 (new `runResolverAttemptUnderLock` callback wraps each attempt under `_workflowGitRepoLock`; `RepoLock` made zone-reentrant), M1 (`outcome: cancelled` explicit), M2 (event cardinality run-scoped), L1 (test configs aligned). S65 now supplies the outer-loop Codex proof: a real `WorkflowExecutor` drives a two-story `STATE.md` conflict through the real `dartclaw-merge-resolve` skill and completes without operator intervention. Release prep can proceed; package-wide live integration still has unrelated existing drift tracked separately.
 
 ## Active Stories
 
 - S51-S55 — Done (workflow step semantics redesign + remediation).
-- S56 — Done: Live release gate and documentation closeout. The deferred `plan-and-implement` release-gate e2e was originally satisfied by S62's cross-harness component-tier suite, but the 2026-04-26 gap reviews showed that suite cannot prove the success metric (every component test injects `merge_resolve.outcome` directly via `messageService.insertMessage` rather than driving the executor → skill → worktree chain). Real-harness E2E proof now lives in S65; 0.16.4 release tag deferred until S65 ships.
+- S56 — Done: Live release gate and documentation closeout. The deferred `plan-and-implement` release-gate e2e was originally satisfied by S62's cross-harness component-tier suite, but the 2026-04-26 gap reviews showed that suite cannot prove the success metric (every component test injects `merge_resolve.outcome` directly via `messageService.insertMessage` rather than driving the executor → skill → worktree chain). S65 now supplies the real-harness proof.
 - S57 — Done: Harness env-var injection contract + Codex `!`-operator SPIKE-1 (GO; Codex matches Claude Code via POSIX shell expansion). Six `MERGE_RESOLVE_*` env-var names locked in `dartclaw_core`.
 - S58 — Done: `gitStrategy.merge_resolve` schema + validator rules + parser threading (HIGH parser-gap remediation). Five validator rules with byte-identical PRD wording.
 - S59 — Done: `dartclaw-merge-resolve` skill (markdown-driven, all-or-nothing commit, four output fields). Cross-harness via the `!` bang operator.
 - S60 — Done (after two remediation rounds — original CRITICAL-heavy round + 2026-04-26 gap-review remediation): Plumbing wiring — retry loop, atomic capture+clean callback, structured artifact persistence (9 v1 fields including `started_at`/`elapsed_ms`), `fail` escalation propagation, server-side wiring, crash recovery with `interrupted by server restart` artifact. 9-test component suite (added C1 + H1 regression tests asserting `mapIterationIndex` propagation and `runResolverAttemptUnderLock` invocation through the executor). Lock-spanning resolver attempt seam: `WorkflowTurnAdapter.runResolverAttemptUnderLock` wraps each attempt's body under `_workflowGitRepoLock`; `RepoLock.acquire` is now zone-reentrant so existing inner primitives compose. Cancelled task → `outcome: cancelled` explicitly.
 - S61 — Done (after HIGH remediation): `serialize-remaining` drain — `WorkflowSerializationEnactedEvent` with accurate `drainedIterationCount`, single `serialize_remaining_phase` flag (no two-flag race), parallel 30s-cap timeout. 10 component tests including S2/S4/S5/S6 scenarios.
-- S62 — In Progress, blocked on S65: built-in `plan-and-implement` and `spec-and-implement` adopt `merge_resolve:` block (Done); 12-cell cross-harness component-tier suite ships (P1-P5 × 2 harnesses + Issue C BPC-27 reproduction) but every path injects `merge_resolve.outcome` via `messageService.insertMessage` rather than driving the executor → real-skill → worktree chain. PRD success-metric proof ("Issue C scenario completes via real harness without operator intervention") moved to S65.
-- S65 — Not Started: Real-harness integration E2E for agent-resolved merge. Tagged `@Tags(['integration'])`, gated on harness availability + API keys, drives a real `WorkflowExecutor` through a two-story `STATE.md` conflict via real `dartclaw-merge-resolve` skill execution. Author FIS via `andthen:spec` before implementation. S62 cannot move to Done until S65 ships.
+- S62 — Done: built-in `plan-and-implement` and `spec-and-implement` adopt `merge_resolve:` block; 12-cell cross-harness component-tier suite ships (P1-P5 × 2 harnesses + Issue C BPC-27 reproduction); C1/H1 component regressions prove executor binding and lock callback plumbing; S65 supplies the real-harness outer-loop proof for the PRD success metric.
+- S65 — Done: Real-harness integration E2E for agent-resolved merge added at `packages/dartclaw_workflow/test/workflow/merge_resolve_integration_test.dart`. Tagged `@Tags(['integration'])`, gated on Codex binary + provider auth, drives a real `WorkflowExecutor` through a two-story `STATE.md` conflict via real `dartclaw-merge-resolve` skill execution. Two consecutive local Codex runs passed and were captured under the private repo's `.agent_temp/s65-run{1,2}.log`.
 - S63 — Done: Public `merge_resolve` user-guide section (PASS no findings).
 - S64 — Done (after HIGH remediation): Workflow test suite overhaul — Phase 0 stabilize (listener-race fix in `step_dispatcher` + `map_iteration_dispatcher`), Phase 1 honesty cleanup, Phase 2 behavioral gaps (bash escape on `{{VAR}}` for symmetry, schema strictness as warnings, max_parallel/loops parser tightening), Phase 3 executor-mega-file split, Phase 4 fakeAsync replaces real-time waits, Phase 5 unit-test additions. Phase 6 (fitness classification) deferred per FIS.
 
@@ -43,7 +43,7 @@ Last Updated: 2026-04-26 07:40 CEST
 
 ## Blockers
 
-- 0.16.4 release tag deferred until S65 (real-harness integration E2E for agent-resolved merge) ships. Component-tier C1/H1 regression tests already prove the executor → skill → worktree binding chain at unit/component scope; S65 is the outer-loop proof against a real harness binary.
+- Before tagging 0.16.4: re-run S65 locally (`dart test packages/dartclaw_workflow/test/workflow/merge_resolve_integration_test.dart -t integration` with a real Codex binary on PATH and provider auth available) and capture two-green-runs-in-a-row per the S65 FIS. S65 is integration-tagged and does not run in default CI; the test's own `skip:` gate handles missing harness/auth, so the `-t integration` selector is sufficient.
 
 ## Recent Decisions
 

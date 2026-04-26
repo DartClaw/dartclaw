@@ -901,6 +901,24 @@ class WorkflowGitPublishStrategy {
       WorkflowGitPublishStrategy(enabled: json['enabled'] as bool?);
 }
 
+/// End-of-run cleanup configuration nested under [WorkflowGitStrategy].
+///
+/// Controls whether workflow-owned worktrees are removed and local story
+/// branches deleted when the run reaches a terminal status (completed,
+/// cancelled, or failed). Defaults to enabled when omitted; set
+/// `enabled: false` to retain worktrees and branches for post-mortem inspection.
+class WorkflowGitCleanupStrategy {
+  /// Whether end-of-run cleanup is enabled for the workflow.
+  final bool? enabled;
+
+  const WorkflowGitCleanupStrategy({this.enabled});
+
+  Map<String, dynamic> toJson() => {if (enabled != null) 'enabled': enabled};
+
+  factory WorkflowGitCleanupStrategy.fromJson(Map<String, dynamic> json) =>
+      WorkflowGitCleanupStrategy(enabled: json['enabled'] as bool?);
+}
+
 /// Escalation policy when all merge-resolve attempts are exhausted.
 ///
 /// YAML string → enum mapping:
@@ -1031,9 +1049,7 @@ class MergeResolveConfig {
       enabled: (json['enabled'] as bool?) ?? false,
       maxAttempts: (json['max_attempts'] as int?) ?? 2,
       tokenCeiling: (json['token_ceiling'] as int?) ?? 100000,
-      escalation: rawEsc == null
-          ? MergeResolveEscalation.serializeRemaining
-          : MergeResolveEscalation.tryParse(rawEsc),
+      escalation: rawEsc == null ? MergeResolveEscalation.serializeRemaining : MergeResolveEscalation.tryParse(rawEsc),
       rawEscalation: rawEsc,
       verification: MergeResolveVerificationConfig.fromJson(json['verification']),
       unknownFields: unknown,
@@ -1093,6 +1109,10 @@ class WorkflowGitStrategy {
   /// Publish behavior configuration.
   final WorkflowGitPublishStrategy? publish;
 
+  /// End-of-run worktree/branch cleanup configuration. `null` means default
+  /// (cleanup enabled); see [cleanupEnabled] for the resolved boolean.
+  final WorkflowGitCleanupStrategy? cleanup;
+
   /// Artifact auto-commit configuration (null = default truth-table resolution).
   final WorkflowGitArtifactsStrategy? artifacts;
 
@@ -1111,6 +1131,9 @@ class WorkflowGitStrategy {
   /// `merge_resolve:` block was absent from the YAML, so callers never need a
   /// null check.
   MergeResolveConfig get mergeResolve => _mergeResolve ?? const MergeResolveConfig();
+
+  /// Whether end-of-run worktree/branch cleanup is enabled (default: true).
+  bool get cleanupEnabled => cleanup?.enabled ?? true;
 
   /// Convenience projection of the configured worktree mode.
   String? get worktreeMode => worktree?.mode;
@@ -1142,6 +1165,7 @@ class WorkflowGitStrategy {
     this.worktree,
     this.promotion,
     this.publish,
+    this.cleanup,
     this.artifacts,
     this.legacyExternalArtifactMountLocation = false,
     MergeResolveConfig? mergeResolve,
@@ -1152,6 +1176,7 @@ class WorkflowGitStrategy {
     if (worktree != null) 'worktree': worktree!.toJsonValue(),
     if (promotion != null) 'promotion': promotion,
     if (publish != null) 'publish': publish!.toJson(),
+    if (cleanup != null) 'cleanup': cleanup!.toJson(),
     if (artifacts != null) 'artifacts': artifacts!.toJson(),
     if (_mergeResolve != null) 'merge_resolve': _mergeResolve.toJson(),
   };
@@ -1166,6 +1191,11 @@ class WorkflowGitStrategy {
     publish: switch (json['publish']) {
       Map<String, dynamic> publish => WorkflowGitPublishStrategy.fromJson(publish),
       Map<Object?, Object?> publish => WorkflowGitPublishStrategy.fromJson(Map<String, dynamic>.from(publish)),
+      _ => null,
+    },
+    cleanup: switch (json['cleanup']) {
+      Map<String, dynamic> cleanup => WorkflowGitCleanupStrategy.fromJson(cleanup),
+      Map<Object?, Object?> cleanup => WorkflowGitCleanupStrategy.fromJson(Map<String, dynamic>.from(cleanup)),
       _ => null,
     },
     artifacts: switch (json['artifacts']) {

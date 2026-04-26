@@ -135,6 +135,16 @@ class ContextExtractor {
         continue;
       }
 
+      // discover-project's spec_path is load-bearing only when spec_source == 'existing';
+      // tolerate non-existent claims otherwise (the spec step will synthesize).
+      if (step.id == 'discover-project' && outputKey == 'spec_path') {
+        final claimedSource = workflowContextPayload?['spec_source']?.toString().trim();
+        if (claimedSource != 'existing') {
+          outputs[outputKey] = '';
+          continue;
+        }
+      }
+
       final resolver = outputResolverFor(outputKey, config);
       switch (resolver) {
         case FileSystemOutput():

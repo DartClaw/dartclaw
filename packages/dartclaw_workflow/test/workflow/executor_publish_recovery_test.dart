@@ -14,6 +14,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowApprovalRequestedEvent,
         WorkflowContext,
         WorkflowDefinition,
+        WorkflowGitCleanupStrategy,
         WorkflowGitException,
         WorkflowGitPublishResult,
         WorkflowGitPublishStrategy,
@@ -321,6 +322,65 @@ void main() {
       final data = finalRun?.contextJson['data'] as Map?;
       expect(data?['prior-impl.status'], equals('accepted'));
       expect(data?['prior-impl.tokenCount'], equals(100));
+    });
+  });
+
+  group('completion path honors gitStrategy.cleanup', () {
+    Future<List<bool>> runCompletionAndCaptureCleanup(WorkflowGitStrategy? strategy) async {
+      final cleanupCalls = <bool>[];
+      final executor = h.makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add(preserveWorktrees);
+              },
+        ),
+      );
+
+      final definition = WorkflowDefinition(
+        name: 'cleanup-config',
+        description: 'Cleanup config flow',
+        gitStrategy: strategy,
+        steps: const [],
+        variables: {'PROJECT': const WorkflowVariable(required: false)},
+      );
+      final run = WorkflowRun(
+        id: 'cleanup-config-${strategy?.cleanup?.enabled ?? 'default'}',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project'},
+        definitionJson: definition.toJson(),
+      );
+      await h.repository.insert(run);
+      await executor.execute(run, definition, WorkflowContext(variables: const {'PROJECT': 'my-project'}));
+      return cleanupCalls;
+    }
+
+    test('default (no cleanup block) → preserveWorktrees=false', () async {
+      expect(await runCompletionAndCaptureCleanup(null), equals([false]));
+    });
+
+    test('cleanup.enabled: true → preserveWorktrees=false', () async {
+      expect(
+        await runCompletionAndCaptureCleanup(
+          const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        ),
+        equals([false]),
+      );
+    });
+
+    test('cleanup.enabled: false → preserveWorktrees=true', () async {
+      expect(
+        await runCompletionAndCaptureCleanup(
+          const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false)),
+        ),
+        equals([true]),
+      );
     });
   });
 }

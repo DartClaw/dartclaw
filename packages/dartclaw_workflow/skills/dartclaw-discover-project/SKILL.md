@@ -169,6 +169,19 @@ Describe:
 - update operation names
 - any framework-specific caveats
 
+## Step Outcome
+
+Emit `succeeded` whenever you produce a normalized project index — this skill's success condition is the index itself, not the larger workflow goal. Specifically, do **not** emit `failed` because:
+
+- The invoking workflow's higher-level goal (e.g. `spec-and-implement`, `plan-and-implement`) has not yet been achieved.
+- No active PRD / plan / FIS exists on disk — that is a normal starting state; downstream steps create them.
+- A `FEATURE` / `REQUIREMENTS` variable describes work that was not executed — that work belongs to later pipeline steps.
+- The skill is read-only and could not implement anything — being read-only is by design, not a failure mode.
+
+Emit `needsInput` only when project structure is so ambiguous that a human must intervene before any downstream skill can proceed.
+
+Emit `failed` only when discovery itself failed — e.g. the project root is unreachable, the working directory escapes the resolved root, or both root instruction files and definitive framework markers are absent in a way that breaks even `framework: none`.
+
 ## Method
 
 1. Determine the effective project root.

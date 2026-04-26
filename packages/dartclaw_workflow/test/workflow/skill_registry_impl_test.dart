@@ -3,8 +3,9 @@ library;
 
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SkillSource;
+import 'package:dartclaw_models/dartclaw_models.dart' show OutputFormat, SkillSource;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistryImpl;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -623,6 +624,82 @@ void main() {
       );
 
       expect(registry.getByName('unknown'), isNull);
+    });
+  });
+
+  group('packaged dartclaw-merge-resolve manifest discovery', () {
+    String locateBuiltInSkillsDir() {
+      var current = Directory.current;
+      while (true) {
+        final candidates = [
+          p.join(current.path, 'skills'),
+          p.join(current.path, 'packages', 'dartclaw_workflow', 'skills'),
+        ];
+        for (final candidate in candidates) {
+          if (Directory(candidate).existsSync()) return candidate;
+        }
+        final parent = current.parent;
+        if (parent.path == current.path) {
+          throw StateError('Could not locate built-in skills directory');
+        }
+        current = parent;
+      }
+    }
+
+    test('all four merge_resolve.* defaultOutputs parse without warnings', () async {
+      final builtInSkillsDir = locateBuiltInSkillsDir();
+
+      // Capture warnings emitted during discovery so we can assert no
+      // `workflow.default_outputs.*` parse failures (e.g. invalid format).
+      // Logger.root.onRecord is async — drain pending microtasks before asserting.
+      final warnings = <String>[];
+      final originalLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final sub = Logger.root.onRecord.listen((rec) {
+        if (rec.level >= Level.WARNING) warnings.add(rec.message);
+      });
+
+      try {
+        final registry = makeRegistry();
+        registry.discover(
+          workspaceDir: workspaceDir.path,
+          dataDir: dataDir.path,
+          userClaudeSkillsDir: '/nonexistent',
+          userAgentsSkillsDir: '/nonexistent',
+          builtInSkillsDir: builtInSkillsDir,
+        );
+
+        // Allow buffered LogRecord events to be delivered to the listener.
+        await Future<void>.delayed(Duration.zero);
+
+        final skill = registry.getByName('dartclaw-merge-resolve');
+        expect(skill, isNotNull, reason: 'packaged dartclaw-merge-resolve must be discovered');
+
+        final outputs = skill!.defaultOutputs;
+        expect(outputs, isNotNull, reason: 'workflow.default_outputs must parse');
+        const requiredKeys = {
+          'merge_resolve.outcome',
+          'merge_resolve.conflicted_files',
+          'merge_resolve.resolution_summary',
+          'merge_resolve.error_message',
+        };
+        expect(outputs!.keys.toSet().containsAll(requiredKeys), isTrue,
+            reason: 'all four merge_resolve.* outputs must be present (got: ${outputs.keys})');
+
+        // Spec/runtime contract: outcome is a string-typed enum (runtime format=text);
+        // conflicted_files is JSON; summary and error_message are text.
+        expect(outputs['merge_resolve.outcome']!.format, OutputFormat.text);
+        expect(outputs['merge_resolve.conflicted_files']!.format, OutputFormat.json);
+        expect(outputs['merge_resolve.resolution_summary']!.format, OutputFormat.text);
+        expect(outputs['merge_resolve.error_message']!.format, OutputFormat.text);
+
+        final mrWarnings = warnings.where((w) => w.contains('default_outputs.merge_resolve.')).toList();
+        expect(mrWarnings, isEmpty,
+            reason: 'no parse warnings expected for merge_resolve outputs; got: $mrWarnings');
+      } finally {
+        await sub.cancel();
+        Logger.root.level = originalLevel;
+      }
     });
   });
 }

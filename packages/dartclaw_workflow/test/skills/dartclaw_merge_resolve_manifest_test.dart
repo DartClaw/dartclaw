@@ -74,12 +74,14 @@ void main() {
         expect(defaultOutputs.containsKey('merge_resolve.outcome'), isTrue);
       });
 
-      test('merge_resolve.outcome declares enum format with the three allowed values', () {
+      test('merge_resolve.outcome declares enum-typed string with the three allowed values', () {
         final cfg = defaultOutputs['merge_resolve.outcome'] as Map<Object?, Object?>;
-        final fmt = cfg['format'] as String;
-        expect(fmt, contains('enum'), reason: 'TI03 requires enum-typed format');
+        // Runtime format must be one of the runtime-supported OutputFormat values
+        // (text/json/lines/path); the enum constraint is expressed in the description.
+        expect(cfg['format'], 'text', reason: 'TI03 enum-typed string maps to runtime format=text');
+        final desc = cfg['description'] as String;
         for (final v in ['resolved', 'failed', 'cancelled']) {
-          expect(fmt, contains(v), reason: 'enum format must list "$v"');
+          expect(desc, contains(v), reason: 'description must enumerate allowed value "$v"');
         }
       });
 

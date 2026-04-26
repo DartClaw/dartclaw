@@ -390,12 +390,123 @@ steps:
       );
     });
 
-    test('rejects gitStrategy.cleanup with a clear removal message', () {
+    test('parses gitStrategy.cleanup.enabled: false', () {
       const yaml = '''
 name: wf
 description: d
 gitStrategy:
   bootstrap: true
+  cleanup:
+    enabled: false
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      final def = parser.parse(yaml);
+      expect(def.gitStrategy?.cleanup?.enabled, isFalse);
+      expect(def.gitStrategy?.cleanupEnabled, isFalse);
+    });
+
+    test('parses gitStrategy.cleanup.enabled: true', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  cleanup:
+    enabled: true
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      final def = parser.parse(yaml);
+      expect(def.gitStrategy?.cleanup?.enabled, isTrue);
+      expect(def.gitStrategy?.cleanupEnabled, isTrue);
+    });
+
+    test('gitStrategy.cleanup round-trips through toJson/fromJson', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  cleanup:
+    enabled: false
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      final parsed = parser.parse(yaml);
+      final roundTripped = WorkflowDefinition.fromJson(parsed.toJson());
+      expect(roundTripped.gitStrategy?.cleanup?.enabled, isFalse);
+      expect(roundTripped.gitStrategy?.cleanupEnabled, isFalse);
+    });
+
+    test('gitStrategy.cleanup defaults to enabled when omitted', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  bootstrap: true
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      final def = parser.parse(yaml);
+      expect(def.gitStrategy?.cleanup, isNull);
+      expect(def.gitStrategy?.cleanupEnabled, isTrue);
+    });
+
+    test('rejects unknown subkey under gitStrategy.cleanup', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  cleanup:
+    enabled: true
+    branches: false
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('Unknown field'), contains('"branches"'), contains('gitStrategy.cleanup')),
+          ),
+        ),
+      );
+    });
+
+    test('rejects non-boolean gitStrategy.cleanup.enabled', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  cleanup:
+    enabled: "true"
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('gitStrategy.cleanup.enabled'))),
+      );
+    });
+
+    test('rejects non-mapping gitStrategy.cleanup', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
   cleanup: preserve-on-failure
 steps:
   - id: s

@@ -635,9 +635,7 @@ void main() {
         await executor.execute(run, def, ctx);
         await sub.cancel();
 
-        // On cancellation, the artifact should have outcome=cancelled OR the
-        // workflow may fail — both are valid outcomes per standard cancel semantics.
-        // Assert: at minimum the workflow does not complete successfully (story was cancelled).
+        // On cancellation, the run terminates as failed or cancelled (never completed).
         final finalRun = await h.repository.getById(run.id);
         expect(
           finalRun?.status,
@@ -647,17 +645,19 @@ void main() {
 
         // Story task should have been observed by the listener.
         expect(storyTaskId, isNotNull, reason: 'cancellation test must have observed the merge-resolve task id');
-        // Cancellation-artifact persistence is exercised more directly in
-        // S60's component tests (merge_resolve_plumbing_test.dart). The
-        // fake-harness path here may not always traverse the same artifact
-        // persistence seam — when an artifact is written, validate its shape.
+
+        // S62 contract: every MVP path test (including P5) must prove the per-attempt
+        // artifact is persisted with the path's terminal outcome and the 9 v1 fields.
+        // The M1 plumbing fix guarantees a cancelled merge-resolve task writes an
+        // artifact with outcome=cancelled.
         final artifacts = await _readArtifacts(h, storyTaskId!);
-        for (final a in artifacts) {
-          if (a.outcome == 'cancelled') {
-            expect(a.errorMessage, isNotNull, reason: 'cancelled artifact must have error_message');
-            expect(a.errorMessage!.trim(), isNotEmpty, reason: 'cancelled artifact error_message must not be blank');
-            _assertArtifactFields(a);
-          }
+        expect(artifacts, isNotEmpty, reason: 'cancellation must persist at least one artifact');
+        final cancelled = artifacts.where((a) => a.outcome == 'cancelled').toList();
+        expect(cancelled, isNotEmpty, reason: 'at least one artifact must have outcome=cancelled');
+        for (final a in cancelled) {
+          expect(a.errorMessage, isNotNull, reason: 'cancelled artifact must have error_message');
+          expect(a.errorMessage!.trim(), isNotEmpty, reason: 'cancelled artifact error_message must not be blank');
+          _assertArtifactFields(a);
         }
       });
     });
@@ -717,51 +717,54 @@ void main() {
           storyId: 'S02',
         );
 
-        // S02 will conflict on STATE.md (both branches appended to the same anchor).
-        // This test documents the Issue C failure surface — the conflict is the
-        // trigger that would cause the merge-resolve skill to fire in production.
-        // We assert the conflict is detected with the expected file.
-        if (resultS02 is WorkflowGitPromotionConflict) {
-          expect(resultS02.conflictingFiles, contains('docs/STATE.md'));
+        // The fixture is engineered so S02 conflicts on STATE.md (both branches
+        // appended to the same anchor). If it stops conflicting, the fixture has
+        // regressed (e.g. a default merge driver started auto-merging) and the
+        // demo no longer exercises the conflict shape it claims to.
+        // Real-harness end-to-end proof is in S65's merge_resolve_integration_test.dart.
+        expect(
+          resultS02,
+          isA<WorkflowGitPromotionConflict>(),
+          reason: 'BPC-27 fixture must produce a real conflict on docs/STATE.md',
+        );
+        final conflict = resultS02 as WorkflowGitPromotionConflict;
+        expect(conflict.conflictingFiles, contains('docs/STATE.md'));
 
-          // Simulate what the merge-resolve skill does: abort the failed merge
-          // and manually apply both edits to prove the resolved state is achievable.
-          await fixture.rawGit(['merge', '--abort']);
-          // Write the resolved STATE.md with both entries.
-          final stateMdPath = p.join(fixture.projectDir, 'docs', 'STATE.md');
-          File(stateMdPath).writeAsStringSync(
-            '# State\n\n- phase: in-progress\n- s01: added A\n- s02: added B\n',
-          );
-          // Checkout S02's src/b.dart from the story branch so it lands on integration.
-          await fixture.rawGit([
-            'checkout',
-            fixture.storyBranch('S02'),
-            '--',
-            'src/b.dart',
-          ]);
-          await fixture.rawGit(['add', 'docs/STATE.md', 'src/b.dart']);
-          await fixture.rawGit(['commit', '--no-edit', '-m', 'S62-test: merge-resolve S02']);
-          // Also ensure S02 src/b.dart is on integration (squash commit above includes it).
+        // Demonstrate end-to-end recoverability of the conflict shape: plumbing
+        // aborts the failed merge (BPC-29 — the skill itself must NEVER run
+        // `git merge --abort`, `git reset`, or `git clean`; cleanup is plumbing's
+        // responsibility), then apply the edits the real skill would have
+        // produced semantically, proving the resolved state is achievable.
+        await fixture.rawGit(['merge', '--abort']);
+        // Write the resolved STATE.md with both entries.
+        final stateMdPath = p.join(fixture.projectDir, 'docs', 'STATE.md');
+        File(stateMdPath).writeAsStringSync(
+          '# State\n\n- phase: in-progress\n- s01: added A\n- s02: added B\n',
+        );
+        // Checkout S02's src/b.dart from the story branch so it lands on integration.
+        await fixture.rawGit([
+          'checkout',
+          fixture.storyBranch('S02'),
+          '--',
+          'src/b.dart',
+        ]);
+        await fixture.rawGit(['add', 'docs/STATE.md', 'src/b.dart']);
+        await fixture.rawGit(['commit', '--no-edit', '-m', 'S62-test: merge-resolve S02']);
 
-          // Verify both stories' work is on integration.
-          final tree = await fixture.rawGit(
-            ['ls-tree', '-r', '--name-only', fixture.integrationBranch],
-          );
-          final files = (tree.stdout as String).split('\n');
-          expect(files, contains('src/a.dart'), reason: 'S01 src file must be present');
-          expect(files, contains('src/b.dart'), reason: 'S02 src file must be present');
+        // Verify both stories' work is on integration.
+        final tree = await fixture.rawGit(
+          ['ls-tree', '-r', '--name-only', fixture.integrationBranch],
+        );
+        final files = (tree.stdout as String).split('\n');
+        expect(files, contains('src/a.dart'), reason: 'S01 src file must be present');
+        expect(files, contains('src/b.dart'), reason: 'S02 src file must be present');
 
-          final stateContent = await fixture.rawGit(
-            ['show', '${fixture.integrationBranch}:docs/STATE.md'],
-          );
-          final text = stateContent.stdout as String;
-          expect(text, contains('s01: added A'), reason: 'S01 STATE.md edit must be present');
-          expect(text, contains('s02: added B'), reason: 'S02 STATE.md edit must be present');
-        } else {
-          // If the merge happened to succeed (e.g., gitattributes union), that is
-          // also acceptable — BPC-27 is satisfied either way.
-          expect(resultS02, isA<WorkflowGitPromotionSuccess>());
-        }
+        final stateContent = await fixture.rawGit(
+          ['show', '${fixture.integrationBranch}:docs/STATE.md'],
+        );
+        final text = stateContent.stdout as String;
+        expect(text, contains('s01: added A'), reason: 'S01 STATE.md edit must be present');
+        expect(text, contains('s02: added B'), reason: 'S02 STATE.md edit must be present');
       });
     }
   });

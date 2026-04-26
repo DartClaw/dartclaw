@@ -1432,7 +1432,9 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     required Set<String> promotedIds,
   }) async {
     final phaseKey = '_merge_resolve.${controllerStep.id}.serialize_remaining_phase';
-    // Idempotent: only drain once per step per run (phase 'drained' means already complete).
+    // Two-level idempotency: drain is per-step (each foreach has its own pending
+    // queue, so the drain key is scoped to controllerStep.id); event emission
+    // below is per-run (runEmittedKey, single emission across all foreach steps).
     if (context[phaseKey] == 'drained') return null;
 
     // Collect siblings FIRST so drainedIterationCount is accurate when the event fires.

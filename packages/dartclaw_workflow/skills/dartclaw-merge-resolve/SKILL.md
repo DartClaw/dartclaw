@@ -7,8 +7,8 @@ workflow:
   default_prompt: "Run dartclaw-merge-resolve to resolve any merge conflicts on this story branch against the integration branch, verify the result, and commit all-or-nothing."
   default_outputs:
     merge_resolve.outcome:
-      format: enum string with allowed values resolved/failed/cancelled
-      description: "Outcome of the merge resolution attempt: one of 'resolved', 'failed', or 'cancelled'."
+      format: text
+      description: "Outcome of the merge resolution attempt. Enum-typed string: must be one of 'resolved', 'failed', or 'cancelled'."
     merge_resolve.conflicted_files:
       format: json
       description: "JSON array of relative file paths that had conflict markers, sourced from `git diff --name-only --diff-filter=U` (sorted lexicographically). Empty array when the mechanical merge produced no markers."

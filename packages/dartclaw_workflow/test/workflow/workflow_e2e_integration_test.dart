@@ -1088,11 +1088,12 @@ void main() {
       final run = await w.workflowService.start(definition, variables, headless: true);
       final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
 
-      // Wait for workflow to complete
+      // 60 min covers up to ~3 remediation iterations (maxIterations=3); the
+      // happy path runs in ~15-18 min.
       final finalStatus = await completionFuture.timeout(
-        Duration(minutes: 25),
+        Duration(minutes: 60),
         onTimeout: () {
-          fail('Workflow timed out after 25 minutes');
+          fail('Workflow timed out after 60 minutes');
         },
       );
 
@@ -1159,7 +1160,7 @@ void main() {
     } finally {
       Directory.current = savedCwd;
     }
-  }, timeout: Timeout(Duration(minutes: 30)));
+  }, timeout: Timeout(Duration(minutes: 65)));
 
   // -------------------------------------------------------------------------
   // TI04: plan-and-implement e2e

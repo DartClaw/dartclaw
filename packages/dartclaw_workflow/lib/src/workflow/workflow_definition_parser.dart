@@ -559,13 +559,6 @@ class WorkflowDefinitionParser {
         'Remove it from your workflow definition${_at(sourcePath)}.',
       );
     }
-    if (raw.containsKey('cleanup')) {
-      throw FormatException(
-        'Field "gitStrategy.cleanup" was removed: it had no runtime behavior. '
-        'Remove it from your workflow definition${_at(sourcePath)}.',
-      );
-    }
-
     final publishRaw = raw['publish'];
     WorkflowGitPublishStrategy? publish;
     if (publishRaw != null) {
@@ -573,6 +566,27 @@ class WorkflowDefinitionParser {
         throw FormatException('Field "gitStrategy.publish" must be a mapping${_at(sourcePath)}.');
       }
       publish = WorkflowGitPublishStrategy(enabled: publishRaw['enabled'] as bool?);
+    }
+
+    final cleanupRaw = raw['cleanup'];
+    WorkflowGitCleanupStrategy? cleanup;
+    if (cleanupRaw != null) {
+      if (cleanupRaw is! YamlMap) {
+        throw FormatException('Field "gitStrategy.cleanup" must be a mapping${_at(sourcePath)}.');
+      }
+      const knownCleanupKeys = {'enabled'};
+      final unknown = cleanupRaw.keys.map((k) => k.toString()).where((k) => !knownCleanupKeys.contains(k)).toList();
+      if (unknown.isNotEmpty) {
+        throw FormatException(
+          'Unknown field${unknown.length == 1 ? '' : 's'} '
+          '${unknown.map((k) => '"$k"').join(', ')} under "gitStrategy.cleanup"${_at(sourcePath)}.',
+        );
+      }
+      final enabledRaw = cleanupRaw['enabled'];
+      if (enabledRaw != null && enabledRaw is! bool) {
+        throw FormatException('Field "gitStrategy.cleanup.enabled" must be a boolean${_at(sourcePath)}.');
+      }
+      cleanup = WorkflowGitCleanupStrategy(enabled: enabledRaw as bool?);
     }
 
     final artifactsRaw = raw['artifacts'];
@@ -630,6 +644,7 @@ class WorkflowDefinitionParser {
       worktree: worktree,
       promotion: raw['promotion'] as String?,
       publish: publish,
+      cleanup: cleanup,
       artifacts: artifacts,
       legacyExternalArtifactMountLocation: legacyExternalArtifactMountLocation,
       mergeResolve: rawMergeResolve != null ? MergeResolveConfig.fromJson(rawMergeResolve) : null,

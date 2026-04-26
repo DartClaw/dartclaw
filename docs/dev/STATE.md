@@ -21,12 +21,12 @@ Last Updated: 2026-04-25 23:55 CEST
 
 ## Current Phase
 
-**0.16.4** — release prep. Agent-resolved-merge bundle (S57-S64) just landed: cross-harness LLM-driven conflict resolution, retry loop with structured artifacts, serialize-remaining drain, built-in YAML adoption with cross-harness E2E tests, and a workflow test-suite overhaul. Final gap review PASS. Release tag for 0.16.4 still blocked on the deferred `plan-and-implement` release-gate run from S56.
+**0.16.4** — release prep. Agent-resolved-merge bundle (S57-S64) just landed: cross-harness LLM-driven conflict resolution, retry loop with structured artifacts, serialize-remaining drain, built-in YAML adoption with cross-harness E2E tests, and a workflow test-suite overhaul. Final gap review PASS. S56's deferred release-gate e2e is satisfied by S62's cross-harness E2E suite — 0.16.4 is ready to tag.
 
 ## Active Stories
 
 - S51-S55 — Done (workflow step semantics redesign + remediation).
-- S56 — Blocked (release gate ENV_BLOCKED, operator-deferred): Live release gate and documentation closeout. Scripted verification band clean. Live `plan-and-implement` release-gate run explicitly deferred by operator; release tag for 0.16.4 remains blocked until operator runs it and appends evidence. `s56-release-gate-closeout.md` contains full evidence.
+- S56 — Done: Live release gate and documentation closeout. The deferred `plan-and-implement` release-gate e2e is satisfied by the cross-harness E2E suite landed in S62 (12-cell P1-P5 × Claude Code + Codex matrix + Issue C STATE.md reproduction). Release tag for 0.16.4 unblocked from this milestone's perspective.
 - S57 — Done: Harness env-var injection contract + Codex `!`-operator SPIKE-1 (GO; Codex matches Claude Code via POSIX shell expansion). Six `MERGE_RESOLVE_*` env-var names locked in `dartclaw_core`.
 - S58 — Done: `gitStrategy.merge_resolve` schema + validator rules + parser threading (HIGH parser-gap remediation). Five validator rules with byte-identical PRD wording.
 - S59 — Done: `dartclaw-merge-resolve` skill (markdown-driven, all-or-nothing commit, four output fields). Cross-harness via the `!` bang operator.
@@ -42,7 +42,7 @@ Last Updated: 2026-04-25 23:55 CEST
 
 ## Blockers
 
-- Live `plan-and-implement` release-gate run deferred by operator during S56 execution. Tagging 0.16.4 requires operator to explicitly run the gate (see `s56-release-gate-closeout.md`) and record the run ID, terminal status, and artifact path.
+_None._
 
 ## Recent Decisions
 

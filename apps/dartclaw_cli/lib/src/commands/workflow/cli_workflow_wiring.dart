@@ -527,6 +527,10 @@ class CliWorkflowWiring {
           );
           return (sha: result.sha, isDirty: result.isDirty, cleanupError: result.cleanupError);
         },
+        runResolverAttemptUnderLock: <T>({required projectId, required body}) async {
+          final projectDir = await _resolveWorkflowProjectDir(projectId);
+          return runWorkflowGitResolverAttemptUnderLock<T>(projectDir: projectDir, body: body);
+        },
         reserveTurn: turns.reserveTurn,
         reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => turns.reserveTurn(
           sessionId,

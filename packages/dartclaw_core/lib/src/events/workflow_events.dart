@@ -404,12 +404,15 @@ final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
       'cancelled: $cancelledCount, tokens: $totalTokens)';
 }
 
-/// Fired once when a merge-conflict escalation triggers serialize-remaining mode
-/// for a foreach step — parallel execution is halted and remaining iterations
-/// will run serially.
+/// Fired once per workflow run when a merge-conflict escalation first triggers
+/// serialize-remaining mode for any foreach step — parallel execution of that
+/// step is halted and remaining iterations will run serially.
 ///
-/// Exactly one event is emitted per run per step (idempotency via
-/// `_merge_resolve.<stepId>.is_serial_mode` flag).
+/// Exactly one event is emitted per run (PRD US06 / FR4): if multiple foreach
+/// steps in the same run each escalate, only the first emits this event;
+/// subsequent steps still drain and re-queue but do not re-emit. The
+/// [foreachStepId] field identifies the step that triggered the run-level
+/// transition.
 final class WorkflowSerializationEnactedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;

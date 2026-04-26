@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-25 23:55 CEST
+Last Updated: 2026-04-26 07:40 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -21,18 +21,19 @@ Last Updated: 2026-04-25 23:55 CEST
 
 ## Current Phase
 
-**0.16.4** — release prep. Agent-resolved-merge bundle (S57-S64) just landed: cross-harness LLM-driven conflict resolution, retry loop with structured artifacts, serialize-remaining drain, built-in YAML adoption with cross-harness E2E tests, and a workflow test-suite overhaul. Final gap review PASS. S56's deferred release-gate e2e is satisfied by S62's cross-harness E2E suite — 0.16.4 is ready to tag.
+**0.16.4** — release prep. Agent-resolved-merge bundle (S57-S64) implemented and component-tier proofs landed; the 2026-04-26 gap reviews (codex + claude) caught a CRITICAL wiring gap (synthetic merge-resolve task did not bind to the conflicted iteration's worktree) plus HIGH lock-coverage gap and the test-suite blind spot that hid both. Remediation 2026-04-26: C1 (mapCtx propagated through `_executeStep`), H1 (new `runResolverAttemptUnderLock` callback wraps each attempt under `_workflowGitRepoLock`; `RepoLock` made zone-reentrant), M1 (`outcome: cancelled` explicit), M2 (event cardinality run-scoped), L1 (test configs aligned). S60 re-marked Done. S62 remains In Progress blocked on new story **S65** (real-harness integration E2E) — 0.16.4 release tag deferred until S65 ships.
 
 ## Active Stories
 
 - S51-S55 — Done (workflow step semantics redesign + remediation).
-- S56 — Done: Live release gate and documentation closeout. The deferred `plan-and-implement` release-gate e2e is satisfied by the cross-harness E2E suite landed in S62 (12-cell P1-P5 × Claude Code + Codex matrix + Issue C STATE.md reproduction). Release tag for 0.16.4 unblocked from this milestone's perspective.
+- S56 — Done: Live release gate and documentation closeout. The deferred `plan-and-implement` release-gate e2e was originally satisfied by S62's cross-harness component-tier suite, but the 2026-04-26 gap reviews showed that suite cannot prove the success metric (every component test injects `merge_resolve.outcome` directly via `messageService.insertMessage` rather than driving the executor → skill → worktree chain). Real-harness E2E proof now lives in S65; 0.16.4 release tag deferred until S65 ships.
 - S57 — Done: Harness env-var injection contract + Codex `!`-operator SPIKE-1 (GO; Codex matches Claude Code via POSIX shell expansion). Six `MERGE_RESOLVE_*` env-var names locked in `dartclaw_core`.
 - S58 — Done: `gitStrategy.merge_resolve` schema + validator rules + parser threading (HIGH parser-gap remediation). Five validator rules with byte-identical PRD wording.
 - S59 — Done: `dartclaw-merge-resolve` skill (markdown-driven, all-or-nothing commit, four output fields). Cross-harness via the `!` bang operator.
-- S60 — Done (after CRITICAL-heavy remediation): Plumbing wiring — retry loop, atomic capture+clean callback, structured artifact persistence (9 v1 fields including `started_at`/`elapsed_ms`), `fail` escalation propagation, server-side wiring, crash recovery with `interrupted by server restart` artifact. 7-test component suite.
+- S60 — Done (after two remediation rounds — original CRITICAL-heavy round + 2026-04-26 gap-review remediation): Plumbing wiring — retry loop, atomic capture+clean callback, structured artifact persistence (9 v1 fields including `started_at`/`elapsed_ms`), `fail` escalation propagation, server-side wiring, crash recovery with `interrupted by server restart` artifact. 9-test component suite (added C1 + H1 regression tests asserting `mapIterationIndex` propagation and `runResolverAttemptUnderLock` invocation through the executor). Lock-spanning resolver attempt seam: `WorkflowTurnAdapter.runResolverAttemptUnderLock` wraps each attempt's body under `_workflowGitRepoLock`; `RepoLock.acquire` is now zone-reentrant so existing inner primitives compose. Cancelled task → `outcome: cancelled` explicitly.
 - S61 — Done (after HIGH remediation): `serialize-remaining` drain — `WorkflowSerializationEnactedEvent` with accurate `drainedIterationCount`, single `serialize_remaining_phase` flag (no two-flag race), parallel 30s-cap timeout. 10 component tests including S2/S4/S5/S6 scenarios.
-- S62 — Done: Built-in `plan-and-implement` and `spec-and-implement` adopt `merge_resolve:` block; 12-cell cross-harness E2E test suite (P1-P5 × 2 harnesses + Issue C BPC-27 reproduction).
+- S62 — In Progress, blocked on S65: built-in `plan-and-implement` and `spec-and-implement` adopt `merge_resolve:` block (Done); 12-cell cross-harness component-tier suite ships (P1-P5 × 2 harnesses + Issue C BPC-27 reproduction) but every path injects `merge_resolve.outcome` via `messageService.insertMessage` rather than driving the executor → real-skill → worktree chain. PRD success-metric proof ("Issue C scenario completes via real harness without operator intervention") moved to S65.
+- S65 — Not Started: Real-harness integration E2E for agent-resolved merge. Tagged `@Tags(['integration'])`, gated on harness availability + API keys, drives a real `WorkflowExecutor` through a two-story `STATE.md` conflict via real `dartclaw-merge-resolve` skill execution. Author FIS via `andthen:spec` before implementation. S62 cannot move to Done until S65 ships.
 - S63 — Done: Public `merge_resolve` user-guide section (PASS no findings).
 - S64 — Done (after HIGH remediation): Workflow test suite overhaul — Phase 0 stabilize (listener-race fix in `step_dispatcher` + `map_iteration_dispatcher`), Phase 1 honesty cleanup, Phase 2 behavioral gaps (bash escape on `{{VAR}}` for symmetry, schema strictness as warnings, max_parallel/loops parser tightening), Phase 3 executor-mega-file split, Phase 4 fakeAsync replaces real-time waits, Phase 5 unit-test additions. Phase 6 (fitness classification) deferred per FIS.
 
@@ -42,7 +43,7 @@ Last Updated: 2026-04-25 23:55 CEST
 
 ## Blockers
 
-_None._
+- 0.16.4 release tag deferred until S65 (real-harness integration E2E for agent-resolved merge) ships. Component-tier C1/H1 regression tests already prove the executor → skill → worktree binding chain at unit/component scope; S65 is the outer-loop proof against a real harness binary.
 
 ## Recent Decisions
 

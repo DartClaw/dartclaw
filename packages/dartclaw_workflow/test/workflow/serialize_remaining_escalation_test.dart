@@ -159,7 +159,7 @@ void main() {
       gitStrategy: WorkflowGitStrategy(
         bootstrap: true,
         worktree: const WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
-        promotion: 'squash',
+        promotion: 'merge',
         publish: const WorkflowGitPublishStrategy(enabled: false),
         mergeResolve: MergeResolveConfig(
           enabled: true,

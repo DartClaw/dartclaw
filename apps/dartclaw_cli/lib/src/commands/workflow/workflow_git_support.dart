@@ -191,6 +191,23 @@ Future<CaptureAndCleanResult> captureAndCleanWorktreeForRetry({
   });
 }
 
+/// Holds [_workflowGitRepoLock] for the full duration of [body].
+///
+/// Used by the merge-resolve attempt loop to span one attempt's
+/// `capture+clean → skill invocation → outcome read → promotion retry` chain
+/// under a single lock so no concurrent sibling promotion can mutate the
+/// integration branch mid-resolution.
+///
+/// Inner primitives in this file (e.g. [captureAndCleanWorktreeForRetry],
+/// [promoteWorkflowBranchLocally]) that take the same lock continue to work
+/// unchanged because [RepoLock] is reentrant within the same zone.
+Future<T> runWorkflowGitResolverAttemptUnderLock<T>({
+  required String projectDir,
+  required Future<T> Function() body,
+}) {
+  return _workflowGitRepoLock.acquire(_repoLockKey(projectDir), body);
+}
+
 Future<WorkflowGitPromotionResult> promoteWorkflowBranchLocally({
   required String projectDir,
   required String runId,

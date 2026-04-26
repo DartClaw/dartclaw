@@ -1,5 +1,24 @@
 part of 'workflow_executor.dart';
 
+/// Outcome of one merge-resolve attempt body, used to dispatch the outer
+/// retry loop without having to translate `return`/`continue` inside the
+/// closure passed to [WorkflowTurnAdapter.runResolverAttemptUnderLock].
+sealed class _ResolverAttemptDecision {
+  const _ResolverAttemptDecision();
+}
+
+/// Exit the resolver loop and return [value] to the caller of
+/// `_resolveMergePromotionConflict`.
+final class _ResolverExit extends _ResolverAttemptDecision {
+  final WorkflowGitPromotionResult? value;
+  const _ResolverExit(this.value);
+}
+
+/// Advance to the next attempt in the resolver loop.
+final class _ResolverContinue extends _ResolverAttemptDecision {
+  const _ResolverContinue();
+}
+
 extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
   Future<MapStepResult?> _executeForeachStep(
     WorkflowRun run,
@@ -613,6 +632,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               iterIndex: iterIndex,
               context: context,
               mapCtx: mapCtx,
+              mapContext: mapContext,
               promotedIds: promotedIds,
               storyBranch: storyBranch,
               integrationBranch: integrationBranch,
@@ -829,6 +849,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     required int iterIndex,
     required WorkflowContext context,
     required MapStepContext mapCtx,
+    required MapContext mapContext,
     required Set<String> promotedIds,
     required String storyBranch,
     required String integrationBranch,
@@ -920,9 +941,21 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       }
     }
 
-    // Retry-then-promote loop.
+    // Retry-then-promote loop. Each iteration runs under a single critical
+    // section spanning capture+clean → skill execution → promote retry, so no
+    // concurrent sibling promotion can mutate the integration branch
+    // mid-resolution (PRD Lifecycle & Recovery / S60). The wrapper falls back
+    // to direct invocation when the host turn-adapter does not provide it
+    // (test wirings; behavior is byte-identical when no concurrent siblings).
+    final lockWrapper = _turnAdapter?.runResolverAttemptUnderLock;
+    Future<_ResolverAttemptDecision> runAttempt(Future<_ResolverAttemptDecision> Function() body) {
+      if (lockWrapper == null) return body();
+      return lockWrapper<_ResolverAttemptDecision>(projectId: projectId, body: body);
+    }
+
     MergeResolveAttemptArtifact? lastAttempt;
     while (attemptCounter < config.maxAttempts) {
+      final decision = await runAttempt(() async {
       // TI08+TI09: atomically capture SHA + dirty-check + cleanup under one lock.
       String preAttemptSha = context['$statePrefix.pre_attempt_sha'] as String? ?? '';
       final captureAndClean = _turnAdapter?.captureAndCleanWorktreeForRetry;
@@ -977,7 +1010,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               promotedIds: promotedIds,
             );
           }
-          return null;
+          return _ResolverExit(null);
         }
       } else {
         // Fallback: separate calls when combined callback is not wired.
@@ -1029,6 +1062,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         skillStep,
         context,
         stepIndex: skillStepIndex,
+        mapCtx: mapContext,
         extraTaskConfig: {'_workflowMergeResolveEnv': envMap},
       );
       final attemptElapsedMs = DateTime.now().difference(attemptStartedAt).inMilliseconds;
@@ -1038,7 +1072,11 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       context['$statePrefix.attempt_counter'] = attemptCounter;
 
       // TI11: assemble artifact fields from skill outputs.
-      final outcome = (resolveResult?.outputs['merge_resolve.outcome'] as String?)?.trim() ?? 'failed';
+      // Cancellation gets the canonical 'cancelled' outcome regardless of
+      // whether the skill emitted output (cancelled tasks skip output extraction).
+      final taskWasCancelled = resolveResult?.task?.status == TaskStatus.cancelled;
+      final extractedOutcome = (resolveResult?.outputs['merge_resolve.outcome'] as String?)?.trim();
+      final outcome = taskWasCancelled ? 'cancelled' : (extractedOutcome ?? 'failed');
       final rawConflictedFiles = resolveResult?.outputs['merge_resolve.conflicted_files'];
       final conflictedFiles = switch (rawConflictedFiles) {
         List<dynamic> list => list.cast<String>(),
@@ -1112,7 +1150,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             );
           }
         }
-        return null;
+        return _ResolverExit(null);
       }
 
       // TI15: on resolved, retry promotion.
@@ -1138,7 +1176,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               stepIndex: stepIndex,
               promotedIds: promotedIds,
             );
-            return retryResult;
+            return _ResolverExit(retryResult);
           }
           if (retryResult is WorkflowGitPromotionConflict) {
             // Re-conflict: advance to next attempt.
@@ -1151,7 +1189,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               stepIndex: stepIndex,
               promotedIds: promotedIds,
             );
-            continue;
+            return const _ResolverContinue();
           }
         }
         // Promotion returned error or no promote callback — fall through to failure cleanup.
@@ -1180,7 +1218,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               promotedIds: promotedIds,
             );
           }
-          return null;
+          return _ResolverExit(null);
         }
       }
 
@@ -1194,6 +1232,14 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         stepIndex: stepIndex,
         promotedIds: promotedIds,
       );
+      return const _ResolverContinue();
+      });
+      switch (decision) {
+        case _ResolverExit(:final value):
+          return value;
+        case _ResolverContinue():
+          continue;
+      }
     }
 
     // TI16: attempts exhausted — escalate.
@@ -1393,19 +1439,26 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     final siblingIndices = inFlight.keys.toList(growable: false);
     final drainedCount = siblingIndices.length;
 
-    // Fire exactly one event per run per step (BPC-11), now with accurate drainedIterationCount.
-    final attemptCounter =
-        (context['_merge_resolve.${controllerStep.id}.failed_attempt_number'] as int?) ?? 0;
-    _eventBus.fire(
-      WorkflowSerializationEnactedEvent(
-        runId: run.id,
-        foreachStepId: controllerStep.id,
-        failingIterationIndex: failingIterIndex,
-        failedAttemptNumber: attemptCounter,
-        drainedIterationCount: drainedCount,
-        timestamp: DateTime.now(),
-      ),
-    );
+    // Fire exactly one event per run (PRD US06 / FR4): the event marks the
+    // run-level transition into serialize-remaining mode. If a workflow has
+    // multiple foreach steps that each escalate, only the first emits the
+    // event; subsequent steps still drain and re-queue but do not re-emit.
+    const runEmittedKey = '_merge_resolve.serialize_remaining_event_emitted';
+    if (context[runEmittedKey] != true) {
+      final attemptCounter =
+          (context['_merge_resolve.${controllerStep.id}.failed_attempt_number'] as int?) ?? 0;
+      _eventBus.fire(
+        WorkflowSerializationEnactedEvent(
+          runId: run.id,
+          foreachStepId: controllerStep.id,
+          failingIterationIndex: failingIterIndex,
+          failedAttemptNumber: attemptCounter,
+          drainedIterationCount: drainedCount,
+          timestamp: DateTime.now(),
+        ),
+      );
+      context[runEmittedKey] = true;
+    }
 
     // Cancel all in-flight siblings (all in-flight, since the failing iter already exited).
     for (final idx in siblingIndices) {

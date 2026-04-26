@@ -36,13 +36,53 @@ void main() {
       expect(events, ['first-enter', 'first-exit', 'second-enter']);
     });
 
-    test('rejects nested acquisition for the same key', () async {
+    test('reentrant within same zone: nested acquisition runs directly', () async {
       final lock = RepoLock();
+      final events = <String>[];
 
-      await expectLater(
-        () => lock.acquire('/repo/.git', () => lock.acquire('/repo/.git', () {})),
-        throwsA(anyOf(isA<AssertionError>(), isA<StateError>())),
-      );
+      final result = await lock.acquire('/repo/.git', () async {
+        events.add('outer-enter');
+        final inner = await lock.acquire('/repo/.git', () {
+          events.add('inner-run');
+          return 42;
+        });
+        events.add('outer-exit');
+        return inner;
+      });
+
+      expect(result, 42);
+      expect(events, ['outer-enter', 'inner-run', 'outer-exit']);
+    });
+
+    test('reentrant nesting does not block contended sibling acquisition', () async {
+      final lock = RepoLock();
+      final gate = Completer<void>();
+      final events = <String>[];
+
+      final first = lock.acquire('/repo/.git', () async {
+        events.add('first-outer-enter');
+        await lock.acquire('/repo/.git', () {
+          events.add('first-inner-run');
+        });
+        await gate.future;
+        events.add('first-outer-exit');
+      });
+      final second = lock.acquire('/repo/.git', () {
+        events.add('second-enter');
+      });
+
+      await Future<void>.delayed(Duration.zero);
+      expect(events, ['first-outer-enter', 'first-inner-run']);
+
+      gate.complete();
+      await Future.wait([first, second]);
+
+      expect(events, [
+        'first-outer-enter',
+        'first-inner-run',
+        'first-outer-exit',
+        'second-enter',
+      ]);
     });
   });
 }

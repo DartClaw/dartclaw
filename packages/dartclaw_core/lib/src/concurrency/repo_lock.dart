@@ -13,14 +13,20 @@ final class RepoLock {
 
   /// Runs [action] after all prior holders for [key] have released.
   ///
-  /// Locks are intentionally non-reentrant. Nested acquisition for the same
-  /// normalized key indicates a caller widened the critical section too far.
+  /// Reentrant within the same [Zone]: if the current zone already holds the
+  /// lock for [key] (acquired via this same `RepoLock` instance through an
+  /// outer `acquire` call), the inner call runs [action] directly without
+  /// re-queueing. This allows callers to wrap a wide critical section
+  /// (e.g. merge-resolve attempt: capture+clean → skill → promote) while
+  /// still composing with inner primitives that take the lock on their own.
+  ///
+  /// Cross-zone nesting (different async contexts contending for the same
+  /// key) remains serialized as before.
   Future<T> acquire<T>(String key, FutureOr<T> Function() action) async {
     final normalizedKey = _normalizeKey(key);
     final held = Zone.current[_repoLockZoneKey] as Set<String>? ?? const <String>{};
-    assert(!held.contains(normalizedKey), 'Nested RepoLock acquisition for $normalizedKey is not supported.');
     if (held.contains(normalizedKey)) {
-      throw StateError('Nested RepoLock acquisition for $normalizedKey is not supported.');
+      return await Future.sync(action);
     }
 
     final prior = _tails[normalizedKey];

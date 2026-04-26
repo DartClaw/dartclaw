@@ -170,6 +170,23 @@ class WorkflowTurnAdapter {
   })?
   captureAndCleanWorktreeForRetry;
 
+  /// Runs [body] under the same repo lock that protects this project's git
+  /// metadata, holding the lock for the full duration of [body].
+  ///
+  /// Used by the merge-resolve attempt loop to wrap one attempt's
+  /// `capture+clean → skill invocation → outcome read → promotion retry`
+  /// chain so no concurrent sibling promotion can mutate the integration
+  /// branch mid-resolution (PRD Lifecycle & Recovery; S60 acceptance).
+  ///
+  /// The lock is reentrant within the body's zone, so inner primitives
+  /// (e.g. [captureAndCleanWorktreeForRetry], [promoteWorkflowBranch]) that
+  /// take the same lock on their own continue to work without modification.
+  final Future<T> Function<T>({
+    required String projectId,
+    required Future<T> Function() body,
+  })?
+  runResolverAttemptUnderLock;
+
   const WorkflowTurnAdapter({
     required this.reserveTurn,
     this.reserveTurnWithWorkflowWorkspaceDir,
@@ -185,5 +202,6 @@ class WorkflowTurnAdapter {
     this.cleanupWorktreeForRetry,
     this.captureWorkflowBranchSha,
     this.captureAndCleanWorktreeForRetry,
+    this.runResolverAttemptUnderLock,
   });
 }

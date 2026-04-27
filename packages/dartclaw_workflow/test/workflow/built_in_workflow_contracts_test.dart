@@ -196,6 +196,15 @@ void main() {
   });
 
   group('Prompt minimality — built-in skill steps use compact invocation hints', () {
+    // Skills that don't currently expose an `--auto` flag (and therefore can't
+    // opt into automation-safe execution via the prompt). Keep this list tight
+    // — the moment a skill grows an `--auto` flag, drop it from here so the
+    // contract assertion starts enforcing automation-safety on it.
+    const skillsWithoutAutoFlag = {
+      'dartclaw-discover-project',
+      'andthen-refactor',
+    };
+
     test('custom skill prompts are short and automation-safe when present', () {
       for (final file in _builtInWorkflows) {
         final def = _load(file);
@@ -205,7 +214,7 @@ void main() {
 
           final key = '$file::${step.id}';
           expect(text.length, lessThanOrEqualTo(180), reason: '$key prompt should stay a compact routing hint');
-          if (step.skill != 'dartclaw-discover-project') {
+          if (!skillsWithoutAutoFlag.contains(step.skill)) {
             expect(text, contains('--auto'), reason: '$key prompt should opt into automation-safe skill execution');
           }
           expect(text, isNot(contains('Use the ')), reason: '$key should not repeat generic skill-selection prose');

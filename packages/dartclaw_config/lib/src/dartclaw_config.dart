@@ -20,6 +20,7 @@ import 'package:yaml/yaml.dart';
 import 'agent_config.dart';
 import 'advisor_config.dart';
 import 'alerts_config.dart';
+import 'andthen_config.dart';
 import 'auth_config.dart';
 import 'canvas_config.dart';
 import 'context_config.dart';
@@ -80,6 +81,7 @@ class DartclawConfig {
   final FeaturesConfig features;
   final ProjectConfig projects;
   final AlertsConfig alerts;
+  final AndthenConfig andthen;
 
   /// Extension sections registered by private deployers via [registerExtensionParser].
   /// Unknown YAML keys with registered parsers produce typed entries here.
@@ -130,6 +132,7 @@ class DartclawConfig {
     this.features = const FeaturesConfig(),
     this.projects = const ProjectConfig.defaults(),
     this.alerts = const AlertsConfig.defaults(),
+    this.andthen = const AndthenConfig.defaults(),
     this.extensions = const {},
     List<String> warnings = const [],
   }) : _warnings = warnings;
@@ -237,6 +240,7 @@ class DartclawConfig {
     final features = _parseFeatures(yaml);
     final projects = parseProjectConfig(_sectionMap('projects', yaml, warns), warns);
     final alerts = _parseAlerts(yaml, const AlertsConfig.defaults(), warns);
+    final andthen = _parseAndthen(yaml, const AndthenConfig.defaults(), warns);
     final extensions = _parseExtensions(yaml, warns);
 
     final config = DartclawConfig(
@@ -265,6 +269,7 @@ class DartclawConfig {
       features: features,
       projects: projects,
       alerts: alerts,
+      andthen: andthen,
       extensions: extensions,
       warnings: warns,
     );

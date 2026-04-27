@@ -295,6 +295,12 @@ class ConfigSerializer {
         ],
         'routes': config.alerts.routes,
       },
+      'andthen': {
+        'gitUrl': config.andthen.gitUrl,
+        'ref': config.andthen.ref,
+        'installScope': config.andthen.installScope.yamlValue,
+        'network': config.andthen.network.yamlValue,
+      },
     };
   }
 

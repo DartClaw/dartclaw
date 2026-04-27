@@ -80,32 +80,13 @@ Themes: Catppuccin Mocha (dark) + Catppuccin Latte (light) for highlight.js.
 
 ## AndThen Installation
 
-**AndThen `>= 0.14.3` is a runtime prerequisite.** DartClaw's built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review`) resolve non-discover-project steps against the user's AndThen install via the `andthen-` prefix. DartClaw does not vendor these skills.
+**AndThen is provisioned at runtime by `dartclaw serve`** (since 0.16.4). DartClaw's built-in workflows reference AndThen-derived skills by their installed `andthen-*` names. On startup, `SkillProvisioner` clones AndThen from `https://github.com/IT-HUSET/andthen` into `<data_dir>/andthen-src/` and runs AndThen's own `scripts/install-skills.sh --prefix andthen-` into the configured scope. DartClaw-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`) are copied alongside.
 
-AndThen offers two install modes; DartClaw consumes the **standalone install** only. The Claude Code plugin form of AndThen (under `~/.claude/plugins/marketplaces/...`) is not scanned by DartClaw's skill registry — users must run `install-skills.sh` even if they already have the plugin enabled.
+Default behavior: clone-on-first-start, fast-forward `main` on subsequent starts, install into `<data_dir>/.agents/skills/`, `<data_dir>/.claude/skills/`, and `<data_dir>/.claude/agents/`. Configure via the `andthen.*` block in `dartclaw.yaml` (`git_url`, `ref`, `install_scope`, `network`). See [Configuration](../guide/andthen-skills.md) for the full reference, including offline / air-gapped deploys (`andthen.network: disabled` + pre-staged `<data_dir>/andthen-src/`).
 
-### Install
+Operators do not need to run `install-skills.sh` manually — DartClaw handles it.
 
-```bash
-# From the AndThen repo checkout:
-<path-to-andthen-repo>/scripts/install-skills.sh
-```
-
-Skills are installed into:
-- `~/.claude/skills/andthen-*/` — Claude harness
-- `~/.agents/skills/andthen-*/` — Codex harness
-
-The `andthen-` prefix is expected by default. Custom prefixes are not supported.
-
-### Verify
-
-```bash
-test -d ~/.claude/skills/andthen-spec && test -d ~/.agents/skills/andthen-spec && echo "OK"
-```
-
-If AndThen is missing or older than `0.14.3`, `dart run dartclaw_cli:dartclaw workflow validate` exits with an explicit missing-prerequisite error naming the expected install roots and the install command.
-
-**Architecture Decision**: ADR-025 (AndThen as runtime prerequisite) — recorded in the private design repo.
+**Architecture Decision**: ADR-025 (AndThen as runtime prerequisite) — recorded in the private design repo. Implemented in 0.16.4 (S71).
 
 ## External Services & Binaries
 

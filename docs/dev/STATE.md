@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-27 13:18 CEST
+Last Updated: 2026-04-27 17:25 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -64,6 +64,7 @@ Last Updated: 2026-04-27 13:18 CEST
 
 ## Session Continuity Notes
 
+- [2026-04-27] S71 (AndThen Skills Bootstrap / `SkillProvisioner`) complete — `AndthenConfig` (4 keys, all non-reloadable), `SkillProvisioner` with `validateSpawnTargets` + `ensureCacheCurrent` (clone/pull, SHA-marker + completeness gate, install-skills.sh `--prefix andthen-`, DC-native copy), wired into `ServiceWiring.wire()` before HTTP listen. ADR-025 marked implemented. New `andthen-skills.md` public guide; STACK.md AndThen section rewritten; workflow architecture deep-dive gets a runtime-provisioning subsection; CLAUDE.md "DartClaw Skills" section updated. CHANGELOG entry under [0.16.4] Changed.
 - [2026-04-27] S70 (Built-in Workflow allowedTools Audit and Relaxation) complete — 7 sites dropped, 7 relaxed to add web_fetch/mcp_call, 3 kept narrow for read-only inference; new docs subsection in workflows.md; CHANGELOG entry under [0.16.4] Changed.
 - [2026-04-27] S69 — Done: Workflow integration test fixture model-selection. E2EFixture executor/reviewer defaults dropped to `gpt-5.3-codex-spark`; five DARTCLAW_TEST_* env vars override at construction time (provider preset + per-role models); claude preset switches to opus-4-7/sonnet-4-6 with bypassPermissions. workflow_profile.yaml gained provider/model placeholder tokens with codex/claude goldens. merge_resolve_integration_test inherits fixture defaults. New TESTING-STRATEGY subsection + CHANGELOG entry.
 - [2026-04-27] S68 done — contextInputs:→inputs: rename across schema/model/parser/validator/server-templates/built-ins/docs; parser hard-errors on legacy contextInputs:; canonical pair is inputs:/outputs:.

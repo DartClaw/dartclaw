@@ -64,6 +64,7 @@ const _knownKeys = {
   'advisor',
   'alerts',
   'security',
+  'andthen',
 };
 
 String? _defaultFileReader(String path) {
@@ -1533,6 +1534,60 @@ FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {
     return FeaturesConfig.fromYaml(Map<String, dynamic>.from(raw));
   }
   return const FeaturesConfig();
+}
+
+const _knownAndthenKeys = {'git_url', 'ref', 'install_scope', 'network'};
+
+AndthenConfig _parseAndthen(Map<String, dynamic> yaml, AndthenConfig defaults, List<String> warns) {
+  var gitUrl = defaults.gitUrl;
+  var ref = defaults.ref;
+  var installScope = defaults.installScope;
+  var network = defaults.network;
+
+  final atMap = _sectionMap('andthen', yaml, warns);
+  if (atMap == null) return defaults;
+
+  for (final key in atMap.keys) {
+    if (!_knownAndthenKeys.contains(key)) {
+      warns.add('Unknown andthen config key: "$key" — ignoring');
+    }
+  }
+
+  final gitUrlVal = atMap['git_url'];
+  if (gitUrlVal is String && gitUrlVal.isNotEmpty) {
+    gitUrl = gitUrlVal;
+  } else if (gitUrlVal != null) {
+    warns.add('Invalid type for andthen.git_url: "${gitUrlVal.runtimeType}" — using default');
+  }
+
+  final refVal = atMap['ref'];
+  if (refVal is String && refVal.isNotEmpty) {
+    ref = refVal;
+  } else if (refVal != null) {
+    warns.add('Invalid type for andthen.ref: "${refVal.runtimeType}" — using default');
+  }
+
+  final scopeVal = atMap['install_scope'];
+  if (scopeVal != null) {
+    final parsed = parseAndthenInstallScope(scopeVal);
+    if (parsed != null) {
+      installScope = parsed;
+    } else {
+      warns.add('Invalid andthen.install_scope: "$scopeVal" — using default "${defaults.installScope.yamlValue}"');
+    }
+  }
+
+  final networkVal = atMap['network'];
+  if (networkVal != null) {
+    final parsed = parseAndthenNetworkPolicy(networkVal);
+    if (parsed != null) {
+      network = parsed;
+    } else {
+      warns.add('Invalid andthen.network: "$networkVal" — using default "${defaults.network.yamlValue}"');
+    }
+  }
+
+  return AndthenConfig(gitUrl: gitUrl, ref: ref, installScope: installScope, network: network);
 }
 
 int _parseInt(String key, String? cliValue, Object? yamlValue, int defaultValue, List<String> warns) {

@@ -379,6 +379,7 @@ channels:
           homeDir: p.join(tempDir.path, 'home'),
         ),
         assetDownloader: downloader,
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 

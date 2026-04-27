@@ -39,6 +39,78 @@ void _runGit(String workingDirectory, List<String> args) {
   }
 }
 
+/// Stages skeletal `andthen-*` skills directly into the SkillRegistry's P1/P2
+/// scan locations under [searchRoot]. Used by tests that rely on built-in
+/// workflow definitions (which reference `andthen-*` skills) but don't
+/// exercise the SkillProvisioner bootstrap end-to-end. Without these,
+/// [WorkflowDefinitionValidator] excludes the workflows from the registry and
+/// route handlers return DEFINITION_NOT_FOUND.
+void _stageAndthenSkillStubs(String searchRoot) {
+  const skills = [
+    'andthen-prd',
+    'andthen-plan',
+    'andthen-spec',
+    'andthen-exec-spec',
+    'andthen-review',
+    'andthen-remediate-findings',
+    'andthen-quick-review',
+    'andthen-ops',
+  ];
+  for (final tier in const ['.claude/skills', '.agents/skills']) {
+    for (final name in skills) {
+      File(p.join(searchRoot, tier, name, 'SKILL.md'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('---\nname: $name\n---\nbody\n');
+    }
+  }
+}
+
+/// Pre-stages `<dataDir>/andthen-src/` as a real git repo with a fake
+/// `install-skills.sh` script so the SkillProvisioner can run end-to-end with
+/// `andthen.network: disabled` and produce installed `andthen-prd` / DC-native
+/// skills under `<dataDir>/.{agents,claude}/skills/`. Required for tests that
+/// rely on built-in workflow definitions (which reference `andthen-*` skills);
+/// without bootstrap, the workflow validator excludes them from the registry.
+void _stageFakeAndthenSrc(String dataDir) {
+  final srcDir = Directory(p.join(dataDir, 'andthen-src'))..createSync(recursive: true);
+  Directory(p.join(srcDir.path, 'scripts')).createSync(recursive: true);
+  File(p.join(srcDir.path, 'scripts', 'install-skills.sh')).writeAsStringSync('''
+#!/bin/sh
+set -eu
+SKILLS_DIR=""
+CLAUDE_SKILLS_DIR=""
+CLAUDE_AGENTS_DIR=""
+USER_DEFAULTS=0
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    --skills-dir) SKILLS_DIR="\$2"; shift 2 ;;
+    --claude-skills-dir) CLAUDE_SKILLS_DIR="\$2"; shift 2 ;;
+    --claude-agents-dir) CLAUDE_AGENTS_DIR="\$2"; shift 2 ;;
+    --claude-user) USER_DEFAULTS=1; shift ;;
+    *) shift ;;
+  esac
+done
+if [ "\$USER_DEFAULTS" = "1" ]; then
+  : "\${HOME:?HOME required for --claude-user}"
+  SKILLS_DIR="\$HOME/.agents/skills"
+  CLAUDE_SKILLS_DIR="\$HOME/.claude/skills"
+  CLAUDE_AGENTS_DIR="\$HOME/.claude/agents"
+fi
+mkdir -p "\$SKILLS_DIR" "\$CLAUDE_SKILLS_DIR" "\$CLAUDE_AGENTS_DIR"
+for name in andthen-prd andthen-plan andthen-spec andthen-exec-spec andthen-review andthen-remediate-findings andthen-quick-review andthen-ops; do
+  mkdir -p "\$SKILLS_DIR/\$name" "\$CLAUDE_SKILLS_DIR/\$name"
+  printf 'fake %s' "\$name" > "\$SKILLS_DIR/\$name/SKILL.md"
+  printf 'fake %s' "\$name" > "\$CLAUDE_SKILLS_DIR/\$name/SKILL.md"
+done
+''');
+  Process.runSync('chmod', ['+x', p.join(srcDir.path, 'scripts', 'install-skills.sh')]);
+  _runGit(srcDir.path, ['init', '-b', 'main']);
+  _runGit(srcDir.path, ['config', 'user.email', 'test@example.com']);
+  _runGit(srcDir.path, ['config', 'user.name', 'Test']);
+  _runGit(srcDir.path, ['add', '-A']);
+  _runGit(srcDir.path, ['commit', '-m', 'init']);
+}
+
 Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during server builder integration test');
 }
@@ -88,6 +160,8 @@ void main() {
   late FakeAgentHarness worker;
   late MessageRedactor messageRedactor;
   late LogService logService;
+
+  setUpAll(() => initTemplates(_templatesDir()));
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_server_builder_integration_');
@@ -139,6 +213,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      runAndthenSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -206,6 +281,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      runAndthenSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -271,17 +347,25 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      runAndthenSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
 
-    final skillDir = p.join(skillsHomeDir.path, '.claude', 'skills', 'dartclaw-review');
+    final skillDir = p.join(skillsHomeDir.path, '.claude', 'skills', 'dartclaw-discover-project');
     expect(File(p.join(skillDir, 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(skillDir, '.dartclaw-managed')).existsSync(), isTrue);
 
     for (final projectId in ['alpha', 'beta']) {
-      final projectSkillDir = p.join(tempDir.path, 'projects', projectId, '.claude', 'skills', 'dartclaw-review');
+      final projectSkillDir = p.join(
+        tempDir.path,
+        'projects',
+        projectId,
+        '.claude',
+        'skills',
+        'dartclaw-discover-project',
+      );
       expect(Directory(projectSkillDir).existsSync(), isFalse);
     }
   });
@@ -295,6 +379,15 @@ void main() {
     File(p.join(projectDir.path, 'README.md')).writeAsStringSync('hello\n');
     _runGit(projectDir.path, ['add', 'README.md']);
     _runGit(projectDir.path, ['commit', '-m', 'initial']);
+
+    // Built-in workflow definitions (e.g. spec-and-implement) reference
+    // andthen-* skills. The SkillRegistry scans `<projectDir>/.claude/skills/`
+    // and `<projectDir>/.agents/skills/` (P1/P2). Without those references
+    // resolving, the validator excludes the workflow and the route returns
+    // DEFINITION_NOT_FOUND instead of the ref-validation error under test.
+    // Bootstrap is disabled here to keep the test focused on workflow ref
+    // validation; staging stubs in P1/P2 is sufficient.
+    _stageAndthenSkillStubs(projectDir.path);
 
     final config = DartclawConfig(
       agent: const AgentConfig(provider: 'claude'),
@@ -328,6 +421,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      runAndthenSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -411,6 +505,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      runAndthenSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();
@@ -427,5 +522,75 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  test('ServiceWiring runs the AndThen skills bootstrap before wire() returns', () async {
+    final skillsHomeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
+    _stageFakeAndthenSrc(tempDir.path);
+    // Fake HOME for the user-tier leg. Both the provisioner (path resolution)
+    // and the fake installer (--claude-user expansion) read this HOME, so the
+    // test cannot leak fake skills into the developer's real home.
+    final fakeHome = Directory(p.join(tempDir.path, 'fake-home'))..createSync(recursive: true);
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      andthen: const AndthenConfig(installScope: AndthenInstallScope.both, network: AndthenNetworkPolicy.disabled),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDir(),
+        templatesDir: _templatesDir(),
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      skillsHomeDir: skillsHomeDir.path,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      // Default `runAndthenSkillsBootstrap: true` — we want the bootstrap to run.
+      skillProvisionerEnvironment: {'HOME': fakeHome.path},
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService));
+
+    // AndThen-derived skill installed by the fake installer in both data-dir trees.
+    expect(File(p.join(tempDir.path, '.agents', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(tempDir.path, '.claude', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
+    // DC-native skills copied into both data-dir trees by SkillProvisioner.
+    for (final name in const ['dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve']) {
+      expect(
+        File(p.join(tempDir.path, '.agents', 'skills', name, 'SKILL.md')).existsSync(),
+        isTrue,
+        reason: '$name in data-dir Codex tree',
+      );
+      expect(
+        File(p.join(tempDir.path, '.claude', 'skills', name, 'SKILL.md')).existsSync(),
+        isTrue,
+        reason: '$name in data-dir Claude tree',
+      );
+    }
+    // Marker written for the data-dir destination.
+    expect(File(p.join(tempDir.path, '.agents', 'skills', '.dartclaw-andthen-sha')).existsSync(), isTrue);
+
+    // User-tier leg landed under the fake HOME, never the developer's real home.
+    expect(File(p.join(fakeHome.path, '.agents', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(fakeHome.path, '.claude', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(fakeHome.path, '.agents', 'skills', '.dartclaw-andthen-sha')).existsSync(), isTrue);
   });
 }

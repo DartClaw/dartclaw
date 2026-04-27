@@ -6,6 +6,15 @@ export 'package:dartclaw_models/dartclaw_models.dart';
 export 'src/advisor_config.dart' show AdvisorConfig;
 export 'src/agent_config.dart' show AgentConfig;
 export 'src/alerts_config.dart' show AlertsConfig, AlertTarget;
+export 'src/andthen_config.dart'
+    show
+        AndthenConfig,
+        AndthenInstallScope,
+        AndthenInstallScopeYaml,
+        AndthenNetworkPolicy,
+        AndthenNetworkPolicyYaml,
+        parseAndthenInstallScope,
+        parseAndthenNetworkPolicy;
 export 'src/auth_config.dart' show AuthConfig;
 export 'src/canvas_config.dart' show CanvasConfig, CanvasShareConfig, CanvasWorkshopConfig;
 export 'src/config_delta.dart' show ConfigDelta;
@@ -40,12 +49,7 @@ export 'src/history_config.dart' show HistoryConfig;
 export 'src/logging_config.dart' show LoggingConfig;
 export 'src/memory_config.dart' show MemoryConfig;
 export 'src/project_config.dart'
-    show
-        LocalProjectPathValidation,
-        ProjectConfig,
-        ProjectDefinition,
-        parseProjectConfig,
-        validateProjectLocalPath;
+    show LocalProjectPathValidation, ProjectConfig, ProjectDefinition, parseProjectConfig, validateProjectLocalPath;
 export 'src/provider_identity.dart' show ProviderIdentity;
 export 'src/provider_validator.dart' show ProviderValidator, processOutputToText, extractVersionLine;
 export 'src/providers_config.dart' show ProviderEntry, ProvidersConfig;

@@ -1022,6 +1022,12 @@ void main() {
           'update-state' => _StubResponse(
             assistantContent: _contextOutput({'state_update_summary': 'Story state updated'}),
           ),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1139,6 +1145,12 @@ void main() {
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1159,7 +1171,12 @@ void main() {
     expect(trace.tasksForStep('implement').single.type, TaskType.coding);
     expect(trace.tasksForStep('quick-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('quick-review').single.type, TaskType.coding);
-    expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueSessionId'), isFalse);
+    // quick-review uses `continueSession: true` to pin to the implement task's
+    // harness session — the dispatcher must have threaded the prior root's
+    // session id through `_continueSessionId`. Provider-session id only
+    // propagates when the implement task actually emitted one (the test stub
+    // does not, so that key stays absent).
+    expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueSessionId'), isTrue);
     expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('plan-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('plan-review').single.type, TaskType.coding);
@@ -1250,6 +1267,12 @@ void main() {
               }),
             ),
             'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+            'architecture-review' => _StubResponse(
+              assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            ),
+            'refactor' => _StubResponse(
+              assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+            ),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
         },
@@ -1349,6 +1372,12 @@ void main() {
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1432,6 +1461,12 @@ void main() {
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1447,7 +1482,7 @@ void main() {
     // with --auto. The plan step and all downstream steps must not receive the
     // raw requirements string.
     expect(discover, contains('<REQUIREMENTS>\n$requirements\n</REQUIREMENTS>'));
-    expect(prd, contains('$requirements --auto'));
+    expect(prd, contains('--auto $requirements'));
     expect(prd, isNot(contains('<REQUIREMENTS>')));
     expect(plan, isNot(contains(requirements)));
     expect(plan, isNot(contains('<REQUIREMENTS>')));
@@ -1527,6 +1562,12 @@ void main() {
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1587,12 +1628,17 @@ void main() {
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_findings': 'No issues',
               'findings_count': 0,
               'plan-review.findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1659,12 +1705,17 @@ void main() {
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_findings': 'No issues',
               'findings_count': 0,
               'plan-review.findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1737,12 +1788,17 @@ void main() {
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_findings': 'No issues',
               'findings_count': 0,
               'plan-review.findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1806,12 +1862,17 @@ void main() {
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_findings': 'No issues',
               'findings_count': 0,
               'plan-review.findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1872,12 +1933,17 @@ void main() {
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_findings': 'No issues',
               'findings_count': 0,
               'plan-review.findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -2016,6 +2082,12 @@ void main() {
             'update-state' => _StubResponse(
               assistantContent: _contextOutput({'state_update_summary': 'updated after remediation'}),
             ),
+            'architecture-review' => _StubResponse(
+              assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            ),
+            'refactor' => _StubResponse(
+              assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
+            ),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
         },
@@ -2085,7 +2157,6 @@ void main() {
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_findings': 'One reused-plan issue remains',
               'findings_count': 1,
               'plan-review.findings_count': 1,
             }),
@@ -2098,13 +2169,18 @@ void main() {
           ),
           're-review' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_findings': 'No remaining issues',
               'findings_count': 0,
               're-review.findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(
             assistantContent: _contextOutput({'state_update_summary': 'reused plan execution recorded'}),
+          ),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+          ),
+          'refactor' => _StubResponse(
+            assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };

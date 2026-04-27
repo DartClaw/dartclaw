@@ -41,6 +41,7 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 
 ### Changed
 
+- **AndThen skills now provisioned at runtime**: `dartclaw serve` clones AndThen from `https://github.com/IT-HUSET/andthen` into `<data_dir>/andthen-src/` on first startup and installs the workflow skills with the `andthen-` prefix into the configured scope (default: `<data_dir>/.claude/skills` and `<data_dir>/.agents/skills`). DartClaw-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`) are copied alongside them. Configure via `andthen.git_url`, `andthen.ref`, `andthen.install_scope` (`data_dir` / `user` / `both`), and `andthen.network` (`auto` / `required` / `disabled`). Replaces the previous in-tree skill porting workflow.
 - **Workflow integration test fixture**: `E2EFixture` executor/reviewer defaults dropped to `gpt-5.3-codex-spark`; new `DARTCLAW_TEST_PROVIDER` and `DARTCLAW_TEST_*_MODEL` env vars override fixture defaults at construction time
 - **Local-path branch inference**: `branch:` is now optional for `localPath:` projects. When omitted, workflow start/bootstrap resolves the effective branch from the checkout's current `HEAD`, while an explicit `branch:` still acts as a drift-detection guard
 - **`workflow run` is now connected-by-default**: the CLI uses the server API unless `--standalone` is explicitly requested

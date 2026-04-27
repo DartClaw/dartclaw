@@ -164,6 +164,7 @@ steps:
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      runAndthenSkillsBootstrap: false,
     );
 
     final result = await wiring.wire();

@@ -62,3 +62,13 @@ export 'src/workflow/workflow_service.dart';
 export 'src/workflow/workflow_turn_adapter.dart';
 export 'src/workflow/workflow_template_engine.dart';
 export 'src/workflow/workflow_view_helpers.dart';
+
+export 'src/skills/skill_provisioner.dart'
+    show
+        DirectoryCopier,
+        ProcessRunner,
+        SkillProvisionConfigException,
+        SkillProvisionException,
+        SkillProvisioner,
+        dcNativeSkillNames,
+        skillProvisionerMarkerFile;

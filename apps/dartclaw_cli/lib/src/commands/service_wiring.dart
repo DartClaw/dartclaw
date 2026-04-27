@@ -8,6 +8,9 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        SkillProvisionConfigException,
+        SkillProvisionException,
+        SkillProvisioner,
         SkillRegistryImpl,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
@@ -117,6 +120,17 @@ class ServiceWiring {
   final MessageRedactor messageRedactor;
   final AssetResolver assetResolver;
 
+  /// When `false`, [wire] skips the [SkillProvisioner] bootstrap. Production
+  /// callers leave the default. Tests opt out when they don't pre-stage a fake
+  /// `<dataDir>/andthen-src/` and don't want network/clone cost.
+  final bool runAndthenSkillsBootstrap;
+
+  /// Environment passed to [SkillProvisioner] when [runAndthenSkillsBootstrap]
+  /// is true. Defaults to [Platform.environment] in production. Tests inject a
+  /// controlled `HOME` here so user-tier installs cannot leak into the
+  /// developer's real `~/.agents` or `~/.claude` trees.
+  final Map<String, String>? skillProvisionerEnvironment;
+
   static final _log = Logger('ServiceWiring');
 
   ServiceWiring({
@@ -134,6 +148,8 @@ class ServiceWiring {
     required this.logService,
     required this.messageRedactor,
     AssetResolver? assetResolver,
+    this.runAndthenSkillsBootstrap = true,
+    this.skillProvisionerEnvironment,
   }) : assetResolver = assetResolver ?? AssetResolver();
 
   /// Constructs all services, wires them together via [DartclawServerBuilder],
@@ -156,6 +172,20 @@ class ServiceWiring {
     final resolvedAssets = assetResolver.resolve();
     final builtInSkillsSourceDir =
         resolvedAssets?.skillsDir ?? WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
+
+    // 0.5. AndThen skills bootstrap — clone AndThen + install andthen-* skills + copy DC-native
+    // skills (per S71 / ADR-025). Validate spawn targets before any network/filesystem work so
+    // misconfiguration surfaces as a fast non-zero `dartclaw serve` exit, not a per-request error.
+    if (runAndthenSkillsBootstrap) {
+      await _bootstrapAndthenSkills(
+        config: config,
+        dataDir: dataDir,
+        builtInSkillsSourceDir: builtInSkillsSourceDir,
+        stderrLine: stderrLine,
+        exitFn: exitFn,
+        environment: skillProvisionerEnvironment,
+      );
+    }
     await WorkflowSkillMaterializer.materialize(
       activeHarnessTypes: _activeHarnessTypes(config),
       homeDir: skillsHomeDir,
@@ -1144,6 +1174,68 @@ List<String> _workflowSkillProjectDirs(config_tools.DartclawConfig config) {
     return [Directory.current.path];
   }
   return configuredProjectDirectories(config);
+}
+
+/// Spawn-target CWDs used by [SkillProvisioner.validateSpawnTargets].
+///
+/// Includes the synthesized clone path (`<dataDir>/projects/<id>`) when no
+/// `localPath` is set so the dataDir-scope check sees the resolved location;
+/// includes `Directory.current.path` to cover ad-hoc `dartclaw serve` runs
+/// against a working tree.
+List<String> _spawnTargetCwds(config_tools.DartclawConfig config) {
+  final cwds = <String>{Directory.current.path};
+  for (final def in config.projects.definitions.values) {
+    cwds.add(configuredProjectDirectory(config, def));
+  }
+  return cwds.toList();
+}
+
+Future<void> _bootstrapAndthenSkills({
+  required config_tools.DartclawConfig config,
+  required String dataDir,
+  required String? builtInSkillsSourceDir,
+  required WriteLine stderrLine,
+  required ExitFn exitFn,
+  Map<String, String>? environment,
+}) async {
+  if (builtInSkillsSourceDir == null) {
+    stderrLine(
+      'ERROR: AndThen skills bootstrap cannot run — DC-native skills source not found. '
+      'Built-in workflows reference andthen-* and dartclaw-* skills that must be provisioned '
+      'before serve. Tests that intentionally skip this step set '
+      'ServiceWiring.runAndthenSkillsBootstrap: false.',
+    );
+    exitFn(1);
+  }
+  if (!Directory(p.join(builtInSkillsSourceDir, 'dartclaw-discover-project')).existsSync()) {
+    stderrLine(
+      'ERROR: AndThen skills bootstrap cannot run — DC-native skills not present at '
+      '$builtInSkillsSourceDir. Verify the bundled assets layout or, in tests, opt out via '
+      'ServiceWiring.runAndthenSkillsBootstrap: false.',
+    );
+    exitFn(1);
+  }
+
+  final provisioner = SkillProvisioner(
+    config: config.andthen,
+    dataDir: dataDir,
+    dcNativeSkillsSourceDir: builtInSkillsSourceDir,
+    environment: environment,
+  );
+
+  try {
+    provisioner.validateSpawnTargets(_spawnTargetCwds(config));
+  } on SkillProvisionConfigException catch (e) {
+    stderrLine('ERROR: ${e.message}');
+    exitFn(1);
+  }
+
+  try {
+    await provisioner.ensureCacheCurrent();
+  } on SkillProvisionException catch (e) {
+    stderrLine('ERROR: AndThen skills provisioning failed: ${e.message}');
+    exitFn(1);
+  }
 }
 
 String? _workflowFreshnessRefForProject(Project project, String? branch) {

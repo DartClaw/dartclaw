@@ -11,6 +11,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
         MessageService,
+        OutputConfig,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
@@ -160,7 +161,7 @@ void main() {
             prompts: ['Implement {{map.item.id}}'],
             mapOver: 'stories',
             maxParallel: 1,
-            contextOutputs: ['story_result'],
+            outputs: {'story_result': OutputConfig()},
           ),
         ],
       );
@@ -242,14 +243,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['produce'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['produce'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
             maxParallel: 3,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -280,7 +281,7 @@ void main() {
         description: 'Map auto worktree serial resolution',
         gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
@@ -321,7 +322,7 @@ void main() {
         description: 'Map auto worktree parallel resolution',
         gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
@@ -362,7 +363,7 @@ void main() {
         description: 'Map auto worktree unlimited resolution',
         gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
@@ -402,14 +403,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             maxParallel: 3,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -454,14 +455,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             // maxParallel omitted → defaults to 1 (sequential)
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -494,14 +495,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             maxParallel: 'unlimited',
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -541,7 +542,7 @@ void main() {
         name: 'test-wf',
         description: 'Project map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
@@ -550,7 +551,7 @@ void main() {
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
             maxParallel: 2,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -590,7 +591,7 @@ void main() {
             prompts: ['Implement {{map.item.id}}'],
             mapOver: 'stories',
             maxParallel: 2,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -627,7 +628,7 @@ void main() {
             prompts: ['Implement {{map.item.id}}'],
             mapOver: 'stories',
             maxParallel: 2,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -657,13 +658,13 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -685,13 +686,13 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -713,13 +714,13 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -741,14 +742,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             maxItems: 3,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -771,14 +772,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             maxParallel: 3,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -842,13 +843,13 @@ void main() {
         name: 'test-wf',
         description: 'Dep test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -879,14 +880,14 @@ void main() {
         name: 'test-wf',
         description: 'Dep test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
             maxParallel: 3,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -947,14 +948,14 @@ void main() {
         name: 'test-wf',
         description: 'Whitespace dependency normalization',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
             maxParallel: 3,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -1000,14 +1001,14 @@ void main() {
         name: 'test-wf',
         description: 'No dep test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['{{map.item}}'],
             mapOver: 'items',
             maxParallel: 3,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -1049,14 +1050,14 @@ void main() {
         name: 'test-wf',
         description: 'Event test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['{{map.item}}'],
             mapOver: 'items',
             maxParallel: 2,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -1095,14 +1096,14 @@ void main() {
         name: 'test-wf',
         description: 'Event test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['{{map.item}}'],
             mapOver: 'items',
             maxParallel: 3,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -1147,7 +1148,7 @@ void main() {
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             maxParallel: 1,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -1194,14 +1195,14 @@ void main() {
         name: 'test-wf',
         description: 'maxParallel test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['{{map.item}}'],
             mapOver: 'items',
             maxParallel: 2,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -1247,14 +1248,14 @@ void main() {
         name: 'test-wf',
         description: 'maxParallel test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['{{map.item}}'],
             mapOver: 'items',
             maxParallel: 'not-a-number',
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -1283,7 +1284,7 @@ void main() {
             type: 'foreach',
             mapOver: 'stories',
             foreachSteps: ['child'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'child', name: 'Child', type: 'coding', prompts: ['Do {{map.item.id}}']),
         ],
@@ -1321,13 +1322,11 @@ steps:
   - id: produce
     name: Produce
     prompt: p
-    contextOutputs: [stories]
   - id: story-pipeline
     name: Per-Story Pipeline
     type: foreach
     map_over: stories
     as: story
-    contextOutputs: [story_results]
     steps:
       - id: implement
         name: Implement
@@ -1374,7 +1373,7 @@ steps:
         name: 'foreach-as-test',
         description: 'foreach with as: alias',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'story-pipeline',
             name: 'Story Pipeline',
@@ -1382,7 +1381,7 @@ steps:
             mapOver: 'stories',
             mapAlias: 'story',
             foreachSteps: ['implement'],
-            contextOutputs: ['story_results'],
+            outputs: {'story_results': OutputConfig()},
           ),
           WorkflowStep(
             id: 'implement',
@@ -1424,7 +1423,7 @@ steps:
         name: 'map-as-test',
         description: 'plain map with as: alias',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'process',
             name: 'Process',
@@ -1432,7 +1431,7 @@ steps:
             mapOver: 'items',
             mapAlias: 'thing',
             maxParallel: 1,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -1469,14 +1468,14 @@ steps:
         name: 'foreach-test',
         description: 'Foreach execution test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'story-pipeline',
             name: 'Story Pipeline',
             type: 'foreach',
             mapOver: 'stories',
             foreachSteps: ['implement', 'validate'],
-            contextOutputs: ['story_results'],
+            outputs: {'story_results': OutputConfig()},
           ),
           WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Build {{map.item}}'], type: 'coding'),
           WorkflowStep(id: 'validate', name: 'Validate', prompts: ['Validate {{map.item}}']),
@@ -1524,7 +1523,7 @@ steps:
             mapOver: 'stories',
             foreachSteps: ['implement'],
             maxParallel: 2,
-            contextOutputs: ['story_results'],
+            outputs: {'story_results': OutputConfig()},
           ),
           WorkflowStep(id: 'implement', name: 'Implement', type: 'coding', prompts: ['Build {{map.item.id}}']),
         ],
@@ -1590,7 +1589,7 @@ steps:
             mapOver: 'stories',
             foreachSteps: ['implement'],
             maxParallel: 2,
-            contextOutputs: ['story_results'],
+            outputs: {'story_results': OutputConfig()},
           ),
           WorkflowStep(
             id: 'implement',
@@ -1744,14 +1743,14 @@ steps:
         name: 'foreach-empty',
         description: 'Empty foreach',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'fe',
             name: 'FE',
             type: 'foreach',
             mapOver: 'stories',
             foreachSteps: ['child'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
         ],
@@ -1774,14 +1773,14 @@ steps:
         name: 'foreach-fail',
         description: 'Foreach with child failure',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'fe',
             name: 'FE',
             type: 'foreach',
             mapOver: 'items',
             foreachSteps: ['step-a', 'step-b'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'step-a', name: 'A', prompts: ['p']),
           WorkflowStep(id: 'step-b', name: 'B', prompts: ['p']),
@@ -1823,14 +1822,14 @@ steps:
         name: 'foreach-events',
         description: 'Event test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'fe',
             name: 'FE',
             type: 'foreach',
             mapOver: 'items',
             foreachSteps: ['child'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
         ],
@@ -1865,14 +1864,14 @@ steps:
         name: 'foreach-complete-event',
         description: 'Completion event test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'fe',
             name: 'FE',
             type: 'foreach',
             mapOver: 'items',
             foreachSteps: ['child'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
         ],
@@ -1911,14 +1910,14 @@ steps:
         name: 'foreach-recovery',
         description: 'Recovery test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'fe',
             name: 'FE',
             type: 'foreach',
             mapOver: 'stories',
             foreachSteps: ['child'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'child', name: 'Child', prompts: ['Do {{map.item}}']),
         ],
@@ -1976,7 +1975,7 @@ steps:
         name: 'foreach-max',
         description: 'MaxItems test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'fe',
             name: 'FE',
@@ -1984,7 +1983,7 @@ steps:
             mapOver: 'items',
             maxItems: 2,
             foreachSteps: ['child'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
         ],

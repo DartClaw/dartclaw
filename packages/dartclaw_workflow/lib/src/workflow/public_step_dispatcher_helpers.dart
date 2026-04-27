@@ -72,7 +72,7 @@ Future<StepHandoff> _dispatchMapNode(
   if (result == null) {
     throw StateError('dispatchStep aborted before producing a handoff for map step "${step.id}".');
   }
-  return _handoffFromMapResult(step.contextOutputs, step.id, result, 'Map');
+  return _handoffFromMapResult(step.outputKeys, step.id, result, 'Map');
 }
 
 Future<StepHandoff> _dispatchForeachNode(
@@ -103,7 +103,7 @@ Future<StepHandoff> _dispatchForeachNode(
   if (result == null) {
     throw StateError('dispatchStep aborted before producing a handoff for foreach step "${controllerStep.id}".');
   }
-  return _handoffFromMapResult(controllerStep.contextOutputs, controllerStep.id, result, 'Foreach');
+  return _handoffFromMapResult(controllerStep.outputKeys, controllerStep.id, result, 'Foreach');
 }
 
 Future<StepHandoff> _dispatchParallelGroupNode(
@@ -131,7 +131,7 @@ Future<StepHandoff> _dispatchParallelGroupNode(
   }
 
   if (filteredGroup.isEmpty) {
-    return StepHandoffSuccess(outputs: _contextOutputs(context));
+    return StepHandoffSuccess(outputs: _outputsFromContext(context));
   }
 
   for (final groupStep in filteredGroup) {
@@ -154,7 +154,7 @@ Future<StepHandoff> _dispatchParallelGroupNode(
     filteredGroup,
     context,
   );
-  final outputs = {..._contextOutputs(context), ..._parallelOutputs(results)};
+  final outputs = {..._outputsFromContext(context), ..._parallelOutputs(results)};
   final failedSteps = results.where((result) => !result.success).toList(growable: false);
   final cost = StepTokenBreakdown(totalTokens: results.fold(0, (sum, result) => sum + result.tokenCount));
 
@@ -201,7 +201,7 @@ Future<StepHandoff> _dispatchLoopNode(
   );
   final finalRun = await dispatcher._executor._repository.getById(run.id) ?? updatedRun;
   final cost = StepTokenBreakdown(totalTokens: finalRun.totalTokens - initialTokens);
-  final outputs = _contextOutputs(context);
+  final outputs = _outputsFromContext(context);
 
   if (!pausedOrCancelled) {
     return StepHandoffSuccess(outputs: outputs, cost: cost);
@@ -232,7 +232,7 @@ Future<_PublicPreflightResult> _runStandardPreflight(
 }) async {
   final skippedRun = await dispatcher._executor._skipDueToEntryGate(run, step, stepIndex, context);
   if (skippedRun != null) {
-    return (run: skippedRun, handoff: StepHandoffSuccess(outputs: _contextOutputs(context)));
+    return (run: skippedRun, handoff: StepHandoffSuccess(outputs: _outputsFromContext(context)));
   }
 
   final gate = step.gate;
@@ -275,7 +275,7 @@ List<WorkflowStep> _stepsForIds(WorkflowDefinition definition, List<String> step
   return stepIds.map((stepId) => stepById[stepId]).nonNulls.toList(growable: false);
 }
 
-Map<String, Object?> _contextOutputs(WorkflowContext context) => Map<String, Object?>.from(context.data);
+Map<String, Object?> _outputsFromContext(WorkflowContext context) => Map<String, Object?>.from(context.data);
 
 StepHandoff _validationFailureHandoff(
   String reason,
@@ -283,14 +283,14 @@ StepHandoff _validationFailureHandoff(
   StepTokenBreakdown cost = StepTokenBreakdown.zero,
   StepOutcome? outcome,
 }) => StepHandoffValidationFailed(
-  outputs: _contextOutputs(context),
+  outputs: _outputsFromContext(context),
   validationFailure: StepValidationFailure(reason: reason),
   cost: cost,
   outcome: outcome,
 );
 
 StepHandoff _approvalRetryingHandoff(WorkflowStep step, WorkflowContext context) {
-  final outputs = _contextOutputs(context);
+  final outputs = _outputsFromContext(context);
   return StepHandoffRetrying(
     outputs: outputs,
     retryState: StepRetryState.none,
@@ -305,8 +305,8 @@ StepHandoff _approvalRetryingHandoff(WorkflowStep step, WorkflowContext context)
   );
 }
 
-StepHandoff _handoffFromMapResult(List<String> contextOutputs, String stepId, MapStepResult result, String stepKind) {
-  final outputs = <String, Object?>{for (final outputKey in contextOutputs) outputKey: result.results};
+StepHandoff _handoffFromMapResult(List<String> outputKeys, String stepId, MapStepResult result, String stepKind) {
+  final outputs = <String, Object?>{for (final outputKey in outputKeys) outputKey: result.results};
   final cost = StepTokenBreakdown(totalTokens: result.totalTokens);
   if (result.success) {
     return StepHandoffSuccess(outputs: outputs, cost: cost);

@@ -87,7 +87,7 @@ void main() {
         name: 'auto-worktree-demo',
         description: 'test',
         steps: [
-          WorkflowStep(id: 'stories', name: 'Stories', prompts: ['Produce stories'], contextOutputs: ['items']),
+          WorkflowStep(id: 'stories', name: 'Stories', prompts: ['Produce stories'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
@@ -111,7 +111,7 @@ void main() {
         project: '{{PROJECT}}',
         variables: {'PROJECT': WorkflowVariable(required: false, defaultValue: 'demo-project')},
         steps: [
-          WorkflowStep(id: 'discover', name: 'Discover', prompts: ['Inspect the repo'], contextOutputs: ['project_index']),
+          WorkflowStep(id: 'discover', name: 'Discover', prompts: ['Inspect the repo'], outputs: {'project_index': OutputConfig()}),
           WorkflowStep(id: 'implement', name: 'Implement', type: 'custom', typeAuthored: true, prompts: ['Implement']),
         ],
       );
@@ -141,7 +141,7 @@ void main() {
             name: 'Example',
             type: 'analysis',
             prompts: ['Build {{REQUIREMENTS}} using {{context.prior_step.output}}.'],
-            contextOutputs: ['result'],
+            outputs: {'result': OutputConfig()},
           ),
         ],
       );

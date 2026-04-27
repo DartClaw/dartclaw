@@ -265,7 +265,7 @@ void main() {
         parallel: true,
         gate: 'prev.status == done',
         contextInputs: ['in_key'],
-        contextOutputs: ['out_key'],
+        outputs: {'out_key': OutputConfig()},
         extraction: ExtractionConfig(type: ExtractionType.jsonpath, pattern: r'$.result'),
         maxTokens: 10000,
         maxRetries: 3,
@@ -286,7 +286,7 @@ void main() {
       expect(restored.parallel, true);
       expect(restored.gate, 'prev.status == done');
       expect(restored.contextInputs, ['in_key']);
-      expect(restored.contextOutputs, ['out_key']);
+      expect(restored.outputKeys, contains('out_key'));
       expect(restored.extraction!.type, ExtractionType.jsonpath);
       expect(restored.extraction!.pattern, r'$.result');
       expect(restored.maxTokens, 10000);
@@ -301,7 +301,7 @@ void main() {
       expect(restored.review, StepReviewMode.codingOnly);
       expect(restored.parallel, false);
       expect(restored.contextInputs, isEmpty);
-      expect(restored.contextOutputs, isEmpty);
+      expect(restored.outputKeys, isEmpty);
       expect(restored.extraction, isNull);
       expect(restored.maxTokens, isNull);
       expect(restored.allowedTools, isNull);
@@ -495,14 +495,14 @@ void main() {
         name: 'foreach-norm',
         description: 'Foreach normalization',
         steps: [
-          WorkflowStep(id: 'plan', name: 'Plan', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'plan', name: 'Plan', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'story-pipeline',
             name: 'Story Pipeline',
             type: 'foreach',
             mapOver: 'stories',
             foreachSteps: ['implement', 'validate', 'review'],
-            contextOutputs: ['story_results'],
+            outputs: {'story_results': OutputConfig()},
           ),
           WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], type: 'coding'),
           WorkflowStep(id: 'validate', name: 'Validate', prompts: ['p']),
@@ -685,7 +685,6 @@ void main() {
         id: 's',
         name: 'S',
         prompts: const ['p'],
-        contextOutputs: const ['result'],
         outputs: const {'result': OutputConfig(format: OutputFormat.json, schema: 'verdict')},
       );
       final restored = WorkflowStep.fromJson(step.toJson());
@@ -725,7 +724,6 @@ void main() {
         'review': 'codingOnly',
         'parallel': false,
         'contextInputs': <String>[],
-        'contextOutputs': <String>[],
       };
       final step = WorkflowStep.fromJson(json);
       expect(step.prompts, ['Do it']);
@@ -742,7 +740,6 @@ void main() {
         'review': 'codingOnly',
         'parallel': false,
         'contextInputs': <String>[],
-        'contextOutputs': <String>[],
       };
       final step = WorkflowStep.fromJson(json);
       expect(step.prompts, ['First', 'Second', 'Third']);
@@ -954,7 +951,6 @@ void main() {
         'review': 'codingOnly',
         'parallel': false,
         'contextInputs': <String>[],
-        'contextOutputs': ['result'],
       };
       final step = WorkflowStep.fromJson(json);
       expect(step.type, 'research');

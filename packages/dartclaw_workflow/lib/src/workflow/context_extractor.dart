@@ -92,13 +92,9 @@ class ContextExtractor {
   }) async {
     final outputs = <String, dynamic>{};
     final configs = effectiveOutputs ?? step.outputs;
-    // Drive iteration off the canonical write-set: outputs.keys imply the
-    // context-write set, with the deprecated `contextOutputs:` list folded in
-    // as a union. The YAML parser already pre-fills `contextOutputs` with this
-    // union, but we read `effectiveContextOutputs` here so programmatically
-    // constructed steps that declare only `outputs:` are extracted correctly
-    // even without going through the parser.
-    final outputKeys = step.effectiveContextOutputs;
+    // Drive iteration off the canonical write-set: `outputs:` map keys are the
+    // declaration of which context keys this step writes.
+    final outputKeys = step.outputKeys;
     final workflowContextPayload = await _extractWorkflowContextPayload(task);
     final structuredOutputPayload = await _extractStructuredOutputPayload(task);
 

@@ -106,15 +106,15 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
   if (artifacts == null && !hasProducer) return const ArtifactCommitResult.skipped();
 
   final resolver = const ProducedArtifactResolver();
-  final contextOutputs = <String, Object?>{
-    for (final key in step.contextOutputs)
+  final outputValues = <String, Object?>{
+    for (final key in step.outputKeys)
       if (policy.context.data.containsKey(key)) key: policy.context.data[key],
   };
   if (policy.context.data.containsKey('project_index')) {
-    contextOutputs['project_index'] = policy.context.data['project_index'];
+    outputValues['project_index'] = policy.context.data['project_index'];
   }
-  final planDir = _planDirFromOutputs(contextOutputs);
-  final preliminaryArtifacts = resolver.resolve(step: step, outputs: contextOutputs, planDir: planDir);
+  final planDir = _planDirFromOutputs(outputValues);
+  final preliminaryArtifacts = resolver.resolve(step: step, outputs: outputValues, planDir: planDir);
   if (preliminaryArtifacts.requiredPaths.isEmpty) return const ArtifactCommitResult.skipped();
 
   final failureIsFatal = artifactCommitFailureIsFatal(policy);
@@ -170,7 +170,7 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
   }
 
   final producedPaths = resolver
-      .resolve(step: step, outputs: contextOutputs, planDir: planDir, projectRoot: projectDir)
+      .resolve(step: step, outputs: outputValues, planDir: planDir, projectRoot: projectDir)
       .requiredPaths;
   if (producedPaths.isEmpty) return const ArtifactCommitResult.skipped();
 

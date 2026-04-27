@@ -258,7 +258,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
           resolvedPrompt: resolvedPrompt,
           contextSummary: contextSummary,
           outputs: effectiveOutputs,
-          contextOutputs: step.contextOutputs,
+          outputKeys: step.outputKeys,
           skillDefaultPrompt: skillDefaultPrompt,
           autoFrameContext: step.autoFrameContext,
           contextInputs: step.contextInputs,

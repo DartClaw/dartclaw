@@ -22,6 +22,7 @@ import 'package:dartclaw_models/dartclaw_models.dart'
     show
         MergeResolveConfig,
         MergeResolveEscalation,
+        OutputConfig,
         SessionType,
         WorkflowGitStrategy,
         WorkflowGitPublishStrategy,
@@ -91,7 +92,7 @@ WorkflowDefinition _makeDefinition({
         mapOver: 'stories',
         maxParallel: maxParallel,
         foreachSteps: const ['implement'],
-        contextOutputs: const ['story_results'],
+        outputs: const {'story_results': OutputConfig()},
       ),
       WorkflowStep(
         id: 'implement',

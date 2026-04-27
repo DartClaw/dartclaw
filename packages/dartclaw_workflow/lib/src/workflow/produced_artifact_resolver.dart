@@ -41,7 +41,7 @@ final class ProducedArtifactResolver {
   }) {
     final required = <String>{};
     final stepOutputs = step.outputs ?? const {};
-    for (final outputKey in step.contextOutputs) {
+    for (final outputKey in step.outputKeys) {
       final config = stepOutputs[outputKey];
       if (outputResolverFor(outputKey, config) is! FileSystemOutput) continue;
       required.addAll(_pathValues(outputs[outputKey]));

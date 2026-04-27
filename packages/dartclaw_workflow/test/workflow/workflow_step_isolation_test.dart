@@ -264,7 +264,7 @@ void main() {
             )
           : null,
       outputs: step.outputs,
-      contextOutputs: step.contextOutputs,
+      outputKeys: step.outputKeys,
       provider: 'codex',
     );
 

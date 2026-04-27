@@ -320,7 +320,7 @@ void main() {
       }
     });
 
-    test('every step that declares contextOutputs declares matching outputs with a format', () {
+    test('every step that declares outputs entries declares a format on each one', () {
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {

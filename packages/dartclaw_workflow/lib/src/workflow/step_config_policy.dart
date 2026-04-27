@@ -43,7 +43,7 @@ bool stepNeedsWorktree(
   required String resolvedWorktreeMode,
 }) {
   if (resolvedWorktreeMode == 'per-map-item') return true;
-  if (step.isForeachController || step.contextOutputs.contains('project_index')) return false;
+  if (step.isForeachController || step.outputKeys.contains('project_index')) return false;
   if (step.project != null) return true;
   if (!shouldBindWorkflowProject(definition, step, resolved)) return false;
   final allowedTools = resolved.allowedTools;
@@ -75,7 +75,7 @@ bool shouldBindWorkflowProject(WorkflowDefinition definition, WorkflowStep step,
   if (definition.project == null) return false;
   if (step.isMapStep) return true;
   if (step.contextInputs.contains('project_index')) return true;
-  if (step.contextOutputs.contains('project_index')) return true;
+  if (step.outputKeys.contains('project_index')) return true;
   final allowedTools = resolved.allowedTools;
   if (allowedTools != null) {
     return allowedTools.contains('file_write');
@@ -92,7 +92,7 @@ bool stepTouchesProjectBranch(
   if (definition.project == null && step.project == null) return false;
   final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults);
   if (!shouldBindWorkflowProject(definition, step, resolved)) return false;
-  if (step.isForeachController || step.contextOutputs.contains('project_index')) return false;
+  if (step.isForeachController || step.outputKeys.contains('project_index')) return false;
   return !stepIsReadOnly(step, resolved);
 }
 

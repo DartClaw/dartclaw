@@ -23,6 +23,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MergeResolveConfig,
         MergeResolveEscalation,
         MessageService,
+        OutputConfig,
         StepExecutionContext,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -177,7 +178,7 @@ void main() {
           mapOver: 'stories',
           maxParallel: maxParallel,
           foreachSteps: const ['implement'],
-          contextOutputs: const ['results'],
+          outputs: const {'results': OutputConfig()},
         ),
         WorkflowStep(
           id: 'implement',
@@ -561,7 +562,7 @@ void main() {
             prompts: ['Implement {{map.item.id}}'],
             mapOver: 'stories',
             maxParallel: 2,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );

@@ -9,6 +9,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         KvService,
         LoopIterationCompletedEvent,
         MessageService,
+        OutputConfig,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
@@ -337,7 +338,7 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1'], contextOutputs: ['analysis']),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1'], outputs: {'analysis': OutputConfig()}),
       ],
       loops: [
         const WorkflowLoop(id: 'loop1', steps: ['ls1'], maxIterations: 3, exitGate: 'loop.loop1.iteration == 2'),
@@ -790,7 +791,7 @@ void main() {
           id: 'ls1',
           name: 'LS1',
           prompts: ['Iter {{context.loop.loop1.iteration}}'],
-          contextOutputs: ['result'],
+          outputs: {'result': OutputConfig()},
         ),
         WorkflowStep(
           id: 'finalizer',

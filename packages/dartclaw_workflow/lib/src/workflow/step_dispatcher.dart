@@ -125,7 +125,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             skill: step.skill,
             resolvedPrompt: resolvedFirstPrompt,
             contextSummary: contextSummary,
-            contextOutputs: step.contextOutputs,
+            outputKeys: step.outputKeys,
             skillDefaultPrompt: skillDefaultPrompt,
             autoFrameContext: step.autoFrameContext,
             contextInputs: step.contextInputs,
@@ -139,7 +139,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             resolvedPrompt: resolvedFirstPrompt,
             contextSummary: contextSummary,
             outputs: effectiveOutputs,
-            contextOutputs: step.contextOutputs,
+            outputKeys: step.outputKeys,
             emitStepOutcomeProtocol: emitOutcomeProtocol,
             skillDefaultPrompt: skillDefaultPrompt,
             autoFrameContext: step.autoFrameContext,
@@ -153,7 +153,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       step,
       context,
       effectiveOutputs,
-      contextOutputs: step.contextOutputs,
+      outputKeys: step.outputKeys,
       mapCtx: mapCtx,
     );
     final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);

@@ -79,7 +79,6 @@ void main() {
 
   WorkflowStep makeStep({
     String id = 'step1',
-    List<String> contextOutputs = const [],
     ExtractionConfig? extraction,
     Map<String, OutputConfig>? outputs,
   }) {
@@ -87,22 +86,21 @@ void main() {
       id: id,
       name: 'Step 1',
       prompts: ['Do something'],
-      contextOutputs: contextOutputs,
       extraction: extraction,
       outputs: outputs,
     );
   }
 
-  test('returns empty map when step has no contextOutputs', () async {
+  test('returns empty map when step has no outputs', () async {
     final task = await createTask();
-    final step = makeStep(contextOutputs: []);
+    final step = makeStep(outputs: {});
     final outputs = await extractor.extract(step, task);
     expect(outputs, isEmpty);
   });
 
   test('falls back to empty string with no artifacts or session', () async {
     final task = await createTask();
-    final step = makeStep(contextOutputs: ['research_notes']);
+    final step = makeStep(outputs: {'research_notes': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     expect(outputs['research_notes'], equals(''));
   });
@@ -122,7 +120,7 @@ void main() {
       path: p.join(artifactsDir.path, 'output.md'),
     );
 
-    final step = makeStep(contextOutputs: ['research_notes']);
+    final step = makeStep(outputs: {'research_notes': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     expect(outputs['research_notes'], contains('Research Notes'));
   });
@@ -148,7 +146,7 @@ void main() {
     await taskService.updateFields('task-session-1', sessionId: session.id);
     final taskWithSession = (await taskService.get('task-session-1'))!;
 
-    final step = makeStep(contextOutputs: ['research_notes']);
+    final step = makeStep(outputs: {'research_notes': OutputConfig()});
     final outputs = await extractor.extract(step, taskWithSession);
     expect(outputs['research_notes'], equals('Found important findings about X.'));
   });
@@ -172,14 +170,14 @@ void main() {
     await taskService.updateFields('task-json-1', sessionId: session.id);
     final taskWithSession = (await taskService.get('task-json-1'))!;
 
-    final step = makeStep(contextOutputs: ['research_notes']);
+    final step = makeStep(outputs: {'research_notes': OutputConfig()});
     final outputs = await extractor.extract(step, taskWithSession);
     expect(outputs['research_notes'], equals('JSON extracted value'));
   });
 
   test('defaults missing source outputs to synthesized', () async {
     final task = await createTask();
-    final step = makeStep(contextOutputs: ['plan_source']);
+    final step = makeStep(outputs: {'plan_source': OutputConfig()});
 
     final outputs = await extractor.extract(step, task);
 
@@ -213,7 +211,6 @@ void main() {
 
     final step = makeStep(
       id: 'discover-project',
-      contextOutputs: ['project_index', 'prd', 'prd_source'],
       outputs: const {
         'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
         'prd': OutputConfig(format: OutputFormat.path),
@@ -258,7 +255,6 @@ void main() {
 
     final step = makeStep(
       id: 'discover-project',
-      contextOutputs: const ['project_index', 'prd', 'plan'],
       outputs: const {
         'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
         'prd': OutputConfig(format: OutputFormat.path),
@@ -297,7 +293,6 @@ void main() {
 
     final step = makeStep(
       id: 'discover-project',
-      contextOutputs: const ['project_index', 'spec_path', 'spec_source'],
       outputs: const {
         'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
         'spec_path': OutputConfig(format: OutputFormat.path),
@@ -343,7 +338,6 @@ void main() {
 
     final step = makeStep(
       id: 'discover-project',
-      contextOutputs: const ['project_index', 'prd', 'plan', 'story_specs'],
       outputs: const {
         'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
         'prd': OutputConfig(format: OutputFormat.path),
@@ -392,7 +386,6 @@ void main() {
 
     final step = makeStep(
       id: 'discover-project',
-      contextOutputs: const ['project_index', 'story_specs'],
       outputs: const {
         'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
         'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
@@ -423,7 +416,6 @@ void main() {
     final taskWithSession = (await taskService.get('task-path-1'))!;
 
     final step = makeStep(
-      contextOutputs: ['prd'],
       outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
     );
 
@@ -471,7 +463,6 @@ void main() {
     final taskWithWorktree = (await taskService.get('task-fis-paths'))!;
 
     final step = makeStep(
-      contextOutputs: ['fis_paths'],
       outputs: const {'fis_paths': OutputConfig(format: OutputFormat.lines)},
     );
 
@@ -506,7 +497,6 @@ void main() {
     await taskService.updateFields('task-phantom-path', sessionId: session.id, worktreeJson: {'path': worktree.path});
     final taskWithWorktree = (await taskService.get('task-phantom-path'))!;
     final step = makeStep(
-      contextOutputs: ['prd'],
       outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
     );
 
@@ -551,7 +541,6 @@ void main() {
     await taskService.updateFields('task-existing-path', sessionId: session.id, worktreeJson: {'path': worktree.path});
     final taskWithWorktree = (await taskService.get('task-existing-path'))!;
     final step = makeStep(
-      contextOutputs: ['prd'],
       outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
     );
 
@@ -594,7 +583,6 @@ void main() {
     );
     final taskWithWorktree = (await taskService.get('task-explicit-singular'))!;
     final step = makeStep(
-      contextOutputs: ['prd'],
       outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
     );
 
@@ -637,7 +625,6 @@ void main() {
     final taskWithWorktree = (await taskService.get('task-explicit-list'))!;
 
     final step = makeStep(
-      contextOutputs: ['fis_paths'],
       outputs: const {'fis_paths': OutputConfig(format: OutputFormat.lines)},
     );
 
@@ -668,7 +655,6 @@ void main() {
     await taskService.updateFields('task-ambiguous-path', worktreeJson: {'path': worktree.path});
     final taskWithWorktree = (await taskService.get('task-ambiguous-path'))!;
     final step = makeStep(
-      contextOutputs: ['prd'],
       outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
     );
 
@@ -705,7 +691,6 @@ void main() {
           },
     );
     final step = makeStep(
-      contextOutputs: ['summary', 'confidence'],
       outputs: const {
         'summary': OutputConfig(format: OutputFormat.text),
         'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
@@ -752,7 +737,6 @@ void main() {
     await taskService.updateFields('task-mixed-output', sessionId: session.id, worktreeJson: {'path': worktree.path});
     final taskWithWorktree = (await taskService.get('task-mixed-output'))!;
     final step = makeStep(
-      contextOutputs: ['fis_paths', 'summary', 'confidence'],
       outputs: const {
         'fis_paths': OutputConfig(format: OutputFormat.lines),
         'summary': OutputConfig(format: OutputFormat.text),
@@ -793,8 +777,10 @@ void main() {
       final taskWithSession = (await taskService.get('task-workflow-context-history'))!;
 
       final step = makeStep(
-        contextOutputs: ['prd', 'stories'],
-        outputs: const {'stories': OutputConfig(format: OutputFormat.json, schema: 'story-plan')},
+        outputs: const {
+          'prd': OutputConfig(format: OutputFormat.text),
+          'stories': OutputConfig(format: OutputFormat.json, schema: 'story-plan'),
+        },
       );
       final outputs = await extractor.extract(step, taskWithSession);
 
@@ -823,7 +809,6 @@ void main() {
     final taskWithSession = (await taskService.get('task-json-list-1'))!;
 
     final step = makeStep(
-      contextOutputs: ['result'],
       outputs: {'result': const OutputConfig(format: OutputFormat.json)},
     );
 
@@ -850,7 +835,6 @@ void main() {
     final taskWithSession = (await taskService.get('task-lines-1'))!;
 
     final step = makeStep(
-      contextOutputs: ['result'],
       outputs: {'result': const OutputConfig(format: OutputFormat.lines)},
     );
 
@@ -882,7 +866,6 @@ void main() {
     final taskWithSession = (await taskService.get('task-schema-1'))!;
 
     final step = makeStep(
-      contextOutputs: ['result'],
       outputs: {'result': const OutputConfig(format: OutputFormat.json, schema: 'verdict')},
     );
 
@@ -916,7 +899,7 @@ void main() {
       path: p.join(artifactsDir.path, 'diff.json'),
     );
 
-    final step = makeStep(contextOutputs: ['diff_summary']);
+    final step = makeStep(outputs: {'diff_summary': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     expect(outputs['diff_summary'], contains('3 files changed'));
     expect(outputs['diff_summary'], contains('+45'));
@@ -939,7 +922,7 @@ void main() {
     );
 
     final step = makeStep(
-      contextOutputs: ['report'],
+      outputs: {'report': OutputConfig()},
       extraction: const ExtractionConfig(type: ExtractionType.artifact, pattern: 'special-report'),
     );
     final outputs = await extractor.extract(step, task);
@@ -949,7 +932,7 @@ void main() {
   test('ExtractionConfig with regex type logs warning and falls back', () async {
     final task = await createTask();
     final step = makeStep(
-      contextOutputs: ['result'],
+      outputs: {'result': OutputConfig()},
       extraction: const ExtractionConfig(type: ExtractionType.regex, pattern: r'\d+'),
     );
     // Should not throw — falls back to empty string.
@@ -973,7 +956,7 @@ void main() {
       path: mdFile.path,
     );
 
-    final step = makeStep(contextOutputs: ['large_output']);
+    final step = makeStep(outputs: {'large_output': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     // Content should not be truncated — only a warning is logged.
     expect(outputs['large_output'], equals(largeContent));
@@ -995,7 +978,7 @@ void main() {
       path: diffFile.path,
     );
 
-    final step = makeStep(contextOutputs: ['notes', 'diff_changes']);
+    final step = makeStep(outputs: {'notes': OutputConfig(), 'diff_changes': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     expect(outputs['notes'], equals(''));
     expect(outputs['diff_changes'], contains('1 files changed'));
@@ -1025,7 +1008,6 @@ void main() {
     final task = (await taskService.get('task-structured-config'))!;
 
     final step = makeStep(
-      contextOutputs: ['verdict'],
       outputs: const {
         'verdict': OutputConfig(format: OutputFormat.json, outputMode: OutputMode.structured, schema: 'verdict'),
       },
@@ -1066,7 +1048,6 @@ void main() {
     await taskService.updateFields('task-narrative-precedence', sessionId: session.id);
     final task = (await taskService.get('task-narrative-precedence'))!;
     final step = makeStep(
-      contextOutputs: ['summary', 'confidence'],
       outputs: const {
         'summary': OutputConfig(format: OutputFormat.text),
         'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
@@ -1115,7 +1096,6 @@ void main() {
     );
 
     final step = makeStep(
-      contextOutputs: ['verdict'],
       outputs: const {
         'verdict': OutputConfig(format: OutputFormat.json, outputMode: OutputMode.structured, schema: 'verdict'),
       },
@@ -1161,8 +1141,10 @@ void main() {
     );
 
     final step = makeStep(
-      contextOutputs: ['review_summary', 'findings_count'],
-      outputs: const {'review_summary': OutputConfig(format: OutputFormat.json, schema: 'verdict')},
+      outputs: const {
+        'review_summary': OutputConfig(format: OutputFormat.json, schema: 'verdict'),
+        'findings_count': OutputConfig(format: OutputFormat.text),
+      },
     );
 
     final outputs = await extractor.extract(step, task);
@@ -1195,7 +1177,6 @@ void main() {
         name: 'Fix',
         type: 'coding',
         prompts: const ['Fix the bug'],
-        contextOutputs: const ['branch'],
         outputs: const {'branch': OutputConfig(source: 'worktree.branch')},
       );
 
@@ -1226,7 +1207,6 @@ void main() {
         name: 'Fix',
         type: 'coding',
         prompts: const ['Fix the bug'],
-        contextOutputs: const ['worktree_path'],
         outputs: const {'worktree_path': OutputConfig(source: 'worktree.path')},
       );
 
@@ -1248,7 +1228,6 @@ void main() {
         name: 'Fix',
         type: 'coding',
         prompts: const ['Fix the bug'],
-        contextOutputs: const ['branch'],
         outputs: const {'branch': OutputConfig(source: 'worktree.branch')},
       );
 
@@ -1278,7 +1257,6 @@ void main() {
       final taskWithSession = (await taskService.get('task-project-index-1'))!;
 
       final step = makeStep(
-        contextOutputs: const ['project_index'],
         outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
       );
 
@@ -1313,7 +1291,6 @@ void main() {
       final taskWithSession = (await taskService.get('task-project-index-2'))!;
 
       final step = makeStep(
-        contextOutputs: const ['project_index'],
         outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
       );
 
@@ -1343,7 +1320,7 @@ void main() {
         path: mdFile.path,
       );
 
-      final step = makeStep(contextOutputs: ['k'], outputs: const {'k': OutputConfig(setValue: null)});
+      final step = makeStep(outputs: const {'k': OutputConfig(setValue: null)});
 
       final outputs = await extractor.extract(step, task);
       expect(outputs.containsKey('k'), isTrue);
@@ -1353,7 +1330,6 @@ void main() {
     test('writes non-null literal to context', () async {
       final task = await createTask();
       final step = makeStep(
-        contextOutputs: ['k'],
         outputs: const {'k': OutputConfig(setValue: 'literal')},
       );
       final outputs = await extractor.extract(step, task);
@@ -1374,7 +1350,7 @@ void main() {
         path: mdFile.path,
       );
 
-      final step = makeStep(contextOutputs: ['k']);
+      final step = makeStep(outputs: {'k': OutputConfig()});
       final outputs = await extractor.extract(step, task);
       expect(outputs['k'], 'extracted content');
     });
@@ -1382,7 +1358,7 @@ void main() {
     test('setValue wins over extraction at first-key position', () async {
       // Reproduces the precedence guard against the legacy ExtractionConfig
       // priority branch in extract() — without the guard, extraction would
-      // silently beat setValue for the first contextOutputs key only.
+      // silently beat setValue for the first output key only.
       final task = await createTask();
       final artifactsDir = Directory(p.join(tempDir.path, 'tasks', 'task-1', 'artifacts'));
       artifactsDir.createSync(recursive: true);
@@ -1397,7 +1373,6 @@ void main() {
       );
 
       final step = makeStep(
-        contextOutputs: ['k'],
         extraction: const ExtractionConfig(type: ExtractionType.artifact, pattern: 'special-report'),
         outputs: const {'k': OutputConfig(setValue: 'wins')},
       );

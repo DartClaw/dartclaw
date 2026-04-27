@@ -296,7 +296,7 @@ void main() {
         messagesHtml: '<div class="msg">Hello</div>',
         artifacts: const [],
         contextInputs: const [],
-        contextOutputs: const [],
+        outputKeys: const [],
       );
       expect(html, contains('workflow-step-chat'));
       expect(html, contains('<div class="msg">Hello</div>'));
@@ -307,7 +307,7 @@ void main() {
         messagesHtml: null,
         artifacts: const [],
         contextInputs: const [],
-        contextOutputs: const [],
+        outputKeys: const [],
       );
       expect(html, contains('No session started yet.'));
     });
@@ -319,7 +319,7 @@ void main() {
           {'name': 'output.md', 'kindLabel': 'Document'},
         ],
         contextInputs: const [],
-        contextOutputs: const [],
+        outputKeys: const [],
       );
       expect(html, contains('output.md'));
       expect(html, contains('Document'));
@@ -330,7 +330,7 @@ void main() {
         messagesHtml: null,
         artifacts: const [],
         contextInputs: const [],
-        contextOutputs: const [],
+        outputKeys: const [],
         tokenCount: 15000,
       );
       expect(html, contains('15,000'));

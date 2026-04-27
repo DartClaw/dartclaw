@@ -11,15 +11,15 @@ class PromptAugmenter {
   String augment(
     String prompt, {
     Map<String, OutputConfig>? outputs,
-    List<String> contextOutputs = const [],
+    List<String> outputKeys = const [],
     bool emitStepOutcomeProtocol = false,
   }) {
     final sections = <String>[];
 
-    final workflowContextSection = _buildWorkflowContextSection(outputs, contextOutputs);
+    final workflowContextSection = _buildWorkflowContextSection(outputs, outputKeys);
     if (workflowContextSection != null) sections.add(workflowContextSection);
 
-    final schemaSection = _buildSchemaSection(outputs, contextOutputs);
+    final schemaSection = _buildSchemaSection(outputs, outputKeys);
     if (schemaSection != null) sections.add(schemaSection);
 
     if (emitStepOutcomeProtocol) {
@@ -50,13 +50,13 @@ class PromptAugmenter {
     return buf.toString().trimRight();
   }
 
-  String? _buildSchemaSection(Map<String, OutputConfig>? outputs, List<String> contextOutputs) {
+  String? _buildSchemaSection(Map<String, OutputConfig>? outputs, List<String> outputKeys) {
     if (outputs == null || outputs.isEmpty) return null;
 
     final fragments = <String>[];
 
     for (final entry in outputs.entries) {
-      if (contextOutputs.contains(entry.key)) continue;
+      if (outputKeys.contains(entry.key)) continue;
       final config = entry.value;
       if (config.format != OutputFormat.json) continue;
       if (config.outputMode == OutputMode.structured) continue;
@@ -91,8 +91,8 @@ class PromptAugmenter {
     return '## Required Output Format\n\n$section';
   }
 
-  String? _buildWorkflowContextSection(Map<String, OutputConfig>? outputs, List<String> contextOutputs) {
-    if (contextOutputs.isEmpty) return null;
+  String? _buildWorkflowContextSection(Map<String, OutputConfig>? outputs, List<String> outputKeys) {
+    if (outputKeys.isEmpty) return null;
 
     final buf = StringBuffer();
     buf.writeln('## Workflow Output Contract');
@@ -101,7 +101,7 @@ class PromptAugmenter {
     buf.writeln('Do not use markdown code fences inside `$kWorkflowContextOpen`.');
     buf.writeln('Include exactly these keys:');
 
-    for (final key in contextOutputs) {
+    for (final key in outputKeys) {
       final config = outputs?[key];
       _writeWorkflowContextField(buf, key, config);
     }

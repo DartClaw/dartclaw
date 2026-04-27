@@ -137,7 +137,7 @@ class WorkflowStepTrace {
   final Map<String, dynamic>? worktreeJson;
   final String? sessionId;
   final Map<String, dynamic> contextInputs;
-  final Map<String, dynamic> contextOutputs;
+  final Map<String, dynamic> outputs;
   final String? lastUserMessage;
   final String? lastAssistantMessage;
   final DateTime queuedAt;
@@ -161,7 +161,7 @@ class WorkflowStepTrace {
     this.worktreeJson,
     this.sessionId,
     this.contextInputs = const {},
-    this.contextOutputs = const {},
+    this.outputs = const {},
     this.lastUserMessage,
     this.lastAssistantMessage,
     required this.queuedAt,
@@ -301,9 +301,9 @@ class WorkflowExecutionRecorder {
         }
       }
 
-      Map<String, dynamic> contextOutputs = const {};
+      Map<String, dynamic> outputs = const {};
       try {
-        contextOutputs = await _contextExtractor.extract(_definition.steps[event.stepIndex], task);
+        outputs = await _contextExtractor.extract(_definition.steps[event.stepIndex], task);
       } catch (error, st) {
         _log.warning('Failed to extract context outputs for ${event.stepId}', error, st);
       }
@@ -327,7 +327,7 @@ class WorkflowExecutionRecorder {
         cacheReadTokens: _tokenMetric(task.configJson, 'cacheReadTokens'),
         outputTokens: _tokenMetric(task.configJson, 'outputTokens'),
         sessionId: sessionId,
-        contextOutputs: contextOutputs,
+        outputs: outputs,
         stepScopedContext: stepScopedContext,
         lastUserMessage: lastUserMessage,
         lastAssistantMessage: lastAssistantMessage,
@@ -354,7 +354,7 @@ class WorkflowExecutionRecorder {
           worktreeJson: task.worktreeJson ?? pending.worktreeJson,
           sessionId: sessionId,
           contextInputs: pending.contextInputs,
-          contextOutputs: contextOutputs,
+          outputs: outputs,
           lastUserMessage: lastUserMessage,
           lastAssistantMessage: lastAssistantMessage,
           queuedAt: pending.queuedAt,
@@ -387,7 +387,7 @@ class WorkflowExecutionRecorder {
     required int cacheReadTokens,
     required int outputTokens,
     required String? sessionId,
-    required Map<String, dynamic> contextOutputs,
+    required Map<String, dynamic> outputs,
     required Map<String, dynamic> stepScopedContext,
     required String? lastUserMessage,
     required String? lastAssistantMessage,
@@ -429,7 +429,7 @@ class WorkflowExecutionRecorder {
       'configJson': task.configJson,
       'worktreeJson': task.worktreeJson ?? pending.worktreeJson,
       'contextInputs': pending.contextInputs,
-      'contextOutputs': contextOutputs,
+      'outputs': outputs,
       'stepScopedContext': stepScopedContext,
       'lastUserMessage': lastUserMessage,
       'lastAssistantMessage': lastAssistantMessage,
@@ -614,14 +614,14 @@ void expectCommittedPlanArtifacts({required String projectDir, required Director
 
   final requiredPaths = <String>{};
   for (final payload in planArtifacts) {
-    final contextOutputs = (payload['contextOutputs'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
-    final planPath = contextOutputs['plan'] as String?;
+    final outputs = (payload['outputs'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+    final planPath = outputs['plan'] as String?;
     if (planPath != null && planPath.trim().isNotEmpty) {
       requiredPaths.add(planPath.trim());
       final planDir = p.dirname(planPath.trim());
       requiredPaths.add(p.join(planDir, '.technical-research.md'));
     }
-    final storySpecs = contextOutputs['story_specs'];
+    final storySpecs = outputs['story_specs'];
     if (storySpecs is Map<Object?, Object?> && storySpecs['items'] is List<Object?>) {
       for (final item in (storySpecs['items'] as List<Object?>).whereType<Map<Object?, Object?>>()) {
         final specPath = item['spec_path']?.toString().trim();

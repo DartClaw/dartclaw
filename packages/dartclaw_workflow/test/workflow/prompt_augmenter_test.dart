@@ -173,7 +173,7 @@ void main() {
       final result = augmenter.augment(
         prompt,
         outputs: outputs,
-        contextOutputs: const ['review_summary', 'findings_count'],
+        outputKeys: const ['review_summary', 'findings_count'],
       );
       expect(result, contains('## Workflow Output Contract'));
       expect(result, contains('<workflow-context>'));

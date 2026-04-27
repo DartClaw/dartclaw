@@ -189,10 +189,10 @@ String resolveBashCommand(String command, WorkflowContext context) {
 
 /// Extracts declared context outputs from bash stdout.
 Map<String, dynamic> extractBashOutputs(WorkflowStep step, String stdout) {
-  if (step.contextOutputs.isEmpty) return {};
+  if (step.outputKeys.isEmpty) return {};
 
   final outputs = <String, dynamic>{};
-  for (final outputKey in step.contextOutputs) {
+  for (final outputKey in step.outputKeys) {
     final config = step.outputs?[outputKey];
     final format = config?.format ?? OutputFormat.text;
 

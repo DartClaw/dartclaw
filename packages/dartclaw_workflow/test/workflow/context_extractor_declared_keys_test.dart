@@ -1,7 +1,7 @@
 // Declared-key contract tests across every step in every built-in workflow.
 //
 // Purpose: lock in the invariant that `ContextExtractor` keys its outputs
-// strictly by the declared `contextOutputs` entry, and that every built-in
+// strictly by the declared `outputs` entry, and that every built-in
 // workflow step that declares a key has that key present in the extracted
 // result (possibly with a default/empty value) — under the EXACT declared
 // name, including any scoped-dotted form like `integrated-review.findings_count`.
@@ -64,8 +64,8 @@ void main() {
         for (final step in definition.steps) {
           final outputs = step.outputs;
           if (outputs == null || outputs.isEmpty) continue;
-          for (final declaredKey in step.contextOutputs) {
-            // A step may declare contextOutputs without a matching step.outputs
+          for (final declaredKey in step.outputKeys) {
+            // A step may declare outputs entries without a matching key
             // entry — the extractor falls back to convention-based resolution
             // in that case, which is fine. The invariant we care about is the
             // reverse: when step.outputs is declared at all, it must either
@@ -106,11 +106,11 @@ void main() {
       final def = _load(definitionFile);
       final all = <String>{};
       for (final step in def.steps) {
-        all.addAll(step.contextOutputs);
+        all.addAll(step.outputKeys);
         // Scoped dotted forms are always referenced under the dotted name in
         // gate expressions (`stepId.key > 0`). Record both the full dotted
         // name and the last segment to match both reference styles.
-        for (final key in step.contextOutputs) {
+        for (final key in step.outputKeys) {
           if (key.contains('.')) {
             all.add(key.split('.').last);
           }

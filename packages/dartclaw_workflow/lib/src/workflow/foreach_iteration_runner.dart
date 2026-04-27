@@ -1039,12 +1039,6 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         typeAuthored: true,
         project: projectId,
         emitsOwnOutcome: true,
-        contextOutputs: const [
-          'merge_resolve.outcome',
-          'merge_resolve.conflicted_files',
-          'merge_resolve.resolution_summary',
-          'merge_resolve.error_message',
-        ],
         outputs: const {
           'merge_resolve.outcome': OutputConfig(format: OutputFormat.text),
           'merge_resolve.conflicted_files': OutputConfig(format: OutputFormat.lines),

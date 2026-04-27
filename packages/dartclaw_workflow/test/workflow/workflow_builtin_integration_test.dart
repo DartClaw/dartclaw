@@ -1038,7 +1038,7 @@ void main() {
     expect(trace.count('quick-review'), 2);
     expect(trace.count('plan-review'), 1);
 
-    // Per-story results are aggregated in story_results from the foreach controller contextOutputs.
+    // Per-story results are aggregated in story_results from the foreach controller outputs.
     final storyResults = trace.context['story_results'] as List<dynamic>;
     expect(storyResults, hasLength(2));
     final r0 = storyResults[0] as Map<String, dynamic>;

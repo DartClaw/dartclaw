@@ -653,13 +653,13 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     WorkflowStep step,
     WorkflowContext context,
     Map<String, OutputConfig>? effectiveOutputs, {
-    required List<String> contextOutputs,
+    required List<String> outputKeys,
     MapContext? mapCtx,
   }) => workflow_task_factory.buildOneShotFollowUpPrompts(
     step,
     context,
     effectiveOutputs,
-    contextOutputs: contextOutputs,
+    outputKeys: outputKeys,
     mapCtx: mapCtx,
     templateEngine: _templateEngine,
     skillPromptBuilder: _skillPromptBuilder,

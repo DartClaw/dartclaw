@@ -23,7 +23,7 @@ Object? defaultContextOutput(WorkflowStep step, Map<String, dynamic> outputs, St
 void applyContextOutputDefaults(WorkflowStep step, Map<String, dynamic> outputs) {
   _canonicalizeDiscoverProjectOutputs(step, outputs);
 
-  for (final outputKey in step.contextOutputs) {
+  for (final outputKey in step.outputKeys) {
     if (!_isBlank(outputs[outputKey])) continue;
     final derivedValue = defaultContextOutput(step, outputs, outputKey);
     if (derivedValue != null) {
@@ -31,7 +31,7 @@ void applyContextOutputDefaults(WorkflowStep step, Map<String, dynamic> outputs)
     }
   }
 
-  for (final outputKey in step.contextOutputs.where(_isSourceOutputKey)) {
+  for (final outputKey in step.outputKeys.where(_isSourceOutputKey)) {
     if (!_shouldFillSource(step, outputKey, outputs)) continue;
     outputs[outputKey] = _defaultSourceValue(step, outputKey, outputs);
   }
@@ -40,7 +40,7 @@ void applyContextOutputDefaults(WorkflowStep step, Map<String, dynamic> outputs)
 void _canonicalizeDiscoverProjectOutputs(WorkflowStep step, Map<String, dynamic> outputs) {
   if (step.id != 'discover-project') return;
   for (final outputKey in const ['prd', 'plan', 'story_specs']) {
-    if (!step.contextOutputs.contains(outputKey)) continue;
+    if (!step.outputKeys.contains(outputKey)) continue;
     final canonicalValue = defaultContextOutput(step, outputs, outputKey);
     outputs[outputKey] = canonicalValue ?? '';
   }

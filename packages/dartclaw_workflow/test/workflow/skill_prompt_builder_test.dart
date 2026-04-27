@@ -96,8 +96,8 @@ void main() {
       final result = builder.build(
         skill: 'andthen-review',
         resolvedPrompt: 'Review this.',
-        outputs: {'review_summary': const OutputConfig(format: OutputFormat.json, schema: 'verdict')},
-        contextOutputs: const ['review_summary', 'findings_count'],
+        outputs: const {'review_summary': OutputConfig(), 'findings_count': OutputConfig()},
+        outputKeys: const ['review_summary', 'findings_count'],
       );
       expect(result, contains('## Workflow Output Contract'));
       expect(result, contains('<workflow-context>'));

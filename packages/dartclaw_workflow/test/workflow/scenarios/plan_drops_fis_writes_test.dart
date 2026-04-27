@@ -19,7 +19,6 @@ void main() {
           name: 'Plan',
           type: 'coding',
           prompts: ['Plan the work'],
-          contextOutputs: ['story_specs'],
           outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs')},
         ),
       ],

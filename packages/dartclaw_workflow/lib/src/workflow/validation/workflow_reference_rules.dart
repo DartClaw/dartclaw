@@ -187,7 +187,7 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
                 (s) => s.id == loopStepId,
                 orElse: () => step, // unreachable if loop references are valid
               );
-              loopProduced.addAll(loopStep.contextOutputs);
+              loopProduced.addAll(loopStep.outputKeys);
             }
           }
         }
@@ -206,7 +206,7 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
       }
 
       // Add this step's outputs to produced set for subsequent steps
-      producedSoFar.addAll(step.contextOutputs);
+      producedSoFar.addAll(step.outputKeys);
     }
   }
 
@@ -229,7 +229,7 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
           );
         }
       }
-      producedSoFar.addAll(step.contextOutputs);
+      producedSoFar.addAll(step.outputKeys);
     }
   }
 

@@ -93,6 +93,9 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Learnings | `docs/dev/LEARNINGS.md` | Before debugging unfamiliar subsystems; append non-obvious discoveries |
 | Product (summary) | `docs/dev/PRODUCT.md` | Vision and principles |
 | Roadmap (current + next) | `docs/dev/ROADMAP.md` | Active milestone and what's after |
+| Tech stack | `docs/dev/STACK.md` | Languages, packages, external services |
+| Ubiquitous language | `docs/dev/UBIQUITOUS_LANGUAGE.md` | Domain glossary — use these terms in code, docs, naming |
+| Tech debt backlog | `docs/dev/TECH-DEBT-BACKLOG.md` | Known debt requiring requirements input or architecture decision |
 | Spec lifecycle | `docs/dev/SPEC-LIFECYCLE.md` | When `docs/specs/` files appear or disappear |
 | Dart style | `docs/guidelines/DART-EFFECTIVE-GUIDELINES.md` | Before writing Dart |
 | Package boundaries | `docs/guidelines/DART-PACKAGE-GUIDELINES.md` | When touching pubspec or workspace packages |
@@ -116,6 +119,7 @@ Adhere to system prompt "CRITICAL RULES and GUARDRAILS" before doing any work.
 - Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_server/lib/src/static/` — see `VENDORS.md` in that directory for versions and upgrade instructions
 - Never use references to specific story IDs or titles in code, filenames, documentation etc (project/development documents are the exception).
 - **Code is source of truth, not comments**: To avoid documentation rot, keep code documentation/comments minimal and focused on rationale (why, not what). If comments are outdated or incorrect, fix or remove them — do not let them mislead. Always strive for self-explanatory and readable code that minimizes (or eliminates) the need for comments.
+- **Tech debt backlog discipline** — `docs/dev/TECH-DEBT-BACKLOG.md` is reserved for items that **cannot** be resolved directly without further requirements input or an architecture decision. If a finding can be fixed now with the current understanding, fix it now (or capture it in an active spec/FIS). The backlog is a last resort, not a default landing zone for follow-ups — entries that just describe known cleanups invite rot and dilute signal.
 
 ### Timestamps
 **Always** run `date '+%Y-%m-%d %H:%M %Z'` before writing timestamps. Never guess — internal time may be wrong timezone.

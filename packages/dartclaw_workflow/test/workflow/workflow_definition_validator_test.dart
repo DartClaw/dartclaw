@@ -94,14 +94,14 @@ WorkflowStep _step({
   String name = 'Step',
   String prompt = 'Do it',
   List<String> contextInputs = const [],
-  List<String> contextOutputs = const [],
+  Map<String, OutputConfig>? outputs,
   String? gate,
 }) => WorkflowStep(
   id: id,
   name: name,
   prompts: [prompt],
   contextInputs: contextInputs,
-  contextOutputs: contextOutputs,
+  outputs: outputs == null || outputs.isEmpty ? null : outputs,
   gate: gate,
 );
 
@@ -181,8 +181,8 @@ void main() {
         expect(warnings.where((w) => w.message.contains('Semantic step types')).length, 1);
       });
 
-      group('contextOutputs deprecation', () {
-        test('outputs-only step does not emit a deprecation warning', () {
+      group('contextOutputs removal', () {
+        test('parser throws on contextOutputs: with migration message', () {
           const yaml = '''
 name: wf
 description: d
@@ -190,94 +190,18 @@ steps:
   - id: s
     name: S
     prompt: p
-    outputs:
-      summary:
-        format: text
+    contextOutputs: [foo]
 ''';
-          final def = WorkflowDefinitionParser().parse(yaml);
-          final warnings = validator.validate(def).warnings;
-          expect(warnings.any((w) => w.message.contains('contextOutputs:')), isFalse);
-        });
-
-        test('contextOutputs exactly mirrors outputs.keys → "redundant" warning', () {
-          const yaml = '''
-name: wf
-description: d
-steps:
-  - id: s
-    name: S
-    prompt: p
-    contextOutputs: [a]
-    outputs:
-      a:
-        format: text
-''';
-          final def = WorkflowDefinitionParser().parse(yaml);
-          final warnings = validator.validate(def).warnings;
-          final hits = warnings.where((w) => w.message.contains('redundant')).toList();
-          expect(hits.length, 1, reason: 'expected one redundant-deprecation warning');
-        });
-
-        test('contextOutputs has keys missing from outputs → "disagree" warning naming both sides', () {
-          const yaml = '''
-name: wf
-description: d
-steps:
-  - id: s
-    name: S
-    prompt: p
-    contextOutputs: [a, b]
-    outputs:
-      a:
-        format: text
-      c:
-        format: text
-''';
-          final def = WorkflowDefinitionParser().parse(yaml);
-          final warnings = validator.validate(def).warnings;
-          final disagreement = warnings.where((w) => w.message.contains('disagree')).toList();
-          expect(disagreement.length, 1);
-          expect(disagreement.single.message, contains('b'));
-          expect(disagreement.single.message, contains('c'));
-        });
-
-        test('pure-legacy contextOutputs (no outputs:) → migration warning naming the missing keys', () {
-          const yaml = '''
-name: wf
-description: d
-steps:
-  - id: s
-    name: S
-    prompt: p
-    contextOutputs: [a, b]
-''';
-          final def = WorkflowDefinitionParser().parse(yaml);
-          final warnings = validator.validate(def).warnings;
-          final hits = warnings.where((w) => w.message.contains('contextOutputs:')).toList();
-          expect(hits.length, 1);
-          expect(hits.single.message, contains('a'));
-          expect(hits.single.message, contains('b'));
-        });
-
-        test('foreach controller is exempt from the deprecation warning', () {
-          const yaml = '''
-name: wf
-description: d
-steps:
-  - id: ctrl
-    name: Ctrl
-    type: foreach
-    map_over: items
-    contextOutputs: [results]
-    steps:
-      - id: child
-        name: Child
-        type: coding
-        prompt: do {{map.item}}
-''';
-          final def = WorkflowDefinitionParser().parse(yaml);
-          final warnings = validator.validate(def).warnings;
-          expect(warnings.any((w) => w.message.contains('contextOutputs:')), isFalse);
+          expect(
+            () => WorkflowDefinitionParser().parse(yaml),
+            throwsA(
+              isA<FormatException>().having(
+                (e) => e.message,
+                'message',
+                allOf(contains('contextOutputs: is removed'), contains('outputs:')),
+              ),
+            ),
+          );
         });
       });
     });
@@ -321,7 +245,7 @@ steps:
               prompts: ['p'],
               mapOver: 'items',
               contextInputs: ['items'],
-              contextOutputs: ['mapped'],
+              outputs: {'mapped': OutputConfig()},
             ),
           ],
           nodes: const [
@@ -422,7 +346,7 @@ steps:
       test('context input referencing key not in preceding step outputs produces contextInconsistency', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextInputs: ['key_a'], contextOutputs: []),
+            _step(id: 's1', contextInputs: ['key_a'], outputs: {}),
           ],
         );
         final errors = validator.validate(def).errors;
@@ -432,7 +356,7 @@ steps:
       test('context input valid when preceding step declares the output', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextOutputs: ['result']),
+            _step(id: 's1', outputs: {'result': OutputConfig()}),
             _step(id: 's2', name: 'S2', prompt: 'p', contextInputs: ['result']),
           ],
         );
@@ -442,8 +366,8 @@ steps:
       test('context input valid within same loop', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextInputs: ['loop_key'], contextOutputs: ['loop_key']),
-            _step(id: 's2', name: 'S2', prompt: 'p', contextOutputs: []),
+            _step(id: 's1', contextInputs: ['loop_key'], outputs: {'loop_key': OutputConfig()}),
+            _step(id: 's2', name: 'S2', prompt: 'p', outputs: {}),
           ],
           loops: [
             const WorkflowLoop(id: 'lp', steps: ['s1'], maxIterations: 3, exitGate: ''),
@@ -460,14 +384,12 @@ steps:
             id: 'a',
             name: 'A',
             prompts: const ['p'],
-            contextOutputs: const ['x'],
             outputs: const {'x': OutputConfig(format: OutputFormat.text, description: 'from A')},
           ),
           WorkflowStep(
             id: 'b',
             name: 'B',
             prompts: const ['p'],
-            contextOutputs: const ['x'],
             outputs: const {'x': OutputConfig(format: OutputFormat.text, description: 'from B')},
           ),
         ],
@@ -487,14 +409,12 @@ steps:
             id: 'a',
             name: 'A',
             prompts: const ['p'],
-            contextOutputs: const ['x'],
             outputs: const {'x': OutputConfig(format: OutputFormat.text)},
           ),
           WorkflowStep(
             id: 'b',
             name: 'B',
             prompts: const ['p'],
-            contextOutputs: const ['x'],
             outputs: const {'x': OutputConfig(format: OutputFormat.text)},
           ),
         ],
@@ -508,7 +428,7 @@ steps:
       test('valid gate expression produces no error', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextOutputs: ['status']),
+            _step(id: 's1', outputs: {'status': OutputConfig()}),
             _step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.status == done'),
           ],
         );
@@ -537,7 +457,7 @@ steps:
       test('compound gate with && is parsed correctly', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextOutputs: ['status', 'score']),
+            _step(id: 's1', outputs: {'status': OutputConfig(), 'score': OutputConfig()}),
             _step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.status == done && s1.score >= 90'),
           ],
         );
@@ -1076,7 +996,7 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'collect', name: 'Collect', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'collect', name: 'Collect', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(id: 'process', name: 'Process', prompts: ['p'], mapOver: 'items'),
         ],
       );
@@ -1104,7 +1024,13 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'self_output', contextOutputs: ['self_output']),
+          WorkflowStep(
+            id: 's',
+            name: 'S',
+            prompts: ['p'],
+            mapOver: 'self_output',
+            outputs: {'self_output': OutputConfig()},
+          ),
         ],
       );
       final errors = validator.validate(def).errors;
@@ -1128,8 +1054,19 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['list1', 'list2']),
-          WorkflowStep(id: 'map1', name: 'Map1', prompts: ['p'], mapOver: 'list1', contextOutputs: ['mapped1']),
+          WorkflowStep(
+            id: 'produce',
+            name: 'Produce',
+            prompts: ['p'],
+            outputs: {'list1': OutputConfig(), 'list2': OutputConfig()},
+          ),
+          WorkflowStep(
+            id: 'map1',
+            name: 'Map1',
+            prompts: ['p'],
+            mapOver: 'list1',
+            outputs: {'mapped1': OutputConfig()},
+          ),
           WorkflowStep(id: 'map2', name: 'Map2', prompts: ['p'], mapOver: 'list2'),
         ],
       );
@@ -1144,14 +1081,14 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'mapstep',
             name: 'Map',
             prompts: ['p'],
             mapOver: 'items',
             parallel: true,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -1172,26 +1109,32 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
-          WorkflowStep(id: 'mapstep', name: 'Map', prompts: ['p'], mapOver: 'items', contextOutputs: ['results']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'mapstep',
+            name: 'Map',
+            prompts: ['p'],
+            mapOver: 'items',
+            outputs: {'results': OutputConfig()},
+          ),
         ],
       );
       final errors = validator.validate(def).errors;
       expect(errors.where((e) => e.stepId == 'mapstep'), isEmpty);
     });
 
-    test('map step with multiple contextOutputs produces contextInconsistency error', () {
+    test('map step with multiple outputs produces contextInconsistency error', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'mapstep',
             name: 'Map',
             prompts: ['p'],
             mapOver: 'items',
-            contextOutputs: ['results', 'summaries'],
+            outputs: {'results': OutputConfig(), 'summaries': OutputConfig()},
           ),
         ],
       );
@@ -1207,20 +1150,20 @@ steps:
       );
     });
 
-    test('foreach controller with multiple contextOutputs produces contextInconsistency error', () {
+    test('foreach controller with multiple outputs produces contextInconsistency error', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
-          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], contextOutputs: ['story_result']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], outputs: {'story_result': OutputConfig()}),
           WorkflowStep(
             id: 'pipeline',
             name: 'Pipeline',
             type: 'foreach',
             mapOver: 'items',
             foreachSteps: ['implement'],
-            contextOutputs: ['story_results', 'implementation_results'],
+            outputs: {'story_results': OutputConfig(), 'implementation_results': OutputConfig()},
           ),
         ],
       );
@@ -1236,20 +1179,20 @@ steps:
       );
     });
 
-    test('foreach controller with a single contextOutputs key is valid', () {
+    test('foreach controller with a single outputs key is valid', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
-          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], contextOutputs: ['story_result']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], outputs: {'story_result': OutputConfig()}),
           WorkflowStep(
             id: 'pipeline',
             name: 'Pipeline',
             type: 'foreach',
             mapOver: 'items',
             foreachSteps: ['implement'],
-            contextOutputs: ['story_results'],
+            outputs: {'story_results': OutputConfig()},
           ),
         ],
       );
@@ -1362,7 +1305,6 @@ steps:
             id: 'review',
             name: 'Review',
             prompts: ['Review'],
-            contextOutputs: ['verdict'],
             outputs: {'verdict': OutputConfig(format: OutputFormat.text, outputMode: OutputMode.structured)},
           ),
         ],
@@ -1382,7 +1324,6 @@ steps:
             id: 'review',
             name: 'Review',
             prompts: ['Review'],
-            contextOutputs: ['verdict'],
             outputs: {
               'verdict': OutputConfig(
                 format: OutputFormat.json,
@@ -1410,7 +1351,6 @@ steps:
           id: 'implement',
           name: 'Implement',
           prompts: const ['Implement'],
-          contextOutputs: const ['diff_summary'],
           outputs: {'diff_summary': outputConfig},
         ),
       ],
@@ -1462,7 +1402,6 @@ steps:
             id: 'review',
             name: 'Review',
             prompts: ['Review'],
-            contextOutputs: ['findings_count'],
             outputs: {
               'findings_count': OutputConfig(
                 format: OutputFormat.json,
@@ -1498,13 +1437,33 @@ steps:
             name: 'Research',
             type: 'research',
             prompts: ['Research'],
-            contextOutputs: ['verdict'],
             outputs: {'verdict': OutputConfig(format: OutputFormat.json)},
           ),
         ],
       );
       final report = validator.validate(def);
       expect(report.errors.any((e) => e.message.contains('format: json requires a schema')), isTrue);
+    });
+
+    test('foreach controller json aggregate does not require a schema', () {
+      const def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], outputs: {'story_result': OutputConfig()}),
+          WorkflowStep(
+            id: 'pipeline',
+            name: 'Pipeline',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['implement'],
+            outputs: {'story_results': OutputConfig(format: OutputFormat.json)},
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
     });
 
     test('bash step with multi-prompt list is a hard error', () {
@@ -1851,14 +1810,14 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'fe',
             name: 'FE',
             type: 'foreach',
             mapOver: 'items',
             foreachSteps: ['c1', 'c2'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'c1', name: 'C1', prompts: ['p']),
           WorkflowStep(id: 'c2', name: 'C2', prompts: ['p']),
@@ -1873,14 +1832,14 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'fe',
             name: 'FE',
             type: 'foreach',
             mapOver: 'items',
             foreachSteps: ['c1', 'nonexistent'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'c1', name: 'C1', prompts: ['p']),
         ],
@@ -1896,7 +1855,7 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(id: 'fe', name: 'FE', type: 'foreach', mapOver: 'items', foreachSteps: []),
         ],
       );
@@ -1911,14 +1870,14 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'fe',
             name: 'FE',
             type: 'foreach',
             mapOver: 'items',
             foreachSteps: ['c1'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'c1', name: 'C1', prompts: ['p']),
         ],
@@ -1937,7 +1896,12 @@ steps:
           name: 'wf',
           description: 'd',
           steps: const [
-            WorkflowStep(id: 'prd', name: 'PRD', prompts: ['p'], contextOutputs: ['prd', 'prd_source']),
+            WorkflowStep(
+              id: 'prd',
+              name: 'PRD',
+              prompts: ['p'],
+              outputs: {'prd': OutputConfig(), 'prd_source': OutputConfig()},
+            ),
             WorkflowStep(
               id: 'review-prd',
               name: 'Review',
@@ -1982,7 +1946,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', contextOutputs: ['plan']),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', outputs: {'plan': OutputConfig()}),
           ],
         );
         final report = validator.validate(def);
@@ -1998,7 +1962,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', contextOutputs: ['plan']),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', outputs: {'plan': OutputConfig()}),
             WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 2),
           ],
         );
@@ -2015,7 +1979,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', contextOutputs: ['plan']),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', outputs: {'plan': OutputConfig()}),
             WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 1),
           ],
         );
@@ -2032,7 +1996,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', contextOutputs: ['plan']),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', outputs: {'plan': OutputConfig()}),
           ],
         );
         final report = validator.validate(def);
@@ -2376,14 +2340,14 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], contextOutputs: ['items']),
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'each',
             name: 'Each',
             prompts: ['Process {{thing.item.path}}'],
             mapOver: 'items',
             mapAlias: 'thing',
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -2409,14 +2373,14 @@ steps:
         description: 'd',
         variables: const {'PROJECT': WorkflowVariable(required: false, defaultValue: 'x')},
         steps: const [
-          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], contextOutputs: ['items']),
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'each',
             name: 'Each',
             prompts: ['p'],
             mapOver: 'items',
             mapAlias: 'PROJECT',
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -2431,7 +2395,7 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], contextOutputs: ['items']),
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'pipeline',
             name: 'Pipeline',
@@ -2439,7 +2403,7 @@ steps:
             mapOver: 'items',
             mapAlias: 'story',
             foreachSteps: ['implement'],
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
           WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{story.item.spec_path}}']),
         ],

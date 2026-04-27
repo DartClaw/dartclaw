@@ -126,7 +126,6 @@ WorkflowDefinition _mergeResolveIntegrationDefinition() {
         name: 'Seed stories',
         type: 'bash',
         prompts: ['printf \'%s\\n\' \'[{"id":"S01"},{"id":"S02"}]\''],
-        contextOutputs: ['stories'],
         outputs: {'stories': OutputConfig(format: OutputFormat.json)},
       ),
       WorkflowStep(
@@ -389,7 +388,7 @@ void _assertDefinitionContract(WorkflowDefinition definition) {
   final seed = definition.steps.firstWhere((step) => step.id == 'seed-stories');
   final foreach = definition.steps.firstWhere((step) => step.id == 'story-foreach');
   expect(seed.type, equals('bash'));
-  expect(seed.contextOutputs, contains('stories'));
+  expect(seed.outputKeys, contains('stories'));
   expect(foreach.type, equals('foreach'));
   expect(foreach.mapOver, equals('stories'));
   expect(foreach.mapAlias, equals('story'));

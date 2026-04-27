@@ -116,7 +116,6 @@ void main() {
           id: 'plan',
           name: 'Plan',
           prompts: ['plan'],
-          contextOutputs: ['plan'],
           outputs: {'plan': OutputConfig(format: OutputFormat.path)},
         ),
         WorkflowStep(
@@ -400,7 +399,7 @@ void main() {
   test('context from step 1 is available in step 2 prompt', () async {
     final definition = h.makeDefinition(
       steps: [
-        const WorkflowStep(id: 'step1', name: 'Research', prompts: ['Do research'], contextOutputs: ['research_notes']),
+        const WorkflowStep(id: 'step1', name: 'Research', prompts: ['Do research'], outputs: {'research_notes': OutputConfig()}),
         const WorkflowStep(id: 'step2', name: 'Summarize', prompts: ['Summarize: {{context.research_notes}}']),
       ],
     );
@@ -606,7 +605,7 @@ void main() {
     await sub.cancel();
 
     expect(capturedDescription, contains('Review the implementation.'));
-    expect(capturedDescription, contains('## Required Output Format'));
+    expect(capturedDescription, contains('## Workflow Output Contract'));
     expect(capturedDescription, contains('findings_count'));
   });
 
@@ -763,7 +762,6 @@ void main() {
           name: 'Spec',
           type: 'writing',
           project: '{{PROJECT}}',
-          contextOutputs: ['spec_path'],
           outputs: {'spec_path': OutputConfig(format: OutputFormat.path)},
           prompts: ['Write spec'],
         ),
@@ -865,7 +863,6 @@ void main() {
           name: 'Spec',
           type: 'writing',
           project: '{{PROJECT}}',
-          contextOutputs: ['spec_path'],
           outputs: {'spec_path': OutputConfig(format: OutputFormat.path)},
           prompts: ['Write spec'],
         ),

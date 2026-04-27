@@ -26,7 +26,6 @@ void main() {
         step: const WorkflowStep(
           id: 'plan',
           name: 'Plan',
-          contextOutputs: ['story_specs', 'plan'],
           outputs: {
             'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
             'plan': OutputConfig(format: OutputFormat.path),
@@ -87,7 +86,6 @@ void main() {
         step: const WorkflowStep(
           id: 'plan',
           name: 'Plan',
-          contextOutputs: ['fis_paths'],
           outputs: {'fis_paths': OutputConfig(format: OutputFormat.lines)},
         ),
         outputs: {

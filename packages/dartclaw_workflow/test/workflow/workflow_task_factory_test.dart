@@ -155,11 +155,11 @@ void main() {
           id: 'step-1',
           name: 'Step 1',
           prompts: ['first', 'second {{NAME}}', 'third'],
-          contextOutputs: ['answer'],
+          outputs: {'answer': OutputConfig()},
         ),
         WorkflowContext(variables: {'NAME': 'Alice'}),
         const {'answer': OutputConfig(format: OutputFormat.text)},
-        contextOutputs: const ['answer'],
+        outputKeys: const ['answer'],
         templateEngine: WorkflowTemplateEngine(),
         skillPromptBuilder: StepPromptConfiguration().skillPromptBuilder,
       );

@@ -56,7 +56,10 @@ steps:
     prompt: |
       Review {{TARGET}} for code quality, security, and improvements.
       List your findings with severity (critical/major/minor).
-    contextOutputs: [review_findings]
+    outputs:
+      review_findings:
+        format: json
+        schema: verdict
 
   - id: remediate
     name: Remediate Findings
@@ -130,13 +133,11 @@ Declare each context-write key under `outputs:` with `format: json` to enforce s
 
 Without `format: json`, the agent produces free text and downstream steps must parse it themselves. With `schema: verdict`, the step automatically receives instructions to produce a JSON object with `pass`, `findings_count`, `findings`, and `summary` fields.
 
-> **Migration note:** `outputs:` map keys now imply the context-write set. The legacy `contextOutputs:` list is deprecated — when authored alongside `outputs:` it is redundant; when authored alone it should be replaced by an `outputs:` block. The validator emits a tailored deprecation warning per step until the field is removed in a future release. Foreach / `mapOver` controllers are the one carve-out: they still declare the aggregate name via `contextOutputs:` because they have no `outputs:`-shaped alternative yet.
-
 ### Workflow Context: What `contextInputs` and `outputs` Actually Do
 
 Every workflow run has one persistent workflow context: a key-value map that survives from step to step.
 
-- The `outputs:` map's keys are the canonical declaration of which keys the current step writes back into workflow context after it finishes (the legacy `contextOutputs:` list is deprecated — see the migration note above).
+- The `outputs:` map's keys are the canonical declaration of which keys the current step writes back into workflow context after it finishes.
 - `contextInputs` declares which existing context keys the current step depends on.
 - `{{context.some_key}}` is how authored prompts read values from workflow context.
 
@@ -317,7 +318,6 @@ steps:
     name: Review
     type: analysis
     prompt: Review {{TARGET}}
-    contextOutputs: [verdict]
     outputs:
       verdict:
         format: json
@@ -395,14 +395,17 @@ Both honor the same `max_parallel`, `max_items`, `as:` alias, `{{map.*}}` / `{{<
 
 A plain mapped step is still one authored step. The runtime executes it once per array item, then aggregates the per-item results into a list.
 
-The controller step's `contextOutputs:` names the exported aggregate key — for `mapOver` / `foreach` controllers this is the one schema surface that the `outputs:`-only migration does not yet cover, so authoring keeps using `contextOutputs:`:
+The controller step's `outputs:` map names the exported aggregate key — controllers emit exactly one aggregate value, so the map must declare exactly one key:
 
 ```yaml
 - id: review-story
   name: Review Story
   type: analysis
   map_over: stories
-  contextOutputs: [review_results]
+  outputs:
+    review_results:
+      format: json
+      schema: verdict
 ```
 
 After the step completes, `context.review_results` contains one entry per item in `stories`.
@@ -413,7 +416,7 @@ For each iteration:
 - if the step is non-coding and extracts multiple output keys, the aggregate entry is an object containing those outputs
 - if the step is a coding step, the aggregate entry is the coding result object built by the runtime
 
-So `contextOutputs` on a plain map step controls the name of the top-level aggregate key, not the internal shape of each entry.
+So `outputs:` on a plain map step controls the name of the top-level aggregate key, not the internal shape of each entry.
 
 #### `foreach` Per-Item Sub-Pipelines
 
@@ -425,7 +428,9 @@ Use `type: foreach` when each item needs multiple authored substeps that run in 
   type: foreach
   map_over: stories
   as: story                             # optional; names the loop variable
-  contextOutputs: [story_results]       # foreach carve-out — controllers still author this list
+  outputs:
+    story_results:
+      format: json                      # the controller's single aggregate key
   steps:
     - id: implement
       prompt: Implement {{story.item.spec_path}}
@@ -443,7 +448,7 @@ Use `type: foreach` when each item needs multiple authored substeps that run in 
 
 `foreach` has two scopes:
 
-- The controller step's `contextOutputs` exports the final aggregate to the main workflow context. In this example, later top-level steps read `{{context.story_results}}`. A `foreach` / `mapOver` controller emits exactly one aggregate value, so its `contextOutputs` must declare exactly one key — the validator rejects multiple keys as a `contextInconsistency` error. Foreach controllers are exempt from the `outputs:`-only deprecation push because the schema does not yet support an `outputs:` map for the aggregate.
+- The controller step's `outputs:` exports the final aggregate to the main workflow context. In this example, later top-level steps read `{{context.story_results}}`. A `foreach` / `mapOver` controller emits exactly one aggregate value, so its `outputs:` map must declare exactly one key — the validator rejects multiple keys as a `contextInconsistency` error. Because the `foreach` aggregate is built by the runtime rather than extracted from an agent response, `format: json` on the controller does not require a schema; schemas still apply to child-step JSON outputs.
 - The child steps' `outputs:` keys are written into a per-iteration overlay so sibling child steps can reference earlier work during that same item.
 
 Within one iteration, child step outputs are readable via their declared keys (e.g. `{{context.story_result}}`). There is no automatic step-id prefixing in the overlay — if you want a disambiguated `<stepId>.<key>` form, declare it explicitly under the writing step's `outputs:` block (see [Step-Prefixed References](#step-prefixed-references-contextstepidkey)).
@@ -465,7 +470,7 @@ The final aggregate exported by a `foreach` controller is a list of per-item obj
 In other words:
 
 - child step `outputs:` keys control the shape inside each per-item result
-- controller `contextOutputs` controls the top-level exported aggregate key (foreach carve-out)
+- controller `outputs:` controls the top-level exported aggregate key
 
 **Nested `foreach` is not supported.** The parser rejects a `foreach` controller inside another `foreach`'s `steps:` list. If you need per-item work that itself fans out over a sub-collection, flatten it: have the outer step emit a denormalized list whose items already combine the two axes, or run the second fan-out as a subsequent top-level step that consumes the aggregated result. Only one iteration context is active at a time, so no outer-vs-inner scoping rules apply.
 
@@ -555,7 +560,7 @@ Key runtime behavior:
 
 #### File-Based Artifact Contract
 
-Artifact-producing skills (`andthen-prd`, `andthen-plan`, `andthen-spec`) always write their artifact to disk at the canonical `artifact_locations.*` path and emit the workspace-relative path via `contextOutputs` — never inline content. Workflow steps downstream read the file via `file_read`. This is the same single-mode contract AndThen uses; it lets sub-agents that create artifacts in parallel see each others' files through the filesystem rather than inline serialization.
+Artifact-producing skills (`andthen-prd`, `andthen-plan`, `andthen-spec`) always write their artifact to disk at the canonical `artifact_locations.*` path and emit the workspace-relative path under their `outputs:` block — never inline content. Workflow steps downstream read the file via `file_read`. This is the same single-mode contract AndThen uses; it lets sub-agents that create artifacts in parallel see each others' files through the filesystem rather than inline serialization.
 
 `andthen-prd` and `andthen-plan` additionally support **read-existing**: when `context.project_index.active_prd` / `active_plan` references a file that exists, the skill reuses it and emits `prd_source` / `plan_source` as `"existing"` instead of re-synthesizing. This unlocks re-running a workflow against committed artifacts without re-spending tokens.
 
@@ -710,7 +715,12 @@ A workflow step can now be as thin as:
   type: analysis
   skill: andthen-quick-review
   contextInputs: [project_index, story_result]
-  contextOutputs: [quick_review_summary, quick_review_findings_count]
+  outputs:
+    quick_review_summary:
+      format: text
+    quick_review_findings_count:
+      format: json
+      schema: non-negative-integer
 ```
 
 The engine fills in `prompt` from `default_prompt` and `outputs` from `default_outputs`; the step still wins wherever it declares an explicit field. Authors are never forced to use defaults — declaring `prompt:` or `outputs:` on the step keeps the existing behavior.
@@ -838,7 +848,7 @@ Notable patterns:
 - **Single-step artifact producers**: `prd` and `spec` are expected to produce solid final artifacts themselves. Downstream steps consume their emitted paths (`prd`, `spec_path`) via `file_read` instead of inserting separate review-only altitude steps.
 - **Merged plan + specs**: `plan` emits `stories` and `story_specs` together in a single pass; downstream steps consume both directly.
 - **Cross-map binding**: implementation reads per-iteration data directly via `{{map.item.spec_path}}` (the FIS body is already on disk in the story's worktree, mounted by `gitStrategy.worktree.externalArtifactMount`), while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller. The `story_specs` records also carry `id` and `dependencies`, so the foreach runtime can gate later stories on prerequisite promotions without consulting a second graph output. The `{{context.key[map.index]}}` form is still available when a prior step produced a parallel list and you want to correlate by position.
-- **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.story_result}}` within the same story iteration, via the bare keys each child declares in `contextOutputs`.
+- **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.story_result}}` within the same story iteration, via the bare keys each child declares under `outputs:`.
 - **Dependency-aware story slices**: `story_specs` is the executable fan-out contract. Every item should carry `id`, `spec_path`, and `dependencies` (`[]` for roots). The foreach pipeline may run multiple ready stories concurrently, but stories with prerequisites remain undispatched until their dependencies are promoted successfully.
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
 - **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
@@ -1010,7 +1020,6 @@ variables:
 | `review` | string | `codingOnly` | Compatibility field. Workflow-owned tasks auto-accept by default; use explicit review or approval steps for human checkpoints |
 | `gate` | string | none | Condition expression — step skipped if false |
 | `contextInputs` | list | `[]` | Context keys this step reads |
-| `contextOutputs` | list | `[]` | **Deprecated.** Context keys this step writes. Use `outputs:` map keys instead — they now imply the context-write set. The validator emits a tailored deprecation warning per step until this field is removed in a future release. Foreach / `mapOver` controllers are the one carve-out: they still author this list because the schema does not yet support an `outputs:` map for the aggregate (controllers must declare exactly one key — multiple keys produce a `contextInconsistency` error) |
 | `continueSession` | bool or string | `false` | Reuse the preceding agent step's resolved root session, or target an explicit earlier step ID |
 | `maxTokens` | int | none | Per-step token budget |
 | `maxCostUsd` | double | none | Per-step cost budget in USD |
@@ -1063,7 +1072,6 @@ steps:
     workdir: /path/to/project   # optional; defaults to workspace root
     timeout: 120                 # optional; defaults to 60
     onError: continue            # optional; defaults to pause
-    contextOutputs: [test_result]
     outputs:
       test_result:
         format: text
@@ -1179,7 +1187,7 @@ outputs:
     setValue: null      # explicit literal — overrides extraction on success
 ```
 
-`outputs:` map keys imply the step's context-write set; you no longer need a separate `contextOutputs:` list for the same keys (the legacy field is deprecated and is retained for one release). Shorthand `key: text` (or `key: json` / `key: lines` / `key: path`) is accepted as a default-config form, and you can mix shorthand with the full map shape in the same `outputs:` block.
+`outputs:` map keys are the canonical declaration of the step's context-write set. Shorthand `key: text` (or `key: json` / `key: lines` / `key: path`) is accepted as a default-config form, and you can mix shorthand with the full map shape in the same `outputs:` block.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -1245,7 +1253,7 @@ Templates in `prompt` and `project` fields support:
 | `{{context.<stepId>.status}}` | Per-step lifecycle outcome — auto-written for every step |
 | `{{context.<stepId>.tokenCount}}` | Per-step token usage — auto-written for every step |
 | `{{context.<stepId>.branch}}` / `{{context.<stepId>.worktree_path}}` | Worktree metadata — auto-written for every step (empty when the step has no worktree) |
-| `{{context.<stepId>.<key>}}` | Step-prefixed author-declared key — the writing step must list it in its `contextOutputs` (see [Step-Prefixed References](#step-prefixed-references-contextstepidkey)) |
+| `{{context.<stepId>.<key>}}` | Step-prefixed author-declared key — the writing step must list it under its `outputs:` (see [Step-Prefixed References](#step-prefixed-references-contextstepidkey)) |
 | `{{map.item}}` | Current item in the mapped array (JSON for objects, toString for scalars) |
 | `{{map.item.field}}` | Field access on a Map item (dot notation, up to 10 segments) |
 | `{{map.index}}` | 0-based iteration index |

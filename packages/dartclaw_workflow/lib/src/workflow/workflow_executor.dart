@@ -239,7 +239,7 @@ class WorkflowExecutor {
           );
           if (mapResult == null) return;
           activeCursor = null;
-          for (final outputKey in step.contextOutputs) {
+          for (final outputKey in step.outputKeys) {
             context[outputKey] = mapResult.results;
           }
           if (!mapResult.success) {
@@ -461,7 +461,7 @@ class WorkflowExecutor {
           );
           if (foreachResult == null) return;
           activeCursor = null;
-          for (final outputKey in foreachStep.contextOutputs) {
+          for (final outputKey in foreachStep.outputKeys) {
             context[outputKey] = foreachResult.results;
           }
           if (!foreachResult.success) {

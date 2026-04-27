@@ -68,7 +68,7 @@ class SkillPromptBuilder {
   /// and [templatePrompt] drive the auto-framing pass (appends
   /// `<key>\n{value}\n</key>` blocks for context/variable keys that the
   /// author has not already referenced). See [appendAutoFramedContext].
-  /// [outputs] and [contextOutputs] are forwarded to [PromptAugmenter].
+  /// [outputs] and [outputKeys] are forwarded to [PromptAugmenter].
   /// [emitStepOutcomeProtocol] appends the workflow step-outcome contract.
   /// [provider] picks the native skill-activation convention:
   ///   * `codex` → `$skill-name` (matches agentskills.io standard + Codex CLI)
@@ -82,7 +82,7 @@ class SkillPromptBuilder {
     String? resolvedPrompt,
     String? contextSummary,
     Map<String, OutputConfig>? outputs,
-    List<String> contextOutputs = const [],
+    List<String> outputKeys = const [],
     bool emitStepOutcomeProtocol = false,
     String? skillDefaultPrompt,
     bool autoFrameContext = true,
@@ -151,7 +151,7 @@ class SkillPromptBuilder {
     return _augmenter.augment(
       framed,
       outputs: outputs,
-      contextOutputs: contextOutputs,
+      outputKeys: outputKeys,
       emitStepOutcomeProtocol: emitStepOutcomeProtocol,
     );
   }

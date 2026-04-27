@@ -63,7 +63,6 @@ void main() {
           name: 'Plan',
           type: 'coding',
           prompts: ['Plan the work'],
-          contextOutputs: ['story_specs'],
           outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs')},
         ),
       ],
@@ -106,7 +105,6 @@ void main() {
           name: 'Plan',
           type: 'coding',
           prompts: ['Plan the work'],
-          contextOutputs: ['story_specs'],
           outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs')},
         ),
       ],
@@ -151,7 +149,6 @@ void main() {
           prompts: ['Implement {{map.item.id}}'],
           mapOver: 'stories',
           maxParallel: 1,
-          contextOutputs: ['story_result'],
           outputs: {'story_result': OutputConfig(format: OutputFormat.text)},
         ),
       ],
@@ -225,7 +222,6 @@ void main() {
           mapOver: 'stories',
           maxParallel: 1,
           entryGate: 'run_map == true',
-          contextOutputs: ['story_result'],
           outputs: {'story_result': OutputConfig(format: OutputFormat.text)},
         ),
       ],
@@ -312,7 +308,6 @@ steps:
     name: Story Pipeline
     type: foreach
     map_over: stories
-    contextOutputs: [story_results]
     steps:
       - id: implement
         name: Implement
@@ -393,7 +388,6 @@ steps:
           type: 'coding',
           prompts: ['Will not run'],
           entryGate: 'run_gated == true',
-          contextOutputs: ['gate_state'],
           outputs: {'gate_state': OutputConfig(setValue: 'fired')},
         ),
       ],
@@ -433,7 +427,6 @@ steps:
           name: 'Failing',
           type: 'coding',
           prompts: ['Will fail'],
-          contextOutputs: ['gate_state'],
           outputs: {'gate_state': OutputConfig(setValue: 'fired')},
         ),
       ],

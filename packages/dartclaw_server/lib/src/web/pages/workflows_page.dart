@@ -309,7 +309,7 @@ class WorkflowsPage extends DashboardPage {
           messagesHtml: null,
           artifacts: const [],
           contextInputs: const [],
-          contextOutputs: const [],
+          outputKeys: const [],
         ),
         headers: htmlHeaders,
       );
@@ -362,7 +362,7 @@ class WorkflowsPage extends DashboardPage {
     } catch (_) {}
 
     final contextInputs = <Map<String, dynamic>>[];
-    final contextOutputs = <Map<String, dynamic>>[];
+    final outputKeys = <Map<String, dynamic>>[];
     if (definition != null && stepIndex < definition.steps.length) {
       final step = definition.steps[stepIndex];
       // Extract context references from the step prompt (keys accessed via {{context.key}}).
@@ -373,10 +373,10 @@ class WorkflowsPage extends DashboardPage {
           contextInputs.add({'key': key, 'value': str.length > 200 ? '${str.substring(0, 200)}...' : str});
         }
       }
-      // Context outputs: keys written by this step (from step.contextOutputs if available).
-      for (final key in _stepContextOutputKeys(step)) {
+      // Context outputs: keys written by this step (from step.outputKeys).
+      for (final key in step.outputKeys) {
         final value = run.contextJson[key];
-        contextOutputs.add({
+        outputKeys.add({
           'key': key,
           'value': value != null
               ? (value.toString().length > 200 ? '${value.toString().substring(0, 200)}...' : value.toString())
@@ -407,7 +407,7 @@ class WorkflowsPage extends DashboardPage {
       messagesHtml: messagesHtml,
       artifacts: artifacts,
       contextInputs: contextInputs,
-      contextOutputs: contextOutputs,
+      outputKeys: outputKeys,
       tokenCount: tokenCount,
       durationDisplay: stepDuration,
     );
@@ -439,8 +439,4 @@ class WorkflowsPage extends DashboardPage {
     return regex.allMatches(prompt).map((m) => m.group(1)!).toSet().toList();
   }
 
-  /// Returns context output keys declared by a workflow step.
-  static List<String> _stepContextOutputKeys(WorkflowStep step) {
-    return step.contextOutputs;
-  }
 }

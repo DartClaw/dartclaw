@@ -35,7 +35,6 @@ void main() {
     final step = const WorkflowStep(
       id: 'discover',
       name: 'Discover',
-      contextOutputs: ['prd'],
       outputs: {'prd': OutputConfig(format: OutputFormat.path)},
     );
 

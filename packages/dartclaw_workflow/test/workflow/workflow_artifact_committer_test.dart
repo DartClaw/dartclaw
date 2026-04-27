@@ -98,7 +98,6 @@ void main() {
               WorkflowStep(
                 id: 'plan',
                 name: 'Plan',
-                contextOutputs: ['plan'],
                 outputs: {'plan': OutputConfig(format: OutputFormat.path)},
               ),
             ],
@@ -106,7 +105,6 @@ void main() {
           step: const WorkflowStep(
             id: 'plan',
             name: 'Plan',
-            contextOutputs: ['plan'],
             outputs: {'plan': OutputConfig(format: OutputFormat.path)},
           ),
           context: WorkflowContext(data: {'plan': 'plan.md'}),
@@ -155,7 +153,6 @@ void main() {
                 id: 'discover-project',
                 name: 'Discover',
                 skill: 'dartclaw-discover-project',
-                contextOutputs: ['project_index', 'plan', 'story_specs'],
                 outputs: {
                   'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
                   'plan': OutputConfig(format: OutputFormat.path),
@@ -168,7 +165,6 @@ void main() {
             id: 'discover-project',
             name: 'Discover',
             skill: 'dartclaw-discover-project',
-            contextOutputs: ['project_index', 'plan', 'story_specs'],
             outputs: {
               'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
               'plan': OutputConfig(format: OutputFormat.path),
@@ -244,7 +240,6 @@ void main() {
                 id: 'discover-project',
                 name: 'Discover',
                 skill: 'dartclaw-discover-project',
-                contextOutputs: ['project_index', 'plan', 'story_specs'],
                 outputs: {
                   'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
                   'plan': OutputConfig(format: OutputFormat.path),
@@ -258,7 +253,6 @@ void main() {
             id: 'discover-project',
             name: 'Discover',
             skill: 'dartclaw-discover-project',
-            contextOutputs: ['project_index', 'plan', 'story_specs'],
             outputs: {
               'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
               'plan': OutputConfig(format: OutputFormat.path),
@@ -329,7 +323,6 @@ void main() {
               WorkflowStep(
                 id: 'implement',
                 name: 'Implement',
-                contextOutputs: ['story_result'],
                 outputs: {'story_result': OutputConfig(format: OutputFormat.text)},
               ),
             ],
@@ -337,7 +330,6 @@ void main() {
           step: const WorkflowStep(
             id: 'implement',
             name: 'Implement',
-            contextOutputs: ['story_result'],
             outputs: {'story_result': OutputConfig(format: OutputFormat.text)},
           ),
           context: WorkflowContext(
@@ -402,7 +394,6 @@ void main() {
               WorkflowStep(
                 id: 'plan',
                 name: 'Plan',
-                contextOutputs: ['story_specs', 'plan'],
                 outputs: {
                   'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
                   'plan': OutputConfig(format: OutputFormat.path),
@@ -413,7 +404,6 @@ void main() {
           step: const WorkflowStep(
             id: 'plan',
             name: 'Plan',
-            contextOutputs: ['story_specs', 'plan'],
             outputs: {
               'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
               'plan': OutputConfig(format: OutputFormat.path),
@@ -479,7 +469,6 @@ void main() {
               WorkflowStep(
                 id: 'plan',
                 name: 'Plan',
-                contextOutputs: ['plan'],
                 outputs: {'plan': OutputConfig(format: OutputFormat.path)},
               ),
               WorkflowStep(id: 'implement', name: 'Implement', mapOver: 'story_specs', maxParallel: 2),
@@ -488,7 +477,6 @@ void main() {
           step: const WorkflowStep(
             id: 'plan',
             name: 'Plan',
-            contextOutputs: ['plan'],
             outputs: {'plan': OutputConfig(format: OutputFormat.path)},
           ),
           context: WorkflowContext(data: {'plan': 'plan.md'}),
@@ -515,7 +503,6 @@ void main() {
       final planStep = const WorkflowStep(
         id: 'plan',
         name: 'Plan',
-        contextOutputs: ['plan'],
         outputs: {'plan': OutputConfig(format: OutputFormat.path)},
       );
 
@@ -584,7 +571,6 @@ void main() {
               WorkflowStep(
                 id: 'plan',
                 name: 'Plan',
-                contextOutputs: ['plan'],
                 outputs: {'plan': OutputConfig(format: OutputFormat.path)},
               ),
             ],

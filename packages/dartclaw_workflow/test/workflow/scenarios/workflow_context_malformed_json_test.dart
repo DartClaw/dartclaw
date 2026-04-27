@@ -39,7 +39,6 @@ void main() {
     final step = const WorkflowStep(
       id: 'plan',
       name: 'Plan',
-      contextOutputs: ['prd'],
       outputs: {'prd': OutputConfig(format: OutputFormat.path)},
     );
 
@@ -74,7 +73,6 @@ void main() {
     final step = const WorkflowStep(
       id: 'plan',
       name: 'Plan',
-      contextOutputs: ['prd'],
       outputs: {'prd': OutputConfig(format: OutputFormat.path)},
     );
 

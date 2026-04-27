@@ -184,10 +184,9 @@ steps:
     max_parallel: "{{MAX_PARALLEL}}"
     #max_items: 20
     # The foreach controller emits a single aggregate list under this name.
-    # Foreach controllers do not yet support an `outputs:` map; `contextOutputs:`
-    # remains the canonical declaration for the aggregate name until that
-    # schema gap is closed.
-    contextOutputs: [story_results]
+    outputs:
+      story_results:
+        format: json
     steps:
       # Implement one story against its generated story spec.
       # andthen-exec-spec reads the FIS body from disk at story.spec_path;

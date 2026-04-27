@@ -33,17 +33,6 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
           );
         }
 
-        // Output key must be in contextOutputs.
-        if (!step.contextOutputs.contains(key)) {
-          errors.add(
-            ValidationError(
-              message: 'Step "${step.id}" output "$key" is not declared in contextOutputs.',
-              type: ValidationErrorType.contextInconsistency,
-              stepId: step.id,
-            ),
-          );
-        }
-
         // Schema preset name must be known.
         if (config.presetName != null) {
           final preset = schemaPresets[config.presetName];
@@ -88,7 +77,10 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
           }
         }
 
-        if (config.format == OutputFormat.json && !config.hasSchema) {
+        // Foreach controllers emit a system-generated aggregate list — the
+        // shape is dictated by the controller, not extracted from an LLM
+        // response, so the json+schema requirement does not apply.
+        if (config.format == OutputFormat.json && !config.hasSchema && !step.isForeachController) {
           errors.add(
             ValidationError(
               message:

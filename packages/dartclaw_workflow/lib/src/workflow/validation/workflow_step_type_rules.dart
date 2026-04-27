@@ -46,102 +46,6 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         ),
       );
     }
-
-    _validateContextOutputsDeprecation(definition, warnings);
-  }
-
-  /// Surfaces deprecation warnings for the legacy `contextOutputs:` field.
-  ///
-  /// `outputs:` map keys are the canonical context-write declaration; the
-  /// validator emits a soft deprecation hint whenever a step still authors
-  /// `contextOutputs:`. The exact wording is tailored to whether the line is
-  /// a clean removal candidate (subset of `outputs:` keys), a partial migration
-  /// (some `contextOutputs` keys missing from `outputs:`), or pure-legacy
-  /// (`contextOutputs:` only, no `outputs:` block).
-  void _validateContextOutputsDeprecation(WorkflowDefinition definition, List<ValidationError> warnings) {
-    for (final step in definition.steps) {
-      final authored = step.authoredContextOutputs;
-      if (authored == null || authored.isEmpty) continue;
-      // Foreach controllers do not yet support an `outputs:` map; their
-      // `contextOutputs:` declaration is still the canonical aggregate name.
-      // Skip the deprecation warning for them — the migration push only
-      // applies to step kinds that have an `outputs:`-shaped alternative.
-      if (step.isForeachController) continue;
-
-      final outputsKeys = step.outputs?.keys.toSet() ?? const <String>{};
-      final authoredSet = authored.toSet();
-
-      if (outputsKeys.isEmpty) {
-        // Pure legacy form — no `outputs:` block at all. Migration path:
-        // declare each key under `outputs:` and drop `contextOutputs:`.
-        warnings.add(
-          ValidationError(
-            message:
-                'Step "${step.id}" uses the deprecated "contextOutputs:" field — '
-                'declare these keys under "outputs:" instead. '
-                'Missing from outputs: ${authored.join(', ')}.',
-            type: ValidationErrorType.contextInconsistency,
-            stepId: step.id,
-          ),
-        );
-        continue;
-      }
-
-      final missingFromOutputs = authoredSet.difference(outputsKeys);
-      final extraInOutputs = outputsKeys.difference(authoredSet);
-
-      if (missingFromOutputs.isEmpty && extraInOutputs.isEmpty) {
-        // contextOutputs exactly mirrors outputs.keys → redundant.
-        warnings.add(
-          ValidationError(
-            message:
-                'Step "${step.id}" "contextOutputs:" is redundant — every key is already declared '
-                'under "outputs:". Delete the "contextOutputs:" line.',
-            type: ValidationErrorType.contextInconsistency,
-            stepId: step.id,
-          ),
-        );
-        continue;
-      }
-
-      if (missingFromOutputs.isEmpty) {
-        // contextOutputs is a strict subset — drop the line and the union
-        // already includes the outputs-only keys.
-        warnings.add(
-          ValidationError(
-            message:
-                'Step "${step.id}" "contextOutputs:" is a subset of "outputs:" keys — '
-                'delete the "contextOutputs:" line. '
-                'Outputs-only keys preserved by the union: ${extraInOutputs.toList().join(', ')}.',
-            type: ValidationErrorType.contextInconsistency,
-            stepId: step.id,
-          ),
-        );
-        continue;
-      }
-
-      // Mismatch: contextOutputs declares keys missing from outputs (and
-      // possibly outputs declares keys missing from contextOutputs). The
-      // parser uses the union of both as the effective write set; surface
-      // both sides so the author can converge on outputs-only.
-      final messageParts = <String>[
-        'declared in "contextOutputs:" but not in "outputs:": ${missingFromOutputs.toList().join(', ')}',
-      ];
-      if (extraInOutputs.isNotEmpty) {
-        messageParts.add('declared in "outputs:" but not in "contextOutputs:": ${extraInOutputs.toList().join(', ')}');
-      }
-      warnings.add(
-        ValidationError(
-          message:
-              'Step "${step.id}" "contextOutputs:" and "outputs:" disagree — '
-              'the engine uses the union as the context-write set. '
-              'Migrate to "outputs:"-only and delete "contextOutputs:". '
-              '${messageParts.join('; ')}.',
-          type: ValidationErrorType.contextInconsistency,
-          stepId: step.id,
-        ),
-      );
-    }
   }
 
   String? _resolveProjectTemplate(String template, WorkflowContext context) {
@@ -173,23 +77,23 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         );
       }
 
-      // Warn when a map step has no contextOutputs — results will be discarded.
-      if (step.contextOutputs.isEmpty) {
+      // Warn when a map step has no outputs — results will be discarded.
+      if (step.outputKeys.isEmpty) {
         WorkflowDefinitionValidator._log.warning(
-          'Map step "${step.id}" has no contextOutputs; results will not be stored in context.',
+          'Map step "${step.id}" has no outputs; results will not be stored in context.',
         );
       }
 
       // A map/foreach controller emits exactly one aggregate value — the list of
-      // per-iteration results. Declaring more than one contextOutputs key causes
-      // the engine to broadcast the identical aggregate under every declared key,
+      // per-iteration results. Declaring more than one outputs key causes the
+      // engine to broadcast the identical aggregate under every declared key,
       // which is almost certainly not what the author intended.
-      if (step.contextOutputs.length > 1) {
+      if (step.outputKeys.length > 1) {
         errors.add(
           ValidationError(
             message:
-                'Map step "${step.id}" declares ${step.contextOutputs.length} contextOutputs keys '
-                '(${step.contextOutputs.join(', ')}); a map/foreach controller emits exactly one '
+                'Map step "${step.id}" declares ${step.outputKeys.length} outputs keys '
+                '(${step.outputKeys.join(', ')}); a map/foreach controller emits exactly one '
                 'aggregate list value, so only one key is meaningful. Keep a single key — '
                 'downstream steps can index the aggregate by iteration and child step id.',
             type: ValidationErrorType.contextInconsistency,

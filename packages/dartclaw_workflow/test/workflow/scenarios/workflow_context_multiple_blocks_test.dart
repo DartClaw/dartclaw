@@ -47,7 +47,6 @@ void main() {
     final step = const WorkflowStep(
       id: 'implement',
       name: 'Implement',
-      contextOutputs: ['diff_summary'],
       outputs: {'diff_summary': OutputConfig(format: OutputFormat.text)},
     );
 
@@ -95,7 +94,6 @@ void main() {
     final step = const WorkflowStep(
       id: 'implement',
       name: 'Implement',
-      contextOutputs: ['diff_summary'],
       outputs: {'diff_summary': OutputConfig(format: OutputFormat.text)},
     );
 

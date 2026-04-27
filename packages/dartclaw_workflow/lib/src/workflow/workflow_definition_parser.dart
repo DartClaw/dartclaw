@@ -127,6 +127,7 @@ class WorkflowDefinitionParser {
     if (id == null || id is! String || id.isEmpty) {
       throw FormatException('Foreach step must have a non-empty "id" field${_at(sourcePath)}.');
     }
+    _rejectLegacyContextOutputs(raw, id, sourcePath);
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {
       throw FormatException('Foreach "$id" must have a non-empty "name" field${_at(sourcePath)}.');
@@ -152,8 +153,8 @@ class WorkflowDefinitionParser {
     final maxParallel = _parseMaxParallel(raw['max_parallel'] ?? raw['maxParallel'], id, sourcePath);
     final maxItems = (raw['max_items'] ?? raw['maxItems']) as int? ?? 20;
     final mapAlias = _parseMapAlias(raw['as'] ?? raw['mapAlias'] ?? raw['map_alias'], id, sourcePath);
-    final hasControllerContextOutputs = raw.containsKey('contextOutputs');
-    final controllerContextOutputs = _parseStringList(raw['contextOutputs']);
+
+    final outputs = _parseOutputs(raw['outputs'], id, sourcePath);
     final controller = WorkflowStep(
       id: id,
       name: name,
@@ -163,8 +164,7 @@ class WorkflowDefinitionParser {
       maxItems: maxItems,
       project: raw['project'] as String?,
       contextInputs: _parseStringList(raw['contextInputs']),
-      contextOutputs: controllerContextOutputs,
-      authoredContextOutputs: hasControllerContextOutputs ? controllerContextOutputs : null,
+      outputs: outputs,
       foreachSteps: childSteps.map((s) => s.id).toList(growable: false),
       mapAlias: mapAlias,
       workflowVariables: _parseStringList(raw['workflow_variables'] ?? raw['workflowVariables']),
@@ -177,6 +177,7 @@ class WorkflowDefinitionParser {
     if (id == null || id is! String || id.isEmpty) {
       throw FormatException('Inline loop step must have a non-empty "id" field${_at(sourcePath)}.');
     }
+    _rejectLegacyContextOutputs(raw, id, sourcePath);
 
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {
@@ -245,6 +246,7 @@ class WorkflowDefinitionParser {
     if (id == null || id is! String || id.isEmpty) {
       throw FormatException('Each step must have a non-empty "id" field${_at(sourcePath)}.');
     }
+    _rejectLegacyContextOutputs(raw, id, sourcePath);
     _rejectRemovedExecutionMode(raw, id, sourcePath);
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {
@@ -319,60 +321,7 @@ class WorkflowDefinitionParser {
       );
     }
 
-    // Parse outputs map (new 0.15.1 syntax).
-    final outputsRaw = raw['outputs'];
-    Map<String, OutputConfig>? outputs;
-    if (outputsRaw is YamlMap) {
-      outputs = {};
-      for (final entry in outputsRaw.entries) {
-        final key = entry.key as String;
-        final value = entry.value;
-        if (value is YamlMap) {
-          final formatRaw = value['format'] as String?;
-          final format = formatRaw != null
-              ? (OutputFormat.fromYaml(formatRaw) ??
-                    (throw FormatException('Step "$id" output "$key": unknown format "$formatRaw"${_at(sourcePath)}.')))
-              : OutputFormat.text;
-          final schema = _parseSchema(value['schema']);
-          final outputSource = value['source'] as String?;
-          final outputModeRaw = (value['outputMode'] ?? value['output_mode']) as String?;
-          final outputMode = outputModeRaw != null
-              ? (OutputMode.fromYaml(outputModeRaw) ??
-                    (throw FormatException(
-                      'Step "$id" output "$key": unknown outputMode "$outputModeRaw"${_at(sourcePath)}.',
-                    )))
-              : (format == OutputFormat.json && schema != null ? OutputMode.structured : OutputMode.prompt);
-          final description = value['description'] as String?;
-          // `setValue` accepts any JSON-encodable literal (null, string,
-          // number, bool, list, map). Presence of the key — even with a null
-          // value — means "explicitly set"; absence means "extract normally".
-          // Snake_case alias `set_value` follows the established parser
-          // convention for new step-level fields (continueSession /
-          // continue_session, onError / on_error, outputMode / output_mode).
-          final hasSetValue = value.containsKey('setValue') || value.containsKey('set_value');
-          outputs[key] = hasSetValue
-              ? OutputConfig(
-                  format: format,
-                  schema: schema,
-                  source: outputSource,
-                  outputMode: outputMode,
-                  description: description,
-                  setValue: _yamlToValue(value['setValue'] ?? value['set_value']),
-                )
-              : OutputConfig(
-                  format: format,
-                  schema: schema,
-                  source: outputSource,
-                  outputMode: outputMode,
-                  description: description,
-                );
-        } else {
-          // Shorthand: `key: json` or `key: lines`
-          final format = OutputFormat.fromYaml(value.toString());
-          outputs[key] = OutputConfig(format: format ?? OutputFormat.text);
-        }
-      }
-    }
+    final outputs = _parseOutputs(raw['outputs'], id, sourcePath);
 
     // Parse map step fields. Accept both snake_case (primary) and camelCase (alias).
     final mapOver = (raw['map_over'] ?? raw['mapOver']) as String?;
@@ -385,25 +334,6 @@ class WorkflowDefinitionParser {
     // `as:` is the primary spelling; `mapAlias:` / `map_alias:` also accepted for
     // round-trip compatibility with the JSON model.
     final mapAlias = _parseMapAlias(raw['as'] ?? raw['mapAlias'] ?? raw['map_alias'], id, sourcePath);
-
-    // Resolve the effective context-write set. `outputs:` map keys are the
-    // canonical declaration; `contextOutputs:` is the deprecated alias kept
-    // for one release. When both are authored we union the keys so internal
-    // call sites that still read `step.contextOutputs` continue to work; when
-    // only `outputs:` is authored we derive `contextOutputs` from its keys.
-    final hasContextOutputs = raw.containsKey('contextOutputs');
-    final List<String>? authoredContextOutputs = hasContextOutputs ? _parseStringList(raw['contextOutputs']) : null;
-    final List<String> effectiveContextOutputs;
-    if (authoredContextOutputs != null && outputs != null) {
-      final union = <String>{...authoredContextOutputs, ...outputs.keys};
-      effectiveContextOutputs = union.toList(growable: false);
-    } else if (authoredContextOutputs != null) {
-      effectiveContextOutputs = authoredContextOutputs;
-    } else if (outputs != null) {
-      effectiveContextOutputs = outputs.keys.toList(growable: false);
-    } else {
-      effectiveContextOutputs = const [];
-    }
 
     return WorkflowStep(
       id: id,
@@ -422,8 +352,6 @@ class WorkflowDefinitionParser {
       gate: raw['gate'] as String?,
       entryGate: raw['entryGate'] as String?,
       contextInputs: _parseStringList(raw['contextInputs']),
-      contextOutputs: effectiveContextOutputs,
-      authoredContextOutputs: authoredContextOutputs,
       extraction: extraction,
       outputs: outputs,
       maxTokens: raw['maxTokens'] as int?,
@@ -519,6 +447,67 @@ class WorkflowDefinitionParser {
     throw FormatException(
       '$prefix: executionMode was removed in 0.16.4; workflow steps now always use one-shot execution${_at(sourcePath)}.',
     );
+  }
+
+  void _rejectLegacyContextOutputs(YamlMap raw, String stepId, String? sourcePath) {
+    if (!raw.containsKey('contextOutputs')) return;
+    throw FormatException(
+      'Step "$stepId": contextOutputs: is removed; declare keys under outputs: instead, '
+      'e.g. outputs: { key_name: text }${_at(sourcePath)}.',
+    );
+  }
+
+  Map<String, OutputConfig>? _parseOutputs(Object? raw, String stepId, String? sourcePath) {
+    if (raw is! YamlMap) return null;
+    final outputs = <String, OutputConfig>{};
+    for (final entry in raw.entries) {
+      final key = entry.key as String;
+      final value = entry.value;
+      if (value is YamlMap) {
+        final formatRaw = value['format'] as String?;
+        final format = formatRaw != null
+            ? (OutputFormat.fromYaml(formatRaw) ??
+                  (throw FormatException(
+                    'Step "$stepId" output "$key": unknown format "$formatRaw"${_at(sourcePath)}.',
+                  )))
+            : OutputFormat.text;
+        final schema = _parseSchema(value['schema']);
+        final outputSource = value['source'] as String?;
+        final outputModeRaw = (value['outputMode'] ?? value['output_mode']) as String?;
+        final outputMode = outputModeRaw != null
+            ? (OutputMode.fromYaml(outputModeRaw) ??
+                  (throw FormatException(
+                    'Step "$stepId" output "$key": unknown outputMode "$outputModeRaw"${_at(sourcePath)}.',
+                  )))
+            : (format == OutputFormat.json && schema != null ? OutputMode.structured : OutputMode.prompt);
+        final description = value['description'] as String?;
+        // `setValue` accepts any JSON-encodable literal (null, string, number,
+        // bool, list, map). Presence of the key — even with a null value —
+        // means "explicitly set"; absence means "extract normally".
+        final hasSetValue = value.containsKey('setValue') || value.containsKey('set_value');
+        outputs[key] = hasSetValue
+            ? OutputConfig(
+                format: format,
+                schema: schema,
+                source: outputSource,
+                outputMode: outputMode,
+                description: description,
+                setValue: _yamlToValue(value['setValue'] ?? value['set_value']),
+              )
+            : OutputConfig(
+                format: format,
+                schema: schema,
+                source: outputSource,
+                outputMode: outputMode,
+                description: description,
+              );
+      } else {
+        // Shorthand: `key: json` or `key: lines`
+        final format = OutputFormat.fromYaml(value.toString());
+        outputs[key] = OutputConfig(format: format ?? OutputFormat.text);
+      }
+    }
+    return outputs;
   }
 
   /// Parses the `max_parallel` value from YAML.

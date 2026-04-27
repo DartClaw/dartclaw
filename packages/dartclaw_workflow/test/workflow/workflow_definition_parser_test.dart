@@ -34,8 +34,9 @@ steps:
     parallel: false
     gate: null
     contextInputs: []
-    contextOutputs:
-      - research_result
+    outputs:
+      research_result:
+        format: text
     maxTokens: 10000
     maxRetries: 2
     allowedTools:
@@ -49,8 +50,9 @@ steps:
     parallel: true
     contextInputs:
       - research_result
-    contextOutputs:
-      - impl_result
+    outputs:
+      impl_result:
+        format: text
     extraction:
       type: regex
       pattern: "\\\\d+"
@@ -156,7 +158,6 @@ steps:
   - id: stories
     name: Stories
     prompt: Produce stories
-    contextOutputs: [items]
   - id: implement
     name: Implement
     prompt: Implement {{map.item}}
@@ -207,7 +208,7 @@ void main() {
       expect(research.timeoutSeconds, 1800); // 30m in seconds
       expect(research.review, StepReviewMode.always);
       expect(research.parallel, false);
-      expect(research.contextOutputs, ['research_result']);
+      expect(research.outputKeys, ['research_result']);
       expect(research.maxTokens, 10000);
       expect(research.maxRetries, 2);
       expect(research.allowedTools, ['Bash', 'Read']);
@@ -238,8 +239,6 @@ steps:
   - id: review
     name: Review
     prompt: Review the change
-    contextOutputs:
-      - verdict
     outputs:
       verdict:
         format: json
@@ -571,7 +570,7 @@ steps:
       expect(def.steps[0].parallel, true);
     });
 
-    test('parses contextInputs and contextOutputs as string lists', () {
+    test('parses contextInputs as a string list and outputs as a map', () {
       final yaml = '''
 name: n
 description: d
@@ -582,12 +581,13 @@ steps:
     contextInputs:
       - in_a
       - in_b
-    contextOutputs:
-      - out_c
+    outputs:
+      out_c:
+        format: text
 ''';
       final def = parser.parse(yaml);
       expect(def.steps[0].contextInputs, ['in_a', 'in_b']);
-      expect(def.steps[0].contextOutputs, ['out_c']);
+      expect(def.steps[0].outputKeys, ['out_c']);
     });
 
     test('parses workflowVariables (snake_case and camelCase aliases)', () {
@@ -726,8 +726,6 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs:
-      - result
     outputs:
       result:
         format: json
@@ -748,8 +746,6 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs:
-      - result
     outputs:
       result: json
 ''';
@@ -767,8 +763,6 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs:
-      - items
     outputs:
       items:
         format: lines
@@ -785,8 +779,6 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs:
-      - result
     outputs:
       result:
         format: json
@@ -814,8 +806,6 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs:
-      - result
     outputs:
       result:
         format: invalid_format
@@ -831,7 +821,6 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs: [a, b, c]
     outputs:
       a: text
       b: lines
@@ -870,7 +859,6 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs: [k]
     outputs:
       k:
         format: text
@@ -889,7 +877,6 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs: [k]
     outputs:
       k:
         format: text
@@ -909,7 +896,6 @@ steps:
   - id: a
     name: A
     prompt: p
-    contextOutputs: [k]
     outputs:
       k:
         format: text
@@ -917,7 +903,6 @@ steps:
   - id: b
     name: B
     prompt: p
-    contextOutputs: [k]
     outputs:
       k:
         format: text
@@ -925,7 +910,6 @@ steps:
   - id: c
     name: C
     prompt: p
-    contextOutputs: [k]
     outputs:
       k:
         format: text
@@ -945,7 +929,6 @@ steps:
   - id: a
     name: A
     prompt: p
-    contextOutputs: [k]
     outputs:
       k:
         format: text
@@ -953,7 +936,6 @@ steps:
   - id: b
     name: B
     prompt: p
-    contextOutputs: [k]
     outputs:
       k:
         format: text
@@ -972,7 +954,7 @@ steps:
           expect(mapValue['list'], [1, 2]);
         });
 
-        test('outputs-only step derives contextOutputs from outputs.keys', () {
+        test('outputs-only step derives outputKeys from outputs.keys', () {
           const yaml = '''
 name: n
 description: d
@@ -989,12 +971,10 @@ steps:
 ''';
           final def = WorkflowDefinitionParser().parse(yaml);
           final step = def.steps[0];
-          expect(step.authoredContextOutputs, isNull);
-          expect(step.contextOutputs.toSet(), {'summary', 'count'});
-          expect(step.effectiveContextOutputs.toSet(), {'summary', 'count'});
+          expect(step.outputKeys.toSet(), {'summary', 'count'});
         });
 
-        test('mixed contextOutputs + outputs unions both sets when keys disagree', () {
+        test('contextOutputs removal error takes precedence over malformed outputs', () {
           const yaml = '''
 name: n
 description: d
@@ -1002,20 +982,24 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs: [a, b]
+    contextOutputs: [summary]
     outputs:
-      a:
-        format: text
-      c:
-        format: text
+      summary:
+        format: nope
 ''';
-          final def = WorkflowDefinitionParser().parse(yaml);
-          final step = def.steps[0];
-          expect(step.authoredContextOutputs, ['a', 'b']);
-          expect(step.contextOutputs.toSet(), {'a', 'b', 'c'});
+          expect(
+            () => WorkflowDefinitionParser().parse(yaml),
+            throwsA(
+              isA<FormatException>().having(
+                (e) => e.message,
+                'message',
+                allOf(contains('contextOutputs: is removed'), isNot(contains('unknown format'))),
+              ),
+            ),
+          );
         });
 
-        test('absence of contextOutputs YAML key leaves authoredContextOutputs null', () {
+        test('absence of outputs YAML key leaves outputs null', () {
           const yaml = '''
 name: n
 description: d
@@ -1025,7 +1009,8 @@ steps:
     prompt: p
 ''';
           final def = WorkflowDefinitionParser().parse(yaml);
-          expect(def.steps[0].authoredContextOutputs, isNull);
+          expect(def.steps[0].outputs, isNull);
+          expect(def.steps[0].outputKeys, isEmpty);
         });
 
         test('set_value snake_case alias parses identically to setValue', () {
@@ -1036,7 +1021,6 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs: [k]
     outputs:
       k:
         format: text
@@ -1059,8 +1043,6 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextOutputs:
-      - result
     extraction:
       type: regex
       pattern: \d+
@@ -2103,11 +2085,13 @@ steps:
   - id: plan
     name: Plan
     prompt: Make a plan
-    contextOutputs: [stories]
   - id: story-pipeline
     name: Story Pipeline
     type: foreach
     map_over: stories
+    outputs:
+      story_results:
+        format: json
     steps:
       - id: implement
         name: Implement
@@ -2119,7 +2103,6 @@ steps:
       - id: review
         name: Review
         prompt: Review {{map.item}}
-    contextOutputs: [story_results]
   - id: publish
     name: Publish
     prompt: Publish
@@ -2134,7 +2117,7 @@ steps:
       expect(controller.mapOver, 'stories');
       expect(controller.isForeachController, isTrue);
       expect(controller.foreachSteps, ['implement', 'validate', 'review']);
-      expect(controller.contextOutputs, ['story_results']);
+      expect(controller.outputKeys, ['story_results']);
 
       // Child steps follow controller in step list.
       expect(def.steps[2].id, 'implement');
@@ -2267,7 +2250,6 @@ steps:
     name: FE
     type: foreach
     map_over: items
-    contextOutputs: [results]
     steps:
       - id: c1
         name: C1
@@ -2293,7 +2275,6 @@ steps:
   - id: prd
     name: PRD
     prompt: Produce PRD
-    contextOutputs: [prd, prd_source]
   - id: review-prd
     name: Review PRD
     prompt: Review

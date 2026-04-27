@@ -167,7 +167,7 @@ List<String> buildOneShotFollowUpPrompts(
   WorkflowStep step,
   WorkflowContext context,
   Map<String, OutputConfig>? effectiveOutputs, {
-  required List<String> contextOutputs,
+  required List<String> outputKeys,
   MapContext? mapCtx,
   required WorkflowTemplateEngine templateEngine,
   required SkillPromptBuilder skillPromptBuilder,
@@ -184,7 +184,7 @@ List<String> buildOneShotFollowUpPrompts(
             skill: null,
             resolvedPrompt: resolvedPrompt,
             outputs: effectiveOutputs,
-            contextOutputs: contextOutputs,
+            outputKeys: outputKeys,
             emitStepOutcomeProtocol: !step.emitsOwnOutcome,
           )
         : resolvedPrompt;

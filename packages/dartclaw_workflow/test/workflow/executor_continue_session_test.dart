@@ -173,7 +173,6 @@ void main() {
             id: 'step1',
             name: 'Step 1',
             prompts: ['Plan this'],
-            contextOutputs: ['prd', 'stories'],
             outputs: {
               'prd': OutputConfig(format: OutputFormat.text),
               'stories': OutputConfig(format: OutputFormat.json, schema: 'story-plan'),

@@ -73,7 +73,6 @@ void main() {
         const WorkflowStep(
           id: 'bash',
           name: 'Bash',
-          contextOutputs: ['lines'],
           outputs: {'lines': OutputConfig(format: OutputFormat.lines)},
         ),
         'a\nb\n',
@@ -140,7 +139,7 @@ void main() {
             name: 'Bash 1',
             type: 'bash',
             prompts: ['printf "captured output"'],
-            contextOutputs: ['bash1.out'],
+            outputs: {'bash1.out': OutputConfig()},
           ),
         ],
       );
@@ -162,7 +161,6 @@ void main() {
             name: 'Bash 1',
             type: 'bash',
             prompts: ['printf \'{"key":"value"}\''],
-            contextOutputs: ['result'],
             outputs: {'result': OutputConfig(format: OutputFormat.json)},
           ),
         ],
@@ -187,7 +185,6 @@ void main() {
             name: 'Bash 1',
             type: 'bash',
             prompts: ['printf "a\\nb\\nc"'],
-            contextOutputs: ['lines'],
             outputs: {'lines': OutputConfig(format: OutputFormat.lines)},
           ),
         ],
@@ -257,7 +254,7 @@ void main() {
             type: 'bash',
             prompts: const ['pwd'],
             workdir: h.tempDir.path,
-            contextOutputs: const ['cwd'],
+            outputs: const {'cwd': OutputConfig()},
           ),
         ],
       );
@@ -295,7 +292,7 @@ void main() {
             prompts: [
               r'printf "%s|%s|%s|%s" "${ANTHROPIC_API_KEY:-missing}" "${GITHUB_TOKEN:-missing}" "${CUSTOM_SECRET:-missing}" "${CUSTOM_ALLOWED:-missing}"',
             ],
-            contextOutputs: ['bash1.out'],
+            outputs: {'bash1.out': OutputConfig()},
           ),
         ],
       );
@@ -386,7 +383,6 @@ void main() {
             name: 'Bash 1',
             type: 'bash',
             prompts: ['printf ""'],
-            contextOutputs: ['result'],
             outputs: {'result': OutputConfig(format: OutputFormat.json)},
           ),
         ],
@@ -410,7 +406,7 @@ void main() {
             name: 'Bash 1',
             type: 'bash',
             prompts: ['echo SAFE {{context.val}}'],
-            contextOutputs: ['out'],
+            outputs: {'out': OutputConfig()},
           ),
         ],
       );

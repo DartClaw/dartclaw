@@ -72,13 +72,23 @@ class OutputConfig {
   /// not just its name and JSON shape. Keep to one concise sentence.
   final String? description;
 
+  /// Sentinel-or-value backing the [setValue] / [hasSetValue] pair.
+  ///
+  /// `_workflowDefinitionFieldUnset` means "no setValue configured — extract
+  /// normally"; any other reference (including `null`) means "explicitly set
+  /// to that literal". Using a sentinel preserves the distinction across
+  /// `toJson` / `fromJson` round-trips: an absent JSON key reads back as
+  /// "unset", whereas `setValue: null` reads back as "explicitly null".
+  final Object? _setValue;
+
   const OutputConfig({
     this.format = OutputFormat.text,
     this.schema,
     this.source,
     this.outputMode = OutputMode.prompt,
     this.description,
-  });
+    Object? setValue = _workflowDefinitionFieldUnset,
+  }) : _setValue = setValue;
 
   /// Whether this config has a schema (preset name or inline).
   bool get hasSchema => schema != null;
@@ -89,12 +99,27 @@ class OutputConfig {
   /// Returns the inline schema if [schema] is a Map, else null.
   Map<String, dynamic>? get inlineSchema => schema is Map<String, dynamic> ? schema as Map<String, dynamic> : null;
 
+  /// Whether this output declares a [setValue] literal.
+  ///
+  /// `true` means the executor should write [setValue] verbatim to the named
+  /// context key on step success, overriding any extracted value (and the
+  /// legacy `extraction:` priority branch). Fires only on step success — not
+  /// on failure or `entryGate` skip.
+  bool get hasSetValue => !identical(_setValue, _workflowDefinitionFieldUnset);
+
+  /// The configured literal written to context when [hasSetValue] is true.
+  ///
+  /// Returns `null` when [hasSetValue] is false; callers must check
+  /// [hasSetValue] before treating `null` as "explicitly set to null".
+  Object? get setValue => identical(_setValue, _workflowDefinitionFieldUnset) ? null : _setValue;
+
   Map<String, dynamic> toJson() => {
     'format': format.name,
     if (schema != null) 'schema': schema,
     if (source != null) 'source': source,
     if (outputMode != OutputMode.prompt) 'outputMode': outputMode.name,
     if (description != null) 'description': description,
+    if (hasSetValue) 'setValue': setValue,
   };
 
   factory OutputConfig.fromJson(Map<String, dynamic> json) => OutputConfig(
@@ -103,6 +128,7 @@ class OutputConfig {
     source: json['source'] as String?,
     outputMode: json['outputMode'] != null ? OutputMode.values.byName(json['outputMode'] as String) : OutputMode.prompt,
     description: json['description'] as String?,
+    setValue: json.containsKey('setValue') ? json['setValue'] : _workflowDefinitionFieldUnset,
   );
 }
 
@@ -515,7 +541,29 @@ class WorkflowStep {
   final List<String> contextInputs;
 
   /// Context keys this step writes to.
+  ///
+  /// **Deprecated** as a YAML schema field — declare keys under `outputs:`
+  /// instead and the parser will populate this list from `outputs.keys`. The
+  /// field is retained for one deprecation release so internal call sites and
+  /// external Dart consumers that read [contextOutputs] keep working without
+  /// per-call-site migration; it will be removed after the window closes.
+  ///
+  /// When the YAML omits `contextOutputs:` but declares `outputs:`, the
+  /// parser fills this list from `outputs.keys`. When both are authored, the
+  /// parser stores the union here. [authoredContextOutputs] preserves the
+  /// raw authored list (or null when the YAML never wrote `contextOutputs:`)
+  /// for deprecation diagnostics. Read [effectiveContextOutputs] when you
+  /// want the union semantic explicitly.
   final List<String> contextOutputs;
+
+  /// Raw `contextOutputs:` list as authored in the source YAML, or `null`
+  /// when the YAML did not declare the field.
+  ///
+  /// Used by the validator to surface deprecation warnings — once
+  /// `contextOutputs:` is removed from the schema this field can also be
+  /// retired. Distinct from [contextOutputs], which the parser populates with
+  /// the effective union of authored keys and `outputs.keys`.
+  final List<String>? authoredContextOutputs;
 
   /// Optional custom extraction configuration.
   final ExtractionConfig? extraction;
@@ -647,6 +695,20 @@ class WorkflowStep {
   /// Whether this step is a foreach controller (per-item ordered sub-pipeline).
   bool get isForeachController => mapOver != null && foreachSteps != null && foreachSteps!.isNotEmpty;
 
+  /// Effective context-write set: the union of [contextOutputs] (legacy alias)
+  /// and `outputs.keys` (canonical declaration).
+  ///
+  /// Internal call sites read [contextOutputs] directly because the parser
+  /// already pre-fills it with this union; this getter exists for external
+  /// callers / tooling that want the canonical write set even when the
+  /// parser pre-fill cannot be relied upon (e.g. when constructing a
+  /// `WorkflowStep` programmatically without going through the YAML parser).
+  List<String> get effectiveContextOutputs {
+    if (outputs == null || outputs!.isEmpty) return contextOutputs;
+    final union = <String>{...contextOutputs, ...outputs!.keys};
+    return union.toList(growable: false);
+  }
+
   const WorkflowStep({
     required this.id,
     required this.name,
@@ -665,6 +727,7 @@ class WorkflowStep {
     this.entryGate,
     this.contextInputs = const [],
     this.contextOutputs = const [],
+    this.authoredContextOutputs,
     this.extraction,
     this.outputs,
     this.maxTokens,
@@ -702,6 +765,7 @@ class WorkflowStep {
     if (entryGate != null) 'entryGate': entryGate,
     'contextInputs': contextInputs.toList(),
     'contextOutputs': contextOutputs.toList(),
+    if (authoredContextOutputs != null) 'authoredContextOutputs': authoredContextOutputs!.toList(),
     if (extraction != null) 'extraction': extraction!.toJson(),
     if (outputs != null) 'outputs': outputs!.map((k, v) => MapEntry(k, v.toJson())),
     if (maxTokens != null) 'maxTokens': maxTokens,
@@ -753,6 +817,7 @@ class WorkflowStep {
       entryGate: json['entryGate'] as String?,
       contextInputs: (json['contextInputs'] as List?)?.cast<String>() ?? const [],
       contextOutputs: (json['contextOutputs'] as List?)?.cast<String>() ?? const [],
+      authoredContextOutputs: (json['authoredContextOutputs'] as List?)?.cast<String>(),
       extraction: json['extraction'] != null
           ? ExtractionConfig.fromJson(json['extraction'] as Map<String, dynamic>)
           : null,

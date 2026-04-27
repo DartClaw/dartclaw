@@ -619,6 +619,64 @@ void main() {
       const config = OutputConfig(schema: 'verdict');
       expect(config.inlineSchema, isNull);
     });
+
+    group('setValue', () {
+      test('defaults to unset and omits the key in JSON', () {
+        const config = OutputConfig();
+        expect(config.hasSetValue, isFalse);
+        expect(config.setValue, isNull);
+        expect(config.toJson().containsKey('setValue'), isFalse);
+      });
+
+      test('round-trips explicit null distinctly from unset', () {
+        const config = OutputConfig(setValue: null);
+        expect(config.hasSetValue, isTrue);
+        expect(config.setValue, isNull);
+        final json = config.toJson();
+        expect(json.containsKey('setValue'), isTrue);
+        expect(json['setValue'], isNull);
+        final restored = OutputConfig.fromJson(json);
+        expect(restored.hasSetValue, isTrue);
+        expect(restored.setValue, isNull);
+      });
+
+      test('round-trips literal values across JSON-encodable types', () {
+        for (final value in <Object?>[
+          'x',
+          42,
+          3.14,
+          true,
+          false,
+          0,
+          '',
+          <Object?>['a', 'b'],
+          <String, Object?>{'k': 1},
+        ]) {
+          final config = OutputConfig(setValue: value);
+          expect(config.hasSetValue, isTrue, reason: 'hasSetValue for $value');
+          expect(config.setValue, value);
+          final restored = OutputConfig.fromJson(config.toJson());
+          expect(restored.hasSetValue, isTrue, reason: 'restored hasSetValue for $value');
+          expect(restored.setValue, value, reason: 'restored value for $value');
+        }
+      });
+
+      test('three states (unset, explicit null, explicit "x") remain distinguishable after round-trip', () {
+        const unset = OutputConfig();
+        const explicitNull = OutputConfig(setValue: null);
+        const explicitX = OutputConfig(setValue: 'x');
+
+        final restoredUnset = OutputConfig.fromJson(unset.toJson());
+        final restoredNull = OutputConfig.fromJson(explicitNull.toJson());
+        final restoredX = OutputConfig.fromJson(explicitX.toJson());
+
+        expect(restoredUnset.hasSetValue, isFalse);
+        expect(restoredNull.hasSetValue, isTrue);
+        expect(restoredNull.setValue, isNull);
+        expect(restoredX.hasSetValue, isTrue);
+        expect(restoredX.setValue, 'x');
+      });
+    });
   });
 
   group('WorkflowStep outputs (S01)', () {

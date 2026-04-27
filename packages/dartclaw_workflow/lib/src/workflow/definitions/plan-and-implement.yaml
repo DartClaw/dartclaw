@@ -89,7 +89,6 @@ steps:
     skill: dartclaw-discover-project
     allowedTools: [shell, file_read]
     workflowVariables: [REQUIREMENTS]
-    contextOutputs: [project_index, prd, plan, story_specs]
     outputs:
       project_index:
         format: json
@@ -120,7 +119,6 @@ steps:
     contextInputs: [project_index]
     workflowVariables: [REQUIREMENTS]
     allowedTools: [shell, file_read, file_write]
-    contextOutputs: [prd, prd_confidence]
     prompt: "{{REQUIREMENTS}} --auto"
     outputs:
       prd:
@@ -168,7 +166,6 @@ steps:
     # fresh turn to fill the gap before the workflow hard-fails).
     onFailure: retry
     maxRetries: 1
-    contextOutputs: [story_specs, plan]
     prompt: "{{context.prd}} --auto"
     outputs:
       story_specs:
@@ -186,6 +183,10 @@ steps:
     map_over: story_specs
     max_parallel: "{{MAX_PARALLEL}}"
     #max_items: 20
+    # The foreach controller emits a single aggregate list under this name.
+    # Foreach controllers do not yet support an `outputs:` map; `contextOutputs:`
+    # remains the canonical declaration for the aggregate name until that
+    # schema gap is closed.
     contextOutputs: [story_results]
     steps:
       # Implement one story against its generated story spec.
@@ -203,7 +204,6 @@ steps:
         maxRetries: 1
         prompt: "{{map.item.spec_path}} --auto"
         contextInputs: [project_index, story_specs]
-        contextOutputs: [story_result]
         outputs:
           story_result:
             format: text
@@ -231,7 +231,6 @@ steps:
         maxRetries: 1
         prompt: "--fix --auto"
         contextInputs: [project_index, story_result]
-        contextOutputs: [quick_review_summary, quick_review_findings_count]
         outputs:
           quick_review_summary:
             format: text
@@ -253,7 +252,6 @@ steps:
     skill: andthen-refactor
     contextInputs: [project_index, story_specs, story_results, plan]
     allowedTools: [shell, file_read, file_write]
-    contextOutputs: [refactor_summary]
     prompt: "{{context.plan}} - refactor only the changes introduced on the current branch (vs the base ref); preserve behavior; no scope creep into untouched packages."
     outputs:
       refactor_summary:
@@ -279,7 +277,6 @@ steps:
     parallel: true
     contextInputs: [project_index, story_specs, story_results, plan]
     allowedTools: [file_read]
-    contextOutputs: [review_findings, plan-review.findings_count]
     prompt: "{{context.plan}} --mode gap,code --auto"
     outputs:
       review_findings:
@@ -302,7 +299,6 @@ steps:
     parallel: true
     contextInputs: [project_index, story_specs, story_results, plan]
     allowedTools: [shell, file_read]
-    contextOutputs: [architecture_review_findings, architecture-review.findings_count]
     prompt: "{{context.plan}} --mode review --auto. Scope the review to changes introduced on the current branch (vs the base ref) — skip packages untouched by this plan."
     outputs:
       architecture_review_findings:
@@ -333,7 +329,6 @@ steps:
         type: custom
         skill: andthen-remediate-findings
         contextInputs: [project_index, review_findings, architecture_review_findings, story_results]
-        contextOutputs: [remediation_summary, diff_summary]
         prompt: "{{context.review_findings}} {{context.architecture_review_findings}} --auto"
         outputs:
           remediation_summary:
@@ -354,7 +349,6 @@ steps:
         skill: andthen-review
         allowedTools: [file_read]
         contextInputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
-        contextOutputs: [review_findings, re-review.findings_count]
         prompt: "{{context.plan}} --mode gap,code --auto"
         outputs:
           review_findings:

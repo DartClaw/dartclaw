@@ -68,7 +68,6 @@ steps:
     skill: dartclaw-discover-project
     allowedTools: [shell, file_read]
     workflowVariables: [FEATURE]
-    contextOutputs: [project_index, spec_path, spec_source]
     outputs:
       project_index:
         format: json
@@ -93,7 +92,6 @@ steps:
     entryGate: "spec_source == synthesized"
     contextInputs: [project_index]
     workflowVariables: [FEATURE]
-    contextOutputs: [spec_path, spec_source, spec_confidence]
     prompt: "{{FEATURE}} --auto"
     outputs:
       spec_path:
@@ -131,7 +129,6 @@ steps:
     type: custom
     skill: andthen-exec-spec
     contextInputs: [project_index, spec_path]
-    contextOutputs: [diff_summary]
     prompt: "{{context.spec_path}} --auto"
     outputs:
       diff_summary:
@@ -148,7 +145,6 @@ steps:
     skill: andthen-review
     allowedTools: [file_read]
     contextInputs: [project_index, spec_path, diff_summary]
-    contextOutputs: [review_findings, integrated-review.findings_count]
     prompt: "{{context.spec_path}} --mode gap,code --auto"
     outputs:
       review_findings:
@@ -176,7 +172,6 @@ steps:
         type: custom
         skill: andthen-remediate-findings
         contextInputs: [project_index, spec_path, review_findings]
-        contextOutputs: [remediation_summary, diff_summary]
         prompt: "{{context.review_findings}} --auto"
         outputs:
           remediation_summary:
@@ -193,7 +188,6 @@ steps:
         skill: andthen-quick-review
         allowedTools: [file_read]
         contextInputs: [project_index, spec_path, remediation_summary, diff_summary]
-        contextOutputs: [review_findings, re-review.findings_count]
         prompt: "{{context.spec_path}} --auto"
         outputs:
           review_findings:

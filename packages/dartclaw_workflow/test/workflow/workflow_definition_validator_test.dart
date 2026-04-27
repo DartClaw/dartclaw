@@ -180,6 +180,106 @@ void main() {
         final warnings = validator.validate(def).warnings;
         expect(warnings.where((w) => w.message.contains('Semantic step types')).length, 1);
       });
+
+      group('contextOutputs deprecation', () {
+        test('outputs-only step does not emit a deprecation warning', () {
+          const yaml = '''
+name: wf
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    outputs:
+      summary:
+        format: text
+''';
+          final def = WorkflowDefinitionParser().parse(yaml);
+          final warnings = validator.validate(def).warnings;
+          expect(warnings.any((w) => w.message.contains('contextOutputs:')), isFalse);
+        });
+
+        test('contextOutputs exactly mirrors outputs.keys → "redundant" warning', () {
+          const yaml = '''
+name: wf
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    contextOutputs: [a]
+    outputs:
+      a:
+        format: text
+''';
+          final def = WorkflowDefinitionParser().parse(yaml);
+          final warnings = validator.validate(def).warnings;
+          final hits = warnings.where((w) => w.message.contains('redundant')).toList();
+          expect(hits.length, 1, reason: 'expected one redundant-deprecation warning');
+        });
+
+        test('contextOutputs has keys missing from outputs → "disagree" warning naming both sides', () {
+          const yaml = '''
+name: wf
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    contextOutputs: [a, b]
+    outputs:
+      a:
+        format: text
+      c:
+        format: text
+''';
+          final def = WorkflowDefinitionParser().parse(yaml);
+          final warnings = validator.validate(def).warnings;
+          final disagreement = warnings.where((w) => w.message.contains('disagree')).toList();
+          expect(disagreement.length, 1);
+          expect(disagreement.single.message, contains('b'));
+          expect(disagreement.single.message, contains('c'));
+        });
+
+        test('pure-legacy contextOutputs (no outputs:) → migration warning naming the missing keys', () {
+          const yaml = '''
+name: wf
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    contextOutputs: [a, b]
+''';
+          final def = WorkflowDefinitionParser().parse(yaml);
+          final warnings = validator.validate(def).warnings;
+          final hits = warnings.where((w) => w.message.contains('contextOutputs:')).toList();
+          expect(hits.length, 1);
+          expect(hits.single.message, contains('a'));
+          expect(hits.single.message, contains('b'));
+        });
+
+        test('foreach controller is exempt from the deprecation warning', () {
+          const yaml = '''
+name: wf
+description: d
+steps:
+  - id: ctrl
+    name: Ctrl
+    type: foreach
+    map_over: items
+    contextOutputs: [results]
+    steps:
+      - id: child
+        name: Child
+        type: coding
+        prompt: do {{map.item}}
+''';
+          final def = WorkflowDefinitionParser().parse(yaml);
+          final warnings = validator.validate(def).warnings;
+          expect(warnings.any((w) => w.message.contains('contextOutputs:')), isFalse);
+        });
+      });
     });
 
     group('duplicate IDs', () {
@@ -593,6 +693,21 @@ void main() {
         expect(
           validator.validate(def).errors.any((e) => e.type == ValidationErrorType.unsupportedProviderCapability),
           false,
+        );
+      });
+
+      test('multi-prompt step with @-prefixed alias provider validates clean', () {
+        final def = _buildDef(
+          steps: [
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: '@executor'),
+          ],
+        );
+        expect(
+          validator
+              .validate(def, continuityProviders: {'claude', 'codex'})
+              .errors
+              .any((e) => e.type == ValidationErrorType.unsupportedProviderCapability),
+          isFalse,
         );
       });
     });
@@ -1502,6 +1617,26 @@ void main() {
       );
       final report = validator.validate(def, continuityProviders: {'claude'});
       expect(report.errors.any((e) => e.stepId == 's2'), isFalse);
+    });
+
+    test('continueSession with @-prefixed alias provider validates clean', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous', provider: '@executor'),
+        ],
+      );
+      // Concrete continuity providers do not include @executor; the alias
+      // skip ensures the validator does not false-positive on it. The runtime
+      // alias-mismatch warning at WorkflowExecutor._resolveContinueSessionProvider
+      // remains the safety net.
+      final report = validator.validate(def, continuityProviders: {'claude'});
+      expect(
+        report.errors.any((e) => e.type == ValidationErrorType.unsupportedProviderCapability && e.stepId == 's2'),
+        isFalse,
+      );
     });
 
     test('parallel continueSession step is a hard error', () {

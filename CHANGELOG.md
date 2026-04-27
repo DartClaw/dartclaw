@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.4]
 
-CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-by-default workflow execution, operational command groups, workflow trigger surfaces, a redesigned `plan-and-implement` built-in, file-based artifact transport with auto-commit, skill altitude split + upstream AndThen re-sync, workflow default cleanup, and the `AgentExecution` primitive decomposition. 35 stories across 21 phases.
+CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-by-default workflow execution, operational command groups, workflow trigger surfaces, a redesigned `plan-and-implement` built-in, file-based artifact transport with auto-commit, skill altitude split + upstream AndThen re-sync, workflow default cleanup, and the `AgentExecution` primitive decomposition. 36 stories across 22 phases.
 
 ### Added
 
@@ -37,6 +37,7 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 - **`dartclaw-prd` skill**: PRD creation split out of `dartclaw-plan` (altitude split, mirrors AndThen 0.13.0)
 - **`dartclaw-validate-workflow` skill**: validates workflow YAML definitions and packaged workflow assets
 - **New server event stream**: `GET /api/agent-executions/events` surfaces AE status transitions
+- **`OutputConfig.setValue`**: per-output literal slot that the executor writes verbatim to context on step success — accepts any JSON-encodable value (including `null`, distinct from "unset" via sentinel-backed round-trip). Wins over the legacy `extraction:` priority branch even at the first-key position; fires only on success (failure / `entryGate`-skip leave context untouched). Snake_case alias `set_value` accepted alongside `setValue`. Enables per-loop-iteration context-key reset
 
 ### Changed
 
@@ -72,6 +73,8 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 - **Workflow structured-output remediation**: the `plan-and-implement` E2E run now completes inside a 3.5M-token budget (3,449,461 tokens consumed). Nine `continueSession` edges tightened, skill scoping cleaned, and Codex one-shot token accounting corrected to treat `turn.completed` as cumulative-per-invocation
 - **Token tracking cross-harness consistency**: `session_cost:*` now uses one canonical schema across interactive and workflow turns. `input_tokens` means fresh input everywhere, the workflow-only `new_input_tokens` field is gone, legacy rows are dropped on boot, and `effective_tokens` is exposed as the cache-weighted cross-harness cost signal. Codex session info now labels the metric as `Input (fresh)` and shows cached input separately.
 - **`dartclaw_workflow` package**: bumped 0.11.0 → 0.12.0 with migration notes for file-based artifact contract, generalized `entryGate`, `gitStrategy.artifacts`, and `externalArtifactMount`
+- **Workflow schema unification — `outputs:` is canonical, `contextOutputs:` is deprecated**: `outputs:` map keys now imply the context-write set; the `contextOutputs:` list is retained one release as a deprecated alias. The validator emits a tailored deprecation warning per step (redundant / subset / disagree / pure-legacy). Foreach / `mapOver` controllers are exempt — they still author the aggregate name through `contextOutputs:` because the schema does not yet support an `outputs:` map for the aggregate. Bundled built-in workflow YAMLs (`code-review`, `plan-and-implement`, `spec-and-implement`) migrated to `outputs:`-only style where every key is already in `outputs:`
+- **Validator alias-awareness for `continueSession` and multi-prompt providers**: role-aliased providers (`@executor`, `@reviewer`, `@planner`, `@workflow`, …) are now skipped by the continuity-provider check at both validation hot spots. The runtime fallback in `WorkflowExecutor._resolveContinueSessionProvider` continues to detect family mismatches at execution time (warning + re-route to the root provider). Concrete provider names with no continuity support still produce a hard `unsupportedProviderCapability` error
 
 ### Fixed
 

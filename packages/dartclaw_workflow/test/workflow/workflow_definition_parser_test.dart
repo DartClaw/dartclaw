@@ -823,6 +823,31 @@ steps:
         expect(() => parser.parse(yaml), throwsFormatException);
       });
 
+      test('mixes shorthand and map-form output entries', () {
+        const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    contextOutputs: [a, b, c]
+    outputs:
+      a: text
+      b: lines
+      c:
+        format: path
+        description: A path
+''';
+        final def = WorkflowDefinitionParser().parse(yaml);
+        final outputs = def.steps[0].outputs!;
+        expect(outputs['a']!.format, OutputFormat.text);
+        expect(outputs['a']!.description, isNull);
+        expect(outputs['b']!.format, OutputFormat.lines);
+        expect(outputs['c']!.format, OutputFormat.path);
+        expect(outputs['c']!.description, 'A path');
+      });
+
       test('null outputs when field absent (backward compat)', () {
         const yaml = '''
 name: n
@@ -834,6 +859,194 @@ steps:
 ''';
         final def = parser.parse(yaml);
         expect(def.steps[0].outputs, isNull);
+      });
+
+      group('setValue parsing', () {
+        test('absent setValue leaves hasSetValue false', () {
+          const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    contextOutputs: [k]
+    outputs:
+      k:
+        format: text
+''';
+          final def = parser.parse(yaml);
+          final config = def.steps[0].outputs!['k']!;
+          expect(config.hasSetValue, isFalse);
+          expect(config.setValue, isNull);
+        });
+
+        test('setValue: null is parsed as explicit null', () {
+          const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    contextOutputs: [k]
+    outputs:
+      k:
+        format: text
+        setValue: null
+''';
+          final def = parser.parse(yaml);
+          final config = def.steps[0].outputs!['k']!;
+          expect(config.hasSetValue, isTrue);
+          expect(config.setValue, isNull);
+        });
+
+        test('setValue parses string, number, bool literals', () {
+          const yaml = '''
+name: n
+description: d
+steps:
+  - id: a
+    name: A
+    prompt: p
+    contextOutputs: [k]
+    outputs:
+      k:
+        format: text
+        setValue: "literal"
+  - id: b
+    name: B
+    prompt: p
+    contextOutputs: [k]
+    outputs:
+      k:
+        format: text
+        setValue: 42
+  - id: c
+    name: C
+    prompt: p
+    contextOutputs: [k]
+    outputs:
+      k:
+        format: text
+        setValue: true
+''';
+          final def = parser.parse(yaml);
+          expect(def.steps[0].outputs!['k']!.setValue, 'literal');
+          expect(def.steps[1].outputs!['k']!.setValue, 42);
+          expect(def.steps[2].outputs!['k']!.setValue, true);
+        });
+
+        test('setValue parses list and map literals deeply', () {
+          const yaml = '''
+name: n
+description: d
+steps:
+  - id: a
+    name: A
+    prompt: p
+    contextOutputs: [k]
+    outputs:
+      k:
+        format: text
+        setValue: [a, b, c]
+  - id: b
+    name: B
+    prompt: p
+    contextOutputs: [k]
+    outputs:
+      k:
+        format: text
+        setValue:
+          nested:
+            inner: value
+          list:
+            - 1
+            - 2
+''';
+          final def = parser.parse(yaml);
+          final listValue = def.steps[0].outputs!['k']!.setValue;
+          expect(listValue, ['a', 'b', 'c']);
+          final mapValue = def.steps[1].outputs!['k']!.setValue as Map;
+          expect(mapValue['nested'], {'inner': 'value'});
+          expect(mapValue['list'], [1, 2]);
+        });
+
+        test('outputs-only step derives contextOutputs from outputs.keys', () {
+          const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    outputs:
+      summary:
+        format: text
+      count:
+        format: json
+        schema: non-negative-integer
+''';
+          final def = WorkflowDefinitionParser().parse(yaml);
+          final step = def.steps[0];
+          expect(step.authoredContextOutputs, isNull);
+          expect(step.contextOutputs.toSet(), {'summary', 'count'});
+          expect(step.effectiveContextOutputs.toSet(), {'summary', 'count'});
+        });
+
+        test('mixed contextOutputs + outputs unions both sets when keys disagree', () {
+          const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    contextOutputs: [a, b]
+    outputs:
+      a:
+        format: text
+      c:
+        format: text
+''';
+          final def = WorkflowDefinitionParser().parse(yaml);
+          final step = def.steps[0];
+          expect(step.authoredContextOutputs, ['a', 'b']);
+          expect(step.contextOutputs.toSet(), {'a', 'b', 'c'});
+        });
+
+        test('absence of contextOutputs YAML key leaves authoredContextOutputs null', () {
+          const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+          final def = WorkflowDefinitionParser().parse(yaml);
+          expect(def.steps[0].authoredContextOutputs, isNull);
+        });
+
+        test('set_value snake_case alias parses identically to setValue', () {
+          const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    contextOutputs: [k]
+    outputs:
+      k:
+        format: text
+        set_value: "alias-form"
+''';
+          final def = parser.parse(yaml);
+          final config = def.steps[0].outputs!['k']!;
+          expect(config.hasSetValue, isTrue);
+          expect(config.setValue, 'alias-form');
+        });
       });
     });
 

@@ -1326,4 +1326,84 @@ void main() {
       expect((items[1] as Map<String, dynamic>)['spec_path'], isNull);
     });
   });
+
+  group('setValue', () {
+    test('writes explicit null literal to context, overriding extraction', () async {
+      final task = await createTask();
+      // Plant an .md artifact that would normally win for `k`.
+      final artifactsDir = Directory(p.join(tempDir.path, 'tasks', 'task-1', 'artifacts'));
+      artifactsDir.createSync(recursive: true);
+      final mdFile = File(p.join(artifactsDir.path, 'output.md'));
+      mdFile.writeAsStringSync('extracted content');
+      await taskService.addArtifact(
+        id: 'art-setvalue-null',
+        taskId: 'task-1',
+        name: 'output.md',
+        kind: ArtifactKind.document,
+        path: mdFile.path,
+      );
+
+      final step = makeStep(contextOutputs: ['k'], outputs: const {'k': OutputConfig(setValue: null)});
+
+      final outputs = await extractor.extract(step, task);
+      expect(outputs.containsKey('k'), isTrue);
+      expect(outputs['k'], isNull);
+    });
+
+    test('writes non-null literal to context', () async {
+      final task = await createTask();
+      final step = makeStep(
+        contextOutputs: ['k'],
+        outputs: const {'k': OutputConfig(setValue: 'literal')},
+      );
+      final outputs = await extractor.extract(step, task);
+      expect(outputs['k'], 'literal');
+    });
+
+    test('without setValue the key extracts normally', () async {
+      final task = await createTask();
+      final artifactsDir = Directory(p.join(tempDir.path, 'tasks', 'task-1', 'artifacts'));
+      artifactsDir.createSync(recursive: true);
+      final mdFile = File(p.join(artifactsDir.path, 'output.md'));
+      mdFile.writeAsStringSync('extracted content');
+      await taskService.addArtifact(
+        id: 'art-no-setvalue',
+        taskId: 'task-1',
+        name: 'output.md',
+        kind: ArtifactKind.document,
+        path: mdFile.path,
+      );
+
+      final step = makeStep(contextOutputs: ['k']);
+      final outputs = await extractor.extract(step, task);
+      expect(outputs['k'], 'extracted content');
+    });
+
+    test('setValue wins over extraction at first-key position', () async {
+      // Reproduces the precedence guard against the legacy ExtractionConfig
+      // priority branch in extract() — without the guard, extraction would
+      // silently beat setValue for the first contextOutputs key only.
+      final task = await createTask();
+      final artifactsDir = Directory(p.join(tempDir.path, 'tasks', 'task-1', 'artifacts'));
+      artifactsDir.createSync(recursive: true);
+      final reportFile = File(p.join(artifactsDir.path, 'special-report.md'));
+      reportFile.writeAsStringSync('Special report content here.');
+      await taskService.addArtifact(
+        id: 'art-precedence',
+        taskId: 'task-1',
+        name: 'special-report.md',
+        kind: ArtifactKind.document,
+        path: reportFile.path,
+      );
+
+      final step = makeStep(
+        contextOutputs: ['k'],
+        extraction: const ExtractionConfig(type: ExtractionType.artifact, pattern: 'special-report'),
+        outputs: const {'k': OutputConfig(setValue: 'wins')},
+      );
+
+      final outputs = await extractor.extract(step, task);
+      expect(outputs['k'], 'wins');
+    });
+  });
 }

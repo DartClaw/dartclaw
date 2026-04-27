@@ -378,4 +378,93 @@ steps:
     expect(handoff.validationFailure?.reason, contains("Gate failed in loop 'remediation-loop'"));
     expect(handoff, isNot(isA<StepHandoffRetrying>()));
   });
+
+  test('dispatchStep does not fire setValue when entryGate skips the step', () async {
+    final harness = await ScenarioTaskHarness.create();
+    addTearDown(harness.dispose);
+
+    final definition = const WorkflowDefinition(
+      name: 'set-value-entry-gate',
+      description: 'setValue must not fire when the step is skipped',
+      steps: [
+        WorkflowStep(
+          id: 'gated',
+          name: 'Gated',
+          type: 'coding',
+          prompts: ['Will not run'],
+          entryGate: 'run_gated == true',
+          contextOutputs: ['gate_state'],
+          outputs: {'gate_state': OutputConfig(setValue: 'fired')},
+        ),
+      ],
+    );
+    final run = _makeRun(definition);
+    final context = WorkflowContext(data: {'run_gated': false});
+    await harness.workflowRuns.insert(run);
+
+    var queuedTask = false;
+    final queuedSub = harness.eventBus
+        .on<TaskStatusChangedEvent>()
+        .where((event) => event.newStatus == TaskStatus.queued)
+        .listen((_) => queuedTask = true);
+    addTearDown(queuedSub.cancel);
+
+    final handoff = await dispatchStep(
+      definition.nodes.single,
+      harness.buildExecutionContext(run: run, definition: definition, workflowContext: context),
+    );
+
+    expect(handoff, isA<StepHandoffSuccess>());
+    expect(queuedTask, isFalse);
+    expect(handoff.outputs.containsKey('gate_state'), isFalse);
+    expect(handoff.outputs['step.gated.outcome'], 'skipped');
+  });
+
+  test('dispatchStep does not fire setValue when the task fails', () async {
+    final harness = await ScenarioTaskHarness.create();
+    addTearDown(harness.dispose);
+
+    final definition = const WorkflowDefinition(
+      name: 'set-value-failure',
+      description: 'setValue must not fire when the step task fails',
+      steps: [
+        WorkflowStep(
+          id: 'failing',
+          name: 'Failing',
+          type: 'coding',
+          prompts: ['Will fail'],
+          contextOutputs: ['gate_state'],
+          outputs: {'gate_state': OutputConfig(setValue: 'fired')},
+        ),
+      ],
+    );
+    final run = _makeRun(definition);
+    final context = WorkflowContext(data: {'gate_state': 'unchanged'});
+    await harness.workflowRuns.insert(run);
+
+    final failureSub = harness.eventBus
+        .on<TaskStatusChangedEvent>()
+        .where((event) => event.newStatus == TaskStatus.queued)
+        .listen((event) async {
+          try {
+            await harness.tasks.transition(event.taskId, TaskStatus.running, trigger: 'test');
+          } on StateError {
+            // Task may already be running.
+          }
+          await harness.tasks.transition(event.taskId, TaskStatus.failed, trigger: 'test');
+        });
+    addTearDown(failureSub.cancel);
+
+    final handoff = await dispatchStep(
+      definition.nodes.single,
+      harness.buildExecutionContext(run: run, definition: definition, workflowContext: context),
+    );
+
+    expect(handoff, isA<StepHandoffSuccess>());
+    final successHandoff = handoff as StepHandoffSuccess;
+    expect(successHandoff.outcome?.success, isFalse);
+    expect(context['gate_state'], 'unchanged');
+    expect(successHandoff.outputs.containsKey('gate_state'), isFalse);
+    expect(successHandoff.outcome?.task?.status, TaskStatus.failed);
+  });
 }

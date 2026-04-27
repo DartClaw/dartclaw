@@ -38,11 +38,16 @@ typedef StructuredOutputFallbackRecorder =
 
 /// Extracts context outputs from a completed task's artifacts and messages.
 ///
-/// Four extraction strategies (in priority order for each output key):
-/// 1. Explicit [ExtractionConfig] on the step (artifact lookup by name pattern).
-/// 2. Workflow context tag: `<workflow-context>{...}</workflow-context>` in the last assistant message.
-/// 3. First `.md` artifact file content.
-/// 4. `diff.json` artifact for diff-related keys.
+/// Five extraction strategies (in priority order for each output key):
+/// 1. Explicit `setValue:` literal on the step's [OutputConfig] — short-circuits
+///    everything below; writes the configured literal (including `null`)
+///    verbatim to context. See `WorkflowStep.outputs[key].setValue`.
+/// 2. Explicit [ExtractionConfig] on the step (artifact lookup by name pattern).
+///    Skipped for the first context-output key when that key has `setValue:`
+///    configured so the legacy priority branch never beats `setValue`.
+/// 3. Workflow context tag: `<workflow-context>{...}</workflow-context>` in the last assistant message.
+/// 4. First `.md` artifact file content.
+/// 5. `diff.json` artifact for diff-related keys.
 ///
 /// Automatic step metadata keys (`<stepId>.status`, `<stepId>.tokenCount`)
 /// are set by [WorkflowExecutor] — not by this class.
@@ -87,23 +92,46 @@ class ContextExtractor {
   }) async {
     final outputs = <String, dynamic>{};
     final configs = effectiveOutputs ?? step.outputs;
+    // Drive iteration off the canonical write-set: outputs.keys imply the
+    // context-write set, with the deprecated `contextOutputs:` list folded in
+    // as a union. The YAML parser already pre-fills `contextOutputs` with this
+    // union, but we read `effectiveContextOutputs` here so programmatically
+    // constructed steps that declare only `outputs:` are extracted correctly
+    // even without going through the parser.
+    final outputKeys = step.effectiveContextOutputs;
     final workflowContextPayload = await _extractWorkflowContextPayload(task);
     final structuredOutputPayload = await _extractStructuredOutputPayload(task);
 
     // 1. Explicit ExtractionConfig takes priority for first output key (backward compat).
-    if (step.extraction != null && step.contextOutputs.isNotEmpty) {
-      final extracted = await _applyExtractionConfig(step.extraction!, task);
-      if (extracted != null) {
-        outputs[step.contextOutputs.first] = extracted;
+    //    Skipped when the first output key has `setValue` configured — `setValue`
+    //    must win unconditionally over the legacy extraction-priority branch
+    //    (otherwise `extraction:` would silently beat `setValue:` for the first key only).
+    if (step.extraction != null && outputKeys.isNotEmpty) {
+      final firstKey = outputKeys.first;
+      final firstKeyHasSetValue = configs?[firstKey]?.hasSetValue ?? false;
+      if (!firstKeyHasSetValue) {
+        final extracted = await _applyExtractionConfig(step.extraction!, task);
+        if (extracted != null) {
+          outputs[firstKey] = extracted;
+        }
       }
     }
 
     // 2. For each declared output key not yet extracted.
-    for (final outputKey in step.contextOutputs) {
+    for (final outputKey in outputKeys) {
       if (outputs.containsKey(outputKey)) continue;
 
       // Determine output config for this key.
       final config = configs?[outputKey];
+
+      // setValue: explicit literal short-circuit — write the configured value
+      // (including `null`) directly to context and skip all extraction paths.
+      // Fires only on step success; the extract() entry-point itself is only
+      // reached on success today, so failure/skip cases need no extra guard.
+      if (config != null && config.hasSetValue) {
+        outputs[outputKey] = config.setValue;
+        continue;
+      }
 
       // source: worktree.* — read directly from persisted task.worktreeJson.
       if (config?.source != null) {

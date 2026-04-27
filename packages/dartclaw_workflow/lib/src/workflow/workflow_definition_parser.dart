@@ -152,6 +152,8 @@ class WorkflowDefinitionParser {
     final maxParallel = _parseMaxParallel(raw['max_parallel'] ?? raw['maxParallel'], id, sourcePath);
     final maxItems = (raw['max_items'] ?? raw['maxItems']) as int? ?? 20;
     final mapAlias = _parseMapAlias(raw['as'] ?? raw['mapAlias'] ?? raw['map_alias'], id, sourcePath);
+    final hasControllerContextOutputs = raw.containsKey('contextOutputs');
+    final controllerContextOutputs = _parseStringList(raw['contextOutputs']);
     final controller = WorkflowStep(
       id: id,
       name: name,
@@ -161,7 +163,8 @@ class WorkflowDefinitionParser {
       maxItems: maxItems,
       project: raw['project'] as String?,
       contextInputs: _parseStringList(raw['contextInputs']),
-      contextOutputs: _parseStringList(raw['contextOutputs']),
+      contextOutputs: controllerContextOutputs,
+      authoredContextOutputs: hasControllerContextOutputs ? controllerContextOutputs : null,
       foreachSteps: childSteps.map((s) => s.id).toList(growable: false),
       mapAlias: mapAlias,
       workflowVariables: _parseStringList(raw['workflow_variables'] ?? raw['workflowVariables']),
@@ -340,13 +343,29 @@ class WorkflowDefinitionParser {
                     )))
               : (format == OutputFormat.json && schema != null ? OutputMode.structured : OutputMode.prompt);
           final description = value['description'] as String?;
-          outputs[key] = OutputConfig(
-            format: format,
-            schema: schema,
-            source: outputSource,
-            outputMode: outputMode,
-            description: description,
-          );
+          // `setValue` accepts any JSON-encodable literal (null, string,
+          // number, bool, list, map). Presence of the key — even with a null
+          // value — means "explicitly set"; absence means "extract normally".
+          // Snake_case alias `set_value` follows the established parser
+          // convention for new step-level fields (continueSession /
+          // continue_session, onError / on_error, outputMode / output_mode).
+          final hasSetValue = value.containsKey('setValue') || value.containsKey('set_value');
+          outputs[key] = hasSetValue
+              ? OutputConfig(
+                  format: format,
+                  schema: schema,
+                  source: outputSource,
+                  outputMode: outputMode,
+                  description: description,
+                  setValue: _yamlToValue(value['setValue'] ?? value['set_value']),
+                )
+              : OutputConfig(
+                  format: format,
+                  schema: schema,
+                  source: outputSource,
+                  outputMode: outputMode,
+                  description: description,
+                );
         } else {
           // Shorthand: `key: json` or `key: lines`
           final format = OutputFormat.fromYaml(value.toString());
@@ -367,6 +386,25 @@ class WorkflowDefinitionParser {
     // round-trip compatibility with the JSON model.
     final mapAlias = _parseMapAlias(raw['as'] ?? raw['mapAlias'] ?? raw['map_alias'], id, sourcePath);
 
+    // Resolve the effective context-write set. `outputs:` map keys are the
+    // canonical declaration; `contextOutputs:` is the deprecated alias kept
+    // for one release. When both are authored we union the keys so internal
+    // call sites that still read `step.contextOutputs` continue to work; when
+    // only `outputs:` is authored we derive `contextOutputs` from its keys.
+    final hasContextOutputs = raw.containsKey('contextOutputs');
+    final List<String>? authoredContextOutputs = hasContextOutputs ? _parseStringList(raw['contextOutputs']) : null;
+    final List<String> effectiveContextOutputs;
+    if (authoredContextOutputs != null && outputs != null) {
+      final union = <String>{...authoredContextOutputs, ...outputs.keys};
+      effectiveContextOutputs = union.toList(growable: false);
+    } else if (authoredContextOutputs != null) {
+      effectiveContextOutputs = authoredContextOutputs;
+    } else if (outputs != null) {
+      effectiveContextOutputs = outputs.keys.toList(growable: false);
+    } else {
+      effectiveContextOutputs = const [];
+    }
+
     return WorkflowStep(
       id: id,
       name: name,
@@ -384,7 +422,8 @@ class WorkflowDefinitionParser {
       gate: raw['gate'] as String?,
       entryGate: raw['entryGate'] as String?,
       contextInputs: _parseStringList(raw['contextInputs']),
-      contextOutputs: _parseStringList(raw['contextOutputs']),
+      contextOutputs: effectiveContextOutputs,
+      authoredContextOutputs: authoredContextOutputs,
       extraction: extraction,
       outputs: outputs,
       maxTokens: raw['maxTokens'] as int?,

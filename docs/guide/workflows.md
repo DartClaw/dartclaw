@@ -114,7 +114,7 @@ In practice:
 
 ### Step 4: Add Structure
 
-Use `contextOutputs` with `format: json` to enforce structured handoffs between steps. Structure makes downstream steps reliable — instead of parsing free text, they receive validated data.
+Declare each context-write key under `outputs:` with `format: json` to enforce structured handoffs between steps. Structure makes downstream steps reliable — instead of parsing free text, they receive validated data.
 
 ```yaml
   - id: review
@@ -122,7 +122,6 @@ Use `contextOutputs` with `format: json` to enforce structured handoffs between 
     type: analysis
     prompt: |
       Review {{TARGET}} for code quality, security, and improvements.
-    contextOutputs: [review_findings]
     outputs:
       review_findings:
         format: json
@@ -131,11 +130,13 @@ Use `contextOutputs` with `format: json` to enforce structured handoffs between 
 
 Without `format: json`, the agent produces free text and downstream steps must parse it themselves. With `schema: verdict`, the step automatically receives instructions to produce a JSON object with `pass`, `findings_count`, `findings`, and `summary` fields.
 
-### Workflow Context: What `contextInputs` and `contextOutputs` Actually Do
+> **Migration note:** `outputs:` map keys now imply the context-write set. The legacy `contextOutputs:` list is deprecated — when authored alongside `outputs:` it is redundant; when authored alone it should be replaced by an `outputs:` block. The validator emits a tailored deprecation warning per step until the field is removed in a future release. Foreach / `mapOver` controllers are the one carve-out: they still declare the aggregate name via `contextOutputs:` because they have no `outputs:`-shaped alternative yet.
+
+### Workflow Context: What `contextInputs` and `outputs` Actually Do
 
 Every workflow run has one persistent workflow context: a key-value map that survives from step to step.
 
-- `contextOutputs` declares which keys the current step writes back into workflow context after it finishes.
+- The `outputs:` map's keys are the canonical declaration of which keys the current step writes back into workflow context after it finishes (the legacy `contextOutputs:` list is deprecated — see the migration note above).
 - `contextInputs` declares which existing context keys the current step depends on.
 - `{{context.some_key}}` is how authored prompts read values from workflow context.
 
@@ -146,21 +147,28 @@ steps:
   - id: discover
     name: Discover Project
     prompt: Inspect the repository and summarize it.
-    contextOutputs: [project_index]
+    outputs:
+      project_index:
+        format: json
+        schema: project-index
 
   - id: spec
     name: Write Spec
     contextInputs: [project_index]
     prompt: Write the feature spec using the discovered project context.
-    contextOutputs: [spec_path, spec_source]
+    outputs:
+      spec_path:
+        format: path
+      spec_source:
+        format: text
 ```
 
 Important details:
 
 - `contextInputs` is the dependency contract. It does not automatically inject values into a normal prompt. Use `{{context.key}}` in authored prompts when you want the value rendered explicitly.
 - Skill-only steps are the exception: when a step has `skill:` but no prompt, the engine builds a compact context summary from the declared `contextInputs`.
-- Repeating a key in a later step's `contextOutputs` is valid when that step intentionally replaces the canonical value. For example, a remediation loop can output `validation_summary` again so downstream review steps see the refreshed result.
-- Many built-ins also emit step-scoped aliases such as `re-review.findings_count`. Those aliases make gates and downstream references exact, even when a generic key like `findings_count` is reused by later steps.
+- Repeating a key in a later step's `outputs:` is valid when that step intentionally replaces the canonical value. For example, a remediation loop can output `validation_summary` again so downstream review steps see the refreshed result.
+- Many built-ins also emit step-scoped aliases such as `re-review.findings_count`. Those aliases make gates and downstream references exact, even when a generic key like `findings_count` is reused by later steps. Declare them as keys under `outputs:` with the dotted form (`re-review.findings_count: { format: json, schema: non-negative-integer }`).
 
 The runtime also writes metadata keys automatically:
 
@@ -168,7 +176,7 @@ The runtime also writes metadata keys automatically:
 - `<stepId>.tokenCount`
 - step-type-specific bookkeeping under `_loop.*`, `_approval.*`, and `_map.*`
 
-Agent steps with `contextOutputs` receive a workflow output contract automatically. They are expected to end with a `<workflow-context>` JSON object containing exactly the declared output keys. For `outputMode: structured`, DartClaw now treats that inline payload as the happy path: if the last assistant message already contains valid JSON with the required top-level keys, the executor promotes it directly and skips the extra extraction turn. Provider-native schema extraction remains as the fallback when the inline payload is missing or malformed.
+Agent steps with declared `outputs:` keys receive a workflow output contract automatically. They are expected to end with a `<workflow-context>` JSON object containing exactly the declared output keys. For `outputMode: structured`, DartClaw now treats that inline payload as the happy path: if the last assistant message already contains valid JSON with the required top-level keys, the executor promotes it directly and skips the extra extraction turn. Provider-native schema extraction remains as the fallback when the inline payload is missing or malformed.
 
 Agent steps also receive a semantic step-outcome contract unless the step or referenced skill opts out with `emitsOwnOutcome: true`. End the final assistant message with:
 
@@ -185,7 +193,7 @@ Templates in `prompt:`, `project:`, and similar fields resolve through three dis
 | Form | Source | If missing |
 |------|--------|-----------|
 | `{{VARIABLE}}` | Top-level `variables:` declared on the workflow | Throws `ArgumentError` at start time |
-| `{{context.key}}` | Workflow context — values written by prior steps' `contextOutputs`, plus auto-written metadata | Empty string with a warning log |
+| `{{context.key}}` | Workflow context — values written by prior steps' `outputs:` keys, plus auto-written metadata | Empty string with a warning log |
 | `{{map.*}}` / `{{<alias>.*}}` | Current iteration inside a `mapOver` / `foreach` controller (see [Iterating Over Items with `mapOver`](#iterating-over-items-with-mapover)) | Raises on shape errors; metadata refs always resolve |
 
 Common trap: `{{review_summary}}` is **not** the same as `{{context.review_summary}}`. Without the `context.` prefix the engine treats it as a variable lookup and throws if `review_summary` isn't a declared variable. **Always use `context.` to read another step's output.**
@@ -198,9 +206,9 @@ Step-prefixed context keys come from two mechanisms, consistent everywhere (top-
 
 1. **Auto-injected metadata.** The executor writes `<stepId>.status`, `<stepId>.tokenCount`, `<stepId>.branch`, and `<stepId>.worktree_path` for every step unconditionally (the branch/worktree values are empty when the step has no worktree, so `{{context.X.branch}}` resolves uniformly regardless of step type). You can read these without declaring anything — `{{context.lint.status}}` works for any step whose id is `lint`.
 
-2. **Author-declared aliases.** Declare the step-prefixed key explicitly in `contextOutputs`, e.g. `contextOutputs: [review_summary, review-code.findings_count]`. Under the hood this is just a flat context key that happens to have a dot in its name. Use this pattern to disambiguate when more than one step emits the same generic key — `code-review.yaml` does this for `findings_count`, which is written by both `review-code` and `re-review`.
+2. **Author-declared aliases.** Declare the step-prefixed key explicitly under `outputs:`, e.g. `outputs: { review_summary: { format: json }, review-code.findings_count: { format: json, schema: non-negative-integer } }`. Under the hood this is just a flat context key that happens to have a dot in its name. Use this pattern to disambiguate when more than one step emits the same generic key — `code-review.yaml` does this for `findings_count`, which is written by both `review-code` and `re-review`.
 
-There is **no automatic step-prefix aliasing** in iteration overlays. Inside a `foreach`, sibling child steps read each other's outputs via the declared bare keys (e.g. `{{context.story_result}}`) — the per-iteration overlay isolates iterations from each other, but it does not auto-alias outputs under the writing step's id. If a child step wants to expose its output under a step-prefixed key, declare that key in its own `contextOutputs`.
+There is **no automatic step-prefix aliasing** in iteration overlays. Inside a `foreach`, sibling child steps read each other's outputs via the declared bare keys (e.g. `{{context.story_result}}`) — the per-iteration overlay isolates iterations from each other, but it does not auto-alias outputs under the writing step's id. If a child step wants to expose its output under a step-prefixed key, declare that key in its own `outputs:` block.
 
 The aggregate that a map/foreach controller exports to the outer workflow context is a list of per-iteration objects keyed by child step id (`story_results[i].implement.story_result`). That post-iteration shape is separate from how bare keys resolve inside the iteration.
 
@@ -321,7 +329,7 @@ Rules:
 
 - `outputMode: prompt` is the default. It keeps prompt augmentation and heuristic JSON extraction.
 - `outputMode: structured` requires `format: json` and a schema.
-- Structured extraction applies to `outputs`. `contextOutputs` still use the `<workflow-context>` contract.
+- Structured extraction applies to `outputs:` map entries. The legacy `<workflow-context>` contract still backs the inline-payload happy path for every declared key.
 - Structured outputs now use an inline-first path: a valid inline `<workflow-context>` payload short-circuits the extra extraction turn; provider-native schema extraction runs only when the inline payload is missing or malformed.
 - Inline schemas used with `outputMode: structured` should set `additionalProperties: false` on every object node for Codex compatibility.
 - Research steps usually run in the restricted profile; those steps fall back to streaming execution, so native structured guarantees may not apply there.
@@ -387,7 +395,7 @@ Both honor the same `max_parallel`, `max_items`, `as:` alias, `{{map.*}}` / `{{<
 
 A plain mapped step is still one authored step. The runtime executes it once per array item, then aggregates the per-item results into a list.
 
-The controller step's `contextOutputs` names the exported aggregate key:
+The controller step's `contextOutputs:` names the exported aggregate key — for `mapOver` / `foreach` controllers this is the one schema surface that the `outputs:`-only migration does not yet cover, so authoring keeps using `contextOutputs:`:
 
 ```yaml
 - id: review-story
@@ -417,21 +425,28 @@ Use `type: foreach` when each item needs multiple authored substeps that run in 
   type: foreach
   map_over: stories
   as: story                             # optional; names the loop variable
-  contextOutputs: [story_results]
+  contextOutputs: [story_results]       # foreach carve-out — controllers still author this list
   steps:
     - id: implement
       prompt: Implement {{story.item.spec_path}}
-      contextOutputs: [story_result]
+      outputs:
+        story_result:
+          format: text
     - id: quick-review
-      contextOutputs: [quick_review_summary, quick_review_findings_count]
+      outputs:
+        quick_review_summary:
+          format: text
+        quick_review_findings_count:
+          format: json
+          schema: non-negative-integer
 ```
 
 `foreach` has two scopes:
 
-- The controller step's `contextOutputs` exports the final aggregate to the main workflow context. In this example, later top-level steps read `{{context.story_results}}`. A `foreach` / `mapOver` controller emits exactly one aggregate value, so its `contextOutputs` must declare exactly one key — the validator rejects multiple keys as a `contextInconsistency` error.
-- The child steps' `contextOutputs` are written into a per-iteration overlay so sibling child steps can reference earlier work during that same item.
+- The controller step's `contextOutputs` exports the final aggregate to the main workflow context. In this example, later top-level steps read `{{context.story_results}}`. A `foreach` / `mapOver` controller emits exactly one aggregate value, so its `contextOutputs` must declare exactly one key — the validator rejects multiple keys as a `contextInconsistency` error. Foreach controllers are exempt from the `outputs:`-only deprecation push because the schema does not yet support an `outputs:` map for the aggregate.
+- The child steps' `outputs:` keys are written into a per-iteration overlay so sibling child steps can reference earlier work during that same item.
 
-Within one iteration, child step outputs are readable via their declared keys (e.g. `{{context.story_result}}`). There is no automatic step-id prefixing in the overlay — if you want a disambiguated `<stepId>.<key>` form, declare it explicitly in the writing step's `contextOutputs` (see [Step-Prefixed References](#step-prefixed-references-contextstepidkey)).
+Within one iteration, child step outputs are readable via their declared keys (e.g. `{{context.story_result}}`). There is no automatic step-id prefixing in the overlay — if you want a disambiguated `<stepId>.<key>` form, declare it explicitly under the writing step's `outputs:` block (see [Step-Prefixed References](#step-prefixed-references-contextstepidkey)).
 
 The final aggregate exported by a `foreach` controller is a list of per-item objects keyed by child step id. For the example above, one entry in `story_results` looks like:
 
@@ -449,8 +464,8 @@ The final aggregate exported by a `foreach` controller is a list of per-item obj
 
 In other words:
 
-- child step `contextOutputs` control the shape inside each per-item result
-- controller `contextOutputs` control the top-level exported aggregate key
+- child step `outputs:` keys control the shape inside each per-item result
+- controller `contextOutputs` controls the top-level exported aggregate key (foreach carve-out)
 
 **Nested `foreach` is not supported.** The parser rejects a `foreach` controller inside another `foreach`'s `steps:` list. If you need per-item work that itself fans out over a sub-collection, flatten it: have the outer step emit a denormalized list whose items already combine the two axes, or run the second fan-out as a subsequent top-level step that consumes the aggregated result. Only one iteration context is active at a time, so no outer-vs-inner scoping rules apply.
 
@@ -995,7 +1010,7 @@ variables:
 | `review` | string | `codingOnly` | Compatibility field. Workflow-owned tasks auto-accept by default; use explicit review or approval steps for human checkpoints |
 | `gate` | string | none | Condition expression — step skipped if false |
 | `contextInputs` | list | `[]` | Context keys this step reads |
-| `contextOutputs` | list | `[]` | Context keys this step writes. On a `foreach` / `mapOver` controller, must be exactly one key — the controller emits a single aggregate list (see [Iterating Over Items with `mapOver`](#iterating-over-items-with-mapover)) |
+| `contextOutputs` | list | `[]` | **Deprecated.** Context keys this step writes. Use `outputs:` map keys instead — they now imply the context-write set. The validator emits a tailored deprecation warning per step until this field is removed in a future release. Foreach / `mapOver` controllers are the one carve-out: they still author this list because the schema does not yet support an `outputs:` map for the aggregate (controllers must declare exactly one key — multiple keys produce a `contextInconsistency` error) |
 | `continueSession` | bool or string | `false` | Reuse the preceding agent step's resolved root session, or target an explicit earlier step ID |
 | `maxTokens` | int | none | Per-step token budget |
 | `maxCostUsd` | double | none | Per-step cost budget in USD |
@@ -1112,6 +1127,7 @@ Constraints:
 - Loop-boundary crossings are invalid. `continueSession` chains must stay linear or remain within the same loop.
 - Provider support is validated up front. If the selected provider does not support continuity, the definition is rejected before execution.
 - Built-in workflows now avoid `continueSession` on review/gap-analysis steps whose inputs are already re-rendered explicitly via `contextInputs`. Use continuation for true refinement chains or same-worktree validation follow-ups, not as a default on every downstream step.
+- Role-aliased providers (`@executor`, `@reviewer`, `@planner`, `@workflow`) are accepted alongside `continueSession: true` and on multi-prompt steps — the validator no longer flags them as missing continuity support. The runtime resolves the alias to a concrete provider per the workflow's role mapping; if the resolved provider's family differs from the root step's provider, the executor logs a fallback warning and re-routes session continuity to the root provider rather than failing the step. Concrete provider names that do not support continuity (e.g. `gemini`) still produce a hard error at validation time.
 
 The most common downstream use is pairing `continueSession` with explicit worktree outputs:
 
@@ -1156,18 +1172,39 @@ Some older built-in examples still use `onError: fail` as a hard-stop spelling. 
 ```yaml
 outputs:
   key_name:
-    format: json        # text (default), json, or lines
+    format: json        # text (default), json, lines, path
     schema: story-plan  # preset name or inline JSON Schema object
     source: worktree.branch
+    description: Story plan emitted by the planning skill.
+    setValue: null      # explicit literal — overrides extraction on success
 ```
+
+`outputs:` map keys imply the step's context-write set; you no longer need a separate `contextOutputs:` list for the same keys (the legacy field is deprecated and is retained for one release). Shorthand `key: text` (or `key: json` / `key: lines` / `key: path`) is accepted as a default-config form, and you can mix shorthand with the full map shape in the same `outputs:` block.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `format` | string | `text` | Output format: `text`, `json`, `lines` |
+| `format` | string | `text` | Output format: `text`, `json`, `lines`, `path` |
 | `schema` | string or object | none | Preset name (string) or inline JSON Schema (object) |
 | `source` | string | none | Explicit output source override such as `worktree.branch` or `worktree.path` |
+| `outputMode` | string | `prompt` | `prompt` (default) or `structured` — see [JSON Outputs and Structured Output Mode](#json-outputs-and-structured-output-mode) |
+| `description` | string | none | One-sentence description of the output's semantic meaning, woven into the workflow output contract appended to the step's prompt |
+| `setValue` | any literal | unset | When present (including `null`), the engine writes this literal verbatim to the named context key on step success and skips extraction for that key. Useful inside loops to reset a key per iteration. Fires only on success — not on failure or `entryGate` skip. Distinct from "absent": absence means "extract normally". Snake_case alias `set_value` is also accepted |
 
 When `schema` is set, the step's prompt is automatically augmented with instructions for the expected output format — you don't need to describe the JSON structure in the prompt yourself.
+
+**Per-iteration reset with `setValue`:** inside a `foreach` / `mapOver` body, declare an output with `setValue: null` (or any literal) on the first child step so its prior value is wiped before downstream steps run. For example, a `gate_state` key set to `null` at the top of each iteration ensures stale verdicts from prior iterations never leak across.
+
+```yaml
+- id: reset-gate
+  name: Reset gate
+  type: bash
+  prompt: ":"
+  outputs:
+    gate_state:
+      setValue: null
+```
+
+> The `setValue: null` vs absent distinction is preserved through `toJson` / `fromJson` round-trips so the model layer can tell the two states apart. Avoid relying on `Object?` shape inspection in your own code — read `OutputConfig.hasSetValue` first.
 
 ### `stepDefaults` Fields
 

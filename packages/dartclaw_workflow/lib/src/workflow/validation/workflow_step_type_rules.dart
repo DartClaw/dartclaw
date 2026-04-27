@@ -35,16 +35,113 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
     final semanticSteps = definition.steps
         .where((step) => step.typeAuthored && WorkflowDefinitionValidator._semanticStepTypes.contains(step.type))
         .toList(growable: false);
-    if (semanticSteps.isEmpty) return;
-    warnings.add(
-      ValidationError(
-        message:
-            'Semantic step types (${semanticSteps.map((step) => '"${step.type}"').toSet().join(', ')}) are deprecated '
-            'for workflow engine decisions and are retained as observability labels only.',
-        type: ValidationErrorType.contextInconsistency,
-        stepId: semanticSteps.first.id,
-      ),
-    );
+    if (semanticSteps.isNotEmpty) {
+      warnings.add(
+        ValidationError(
+          message:
+              'Semantic step types (${semanticSteps.map((step) => '"${step.type}"').toSet().join(', ')}) are deprecated '
+              'for workflow engine decisions and are retained as observability labels only.',
+          type: ValidationErrorType.contextInconsistency,
+          stepId: semanticSteps.first.id,
+        ),
+      );
+    }
+
+    _validateContextOutputsDeprecation(definition, warnings);
+  }
+
+  /// Surfaces deprecation warnings for the legacy `contextOutputs:` field.
+  ///
+  /// `outputs:` map keys are the canonical context-write declaration; the
+  /// validator emits a soft deprecation hint whenever a step still authors
+  /// `contextOutputs:`. The exact wording is tailored to whether the line is
+  /// a clean removal candidate (subset of `outputs:` keys), a partial migration
+  /// (some `contextOutputs` keys missing from `outputs:`), or pure-legacy
+  /// (`contextOutputs:` only, no `outputs:` block).
+  void _validateContextOutputsDeprecation(WorkflowDefinition definition, List<ValidationError> warnings) {
+    for (final step in definition.steps) {
+      final authored = step.authoredContextOutputs;
+      if (authored == null || authored.isEmpty) continue;
+      // Foreach controllers do not yet support an `outputs:` map; their
+      // `contextOutputs:` declaration is still the canonical aggregate name.
+      // Skip the deprecation warning for them — the migration push only
+      // applies to step kinds that have an `outputs:`-shaped alternative.
+      if (step.isForeachController) continue;
+
+      final outputsKeys = step.outputs?.keys.toSet() ?? const <String>{};
+      final authoredSet = authored.toSet();
+
+      if (outputsKeys.isEmpty) {
+        // Pure legacy form — no `outputs:` block at all. Migration path:
+        // declare each key under `outputs:` and drop `contextOutputs:`.
+        warnings.add(
+          ValidationError(
+            message:
+                'Step "${step.id}" uses the deprecated "contextOutputs:" field — '
+                'declare these keys under "outputs:" instead. '
+                'Missing from outputs: ${authored.join(', ')}.',
+            type: ValidationErrorType.contextInconsistency,
+            stepId: step.id,
+          ),
+        );
+        continue;
+      }
+
+      final missingFromOutputs = authoredSet.difference(outputsKeys);
+      final extraInOutputs = outputsKeys.difference(authoredSet);
+
+      if (missingFromOutputs.isEmpty && extraInOutputs.isEmpty) {
+        // contextOutputs exactly mirrors outputs.keys → redundant.
+        warnings.add(
+          ValidationError(
+            message:
+                'Step "${step.id}" "contextOutputs:" is redundant — every key is already declared '
+                'under "outputs:". Delete the "contextOutputs:" line.',
+            type: ValidationErrorType.contextInconsistency,
+            stepId: step.id,
+          ),
+        );
+        continue;
+      }
+
+      if (missingFromOutputs.isEmpty) {
+        // contextOutputs is a strict subset — drop the line and the union
+        // already includes the outputs-only keys.
+        warnings.add(
+          ValidationError(
+            message:
+                'Step "${step.id}" "contextOutputs:" is a subset of "outputs:" keys — '
+                'delete the "contextOutputs:" line. '
+                'Outputs-only keys preserved by the union: ${extraInOutputs.toList().join(', ')}.',
+            type: ValidationErrorType.contextInconsistency,
+            stepId: step.id,
+          ),
+        );
+        continue;
+      }
+
+      // Mismatch: contextOutputs declares keys missing from outputs (and
+      // possibly outputs declares keys missing from contextOutputs). The
+      // parser uses the union of both as the effective write set; surface
+      // both sides so the author can converge on outputs-only.
+      final messageParts = <String>[
+        'declared in "contextOutputs:" but not in "outputs:": ${missingFromOutputs.toList().join(', ')}',
+      ];
+      if (extraInOutputs.isNotEmpty) {
+        messageParts.add('declared in "outputs:" but not in "contextOutputs:": ${extraInOutputs.toList().join(', ')}');
+      }
+      warnings.add(
+        ValidationError(
+          message:
+              'Step "${step.id}" "contextOutputs:" and "outputs:" disagree — '
+              'the engine uses the union as the context-write set. '
+              'Migrate to "outputs:"-only and delete "contextOutputs:". '
+              '${messageParts.join('; ')}.',
+          type: ValidationErrorType.contextInconsistency,
+          stepId: step.id,
+        ),
+      );
+    }
   }
 
   String? _resolveProjectTemplate(String template, WorkflowContext context) {
@@ -112,6 +209,17 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
       if (!step.isMultiPrompt) continue;
       final provider = step.provider;
       if (provider == null) continue; // No explicit provider — skip (default may support it).
+      // Role aliases (`@executor`, `@reviewer`, `@planner`, `@workflow`, ...) resolve at
+      // runtime to a concrete provider; the alias itself is never in the
+      // `continuityProviders` set (which is built from `config.providers.entries.keys`).
+      // The runtime fallback in `WorkflowExecutor._resolveContinueSessionProvider`
+      // emits a warning and re-routes to the root provider when the resolved
+      // alias differs from the root step's family, so we keep the safety net
+      // without false-positiving aliased steps at validation time.
+      // TODO(0.16.7+): full alias-resolution path — thread the workflow's
+      // roles config through the validator so we can validate the resolved
+      // concrete provider rather than skipping the check.
+      if (provider.startsWith('@')) continue;
       if (!continuityProviders.contains(provider)) {
         errors.add(
           ValidationError(
@@ -225,9 +333,16 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         final targetStep = targetStepId != null ? _findStep(definition, targetStepId) : null;
 
         // continueSession with unsupported provider — hard error.
+        // Role aliases (`@executor`, `@reviewer`, ...) resolve at runtime to
+        // concrete providers and are never in the `continuityProviders` set,
+        // so we skip the check for `@`-prefixed providers; the runtime
+        // fallback in `WorkflowExecutor._resolveContinueSessionProvider`
+        // covers the alias-mismatch safety net (re-routes to root provider
+        // with a warning). See `_validateMultiPromptProviders` for the
+        // mirrored skip and the `TODO(0.16.7+)` deferral note.
         if (continuityProviders != null) {
           final provider = step.provider ?? targetStep?.provider;
-          if (provider != null && !continuityProviders.contains(provider)) {
+          if (provider != null && !provider.startsWith('@') && !continuityProviders.contains(provider)) {
             errors.add(
               ValidationError(
                 message:

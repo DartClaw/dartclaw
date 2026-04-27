@@ -74,7 +74,7 @@ bool shouldBindWorkflowProject(WorkflowDefinition definition, WorkflowStep step,
   if (step.project != null) return true;
   if (definition.project == null) return false;
   if (step.isMapStep) return true;
-  if (step.contextInputs.contains('project_index')) return true;
+  if (step.inputs.contains('project_index')) return true;
   if (step.outputKeys.contains('project_index')) return true;
   final allowedTools = resolved.allowedTools;
   if (allowedTools != null) {

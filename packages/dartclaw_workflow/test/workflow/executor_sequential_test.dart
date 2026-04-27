@@ -1083,7 +1083,7 @@ void main() {
           type: 'custom',
           typeAuthored: true,
           allowedTools: ['file_read'],
-          contextInputs: ['project_index'],
+          inputs: ['project_index'],
           prompts: ['Review the generated plan'],
         ),
       ],

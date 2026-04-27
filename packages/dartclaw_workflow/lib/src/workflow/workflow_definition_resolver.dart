@@ -127,7 +127,7 @@ class WorkflowDefinitionResolver {
       parallel: step.parallel,
       gate: step.gate,
       entryGate: step.entryGate,
-      contextInputs: step.contextInputs,
+      inputs: step.inputs,
       extraction: step.extraction,
       outputs: resolvedOutputs,
       maxTokens: step.maxTokens ?? matched?.maxTokens,
@@ -235,8 +235,8 @@ class WorkflowDefinitionResolver {
     if (controller.maxParallel != null) entries.add(MapEntry('max_parallel', controller.maxParallel));
     if (controller.maxItems != 20) entries.add(MapEntry('max_items', controller.maxItems));
     if (controller.project != null) entries.add(MapEntry('project', controller.project));
-    if (controller.contextInputs.isNotEmpty) {
-      entries.add(MapEntry('contextInputs', controller.contextInputs.toList()));
+    if (controller.inputs.isNotEmpty) {
+      entries.add(MapEntry('inputs', controller.inputs.toList()));
     }
     if (controller.outputs != null && controller.outputs!.isNotEmpty) {
       entries.add(MapEntry('outputs', controller.outputs!.map((k, v) => MapEntry(k, v.toJson()))));
@@ -276,7 +276,7 @@ class WorkflowDefinitionResolver {
     if (step.gate != null) entries.add(MapEntry('gate', step.gate));
     if (step.entryGate != null) entries.add(MapEntry('entryGate', step.entryGate));
     if (step.project != null) entries.add(MapEntry('project', step.project));
-    if (step.contextInputs.isNotEmpty) entries.add(MapEntry('contextInputs', step.contextInputs.toList()));
+    if (step.inputs.isNotEmpty) entries.add(MapEntry('inputs', step.inputs.toList()));
     if (step.extraction != null) entries.add(MapEntry('extraction', step.extraction!.toJson()));
     if (step.outputs != null && step.outputs!.isNotEmpty) {
       entries.add(MapEntry('outputs', step.outputs!.map((k, v) => MapEntry(k, v.toJson()))));

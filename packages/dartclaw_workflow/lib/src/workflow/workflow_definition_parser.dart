@@ -128,6 +128,7 @@ class WorkflowDefinitionParser {
       throw FormatException('Foreach step must have a non-empty "id" field${_at(sourcePath)}.');
     }
     _rejectLegacyContextOutputs(raw, id, sourcePath);
+    _rejectLegacyContextInputs(raw, id, sourcePath);
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {
       throw FormatException('Foreach "$id" must have a non-empty "name" field${_at(sourcePath)}.');
@@ -163,7 +164,7 @@ class WorkflowDefinitionParser {
       maxParallel: maxParallel,
       maxItems: maxItems,
       project: raw['project'] as String?,
-      contextInputs: _parseStringList(raw['contextInputs']),
+      inputs: _parseStringList(raw['inputs']),
       outputs: outputs,
       foreachSteps: childSteps.map((s) => s.id).toList(growable: false),
       mapAlias: mapAlias,
@@ -178,6 +179,7 @@ class WorkflowDefinitionParser {
       throw FormatException('Inline loop step must have a non-empty "id" field${_at(sourcePath)}.');
     }
     _rejectLegacyContextOutputs(raw, id, sourcePath);
+    _rejectLegacyContextInputs(raw, id, sourcePath);
 
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {
@@ -247,6 +249,7 @@ class WorkflowDefinitionParser {
       throw FormatException('Each step must have a non-empty "id" field${_at(sourcePath)}.');
     }
     _rejectLegacyContextOutputs(raw, id, sourcePath);
+    _rejectLegacyContextInputs(raw, id, sourcePath);
     _rejectRemovedExecutionMode(raw, id, sourcePath);
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {
@@ -351,7 +354,7 @@ class WorkflowDefinitionParser {
       parallel: (raw['parallel'] as bool?) ?? false,
       gate: raw['gate'] as String?,
       entryGate: raw['entryGate'] as String?,
-      contextInputs: _parseStringList(raw['contextInputs']),
+      inputs: _parseStringList(raw['inputs']),
       extraction: extraction,
       outputs: outputs,
       maxTokens: raw['maxTokens'] as int?,
@@ -454,6 +457,14 @@ class WorkflowDefinitionParser {
     throw FormatException(
       'Step "$stepId": contextOutputs: is removed; declare keys under outputs: instead, '
       'e.g. outputs: { key_name: text }${_at(sourcePath)}.',
+    );
+  }
+
+  void _rejectLegacyContextInputs(YamlMap raw, String stepId, String? sourcePath) {
+    if (!raw.containsKey('contextInputs')) return;
+    throw FormatException(
+      "Step '$stepId': contextInputs: is removed; declare context-read keys under inputs: instead, "
+      'e.g. inputs: [project_index, prd]${_at(sourcePath)}.',
     );
   }
 

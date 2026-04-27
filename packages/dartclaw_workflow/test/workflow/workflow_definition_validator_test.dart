@@ -93,14 +93,14 @@ WorkflowStep _step({
   String id = 's1',
   String name = 'Step',
   String prompt = 'Do it',
-  List<String> contextInputs = const [],
+  List<String> inputs = const [],
   Map<String, OutputConfig>? outputs,
   String? gate,
 }) => WorkflowStep(
   id: id,
   name: name,
   prompts: [prompt],
-  contextInputs: contextInputs,
+  inputs: inputs,
   outputs: outputs == null || outputs.isEmpty ? null : outputs,
   gate: gate,
 );
@@ -244,7 +244,7 @@ steps:
               name: 'Map',
               prompts: ['p'],
               mapOver: 'items',
-              contextInputs: ['items'],
+              inputs: ['items'],
               outputs: {'mapped': OutputConfig()},
             ),
           ],
@@ -346,7 +346,7 @@ steps:
       test('context input referencing key not in preceding step outputs produces contextInconsistency', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextInputs: ['key_a'], outputs: {}),
+            _step(id: 's1', inputs: ['key_a'], outputs: {}),
           ],
         );
         final errors = validator.validate(def).errors;
@@ -357,7 +357,7 @@ steps:
         final def = _buildDef(
           steps: [
             _step(id: 's1', outputs: {'result': OutputConfig()}),
-            _step(id: 's2', name: 'S2', prompt: 'p', contextInputs: ['result']),
+            _step(id: 's2', name: 'S2', prompt: 'p', inputs: ['result']),
           ],
         );
         expect(validator.validate(def).errors, isEmpty);
@@ -366,7 +366,7 @@ steps:
       test('context input valid within same loop', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextInputs: ['loop_key'], outputs: {'loop_key': OutputConfig()}),
+            _step(id: 's1', inputs: ['loop_key'], outputs: {'loop_key': OutputConfig()}),
             _step(id: 's2', name: 'S2', prompt: 'p', outputs: {}),
           ],
           loops: [
@@ -1907,14 +1907,14 @@ steps:
               name: 'Review',
               prompts: ['r'],
               entryGate: 'prd_source == synthesized',
-              contextInputs: ['prd'],
+              inputs: ['prd'],
             ),
             WorkflowStep(
               id: 'plan',
               name: 'Plan',
               prompts: ['p'],
               entryGate: 'review-prd.findings_count > 0',
-              contextInputs: ['prd'],
+              inputs: ['prd'],
             ),
           ],
         );

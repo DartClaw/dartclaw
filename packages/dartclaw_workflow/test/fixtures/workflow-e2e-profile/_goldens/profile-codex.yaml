@@ -13,11 +13,11 @@
 # - workflow.defaults.*.model               (per-role <provider>/<model>)
 
 port: 3333
-data_dir: "__DATA_DIR__"
+data_dir: "/tmp/dartclaw-test/data"
 
 agent:
-  provider: __AGENT_PROVIDER__
-  model: __AGENT_MODEL__
+  provider: codex
+  model: gpt-5.4
 
 gateway:
   auth_mode: token
@@ -25,26 +25,32 @@ gateway:
 guards:
   enabled: true
 
-__PROVIDERS_BLOCK__
+providers:
+  codex:
+    executable: codex
+    pool_size: 3
+    approval: never
+    sandbox: danger-full-access
 
 credentials:
-  __PROVIDER_CREDENTIAL_BLOCK__
+  openai:
+    api_key: ${CODEX_API_KEY}
   github-main:
     type: github-token
     token: ${GITHUB_TOKEN}
     repository: DartClaw/workflow-test-todo-app
 
 workflow:
-  workspace_dir: "__WORKFLOW_WORKSPACE_DIR__"
+  workspace_dir: "/tmp/dartclaw-test/workflow-workspace"
   defaults:
     workflow:
-      model: __WORKFLOW_MODEL__
+      model: codex/gpt-5.4
     planner:
-      model: __PLANNER_MODEL__
+      model: codex/gpt-5.4
     executor:
-      model: __EXECUTOR_MODEL__
+      model: codex/gpt-5.3-codex-spark
     reviewer:
-      model: __REVIEWER_MODEL__
+      model: codex/gpt-5.3-codex-spark
 
 projects:
   workflow-test-todo-app:

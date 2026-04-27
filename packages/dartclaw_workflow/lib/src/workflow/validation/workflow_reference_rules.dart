@@ -193,7 +193,7 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
         }
       }
 
-      for (final input in step.contextInputs) {
+      for (final input in step.inputs) {
         if (!producedSoFar.contains(input) && !loopProduced.contains(input)) {
           errors.add(
             ValidationError(

@@ -308,7 +308,7 @@ class WorkflowsPage extends DashboardPage {
         body: workflowStepDetailFragment(
           messagesHtml: null,
           artifacts: const [],
-          contextInputs: const [],
+          inputs: const [],
           outputKeys: const [],
         ),
         headers: htmlHeaders,
@@ -361,7 +361,7 @@ class WorkflowsPage extends DashboardPage {
       definition = WorkflowDefinition.fromJson(run.definitionJson);
     } catch (_) {}
 
-    final contextInputs = <Map<String, dynamic>>[];
+    final inputs = <Map<String, dynamic>>[];
     final outputKeys = <Map<String, dynamic>>[];
     if (definition != null && stepIndex < definition.steps.length) {
       final step = definition.steps[stepIndex];
@@ -370,7 +370,7 @@ class WorkflowsPage extends DashboardPage {
         final value = run.contextJson[key];
         if (value != null) {
           final str = value.toString();
-          contextInputs.add({'key': key, 'value': str.length > 200 ? '${str.substring(0, 200)}...' : str});
+          inputs.add({'key': key, 'value': str.length > 200 ? '${str.substring(0, 200)}...' : str});
         }
       }
       // Context outputs: keys written by this step (from step.outputKeys).
@@ -406,7 +406,7 @@ class WorkflowsPage extends DashboardPage {
     final html = workflowStepDetailFragment(
       messagesHtml: messagesHtml,
       artifacts: artifacts,
-      contextInputs: contextInputs,
+      inputs: inputs,
       outputKeys: outputKeys,
       tokenCount: tokenCount,
       durationDisplay: stepDuration,

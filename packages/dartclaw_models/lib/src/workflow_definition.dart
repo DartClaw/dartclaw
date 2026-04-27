@@ -488,7 +488,7 @@ class WorkflowStep {
   /// Ordered list of prompt templates for this step.
   ///
   /// Required when [skill] is null. Optional when [skill] is present
-  /// (context from [contextInputs] used when absent).
+  /// (context from [inputs] used when absent).
   /// Each entry uses `{{variable}}` and `{{context.key}}` references.
   /// Single-prompt steps have exactly one element; multi-prompt steps have two or more,
   /// which execute as sequential turns in the same conversation session.
@@ -538,7 +538,7 @@ class WorkflowStep {
   final String? entryGate;
 
   /// Context keys this step reads from.
-  final List<String> contextInputs;
+  final List<String> inputs;
 
   /// Optional custom extraction configuration.
   final ExtractionConfig? extraction;
@@ -639,7 +639,7 @@ class WorkflowStep {
   /// marker and should skip prompt augmentation for the outcome protocol.
   final bool emitsOwnOutcome;
 
-  /// Whether the engine auto-frames unreferenced `contextInputs` and declared
+  /// Whether the engine auto-frames unreferenced `inputs` and declared
   /// [workflowVariables] onto the step prompt as `<key>...</key>` blocks.
   /// Defaults to `true`; set to `false` (YAML: `auto_frame_context: false`) when
   /// the step's prompt body intentionally omits some declared context.
@@ -690,7 +690,7 @@ class WorkflowStep {
     this.parallel = false,
     this.gate,
     this.entryGate,
-    this.contextInputs = const [],
+    this.inputs = const [],
     this.extraction,
     this.outputs,
     this.maxTokens,
@@ -726,7 +726,7 @@ class WorkflowStep {
     if (timeoutSeconds != null) 'timeout': timeoutSeconds,
     if (gate != null) 'gate': gate,
     if (entryGate != null) 'entryGate': entryGate,
-    'contextInputs': contextInputs.toList(),
+    'inputs': inputs.toList(),
     if (extraction != null) 'extraction': extraction!.toJson(),
     if (outputs != null) 'outputs': outputs!.map((k, v) => MapEntry(k, v.toJson())),
     if (maxTokens != null) 'maxTokens': maxTokens,
@@ -776,7 +776,7 @@ class WorkflowStep {
       parallel: (json['parallel'] as bool?) ?? false,
       gate: json['gate'] as String?,
       entryGate: json['entryGate'] as String?,
-      contextInputs: (json['contextInputs'] as List?)?.cast<String>() ?? const [],
+      inputs: (json['inputs'] as List?)?.cast<String>() ?? const [],
       extraction: json['extraction'] != null
           ? ExtractionConfig.fromJson(json['extraction'] as Map<String, dynamic>)
           : null,

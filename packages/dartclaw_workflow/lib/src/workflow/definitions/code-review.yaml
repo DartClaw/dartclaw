@@ -47,6 +47,8 @@ steps:
     name: Discover Project
     type: custom
     skill: dartclaw-discover-project
+    # read-only: discovers project layout, no writes — narrow surface preserves
+    # step_config_policy.stepIsReadOnly inference (file_write non-membership).
     allowedTools: [shell, file_read]
     outputs:
       project_index:
@@ -61,11 +63,14 @@ steps:
     name: Review Code
     type: custom
     skill: andthen-review
-    allowedTools: [file_read]
-    contextInputs: [project_index]
+    # read-only review: file_write absent preserves step_config_policy's
+    # read-only inference. shell/web_fetch/mcp_call enable `git diff`,
+    # `gh pr diff`, `dart analyze`, doc lookup, and MCP-routed checks.
+    allowedTools: [shell, file_read, web_fetch, mcp_call]
+    inputs: [project_index]
     workflowVariables: [TARGET, BRANCH, PR_NUMBER, BASE_BRANCH]
     prompt: |
-      {{TARGET}} --auto
+      --auto {{TARGET}}
       branch={{BRANCH}}
       pr={{PR_NUMBER}}
       base={{BASE_BRANCH}}
@@ -94,8 +99,8 @@ steps:
         name: Remediate Findings
         type: custom
         skill: andthen-remediate-findings
-        contextInputs: [project_index, review_summary]
-        prompt: "{{context.review_summary}} --auto"
+        inputs: [project_index, review_summary]
+        prompt: "--auto {{context.review_summary}}"
         outputs:
           remediation_result:
             format: json
@@ -113,9 +118,10 @@ steps:
         name: Re-review
         type: custom
         skill: andthen-review
-        allowedTools: [file_read]
-        contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
-        prompt: "{{context.remediation_summary}} --mode code --auto"
+        # read-only review: matches review-code's surface for the re-review pass.
+        allowedTools: [shell, file_read, web_fetch, mcp_call]
+        inputs: [project_index, review_summary, remediation_summary, diff_summary]
+        prompt: "--mode code --auto {{context.remediation_summary}}"
         outputs:
           review_summary:
             format: json

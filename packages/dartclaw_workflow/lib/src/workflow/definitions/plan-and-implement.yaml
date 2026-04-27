@@ -87,6 +87,8 @@ steps:
     name: Discover Project
     type: custom
     skill: dartclaw-discover-project
+    # read-only: discovers project layout, no writes — narrow surface preserves
+    # step_config_policy.stepIsReadOnly inference (file_write non-membership).
     allowedTools: [shell, file_read]
     workflowVariables: [REQUIREMENTS]
     outputs:
@@ -116,10 +118,9 @@ steps:
     type: custom
     skill: andthen-prd
     entryGate: "project_index.active_prd == null"
-    contextInputs: [project_index]
+    inputs: [project_index]
     workflowVariables: [REQUIREMENTS]
-    allowedTools: [shell, file_read, file_write]
-    prompt: "{{REQUIREMENTS}} --auto"
+    prompt: "--auto {{REQUIREMENTS}}"
     outputs:
       prd:
         format: path
@@ -139,10 +140,9 @@ steps:
     type: custom
     skill: andthen-review
     entryGate: "project_index.active_prd == null && prd_confidence < 7"
-    contextInputs: [project_index, prd, prd_confidence]
-    allowedTools: [shell, file_read, file_write]
+    inputs: [project_index, prd, prd_confidence]
     prompt: |
-      {{context.prd}} --mode doc --fix --auto
+      --mode doc --fix --auto {{context.prd}}
     # revise-prd modifies the PRD file in place at the same path. No new
     # context value is produced — downstream steps continue reading
     # {{context.prd}} written by the prd step, which now points at the
@@ -157,8 +157,7 @@ steps:
     type: custom
     skill: andthen-plan
     entryGate: "plan == null"
-    allowedTools: [shell, file_read, file_write]
-    contextInputs: [project_index, prd]
+    inputs: [project_index, prd]
     # Retry once on failure so we recover from a flaky plan pass where the
     # agent reports `succeeded` without writing every per-story FIS file
     # (post-extraction validation in `_validateStorySpecOutputs` promotes
@@ -166,7 +165,7 @@ steps:
     # fresh turn to fill the gap before the workflow hard-fails).
     onFailure: retry
     maxRetries: 1
-    prompt: "{{context.prd}} --auto"
+    prompt: "--auto {{context.prd}}"
     outputs:
       story_specs:
         format: json
@@ -195,14 +194,13 @@ steps:
         name: Implement Story
         type: custom
         skill: andthen-exec-spec
-        allowedTools: [shell, file_read, file_write]
         # Transient Codex CLI exits (exit code 1 with only `thread.started`
         # on stdout, typically under memory pressure with parallel runners)
         # have been observed mid-turn. Retry once before failing the story.
         onFailure: retry
         maxRetries: 1
-        prompt: "{{map.item.spec_path}} --auto"
-        contextInputs: [project_index, story_specs]
+        prompt: "--auto {{map.item.spec_path}}"
+        inputs: [project_index, story_specs]
         outputs:
           story_result:
             format: text
@@ -222,14 +220,13 @@ steps:
         provider: "@executor"
         model: "@executor"
         continueSession: true
-        allowedTools: [shell, file_read, file_write]
         # Same transient-crash mitigation as `implement`; a dropped Codex
         # process on the review turn shouldn't fail the story when a retry
         # would succeed.
         onFailure: retry
         maxRetries: 1
         prompt: "--fix --auto"
-        contextInputs: [project_index, story_result]
+        inputs: [project_index, story_result]
         outputs:
           quick_review_summary:
             format: text
@@ -249,8 +246,7 @@ steps:
     name: Refactor After Implementation
     type: custom
     skill: andthen-refactor
-    contextInputs: [project_index, story_specs, story_results, plan]
-    allowedTools: [shell, file_read, file_write]
+    inputs: [project_index, story_specs, story_results, plan]
     prompt: "{{context.plan}} - refactor only the changes introduced on the current branch (vs the base ref); preserve behavior; no scope creep into untouched packages."
     outputs:
       refactor_summary:
@@ -274,9 +270,12 @@ steps:
     type: custom
     skill: andthen-review
     parallel: true
-    contextInputs: [project_index, story_specs, story_results, plan]
-    allowedTools: [file_read]
-    prompt: "{{context.plan}} --mode gap,code --auto"
+    inputs: [project_index, story_specs, story_results, plan]
+    # read-only review: file_write absent so step_config_policy marks the step
+    # read-only and skips worktree binding. shell/web_fetch/mcp_call enable
+    # `git diff`, `dart analyze`, doc lookup, and MCP-routed checks.
+    allowedTools: [shell, file_read, web_fetch, mcp_call]
+    prompt: "--mode gap,code --auto {{context.plan}}"
     outputs:
       review_findings:
         format: path
@@ -296,9 +295,12 @@ steps:
     type: custom
     skill: andthen-architecture
     parallel: true
-    contextInputs: [project_index, story_specs, story_results, plan]
-    allowedTools: [shell, file_read]
-    prompt: "{{context.plan}} --mode review --auto. Scope the review to changes introduced on the current branch (vs the base ref) — skip packages untouched by this plan."
+    inputs: [project_index, story_specs, story_results, plan]
+    # read-only review: file_write absent preserves step_config_policy's
+    # read-only inference. web_fetch/mcp_call cover doc lookup and any
+    # architecture-pattern references the skill consults.
+    allowedTools: [shell, file_read, web_fetch, mcp_call]
+    prompt: "--mode review --auto {{context.plan}}. Scope the review to changes introduced on the current branch (vs the base ref) — skip packages untouched by this plan."
     outputs:
       architecture_review_findings:
         format: path
@@ -327,8 +329,8 @@ steps:
         name: Remediate Findings
         type: custom
         skill: andthen-remediate-findings
-        contextInputs: [project_index, review_findings, architecture_review_findings, story_results]
-        prompt: "{{context.review_findings}} {{context.architecture_review_findings}} --auto"
+        inputs: [project_index, review_findings, architecture_review_findings, story_results]
+        prompt: "--auto {{context.review_findings}} {{context.architecture_review_findings}}"
         outputs:
           remediation_summary:
             format: text
@@ -346,9 +348,11 @@ steps:
         name: Re-review After Remediation
         type: custom
         skill: andthen-review
-        allowedTools: [file_read]
-        contextInputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
-        prompt: "{{context.plan}} --mode gap,code --auto"
+        # read-only review: matches plan-review's surface so the re-review pass
+        # exercises the same tools.
+        allowedTools: [shell, file_read, web_fetch, mcp_call]
+        inputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
+        prompt: "--mode gap,code --auto {{context.plan}}"
         outputs:
           review_findings:
             format: path

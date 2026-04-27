@@ -15,9 +15,9 @@
     </div>
   </div>
 
-  <div tl:if="${hasContextInputs}" class="workflow-step-context-io">
+  <div tl:if="${hasInputs}" class="workflow-step-context-io">
     <h4>Context Inputs</h4>
-    <div tl:each="input : ${contextInputs}" class="workflow-context-entry">
+    <div tl:each="input : ${inputs}" class="workflow-context-entry">
       <span class="workflow-context-key" tl:text="${input.key}">key</span>
       <span class="workflow-context-value" tl:text="${input.value}">value</span>
     </div>

@@ -136,7 +136,7 @@ class WorkflowStepTrace {
   final Map<String, dynamic> configJson;
   final Map<String, dynamic>? worktreeJson;
   final String? sessionId;
-  final Map<String, dynamic> contextInputs;
+  final Map<String, dynamic> inputs;
   final Map<String, dynamic> outputs;
   final String? lastUserMessage;
   final String? lastAssistantMessage;
@@ -160,7 +160,7 @@ class WorkflowStepTrace {
     required this.configJson,
     this.worktreeJson,
     this.sessionId,
-    this.contextInputs = const {},
+    this.inputs = const {},
     this.outputs = const {},
     this.lastUserMessage,
     this.lastAssistantMessage,
@@ -237,7 +237,7 @@ class WorkflowExecutionRecorder {
       _occurrenceByStep[stepKey] = occurrence;
       final run = await _workflowService.get(task.workflowRunId!);
       final contextData = _contextData(run?.contextJson);
-      final contextInputs = <String, dynamic>{for (final key in step.contextInputs) key: contextData[key]};
+      final inputs = <String, dynamic>{for (final key in step.inputs) key: contextData[key]};
 
       stepOrder.add(stepKey);
       descriptionsByStep.putIfAbsent(stepKey, () => []).add(task.description);
@@ -257,7 +257,7 @@ class WorkflowExecutionRecorder {
         outputTokens: 0,
         configJson: Map<String, dynamic>.from(task.configJson),
         worktreeJson: task.worktreeJson,
-        contextInputs: contextInputs,
+        inputs: inputs,
         queuedAt: DateTime.now(),
       );
     });
@@ -353,7 +353,7 @@ class WorkflowExecutionRecorder {
           configJson: pending.configJson,
           worktreeJson: task.worktreeJson ?? pending.worktreeJson,
           sessionId: sessionId,
-          contextInputs: pending.contextInputs,
+          inputs: pending.inputs,
           outputs: outputs,
           lastUserMessage: lastUserMessage,
           lastAssistantMessage: lastAssistantMessage,
@@ -428,7 +428,7 @@ class WorkflowExecutionRecorder {
       'stepIndex': task.stepIndex,
       'configJson': task.configJson,
       'worktreeJson': task.worktreeJson ?? pending.worktreeJson,
-      'contextInputs': pending.contextInputs,
+      'inputs': pending.inputs,
       'outputs': outputs,
       'stepScopedContext': stepScopedContext,
       'lastUserMessage': lastUserMessage,

@@ -68,7 +68,7 @@ steps:
       {{context.review_findings}}
 
       Only address identified issues. Run tests after each fix.
-    contextInputs: [review_findings]
+    inputs: [review_findings]
 ```
 
 Common split points: research → design → implement → verify, or plan → execute → review.
@@ -87,7 +87,7 @@ project: '{{PROJECT}}'
     prompt: |
       Fix the issues identified in this review:
       {{context.review_findings}}
-    contextInputs: [review_findings]
+    inputs: [review_findings]
 ```
 
 Gates reference previous step IDs (`stepId.key operator value`). Compound gates use `&&`:
@@ -133,13 +133,18 @@ Declare each context-write key under `outputs:` with `format: json` to enforce s
 
 Without `format: json`, the agent produces free text and downstream steps must parse it themselves. With `schema: verdict`, the step automatically receives instructions to produce a JSON object with `pass`, `findings_count`, `findings`, and `summary` fields.
 
-### Workflow Context: What `contextInputs` and `outputs` Actually Do
+### Workflow Context: What `inputs` and `outputs` Actually Do
 
 Every workflow run has one persistent workflow context: a key-value map that survives from step to step.
 
-- The `outputs:` map's keys are the canonical declaration of which keys the current step writes back into workflow context after it finishes.
-- `contextInputs` declares which existing context keys the current step depends on.
-- `{{context.some_key}}` is how authored prompts read values from workflow context.
+A step's `inputs:` declaration plays four roles at once:
+
+- **Dependency contract** — the validator requires every key listed under `inputs:` to be produced upstream by some earlier step's `outputs:` (or be a workflow `variables:` entry). A step that reads a key no producer declares fails validation before the run starts.
+- **Auto-framing source** — when `auto_frame_context` is enabled (the default), the engine appends each declared input key as `<key>\n{value}\n</key>` after the prompt body, unless the prompt already references the key (via tag, `{{context.key}}`, or `{{key}}`). This guarantees the agent always sees the declared state even when the authored body is pure prose.
+- **Skill-only body** — for steps with `skill:` and no `prompt:`, the resolved input values are formatted into a compact markdown summary (`## Pretty Name` per key) that becomes the prompt body. Auto-framing then skips those same keys to avoid double-rendering.
+- **Template substitution** — `{{context.key}}` in authored prompts resolves from the same input values, and the post-step extraction turn receives them alongside outputs so structured-output schemas can reference upstream context.
+
+`outputs:` is the symmetric counterpart: the map's keys are the canonical declaration of which keys the current step writes back into workflow context after it finishes, and each entry's value carries the per-output `format`/`schema`/`source`/`outputMode`/`description`/`setValue` configuration.
 
 The common pattern is:
 
@@ -155,7 +160,7 @@ steps:
 
   - id: spec
     name: Write Spec
-    contextInputs: [project_index]
+    inputs: [project_index]
     prompt: Write the feature spec using the discovered project context.
     outputs:
       spec_path:
@@ -166,8 +171,6 @@ steps:
 
 Important details:
 
-- `contextInputs` is the dependency contract. It does not automatically inject values into a normal prompt. Use `{{context.key}}` in authored prompts when you want the value rendered explicitly.
-- Skill-only steps are the exception: when a step has `skill:` but no prompt, the engine builds a compact context summary from the declared `contextInputs`.
 - Repeating a key in a later step's `outputs:` is valid when that step intentionally replaces the canonical value. For example, a remediation loop can output `validation_summary` again so downstream review steps see the refreshed result.
 - Many built-ins also emit step-scoped aliases such as `re-review.findings_count`. Those aliases make gates and downstream references exact, even when a generic key like `findings_count` is reused by later steps. Declare them as keys under `outputs:` with the dotted form (`re-review.findings_count: { format: json, schema: non-negative-integer }`).
 
@@ -242,7 +245,7 @@ Or narrow step scope with `allowedTools` — a research step probably doesn't ne
   - id: research
     name: Research
     type: research
-    allowedTools: [Read, Glob, Grep, WebFetch]   # no write tools
+    allowedTools: [file_read, web_fetch]   # no write tools, no shell (canonical names)
     prompt: |
       Explore the codebase and understand {{TARGET}}.
 ```
@@ -714,7 +717,7 @@ A workflow step can now be as thin as:
   name: Quick Review
   type: analysis
   skill: andthen-quick-review
-  contextInputs: [project_index, story_result]
+  inputs: [project_index, story_result]
   outputs:
     quick_review_summary:
       format: text
@@ -729,7 +732,7 @@ For DartClaw's built-in workflows, per-step prompts and output schemas are now i
 
 #### Auto-Framed Context Inputs
 
-After template substitution and before the schema-driven output contract is appended, the engine auto-appends `<key>\n{resolved value}\n</key>` blocks for every step `contextInputs` entry and workflow-level `variables:` entry that the authored prompt does **not** already reference. Detection rules:
+After template substitution and before the schema-driven output contract is appended, the engine auto-appends `<key>\n{resolved value}\n</key>` blocks for every step `inputs` entry and workflow-level `variables:` entry that the authored prompt does **not** already reference. Detection rules:
 
 - **Tag detection** — if the prompt already contains `<key` (any attribute), the key is left alone.
 - **Reference detection** — if the template prompt contains `{{context.key}}` or `{{KEY}}`, the key is left alone.
@@ -754,7 +757,7 @@ After (let the engine frame):
 
 ```yaml
 prompt: "Review the plan."
-contextInputs: [project_index, plan]
+inputs: [project_index, plan]
 ```
 
 To opt a single step out:
@@ -765,16 +768,16 @@ To opt a single step out:
   prompt: "…"
 ```
 
-**Interaction summary** — what the agent actually sees depending on how the step is authored. The first four rows cover prompt-authoring combinations and flow directly from the Detection rules above. The last two rows cover skill-only steps, where the prompt body itself is derived (either from the skill's `default_prompt` or from a markdown summary of `contextInputs`) before auto-framing runs:
+**Interaction summary** — what the agent actually sees depending on how the step is authored. The first four rows cover prompt-authoring combinations and flow directly from the Detection rules above. The last two rows cover skill-only steps, where the prompt body itself is derived (either from the skill's `default_prompt` or from a markdown summary of `inputs`) before auto-framing runs:
 
 | Authoring choice | What the agent sees |
 |---|---|
-| `contextInputs: [plan]` + prompt references `{{context.plan}}` | Value interpolated inline; no extra `<plan>` block appended |
-| `contextInputs: [plan]` + prompt contains `<plan>…</plan>` by hand | Manual block preserved; no auto-frame added |
-| `contextInputs: [plan]` + prompt never mentions `plan` | `<plan>\n{value}\n</plan>` auto-appended after the prompt body |
-| `contextInputs: [plan]` + `auto_frame_context: false` + no reference | Value not rendered — dependency is declared but silent |
-| `skill: foo` + no `prompt:` + skill has `workflow.default_prompt` | Skill's default prompt becomes the body; `contextInputs` auto-framed at the tail as `<key>…</key>` blocks |
-| `skill: foo` + no `prompt:` + skill has no `default_prompt` | Markdown `## Pretty Name` summary of each `contextInputs` entry becomes the prompt body; auto-framing skips those keys to avoid duplication (workflow `variables:` are still auto-framed) |
+| `inputs: [plan]` + prompt references `{{context.plan}}` | Value interpolated inline; no extra `<plan>` block appended |
+| `inputs: [plan]` + prompt contains `<plan>…</plan>` by hand | Manual block preserved; no auto-frame added |
+| `inputs: [plan]` + prompt never mentions `plan` | `<plan>\n{value}\n</plan>` auto-appended after the prompt body |
+| `inputs: [plan]` + `auto_frame_context: false` + no reference | Value not rendered — dependency is declared but silent |
+| `skill: foo` + no `prompt:` + skill has `workflow.default_prompt` | Skill's default prompt becomes the body; `inputs` auto-framed at the tail as `<key>…</key>` blocks |
+| `skill: foo` + no `prompt:` + skill has no `default_prompt` | Markdown `## Pretty Name` summary of each `inputs` entry becomes the prompt body; auto-framing skips those keys to avoid duplication (workflow `variables:` are still auto-framed) |
 
 ### Exit Gates and Finalizers
 
@@ -1019,7 +1022,7 @@ variables:
 | `effort` | string | none | Provider-specific reasoning effort override |
 | `review` | string | `codingOnly` | Compatibility field. Workflow-owned tasks auto-accept by default; use explicit review or approval steps for human checkpoints |
 | `gate` | string | none | Condition expression — step skipped if false |
-| `contextInputs` | list | `[]` | Context keys this step reads |
+| `inputs` | list | `[]` | Context keys this step reads |
 | `continueSession` | bool or string | `false` | Reuse the preceding agent step's resolved root session, or target an explicit earlier step ID |
 | `maxTokens` | int | none | Per-step token budget |
 | `maxCostUsd` | double | none | Per-step cost budget in USD |
@@ -1041,6 +1044,59 @@ variables:
 
 *`prompt` is recommended for `approval` steps so the pause shows a meaningful request. It is required for `bash` steps and required unless `skill` is present for agent steps. `foreach` and inline `loop` controllers do not carry prompts themselves; their child steps do.
 
+### Tool Surface and `allowedTools`
+
+`allowedTools` declares which provider-agnostic tool categories a step is permitted to use. Six canonical names exist:
+
+| Name | Covers |
+|---|---|
+| `shell` | Shell or command execution (`bash`, `git`, `find`, …). |
+| `file_read` | Reading file contents. |
+| `file_write` | Writing or creating files. |
+| `file_edit` | Modifying existing files in place (e.g. Claude's `Edit` tool). |
+| `web_fetch` | Web or HTTP fetch (e.g. Claude's `WebFetch`, doc-lookup sub-agents). |
+| `mcp_call` | Any tool routed through an MCP server, including server-specific tools. |
+
+Provider-specific tool names (Claude's `Edit`, Codex's `apply_patch`, MCP-routed tools, etc.) are mapped to these canonical categories by the harness adapter before policy evaluation.
+
+**Omit `allowedTools` to inherit the harness default tool surface.** When the field is absent, every category is available to the step. This is the right default for most steps — in particular for any step that needs to write code, fetch documentation, or call an MCP-server tool.
+
+**Declaring `allowedTools` is a strict allowlist.** Anything not listed is blocked by the `task_tool_filter` guard, including MCP-server tools (which all map to `mcp_call`). Writing `allowedTools: [shell, file_read]` therefore blocks both `WebFetch` and any MCP tool the step's skill might want to call — even when the skill seems to support them. If a step needs five of the six categories, list those five explicitly; do not enumerate all six "to be safe" — drop the field instead so the intent reads as "use the default surface" rather than "narrow surface that happens to include everything".
+
+**Read-only steps should keep the field narrow.** The workflow runtime infers read-only mode from `file_write` non-membership in `allowedTools`: a step with the field set and `file_write` absent is automatically marked read-only and skipped for worktree binding. Review and audit steps are the canonical use case — they inspect the project but do not mutate it. The runtime additionally enforces read-only at the guard layer: mutating shell commands (`git commit`, `mv`, `rm`, redirections, etc.) and `file_write`/`file_edit` are blocked even if `shell` is in the allowlist.
+
+Worked example — a research/discovery step that needs the network and MCP tools but does not write files:
+
+```yaml
+- id: research
+  name: External Research
+  type: custom
+  skill: andthen-documentation-lookup
+  # read-only: file_write absent → step is auto-marked read-only.
+  allowedTools: [shell, file_read, web_fetch, mcp_call]
+```
+
+Contrast a code-only review step that should never need network access:
+
+```yaml
+- id: review-code
+  name: Review Code
+  type: custom
+  skill: andthen-review
+  # read-only review: narrow surface; only inspects the working tree.
+  allowedTools: [shell, file_read]
+```
+
+A coding step that genuinely needs the full default surface (shell, file read/write/edit, web fetch, MCP) should simply omit the field:
+
+```yaml
+- id: implement
+  name: Implement Feature
+  type: custom
+  skill: andthen-exec-spec
+  # No allowedTools — inherits the harness default surface.
+```
+
 ### `approval` Steps
 
 `type: approval` inserts a human decision point into the workflow without creating a child task:
@@ -1050,7 +1106,7 @@ variables:
   name: Approve Plan
   type: approval
   prompt: Review the generated plan and approve before implementation starts.
-  contextInputs: [implementation_plan, acceptance_criteria]
+  inputs: [implementation_plan, acceptance_criteria]
 ```
 
 Key behaviors:
@@ -1134,7 +1190,7 @@ Constraints:
 - `continueSession` is not valid on `parallel: true` steps. Continuation requires a deterministic execution order.
 - Loop-boundary crossings are invalid. `continueSession` chains must stay linear or remain within the same loop.
 - Provider support is validated up front. If the selected provider does not support continuity, the definition is rejected before execution.
-- Built-in workflows now avoid `continueSession` on review/gap-analysis steps whose inputs are already re-rendered explicitly via `contextInputs`. Use continuation for true refinement chains or same-worktree validation follow-ups, not as a default on every downstream step.
+- Built-in workflows now avoid `continueSession` on review/gap-analysis steps whose inputs are already re-rendered explicitly via `inputs`. Use continuation for true refinement chains or same-worktree validation follow-ups, not as a default on every downstream step.
 - Role-aliased providers (`@executor`, `@reviewer`, `@planner`, `@workflow`) are accepted alongside `continueSession: true` and on multi-prompt steps — the validator no longer flags them as missing continuity support. The runtime resolves the alias to a concrete provider per the workflow's role mapping; if the resolved provider's family differs from the root step's provider, the executor logs a fallback warning and re-routes session continuity to the root provider rather than failing the step. Concrete provider names that do not support continuity (e.g. `gemini`) still produce a hard error at validation time.
 
 The most common downstream use is pairing `continueSession` with explicit worktree outputs:
@@ -1224,7 +1280,7 @@ stepDefaults:
     maxTokens: 100000
     maxCostUsd: 5.00
     maxRetries: 2
-    allowedTools: [Read, Write, Bash]
+    allowedTools: [shell, file_read, file_write, file_edit]
 ```
 
 First matching entry wins. `"*"` matches all steps (use as a catch-all at the end of the list).
@@ -1288,7 +1344,7 @@ Inline `type: loop` authoring in `steps:` is preferred for readability and autho
 ## Tips
 
 - **Keep prompts focused** — a step that does too much produces inconsistent output. Split at responsibility boundaries.
-- **Use `contextInputs` to document dependencies** — even when the validator doesn't enforce all references, explicit inputs make the data flow clear.
+- **Use `inputs` to document dependencies** — even when the validator doesn't enforce all references, explicit inputs make the data flow clear.
 - **Use a workflow workspace for execution behavior** — prefer `workflow.workspace_dir` when review/implementation steps need a stable, minimal behavior surface that is separate from the main interactive workspace.
 - **Start without `stepDefaults`** — add them once you know the per-step patterns. Premature defaults add configuration debt.
 - **Test with small examples** — run the workflow on a minimal input before using it on a large codebase. The plan step output shape determines what map steps can access.

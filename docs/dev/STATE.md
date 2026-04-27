@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-26 21:36 CEST
+Last Updated: 2026-04-27 13:18 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -38,6 +38,7 @@ Last Updated: 2026-04-26 21:36 CEST
 - S64 — Done (after HIGH remediation): Workflow test suite overhaul — Phase 0 stabilize (listener-race fix in `step_dispatcher` + `map_iteration_dispatcher`), Phase 1 honesty cleanup, Phase 2 behavioral gaps (bash escape on `{{VAR}}` for symmetry, schema strictness as warnings, max_parallel/loops parser tightening), Phase 3 executor-mega-file split, Phase 4 fakeAsync replaces real-time waits, Phase 5 unit-test additions. Phase 6 (fitness classification) deferred per FIS.
 - S66 — Done: Workflow schema and validator cleanups (Phase 26, parallel with Phase 25). Three small related changes shipped together: (1) `OutputConfig.setValue` slot with sentinel-backed round-trip preserves "explicitly null" vs "unset"; executor short-circuits extraction (including the legacy `extraction:` priority branch) and writes the literal verbatim on success only — failure/skip paths leave context untouched. (2) Validator alias-aware skip on `@`-prefixed providers at both `_validateMultiPromptProviders` and the `continueSession` hot spots; runtime fallback at `workflow_executor_helpers.dart:633` remains the safety net for resolved-provider mismatches; deferred full alias resolution flagged via `TODO(0.16.7+)`. (3) `outputs:` map keys now imply the context-write set (the deprecation window for `contextOutputs:` was superseded by S67's clean cut below). All three bundled built-in YAMLs migrated to outputs-only style and `dart run dartclaw_cli:dartclaw workflow validate` is clean for each.
 - S67 — Done: Workflow output declaration clean-cut. The S66 deprecation window for `contextOutputs:` was removed entirely — `outputs:` map keys are the only context-write declaration on every step kind, including foreach / `mapOver` controllers (single-key aggregate). The parser throws a `FormatException` with a one-line migration message on any surviving `contextOutputs:` YAML; `WorkflowStep.contextOutputs`/`authoredContextOutputs`/`effectiveContextOutputs` are gone, replaced by a single `outputKeys` getter derived from `outputs?.keys`. Built-in `plan-and-implement.yaml` foreach controller migrated to `outputs: { story_results: { format: json } }`; the validator's `format: json` schema-required rule now skips foreach controllers since their aggregate is system-generated. Test-suite parity at S66 baseline (15 known pre-existing failures in `workflow_builtin_integration_test` + `built_in_workflow_contracts_test`).
+- S68 — Done: Workflow input declaration rename. `contextInputs:` renamed to `inputs:` across the YAML schema, `WorkflowStep` model (field, JSON wire key, dartdoc), parser (both step kinds + foreach controller + inline-loop guards), validator, all internal call sites (incl. `SkillPromptBuilder.build` / `appendAutoFramedContext` named parameter and the resolved-show YAML emitter), the three bundled built-in YAMLs, server `workflow_detail.dart` + `workflow_step_detail.html` Trellis surface, and public + private docs. Parser throws a `FormatException` with a one-line migration message on any surviving `contextInputs:` YAML at any step kind. Canonical pair is now `inputs:` / `outputs:`. Test-suite parity at S66/S67 baseline (15 known pre-existing failures in `workflow_builtin_integration_test` + `built_in_workflow_contracts_test`).
 
 ## Next Planned
 
@@ -60,3 +61,9 @@ Last Updated: 2026-04-26 21:36 CEST
 - Two-step CLI onboarding: deterministic wizard for infrastructure config + conversational agent for personalization.
 - TUI/CLI package: `mason_logger` for the wizard; richer TUI libraries deferred until a REPL is in scope.
 - Multi-project architecture: project model, worktree integration, PR strategy.
+
+## Session Continuity Notes
+
+- [2026-04-27] S70 (Built-in Workflow allowedTools Audit and Relaxation) complete — 7 sites dropped, 7 relaxed to add web_fetch/mcp_call, 3 kept narrow for read-only inference; new docs subsection in workflows.md; CHANGELOG entry under [0.16.4] Changed.
+- [2026-04-27] S69 — Done: Workflow integration test fixture model-selection. E2EFixture executor/reviewer defaults dropped to `gpt-5.3-codex-spark`; five DARTCLAW_TEST_* env vars override at construction time (provider preset + per-role models); claude preset switches to opus-4-7/sonnet-4-6 with bypassPermissions. workflow_profile.yaml gained provider/model placeholder tokens with codex/claude goldens. merge_resolve_integration_test inherits fixture defaults. New TESTING-STRATEGY subsection + CHANGELOG entry.
+- [2026-04-27] S68 done — contextInputs:→inputs: rename across schema/model/parser/validator/server-templates/built-ins/docs; parser hard-errors on legacy contextInputs:; canonical pair is inputs:/outputs:.

@@ -295,7 +295,7 @@ void main() {
       final html = workflowStepDetailFragment(
         messagesHtml: '<div class="msg">Hello</div>',
         artifacts: const [],
-        contextInputs: const [],
+        inputs: const [],
         outputKeys: const [],
       );
       expect(html, contains('workflow-step-chat'));
@@ -306,7 +306,7 @@ void main() {
       final html = workflowStepDetailFragment(
         messagesHtml: null,
         artifacts: const [],
-        contextInputs: const [],
+        inputs: const [],
         outputKeys: const [],
       );
       expect(html, contains('No session started yet.'));
@@ -318,7 +318,7 @@ void main() {
         artifacts: [
           {'name': 'output.md', 'kindLabel': 'Document'},
         ],
-        contextInputs: const [],
+        inputs: const [],
         outputKeys: const [],
       );
       expect(html, contains('output.md'));
@@ -329,7 +329,7 @@ void main() {
       final html = workflowStepDetailFragment(
         messagesHtml: null,
         artifacts: const [],
-        contextInputs: const [],
+        inputs: const [],
         outputKeys: const [],
         tokenCount: 15000,
       );

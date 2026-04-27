@@ -264,7 +264,7 @@ void main() {
         review: StepReviewMode.always,
         parallel: true,
         gate: 'prev.status == done',
-        contextInputs: ['in_key'],
+        inputs: ['in_key'],
         outputs: {'out_key': OutputConfig()},
         extraction: ExtractionConfig(type: ExtractionType.jsonpath, pattern: r'$.result'),
         maxTokens: 10000,
@@ -285,7 +285,7 @@ void main() {
       expect(restored.review, StepReviewMode.always);
       expect(restored.parallel, true);
       expect(restored.gate, 'prev.status == done');
-      expect(restored.contextInputs, ['in_key']);
+      expect(restored.inputs, ['in_key']);
       expect(restored.outputKeys, contains('out_key'));
       expect(restored.extraction!.type, ExtractionType.jsonpath);
       expect(restored.extraction!.pattern, r'$.result');
@@ -300,7 +300,7 @@ void main() {
       expect(restored.type, 'research');
       expect(restored.review, StepReviewMode.codingOnly);
       expect(restored.parallel, false);
-      expect(restored.contextInputs, isEmpty);
+      expect(restored.inputs, isEmpty);
       expect(restored.outputKeys, isEmpty);
       expect(restored.extraction, isNull);
       expect(restored.maxTokens, isNull);
@@ -723,7 +723,7 @@ void main() {
         'type': 'research',
         'review': 'codingOnly',
         'parallel': false,
-        'contextInputs': <String>[],
+        'inputs': <String>[],
       };
       final step = WorkflowStep.fromJson(json);
       expect(step.prompts, ['Do it']);
@@ -739,7 +739,7 @@ void main() {
         'type': 'research',
         'review': 'codingOnly',
         'parallel': false,
-        'contextInputs': <String>[],
+        'inputs': <String>[],
       };
       final step = WorkflowStep.fromJson(json);
       expect(step.prompts, ['First', 'Second', 'Third']);
@@ -950,7 +950,7 @@ void main() {
         'type': 'research',
         'review': 'codingOnly',
         'parallel': false,
-        'contextInputs': <String>[],
+        'inputs': <String>[],
       };
       final step = WorkflowStep.fromJson(json);
       expect(step.type, 'research');

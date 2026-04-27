@@ -120,11 +120,11 @@ void main() {
     }
 
     for (final entry in declaredOutputsByWorkflow.entries) {
-      test('${entry.key} — every step.contextInputs entry matches a declared contextOutput in the same workflow', () {
+      test('${entry.key} — every step.inputs entry matches a declared contextOutput in the same workflow', () {
         final def = _load(entry.key);
         final declared = entry.value;
         for (final step in def.steps) {
-          for (final input in step.contextInputs) {
+          for (final input in step.inputs) {
             // The validator already enforces this (Surface 3 of the 2026-04-25
             // validator coverage audit is 'covered'). The test exists both as
             // defence-in-depth and to make it impossible to regress accidentally

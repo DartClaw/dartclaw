@@ -47,8 +47,8 @@ void main() {
       expect(result, "Use the 'my-skill' skill.\n\n## Key\n\nval");
     });
 
-    test('Case 2 contextInputs are not auto-framed (avoid duplication)', () {
-      // Regression: when the builder renders contextInputs as a markdown
+    test('Case 2 inputs are not auto-framed (avoid duplication)', () {
+      // Regression: when the builder renders inputs as a markdown
       // `## Pretty Name` summary (Case 2), auto-framing must not ALSO
       // append `<key>…</key>` blocks for the same keys — they are
       // already present as sections.
@@ -56,7 +56,7 @@ void main() {
       final result = builder.build(
         skill: 'my-skill',
         contextSummary: summary,
-        contextInputs: const ['plan', 'spec'],
+        inputs: const ['plan', 'spec'],
         resolvedInputValues: const {'plan': 'plan body', 'spec': 'spec body'},
       );
       expect(result, contains('## Plan\n\nplan body'));
@@ -66,13 +66,13 @@ void main() {
     });
 
     test('Case 2 still auto-frames workflow variables that are not part of the summary', () {
-      // The no-duplication guard targets contextInputs only — workflow
+      // The no-duplication guard targets inputs only — workflow
       // `variables:` are orthogonal and must still be auto-framed.
       final summary = SkillPromptBuilder.formatContextSummary({'plan': 'plan body'});
       final result = builder.build(
         skill: 'my-skill',
         contextSummary: summary,
-        contextInputs: const ['plan'],
+        inputs: const ['plan'],
         variables: const ['REQUIREMENTS'],
         resolvedInputValues: const {'plan': 'plan body', 'REQUIREMENTS': 'req body'},
       );
@@ -139,7 +139,7 @@ void main() {
     test('appends XML-framed blocks for each context input when absent', () {
       final result = SkillPromptBuilder.appendAutoFramedContext(
         'Do X',
-        contextInputs: const ['project_index', 'prd'],
+        inputs: const ['project_index', 'prd'],
         resolvedValues: const {'project_index': 'A', 'prd': 'B'},
       );
       expect(result, 'Do X\n\n<project_index>\nA\n</project_index>\n\n<prd>\nB\n</prd>');
@@ -148,7 +148,7 @@ void main() {
     test('skips keys that the prompt already contains as literal tags', () {
       final result = SkillPromptBuilder.appendAutoFramedContext(
         '<prd>inline</prd> Do X',
-        contextInputs: const ['project_index', 'prd'],
+        inputs: const ['project_index', 'prd'],
         resolvedValues: const {'project_index': 'A', 'prd': 'B'},
       );
       expect(result.contains('<project_index>\nA\n</project_index>'), isTrue);
@@ -158,7 +158,7 @@ void main() {
     test('skips keys the template references via {{context.key}}', () {
       final result = SkillPromptBuilder.appendAutoFramedContext(
         'Build using A',
-        contextInputs: const ['project_index', 'prd'],
+        inputs: const ['project_index', 'prd'],
         resolvedValues: const {'project_index': 'A', 'prd': 'B'},
         templatePrompt: 'Build using {{ context.prd }}',
       );
@@ -169,7 +169,7 @@ void main() {
     test('dotted keys normalize dots to underscores in the tag name', () {
       final result = SkillPromptBuilder.appendAutoFramedContext(
         'Do X',
-        contextInputs: const ['plan-review.findings_count'],
+        inputs: const ['plan-review.findings_count'],
         resolvedValues: const {'plan-review.findings_count': '7'},
       );
       expect(result, contains('<plan-review_findings_count>\n7\n</plan-review_findings_count>'));
@@ -180,7 +180,7 @@ void main() {
       // must not suppress auto-injection when the key is `prd`.
       final result = SkillPromptBuilder.appendAutoFramedContext(
         '<prdfoo>unrelated</prdfoo>',
-        contextInputs: const ['prd'],
+        inputs: const ['prd'],
         resolvedValues: const {'prd': 'B'},
       );
       expect(result, contains('<prd>\nB\n</prd>'));
@@ -189,7 +189,7 @@ void main() {
     test('tag-boundary detection: tag with attribute DOES suppress', () {
       final result = SkillPromptBuilder.appendAutoFramedContext(
         '<prd lang="en">inline</prd>',
-        contextInputs: const ['prd'],
+        inputs: const ['prd'],
         resolvedValues: const {'prd': 'B'},
       );
       expect(result, isNot(contains('<prd>\nB\n</prd>')));
@@ -198,7 +198,7 @@ void main() {
     test('empty resolved value renders as _(empty)_', () {
       final result = SkillPromptBuilder.appendAutoFramedContext(
         'Do X',
-        contextInputs: const ['prd'],
+        inputs: const ['prd'],
         resolvedValues: const {'prd': ''},
       );
       expect(result, contains('<prd>\n_(empty)_\n</prd>'));

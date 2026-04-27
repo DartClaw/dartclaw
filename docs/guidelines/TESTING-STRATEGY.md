@@ -164,6 +164,41 @@ test('ServiceWiring builds a server that serves / and /health', () async {
 });
 ```
 
+### Integration test model selection
+
+The workflow integration tier (`packages/dartclaw_workflow` Layer 4 suite, gated by `dart test -t integration`) runs against a default provider + per-role model preset baked into `E2EFixture`. Five environment variables let you swap that preset at run time without editing fixtures or test files:
+
+| Variable | Effect |
+|---|---|
+| `DARTCLAW_TEST_PROVIDER` | `codex` (default) or `claude`. Selects the preset for the four role models, the provider's executable, and the sandbox / `permissionMode` setting. |
+| `DARTCLAW_TEST_WORKFLOW_MODEL` | Overrides the `workflow` role model. |
+| `DARTCLAW_TEST_PLANNER_MODEL` | Overrides the `planner` role model. |
+| `DARTCLAW_TEST_EXECUTOR_MODEL` | Overrides the `executor` role model. |
+| `DARTCLAW_TEST_REVIEWER_MODEL` | Overrides the `reviewer` role model. |
+
+**Precedence**: explicit `E2EFixture(...)` constructor arg wins over env var, env var wins over preset default. Empty-string env vars are treated as unset.
+
+**Provider presets**:
+
+| Preset | Workflow / Planner | Executor / Reviewer | Sandbox | API key env var |
+|---|---|---|---|---|
+| `codex` (default) | `gpt-5.4` | `gpt-5.3-codex-spark` | `danger-full-access` | `CODEX_API_KEY` |
+| `claude` | `claude-opus-4-7` | `claude-sonnet-4-6` | `bypassPermissions` | `ANTHROPIC_API_KEY` |
+
+**Run the integration tier against Claude**:
+
+```bash
+DARTCLAW_TEST_PROVIDER=claude ANTHROPIC_API_KEY=... \
+  dart test packages/dartclaw_workflow -t integration
+```
+
+Mix-and-match works too — e.g. keep the codex provider but force a faster executor for a quick local sweep:
+
+```bash
+DARTCLAW_TEST_EXECUTOR_MODEL=gpt-5.3-codex-spark \
+  dart test packages/dartclaw_workflow -t integration
+```
+
 ### Visual / UI Smoke Tests (Manual)
 
 **What**: Browser-based visual validation of the HTMX web UI. Manual or agent-driven via `chrome-devtools` MCP / `agent-browser`.

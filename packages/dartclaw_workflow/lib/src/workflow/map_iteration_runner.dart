@@ -246,8 +246,8 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
             : null;
         final contextSummary = step.skill != null && resolvedPrompt == null
             ? SkillPromptBuilder.formatContextSummary({
-                for (final key in step.contextInputs) key: context[key] ?? '',
-              }, outputConfigs: _inputConfigsFor(definition, step.contextInputs))
+                for (final key in step.inputs) key: context[key] ?? '',
+              }, outputConfigs: _inputConfigsFor(definition, step.inputs))
             : null;
         final effectiveOutputs = _effectiveOutputsFor(step);
         final skillDefaultPrompt = _skillDefaultPromptFor(step);
@@ -261,7 +261,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
           outputKeys: step.outputKeys,
           skillDefaultPrompt: skillDefaultPrompt,
           autoFrameContext: step.autoFrameContext,
-          contextInputs: step.contextInputs,
+          inputs: step.inputs,
           variables: variableNames,
           resolvedInputValues: resolvedInputValues,
           templatePrompt: rawPrompt,

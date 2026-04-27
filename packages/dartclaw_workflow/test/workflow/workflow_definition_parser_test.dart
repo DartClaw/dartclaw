@@ -33,7 +33,7 @@ steps:
     review: always
     parallel: false
     gate: null
-    contextInputs: []
+    inputs: []
     outputs:
       research_result:
         format: text
@@ -48,7 +48,7 @@ steps:
     type: coding
     review: coding-only
     parallel: true
-    contextInputs:
+    inputs:
       - research_result
     outputs:
       impl_result:
@@ -218,7 +218,7 @@ void main() {
       expect(implement.type, 'coding');
       expect(implement.review, StepReviewMode.codingOnly);
       expect(implement.parallel, true);
-      expect(implement.contextInputs, ['research_result']);
+      expect(implement.inputs, ['research_result']);
       expect(implement.extraction!.type, ExtractionType.regex);
       expect(implement.extraction!.pattern, r'\d+');
 
@@ -570,7 +570,7 @@ steps:
       expect(def.steps[0].parallel, true);
     });
 
-    test('parses contextInputs as a string list and outputs as a map', () {
+    test('parses inputs as a string list and outputs as a map', () {
       final yaml = '''
 name: n
 description: d
@@ -578,7 +578,7 @@ steps:
   - id: s
     name: S
     prompt: p
-    contextInputs:
+    inputs:
       - in_a
       - in_b
     outputs:
@@ -586,7 +586,7 @@ steps:
         format: text
 ''';
       final def = parser.parse(yaml);
-      expect(def.steps[0].contextInputs, ['in_a', 'in_b']);
+      expect(def.steps[0].inputs, ['in_a', 'in_b']);
       expect(def.steps[0].outputKeys, ['out_c']);
     });
 
@@ -972,6 +972,81 @@ steps:
           final def = WorkflowDefinitionParser().parse(yaml);
           final step = def.steps[0];
           expect(step.outputKeys.toSet(), {'summary', 'count'});
+        });
+
+        test('parser throws FormatException on legacy contextInputs: with migration message', () {
+          const regularYaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    contextInputs: [foo]
+''';
+          expect(
+            () => WorkflowDefinitionParser().parse(regularYaml),
+            throwsA(
+              isA<FormatException>().having(
+                (e) => e.message,
+                'message',
+                allOf(
+                  contains("Step 's': contextInputs: is removed"),
+                  contains('declare context-read keys under inputs:'),
+                  contains('inputs: [project_index, prd]'),
+                ),
+              ),
+            ),
+          );
+          const foreachYaml = '''
+name: n
+description: d
+steps:
+  - id: ctrl
+    name: Controller
+    type: foreach
+    map_over: items
+    contextInputs: [foo]
+    steps:
+      - id: child
+        name: Child
+        prompt: p
+''';
+          expect(
+            () => WorkflowDefinitionParser().parse(foreachYaml),
+            throwsA(
+              isA<FormatException>().having(
+                (e) => e.message,
+                'message',
+                contains("Step 'ctrl': contextInputs: is removed"),
+              ),
+            ),
+          );
+          const loopYaml = '''
+name: n
+description: d
+steps:
+  - id: lp
+    name: Loop
+    type: loop
+    maxIterations: 2
+    exitGate: never
+    contextInputs: [foo]
+    steps:
+      - id: child
+        name: Child
+        prompt: p
+''';
+          expect(
+            () => WorkflowDefinitionParser().parse(loopYaml),
+            throwsA(
+              isA<FormatException>().having(
+                (e) => e.message,
+                'message',
+                contains("Step 'lp': contextInputs: is removed"),
+              ),
+            ),
+          );
         });
 
         test('contextOutputs removal error takes precedence over malformed outputs', () {
@@ -2279,7 +2354,7 @@ steps:
     name: Review PRD
     prompt: Review
     entryGate: "prd_source == synthesized"
-    contextInputs: [prd]
+    inputs: [prd]
 ''';
       final def = parser.parse(yaml);
       expect(def.steps[0].entryGate, isNull);

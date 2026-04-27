@@ -31,7 +31,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     return {...defaults, ...explicit};
   }
 
-  /// Resolved values for a step's contextInputs plus workflow variables used
+  /// Resolved values for a step's inputs plus workflow variables used
   /// by auto-framing.
   ///
   /// Context inputs render missing entries as `''` so the auto-frame pass can
@@ -44,7 +44,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     WorkflowDefinition definition,
     WorkflowContext context,
   ) {
-    final values = <String, Object?>{for (final key in step.contextInputs) key: context[key] ?? ''};
+    final values = <String, Object?>{for (final key in step.inputs) key: context[key] ?? ''};
     for (final entry in definition.variables.entries) {
       if (values.containsKey(entry.key)) continue;
       final resolved = context.variable(entry.key) ?? entry.value.defaultValue;
@@ -73,7 +73,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   // Workflow-level `variables` are opt-in per step. Only names listed in
   // `step.workflowVariables` are auto-framed as `<NAME>{value}</NAME>` blocks
   // on that step's prompt. Undeclared variables never reach unrelated steps
-  // (e.g. REQUIREMENTS must not land on discover-project). `contextInputs`
+  // (e.g. REQUIREMENTS must not land on discover-project). `inputs`
   // remains the declarative channel for upstream step outputs and is still
   // auto-framed by SkillPromptBuilder when `autoFrameContext` is true.
   List<String> _autoFrameVariableNames(WorkflowStep step) => step.workflowVariables;

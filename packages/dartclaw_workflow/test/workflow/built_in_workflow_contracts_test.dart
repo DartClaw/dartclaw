@@ -143,11 +143,19 @@ void main() {
   });
 
   group('Tool permissions — review steps are read-only, authoring steps may write', () {
-    test('every review step has allowedTools: [file_read] (no file_write)', () {
+    // Read-only review steps declare an explicit allowlist with `file_write`
+    // absent so step_config_policy.stepIsReadOnly returns true. Writeable
+    // review steps (those whose prompt invokes `--fix` to delegate
+    // remediation) intentionally omit allowedTools and inherit the harness
+    // default surface — they must not appear in this assertion.
+    const writeableReviewSteps = {'quick-review'};
+
+    test('read-only review steps declare allowedTools without file_write', () {
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
           if (!step.id.contains('review')) continue;
+          if (writeableReviewSteps.contains(step.id)) continue;
           expect(step.allowedTools, isNotNull, reason: '$file → review step "${step.id}" must declare allowedTools');
           expect(
             step.allowedTools,

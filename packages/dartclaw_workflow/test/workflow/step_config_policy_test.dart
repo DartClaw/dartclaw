@@ -59,7 +59,7 @@ void main() {
       expect(
         stepNeedsWorktree(
           definition,
-          const WorkflowStep(id: 'review', name: 'Review', contextInputs: ['project_index']),
+          const WorkflowStep(id: 'review', name: 'Review', inputs: ['project_index']),
           const ResolvedStepConfig(allowedTools: ['file_read']),
           resolvedWorktreeMode: 'inline',
         ),
@@ -106,7 +106,7 @@ void main() {
       expect(
         shouldBindWorkflowProject(
           definition,
-          const WorkflowStep(id: 'review', name: 'Review', contextInputs: ['project_index']),
+          const WorkflowStep(id: 'review', name: 'Review', inputs: ['project_index']),
           const ResolvedStepConfig(allowedTools: ['file_read']),
         ),
         isTrue,

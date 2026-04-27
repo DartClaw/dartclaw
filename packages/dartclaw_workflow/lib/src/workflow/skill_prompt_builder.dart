@@ -27,8 +27,8 @@ import 'prompt_augmenter.dart';
 ///   by the validator
 ///
 /// After construction, the builder auto-frames any unreferenced
-/// `contextInputs` / workflow `variables:` via [appendAutoFramedContext]
-/// (skipping the `contextInputs` list itself when Case 2 already rendered
+/// `inputs` / workflow `variables:` via [appendAutoFramedContext]
+/// (skipping the `inputs` list itself when Case 2 already rendered
 /// them as markdown sections, to avoid double-rendering), then delegates
 /// to [PromptAugmenter] for schema-driven output format section appendage
 /// (S01 integration).
@@ -64,7 +64,7 @@ class SkillPromptBuilder {
   /// [skillDefaultPrompt] is the skill's `workflow.default_prompt` from its
   /// SKILL.md frontmatter — used as the base prompt when a skill step omits
   /// its own `prompt:`.
-  /// [autoFrameContext], [contextInputs], [variables], [resolvedInputValues],
+  /// [autoFrameContext], [inputs], [variables], [resolvedInputValues],
   /// and [templatePrompt] drive the auto-framing pass (appends
   /// `<key>\n{value}\n</key>` blocks for context/variable keys that the
   /// author has not already referenced). See [appendAutoFramedContext].
@@ -86,7 +86,7 @@ class SkillPromptBuilder {
     bool emitStepOutcomeProtocol = false,
     String? skillDefaultPrompt,
     bool autoFrameContext = true,
-    List<String> contextInputs = const [],
+    List<String> inputs = const [],
     List<String> variables = const [],
     Map<String, Object?> resolvedInputValues = const {},
     String? templatePrompt,
@@ -128,19 +128,19 @@ class SkillPromptBuilder {
       prompt = effectiveResolvedPrompt ?? '';
     }
 
-    // Step 2: auto-frame any unreferenced contextInputs/variables so the
+    // Step 2: auto-frame any unreferenced inputs/variables so the
     // agent always receives the declared state, even when the authored
     // template body is pure prose.
     //
-    // When Case 2 used `contextSummary` as the body, the contextInputs
+    // When Case 2 used `contextSummary` as the body, the inputs
     // are already rendered as markdown sections — skip them in
     // auto-framing to avoid double-rendering every value. Workflow
     // `variables:` are still auto-framed because the summary only covers
-    // contextInputs.
+    // inputs.
     final framed = autoFrameContext
         ? appendAutoFramedContext(
             prompt,
-            contextInputs: caseUsedSummary ? const <String>[] : contextInputs,
+            inputs: caseUsedSummary ? const <String>[] : inputs,
             variables: variables,
             resolvedValues: resolvedInputValues,
             templatePrompt: templatePrompt,
@@ -175,16 +175,16 @@ class SkillPromptBuilder {
   /// convention used by [formatContextSummary] — so the agent sees that
   /// the contract was honoured but the producer returned nothing.
   ///
-  /// [contextInputs] are processed before [variables]; each key is visited
+  /// [inputs] are processed before [variables]; each key is visited
   /// at most once across both lists.
   static String appendAutoFramedContext(
     String prompt, {
-    List<String> contextInputs = const [],
+    List<String> inputs = const [],
     List<String> variables = const [],
     Map<String, Object?> resolvedValues = const {},
     String? templatePrompt,
   }) {
-    if (contextInputs.isEmpty && variables.isEmpty) return prompt;
+    if (inputs.isEmpty && variables.isEmpty) return prompt;
 
     final buf = StringBuffer(prompt);
     final seen = <String>{};
@@ -222,7 +222,7 @@ class SkillPromptBuilder {
       buf.write('\n\n<$tagName>\n$rendered\n</$tagName>');
     }
 
-    for (final key in contextInputs) {
+    for (final key in inputs) {
       maybeAppend(key, isContextInput: true);
     }
     for (final key in variables) {

@@ -13,11 +13,11 @@
 # - workflow.defaults.*.model               (per-role <provider>/<model>)
 
 port: 3333
-data_dir: "__DATA_DIR__"
+data_dir: "/tmp/dartclaw-test/data"
 
 agent:
-  provider: __AGENT_PROVIDER__
-  model: __AGENT_MODEL__
+  provider: claude
+  model: claude-opus-4-7
 
 gateway:
   auth_mode: token
@@ -25,26 +25,31 @@ gateway:
 guards:
   enabled: true
 
-__PROVIDERS_BLOCK__
+providers:
+  claude:
+    executable: claude
+    pool_size: 3
+    permissionMode: bypassPermissions
 
 credentials:
-  __PROVIDER_CREDENTIAL_BLOCK__
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
   github-main:
     type: github-token
     token: ${GITHUB_TOKEN}
     repository: DartClaw/workflow-test-todo-app
 
 workflow:
-  workspace_dir: "__WORKFLOW_WORKSPACE_DIR__"
+  workspace_dir: "/tmp/dartclaw-test/workflow-workspace"
   defaults:
     workflow:
-      model: __WORKFLOW_MODEL__
+      model: claude/claude-opus-4-7
     planner:
-      model: __PLANNER_MODEL__
+      model: claude/claude-opus-4-7
     executor:
-      model: __EXECUTOR_MODEL__
+      model: claude/claude-sonnet-4-6
     reviewer:
-      model: __REVIEWER_MODEL__
+      model: claude/claude-sonnet-4-6
 
 projects:
   workflow-test-todo-app:

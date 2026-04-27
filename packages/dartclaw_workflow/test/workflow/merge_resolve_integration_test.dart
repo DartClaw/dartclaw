@@ -230,12 +230,6 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
   final fixture = await E2EFixture()
       .withProject(_projectId, localPath: true, credentials: null, branch: 'main')
       .withProjectSetup(_setupLocalProject)
-      .withProvider(
-        value: 'codex',
-        workflowModel: 'gpt-5.4',
-        executorModel: 'gpt-5.3-codex',
-        sandbox: 'danger-full-access',
-      )
       .withPoolSize(3)
       .withLoggingLevel('FINE')
       .build();

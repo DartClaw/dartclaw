@@ -24,7 +24,7 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 - **Workflow control structures & node model**: first-class `foreach` and `story-pipeline` sub-pipelines with item-level crash recovery and per-item resume fidelity
 - **Workflow worktree + publish pipeline**: per-story worktrees, deterministic branch promotion/merge semantics, explicit project auth + GitHub token delivery, and a workflow-owned publish path producing a `publish.pr_url`
 - **`workflow show [--resolved] [--step <id>]`**: CLI + server endpoint that emits the fully merged workflow (variables, `stepDefaults`, skill defaults) as round-trippable YAML for debugging and audit
-- **Auto-framed context inputs**: the engine wraps unreferenced `contextInputs` / variables in XML tags during prompt assembly; `auto_frame_context: false` opts out per step
+- **Auto-framed context inputs**: the engine wraps unreferenced `inputs` / variables in XML tags during prompt assembly; `auto_frame_context: false` opts out per step
 - **Skill frontmatter defaults**: `workflow.default_prompt` and `workflow.default_outputs` on SKILL.md replace the per-skill `agents/openai.yaml` files across all built-in skills (the S30 re-port later unified `review-code` / `review-doc` / `review-gap` into a single `dartclaw-review` skill; end-of-release count is 11)
 - **Generalized step-level `entryGate`**: skip-on-false semantic with `StepSkippedEvent`, available on all step kinds (previously loop-only)
 - **File-based artifact transport**: `dartclaw-prd`/`dartclaw-plan`/`dartclaw-spec` skills write to disk and emit paths; `dartclaw-discover-project` publishes `artifact_locations` + `active_milestone`/`active_prd`/`active_plan`
@@ -41,6 +41,7 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 
 ### Changed
 
+- **Workflow integration test fixture**: `E2EFixture` executor/reviewer defaults dropped to `gpt-5.3-codex-spark`; new `DARTCLAW_TEST_PROVIDER` and `DARTCLAW_TEST_*_MODEL` env vars override fixture defaults at construction time
 - **Local-path branch inference**: `branch:` is now optional for `localPath:` projects. When omitted, workflow start/bootstrap resolves the effective branch from the checkout's current `HEAD`, while an explicit `branch:` still acts as a drift-detection guard
 - **`workflow run` is now connected-by-default**: the CLI uses the server API unless `--standalone` is explicitly requested
 - **Standalone safety guard**: `workflow run --standalone` aborts when a server is already running unless `--force` is provided
@@ -52,7 +53,7 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 - **Workflow authoring surface simplified**: `executionMode` / `execution_mode` was removed from workflow YAML and validation now rejects `format: json` outputs that omit a schema
 - **Workflow structured outputs**: JSON workflow outputs can now opt into `outputMode: structured`, which uses provider-native schema constraints and stores the structured payload directly on the workflow task for extraction
 - **Workflow structured-output happy path is now inline-first**: when a structured-output step already emits a valid `<workflow-context>` payload, DartClaw promotes that inline JSON directly and skips the extra extraction turn; provider-native schema extraction remains the fallback
-- **Built-in workflow continuation chains were tightened**: nine low-value `continueSession` edges across `plan-and-implement`, `spec-and-implement`, and `code-review` now start fresh sessions because their review-style inputs are already carried by `contextInputs`
+- **Built-in workflow continuation chains were tightened**: nine low-value `continueSession` edges across `plan-and-implement`, `spec-and-implement`, and `code-review` now start fresh sessions because their review-style inputs are already carried by `inputs`
 - **Breaking**: `WorkflowTaskConfigKeys` was renamed to `WorkflowTaskConfig`
 - **Standalone workflow CI ergonomics**: `workflow run --standalone --json` now emits structured lifecycle events in-process, and the standalone workflow guides now document CI usage, approval-step limitations, and explicit `codex-exec` sandbox configuration
 - **Codex auth guidance**: public docs now distinguish persistent `codex` auth from `codex-exec` CI usage and recommend `CODEX_API_KEY` for non-interactive `codex exec` flows while keeping `OPENAI_API_KEY` compatibility visible for the broader Codex provider family
@@ -74,7 +75,9 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 - **Token tracking cross-harness consistency**: `session_cost:*` now uses one canonical schema across interactive and workflow turns. `input_tokens` means fresh input everywhere, the workflow-only `new_input_tokens` field is gone, legacy rows are dropped on boot, and `effective_tokens` is exposed as the cache-weighted cross-harness cost signal. Codex session info now labels the metric as `Input (fresh)` and shows cached input separately.
 - **`dartclaw_workflow` package**: bumped 0.11.0 → 0.12.0 with migration notes for file-based artifact contract, generalized `entryGate`, `gitStrategy.artifacts`, and `externalArtifactMount`
 - **Breaking — workflow step output declaration**: `contextOutputs:` removed from the workflow YAML schema. `outputs:` map keys are the only declaration of which keys a step writes to context. Foreach / `mapOver` controllers also use `outputs:` (single key carrying the aggregate's `format`/`schema`). The validator throws a clear migration error if `contextOutputs:` is encountered. Built-in workflows updated.
+- **Breaking — workflow step input declaration**: `contextInputs:` renamed to `inputs:` in the workflow YAML schema. Pairs symmetrically with the `outputs:` map landed in S67. The validator throws a clear migration error if `contextInputs:` is encountered. Built-in workflows updated.
 - **Validator alias-awareness for `continueSession` and multi-prompt providers**: role-aliased providers (`@executor`, `@reviewer`, `@planner`, `@workflow`, …) are now skipped by the continuity-provider check at both validation hot spots. The runtime fallback in `WorkflowExecutor._resolveContinueSessionProvider` continues to detect family mismatches at execution time (warning + re-route to the root provider). Concrete provider names with no continuity support still produce a hard `unsupportedProviderCapability` error
+- **Built-in workflow tool surfaces relaxed**: `allowedTools:` audited per step across `plan-and-implement.yaml`, `spec-and-implement.yaml`, and `code-review.yaml`. Implementation and discovery steps now permit `file_edit`, `web_fetch`, and `mcp_call` where the assigned skill needs them; read-only review steps keep their narrow allowlist. Authors of new workflows: declaring `allowedTools:` is a strict allowlist — omit it to inherit the harness default tool surface.
 
 ### Fixed
 

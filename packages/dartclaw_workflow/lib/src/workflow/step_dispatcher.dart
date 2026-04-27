@@ -41,8 +41,8 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         : null;
     final contextSummary = step.skill != null && resolvedFirstPrompt == null
         ? SkillPromptBuilder.formatContextSummary({
-            for (final key in step.contextInputs) key: context[key] ?? '',
-          }, outputConfigs: _inputConfigsFor(definition, step.contextInputs))
+            for (final key in step.inputs) key: context[key] ?? '',
+          }, outputConfigs: _inputConfigsFor(definition, step.inputs))
         : null;
     final skillDefaultPrompt = _skillDefaultPromptFor(step);
     final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
@@ -128,7 +128,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             outputKeys: step.outputKeys,
             skillDefaultPrompt: skillDefaultPrompt,
             autoFrameContext: step.autoFrameContext,
-            contextInputs: step.contextInputs,
+            inputs: step.inputs,
             variables: variableNames,
             resolvedInputValues: resolvedInputValues,
             templatePrompt: step.prompts?.first,
@@ -143,7 +143,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             emitStepOutcomeProtocol: emitOutcomeProtocol,
             skillDefaultPrompt: skillDefaultPrompt,
             autoFrameContext: step.autoFrameContext,
-            contextInputs: step.contextInputs,
+            inputs: step.inputs,
             variables: variableNames,
             resolvedInputValues: resolvedInputValues,
             templatePrompt: step.prompts?.first,

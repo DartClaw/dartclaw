@@ -18,6 +18,7 @@
 - Artifact auto-commit returns `ArtifactCommitResult`; load-bearing per-map-item commit failures now fail the producing workflow step before downstream dispatch
 - `ContextExtractor` now resolves path-shaped outputs from `WorkflowGitPort.diffNameOnly`, verifies agent path claims, and limits structured-output extraction turns to narrative fields
 - **Breaking**: shipped `dartclaw-*` workflow skills removed (S51); workflow YAMLs reference `andthen-*` skills directly; `dartclaw-discover-project` and `dartclaw-validate-workflow` are the remaining DC-native built-in skills. Requires AndThen `>= 0.14.3` (standalone install with `andthen-` prefix)
+- **Breaking — workflow step input declaration**: `contextInputs:` renamed to `inputs:` in the workflow YAML schema. Pairs symmetrically with the `outputs:` map landed in S67. The validator throws a clear migration error if `contextInputs:` is encountered. Built-in workflows updated.
 
 ## 0.15.0
 

@@ -146,6 +146,7 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'map-auto-accept',
         description: 'Workflow-owned map tasks should unblock on accepted.',
+        project: '{{PROJECT}}',
         gitStrategy: const WorkflowGitStrategy(
           bootstrap: true,
           worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
@@ -156,8 +157,6 @@ void main() {
           WorkflowStep(
             id: 'implement',
             name: 'Implement Stories',
-            type: 'coding',
-            project: 'my-project',
             prompts: ['Implement {{map.item.id}}'],
             mapOver: 'stories',
             maxParallel: 1,
@@ -541,13 +540,12 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'test-wf',
         description: 'Project map test',
+        project: '{{PROJECT}}',
         steps: const [
           WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
-            type: 'coding',
-            project: 'my-app',
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
             maxParallel: 2,
@@ -558,7 +556,7 @@ void main() {
 
       final run = makeRun(definition);
       await repository.insert(run);
-      final context = WorkflowContext()..['stories'] = collection;
+      final context = WorkflowContext(variables: const {'PROJECT': 'my-app'})..['stories'] = collection;
 
       final projectIds = <String?>[];
       final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
@@ -582,12 +580,11 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'dependency-aware-map',
         description: 'Unknown dependency validation',
+        project: '{{PROJECT}}',
         steps: const [
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
-            type: 'coding',
-            project: 'my-project',
             prompts: ['Implement {{map.item.id}}'],
             mapOver: 'stories',
             maxParallel: 2,
@@ -619,12 +616,11 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'dependency-aware-map-shape',
         description: 'Shape validation',
+        project: '{{PROJECT}}',
         steps: const [
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
-            type: 'coding',
-            project: 'my-project',
             prompts: ['Implement {{map.item.id}}'],
             mapOver: 'stories',
             maxParallel: 2,
@@ -1575,6 +1571,7 @@ steps:
       final definition = WorkflowDefinition(
         name: 'promotion-aware-foreach',
         description: 'Promotion-aware dependency gating',
+        project: '{{PROJECT}}',
         gitStrategy: const WorkflowGitStrategy(
           bootstrap: true,
           worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
@@ -1591,13 +1588,7 @@ steps:
             maxParallel: 2,
             outputs: {'story_results': OutputConfig()},
           ),
-          WorkflowStep(
-            id: 'implement',
-            name: 'Implement',
-            type: 'coding',
-            project: 'my-project',
-            prompts: ['Implement {{map.item.id}}'],
-          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{map.item.id}}']),
         ],
       );
 

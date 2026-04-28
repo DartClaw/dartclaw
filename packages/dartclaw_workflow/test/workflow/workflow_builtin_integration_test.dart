@@ -86,6 +86,14 @@ class _StubResponse {
   const _StubResponse({required this.assistantContent, this.worktreeJson});
 }
 
+_StubResponse _architectureReviewStub() => _StubResponse(
+  assistantContent: _contextOutput({
+    'architecture_review_findings': '/tmp/dartclaw-test-architecture-review.md',
+    'findings_count': 0,
+    'architecture-review.findings_count': 0,
+  }),
+);
+
 class _QueuedStep {
   final WorkflowDefinition definition;
   final Task task;
@@ -300,6 +308,7 @@ void main() {
     final planPath = (decoded['plan'] as String?) ?? discoveredPlanPath;
     writeRelative(planPath);
     writeRelative(decoded['spec_path'] as String?);
+    writeRelative(decoded['architecture_review_findings'] as String?);
     final planDir = planPath == null || planPath.trim().isEmpty ? null : p.dirname(planPath.trim());
     final activeStorySpecs = projectIndexMap is Map ? projectIndexMap['active_story_specs'] : null;
     final storySpecs = decoded['story_specs'] ?? activeStorySpecs;
@@ -537,6 +546,7 @@ void main() {
           'update-state' => _StubResponse(
             assistantContent: _contextOutput({'state_update_summary': 'State updated cleanly'}),
           ),
+          'architecture-review' => _architectureReviewStub(),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -584,6 +594,7 @@ void main() {
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _architectureReviewStub(),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -637,6 +648,7 @@ void main() {
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _architectureReviewStub(),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -694,6 +706,7 @@ void main() {
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          'architecture-review' => _architectureReviewStub(),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -756,6 +769,7 @@ void main() {
             'update-state' => _StubResponse(
               assistantContent: _contextOutput({'state_update_summary': 'State updated after remediation'}),
             ),
+            'architecture-review' => _architectureReviewStub(),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
         },
@@ -880,6 +894,7 @@ void main() {
             'update-state' => _StubResponse(
               assistantContent: _contextOutput({'state_update_summary': 'State updated cleanly'}),
             ),
+            'architecture-review' => _architectureReviewStub(),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
         },
@@ -2270,6 +2285,13 @@ void main() {
                 'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
                 'findings_count': 0,
                 're-review.findings_count': 0,
+              }),
+            ),
+            'architecture-review' => _StubResponse(
+              assistantContent: _contextOutput({
+                'architecture_review_findings': '/tmp/dartclaw-test-architecture-review.md',
+                'findings_count': 0,
+                'architecture-review.findings_count': 0,
               }),
             ),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),

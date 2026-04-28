@@ -450,8 +450,8 @@ automation:
       enabled: true
       task:
         title: Daily maintenance review
+        task_type: "coding"
         description: Review open maintenance items and prepare follow-up work.
-        type: coding
         acceptance_criteria: Tests stay green and the worktree is ready for review.
         auto_start: true
 ```

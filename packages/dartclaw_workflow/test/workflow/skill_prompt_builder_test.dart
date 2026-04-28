@@ -343,7 +343,7 @@ void main() {
           'story_result': const OutputConfig(format: OutputFormat.text, schema: 'story-result', description: '   '),
         },
       );
-      expect(result, contains('Summary of what was implemented'));
+      expect(result, contains('unrelated sibling or baseline failures are non-blocking'));
     });
 
     test('non-string Map value renders via Dart toString (debug format)', () {

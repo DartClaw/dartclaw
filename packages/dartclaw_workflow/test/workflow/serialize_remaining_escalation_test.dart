@@ -157,6 +157,7 @@ void main() {
     return WorkflowDefinition(
       name: 'mr-wf',
       description: 'Merge-resolve test workflow',
+      project: '{{PROJECT}}',
       gitStrategy: WorkflowGitStrategy(
         bootstrap: true,
         worktree: const WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
@@ -180,13 +181,7 @@ void main() {
           foreachSteps: const ['implement'],
           outputs: const {'results': OutputConfig()},
         ),
-        WorkflowStep(
-          id: 'implement',
-          name: 'Implement Story',
-          type: 'coding',
-          project: 'test-project',
-          prompts: const ['Implement {{map.item.id}}'],
-        ),
+        WorkflowStep(id: 'implement', name: 'Implement Story', prompts: const ['Implement {{map.item.id}}']),
       ],
     );
   }
@@ -546,6 +541,7 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'mr-disabled',
         description: 'merge-resolve disabled',
+        project: '{{PROJECT}}',
         gitStrategy: const WorkflowGitStrategy(
           bootstrap: true,
           worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
@@ -557,8 +553,6 @@ void main() {
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
-            type: 'coding',
-            project: 'test-project',
             prompts: ['Implement {{map.item.id}}'],
             mapOver: 'stories',
             maxParallel: 2,

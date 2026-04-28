@@ -12,6 +12,7 @@
 - `SkillRegistryImpl.validateRef` now includes the AndThen install command (`scripts/install-skills.sh`) in the error message when an `andthen-*` skill ref is missing, satisfying ADR-025 requirement for a clear missing-prerequisite error
 
 ### Changed
+- **Breaking** (workflow YAML, 2026-04-28): `step.type` vocabulary is now closed at `{agent, bash, approval, foreach, loop}`. The agent-step marker is renamed from `"custom"` to `"agent"` (or omit `"type:"` entirely — `"agent"` is the default). Semantic values `"coding"`, `"analysis"`, `"research"`, `"writing"`, `"automation"` are removed and fail validation. Per-step `"project:"` and `"review:"` fields are removed (workflow-level `"project:"` only; review is expressed via dedicated review/approval steps). Closes the deprecation window opened by ADR-024 in 0.16.4 S41.
 - Workflow step spawn creates `AgentExecution` + `WorkflowStepExecution` + `Task` atomically in a single transaction; `Task.configJson` is sanitized on spawn so `_workflow*` keys and `model` no longer round-trip through the task row (`model` is canonical on `AgentExecution`)
 - Workflow execution now relies on the shared `AgentExecution` primitive end-to-end: the public task payload shape is nested, the workflow/task boundary is guarded by explicit fitness checks, and workflow metadata is expected to flow through `WorkflowStepExecution` rather than task-owned JSON blobs
 - Workflow task spawn now fails fast with a clear `StateError` when `AgentExecution`/`WorkflowStepExecution` persistence is not wired, instead of silently falling back to the legacy `_workflow*` task-config path. Hosts that previously spawned workflow tasks without the execution repositories must now supply `taskRepository`, `agentExecutionRepository`, `workflowStepExecutionRepository`, and `executionTransactor` (or accept the run pausing with the fail-fast error)
@@ -22,11 +23,11 @@
 
 ## 0.15.0
 
-- **Changed**: workflow-spawned tasks now auto-advance by default. Omitted `review:` and `review: coding-only` now map to task `reviewMode: auto-accept`; only explicit `review: always` keeps a workflow step parked in review for human intervention.
+- **Changed**: workflow-spawned tasks now use task `reviewMode: auto-accept`; human checkpoints are modeled with dedicated review or `approval` steps.
 - **Changed**: omitted `gitStrategy.promotion` is now inferred from the resolved worktree mode instead of being repeated in every shipped workflow. Isolated per-map-item scopes still default to merge promotion; inline/shared scopes default to no promotion.
 - **Changed**: `gitStrategy.worktree` now accepts `auto` and `inline`. Omitted or authored `auto` resolves to `per-map-item` only when a map/foreach scope runs with `max_parallel > 1`, otherwise it resolves to `inline`. Shipped `plan-and-implement.yaml` and its mirrors now use `worktree: auto`.
-- **Changed**: shipped `plan-and-implement.yaml`, `spec-and-implement.yaml`, and `code-review.yaml` plus the profile mirrors drop redundant `review:` and `promotion:` boilerplate where the engine now infers the same behavior.
-- Migration: external workflows that intentionally need a human checkpoint on a coding step must now say `review: always` explicitly. External workflows that previously copied `promotion: merge` or `worktree: per-map-item` purely to preserve the shipped defaults can remove those fields or switch to `worktree: auto`.
+- **Changed**: shipped `plan-and-implement.yaml`, `spec-and-implement.yaml`, and `code-review.yaml` plus the profile mirrors drop redundant `review:` and `promotion:` boilerplate where the engine now infers or structurally models the same behavior.
+- Migration: external workflows that intentionally need a human checkpoint should add a dedicated review or `approval` step. External workflows that previously copied `promotion: merge` or `worktree: per-map-item` purely to preserve the shipped defaults can remove those fields or switch to `worktree: auto`.
 
 ## 0.14.0
 

@@ -115,7 +115,7 @@ channels:
     task_trigger:
       enabled: true
       prefix: "task:"
-      default_type: coding
+      default_type: "coding"
       auto_start: true
     space_events:
       enabled: true
@@ -487,7 +487,6 @@ channels:
         name: "Workshop A"
         model: haiku
         effort: low
-        project: proj-workshop-a
       - "120363099999999999@g.us"   # plain string still works
 ```
 
@@ -500,7 +499,6 @@ channels:
         name: "Engineering Room"
         model: sonnet
         effort: medium
-        project: proj-eng
       - "spaces/DDDEEEFFF"         # plain string still works
 ```
 

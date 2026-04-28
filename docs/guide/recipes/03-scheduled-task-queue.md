@@ -152,12 +152,13 @@ You can create tasks on a schedule via `automation.scheduled_tasks`:
 automation:
   scheduled_tasks:
     - id: daily-review
-      cron_expression: "0 9 * * *"
+      schedule: "0 9 * * *"
       enabled: true
-      title: "Daily code review"
-      description: "Review recent changes and flag issues"
-      type: research
-      auto_start: true
+      task:
+        title: "Daily code review"
+        task_type: "coding"
+        description: "Review recent changes and flag issues"
+        auto_start: true
 ```
 
 Or create tasks from WhatsApp/Signal/Google Chat via [channel-to-task triggers](_common-patterns.md#channel-to-task-integration-09). Use cron jobs for lightweight, recurring prompts; use tasks when you need structured review, artifacts, or multi-step work.

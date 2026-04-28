@@ -154,34 +154,7 @@ void main() {
       });
     });
 
-    group('deprecation warnings', () {
-      test('warns when step project duplicates workflow-level project', () {
-        final def = WorkflowDefinition(
-          name: 'wf',
-          description: 'd',
-          project: '{{PROJECT}}',
-          variables: const {'PROJECT': WorkflowVariable(required: false, defaultValue: 'demo-project')},
-          steps: const [
-            WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], project: '{{PROJECT}}'),
-          ],
-        );
-        final warnings = validator.validate(def).warnings;
-        expect(warnings.any((w) => w.message.contains('duplicates the workflow-level project binding')), isTrue);
-      });
-
-      test('emits one semantic type warning per definition', () {
-        final def = WorkflowDefinition(
-          name: 'wf',
-          description: 'd',
-          steps: const [
-            WorkflowStep(id: 'discover', name: 'Discover', prompts: ['p'], type: 'research', typeAuthored: true),
-            WorkflowStep(id: 'review', name: 'Review', prompts: ['p'], type: 'analysis', typeAuthored: true),
-          ],
-        );
-        final warnings = validator.validate(def).warnings;
-        expect(warnings.where((w) => w.message.contains('Semantic step types')).length, 1);
-      });
-
+    group('removed fields', () {
       group('contextOutputs removal', () {
         test('parser throws on contextOutputs: with migration message', () {
           const yaml = '''
@@ -310,16 +283,6 @@ steps:
         final def = _buildDef(steps: [_step(prompt: 'Use {{context.key}}')]);
         final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), false);
-      });
-
-      test('undeclared variable in project field produces invalidReference error', () {
-        final def = _buildDef(
-          steps: [
-            WorkflowStep(id: 's1', name: 'S', prompts: ['p'], project: '{{UNDECLARED}}'),
-          ],
-        );
-        final errors = validator.validate(def).errors;
-        expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), true);
       });
 
       test('workflowVariables entry missing from variables block produces invalidReference error', () {
@@ -1311,7 +1274,7 @@ steps:
   });
 
   group('hybrid step validation rules', () {
-    test('unknown step type produces a warning, not an error', () {
+    test('unknown step type produces an error', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
@@ -1320,16 +1283,20 @@ steps:
         ],
       );
       final report = validator.validate(def);
-      expect(report.errors, isEmpty);
       expect(
-        report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint && w.stepId == 's'),
+        report.errors.any(
+          (e) =>
+              e.type == ValidationErrorType.hybridStepConstraint &&
+              e.stepId == 's' &&
+              e.message.contains('uses removed step type "unknown-future-type"'),
+        ),
         isTrue,
-        reason: 'Unknown type should produce a warning',
+        reason: 'Unknown type should produce an error',
       );
     });
 
-    test('known types produce no hybrid warning', () {
-      for (final type in ['research', 'analysis', 'writing', 'coding', 'automation', 'custom', 'bash', 'approval']) {
+    test('known types produce no hybrid type error', () {
+      for (final type in ['agent', 'bash', 'approval', 'foreach', 'loop']) {
         final def = WorkflowDefinition(
           name: 'wf',
           description: 'd',
@@ -1339,10 +1306,30 @@ steps:
         );
         final report = validator.validate(def);
         expect(
-          report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint),
+          report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint),
           isFalse,
-          reason: 'Known type "$type" should not produce a hybrid type warning',
+          reason: 'Known type "$type" should not produce a hybrid type error',
         );
+      }
+    });
+
+    test('legacy semantic and custom types produce hard errors', () {
+      for (final type in ['coding', 'analysis', 'research', 'writing', 'automation', 'custom']) {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: [
+            WorkflowStep(id: 's-$type', name: 'S', type: type, prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.stepId == 's-$type' && e.message.contains('uses removed step type "$type"')),
+          isTrue,
+        );
+        if (type == 'custom') {
+          expect(report.errors.single.message, contains('renamed to "agent"'));
+        }
       }
     });
 
@@ -1840,8 +1827,9 @@ steps:
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
-        steps: const [
-          WorkflowStep(id: 's', name: 'S', type: 'future-type', prompts: ['p']),
+        steps: const [WorkflowStep(id: 's', name: 'S', type: 'approval')],
+        loops: [
+          WorkflowLoop(id: 'loop', steps: ['s'], maxIterations: 1, exitGate: 's.done == true'),
         ],
       );
       final report = validator.validate(def);

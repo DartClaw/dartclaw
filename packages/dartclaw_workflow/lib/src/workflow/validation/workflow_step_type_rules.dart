@@ -1,62 +1,6 @@
 part of '../workflow_definition_validator.dart';
 
 extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
-  void _validateDeprecationWarnings(WorkflowDefinition definition, List<ValidationError> warnings) {
-    final defaultVariables = {
-      for (final entry in definition.variables.entries)
-        if (entry.value.defaultValue != null) entry.key: entry.value.defaultValue!,
-    };
-    final comparisonContext = WorkflowContext(variables: defaultVariables);
-    final workflowProject = definition.project;
-    if (workflowProject != null) {
-      final resolvedWorkflowProject = _resolveProjectTemplate(workflowProject, comparisonContext);
-      for (final step in definition.steps) {
-        final stepProject = step.project;
-        if (stepProject == null) continue;
-        final resolvedStepProject = _resolveProjectTemplate(stepProject, comparisonContext);
-        final sameProject =
-            stepProject.trim() == workflowProject.trim() ||
-            (resolvedWorkflowProject != null &&
-                resolvedStepProject != null &&
-                resolvedWorkflowProject == resolvedStepProject);
-        if (!sameProject) continue;
-        warnings.add(
-          ValidationError(
-            message:
-                'Step "${step.id}" declares a project that duplicates the workflow-level project binding. '
-                'Remove the redundant step-level "project:" declaration.',
-            type: ValidationErrorType.contextInconsistency,
-            stepId: step.id,
-          ),
-        );
-      }
-    }
-
-    final semanticSteps = definition.steps
-        .where((step) => step.typeAuthored && WorkflowDefinitionValidator._semanticStepTypes.contains(step.type))
-        .toList(growable: false);
-    if (semanticSteps.isNotEmpty) {
-      warnings.add(
-        ValidationError(
-          message:
-              'Semantic step types (${semanticSteps.map((step) => '"${step.type}"').toSet().join(', ')}) are deprecated '
-              'for workflow engine decisions and are retained as observability labels only.',
-          type: ValidationErrorType.contextInconsistency,
-          stepId: semanticSteps.first.id,
-        ),
-      );
-    }
-  }
-
-  String? _resolveProjectTemplate(String template, WorkflowContext context) {
-    try {
-      final resolved = _engine.resolve(template, context).trim();
-      return resolved.isEmpty ? null : resolved;
-    } on ArgumentError {
-      return null;
-    }
-  }
-
   /// Validates the `as:` loop variable name on map/foreach controllers.
   ///
   /// Parser enforces shape and reserved names (`map` / `context`); the
@@ -143,6 +87,8 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
     List<ValidationError> warnings,
     Set<String>? continuityProviders,
   ) {
+    const removedAgentStepMarker = 'custom';
+
     // Build loop membership maps.
     final stepToLoop = <String, String>{}; // stepId -> loopId
     for (final loop in definition.loops) {
@@ -152,14 +98,16 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
     }
 
     for (final step in definition.steps) {
-      // Unknown step type — warning (forward-compatible authoring).
       if (!WorkflowDefinitionValidator._knownTypes.contains(step.type)) {
-        warnings.add(
+        final renameHint = step.type == removedAgentStepMarker
+            ? ' The agent-step marker has been renamed to "agent".'
+            : '';
+        errors.add(
           ValidationError(
             message:
-                'Step "${step.id}" uses unknown type "${step.type}". '
-                'This may be a typo or a future step type. '
-                'The step will be loaded but may not execute as expected.',
+                'Step "${step.id}" uses removed step type "${step.type}". '
+                'Supported types: agent, bash, approval, foreach, loop. '
+                'Omit "type:" entirely for agent steps (the default).$renameHint',
             type: ValidationErrorType.hybridStepConstraint,
             stepId: step.id,
           ),

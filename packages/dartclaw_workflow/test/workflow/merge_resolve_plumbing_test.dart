@@ -12,12 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_models/dartclaw_models.dart'
-    show
-        MergeResolveConfig,
-        MergeResolveEscalation,
-        SessionType,
-        WorkflowGitStrategy,
-        WorkflowGitWorktreeStrategy;
+    show MergeResolveConfig, MergeResolveEscalation, SessionType, WorkflowGitStrategy, WorkflowGitWorktreeStrategy;
 import 'package:path/path.dart' as p;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -57,6 +52,7 @@ WorkflowDefinition _mergeResolveDef({
   return WorkflowDefinition(
     name: 'mr-test',
     description: 'merge-resolve plumbing test',
+    project: '{{PROJECT}}',
     gitStrategy: WorkflowGitStrategy(
       bootstrap: true,
       worktree: const WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
@@ -77,13 +73,7 @@ WorkflowDefinition _mergeResolveDef({
         foreachSteps: ['impl'],
         maxParallel: 1,
       ),
-      WorkflowStep(
-        id: 'impl',
-        name: 'Implement',
-        type: 'coding',
-        project: 'proj1',
-        prompts: ['Implement {{map.item.id}}'],
-      ),
+      WorkflowStep(id: 'impl', name: 'Implement', prompts: ['Implement {{map.item.id}}']),
     ],
   );
 }
@@ -106,11 +96,14 @@ String _mergeResolveMessage({
 
 /// Sets worktreeJson on [taskId] to simulate a per-map-item worktree binding.
 Future<void> _bindWorktree(WorkflowExecutorHarness h, String taskId, String tempDirPath) async {
-  await h.taskService.updateFields(taskId, worktreeJson: {
-    'path': p.join(tempDirPath, 'worktrees', taskId),
-    'branch': 'story-$taskId',
-    'createdAt': DateTime.now().toIso8601String(),
-  });
+  await h.taskService.updateFields(
+    taskId,
+    worktreeJson: {
+      'path': p.join(tempDirPath, 'worktrees', taskId),
+      'branch': 'story-$taskId',
+      'createdAt': DateTime.now().toIso8601String(),
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +123,7 @@ void main() {
     final def = WorkflowDefinition(
       name: 'mr-disabled',
       description: 'disabled merge resolve',
+      project: '{{PROJECT}}',
       gitStrategy: const WorkflowGitStrategy(
         bootstrap: true,
         worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
@@ -145,13 +139,7 @@ void main() {
           foreachSteps: ['impl'],
           maxParallel: 1,
         ),
-        WorkflowStep(
-          id: 'impl',
-          name: 'Implement',
-          type: 'coding',
-          project: 'proj1',
-          prompts: ['Implement {{map.item.id}}'],
-        ),
+        WorkflowStep(id: 'impl', name: 'Implement', prompts: ['Implement {{map.item.id}}']),
       ],
     );
 
@@ -165,14 +153,19 @@ void main() {
       definitionJson: def.toJson(),
     );
     await h.repository.insert(run);
-    final context = WorkflowContext(data: {
-      'stories': [
-        {'id': 'S01'},
-      ],
-    }, variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'});
+    final context = WorkflowContext(
+      data: {
+        'stories': [
+          {'id': 'S01'},
+        ],
+      },
+      variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+    );
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       taskCount++;
       await _bindWorktree(h, e.taskId, h.tempDir.path);
       await Future<void>.delayed(Duration.zero);
@@ -187,8 +180,14 @@ void main() {
         bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
             const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
         promoteWorkflowBranch:
-            ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async =>
-                const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
       ),
     );
 
@@ -217,15 +216,20 @@ void main() {
       definitionJson: def.toJson(),
     );
     await h.repository.insert(run);
-    final context = WorkflowContext(data: {
-      'stories': [
-        {'id': 'S01'},
-      ],
-    }, variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'});
+    final context = WorkflowContext(
+      data: {
+        'stories': [
+          {'id': 'S01'},
+        ],
+      },
+      variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+    );
 
     var taskCount = 0;
     String? firstTaskId;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       taskCount++;
       await Future<void>.delayed(Duration.zero);
       final task = await h.taskService.get(e.taskId);
@@ -255,7 +259,14 @@ void main() {
         bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
             const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
         promoteWorkflowBranch:
-            ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async {
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
               if (firstPromotion) {
                 firstPromotion = false;
                 return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict');
@@ -311,15 +322,20 @@ void main() {
       definitionJson: def.toJson(),
     );
     await h.repository.insert(run);
-    final context = WorkflowContext(data: {
-      'stories': [
-        {'id': 'S01'},
-      ],
-    }, variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'});
+    final context = WorkflowContext(
+      data: {
+        'stories': [
+          {'id': 'S01'},
+        ],
+      },
+      variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+    );
 
     var taskCount = 0;
     String? storyTaskId;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       taskCount++;
       await Future<void>.delayed(Duration.zero);
       final task = await h.taskService.get(e.taskId);
@@ -346,8 +362,14 @@ void main() {
         bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
             const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
         promoteWorkflowBranch:
-            ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async =>
-                const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-exhaust',
         captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
             (sha: 'sha-exhaust', isDirty: false, cleanupError: null),
@@ -411,7 +433,9 @@ void main() {
     );
 
     String? storyTaskId;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
@@ -442,10 +466,20 @@ void main() {
         bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
             const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
         promoteWorkflowBranch:
-            ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async {
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
               if (firstPromotion) {
                 firstPromotion = false;
-                return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/crash.dart'], details: 'crash conflict');
+                return const WorkflowGitPromotionConflict(
+                  conflictingFiles: ['lib/crash.dart'],
+                  details: 'crash conflict',
+                );
               }
               return const WorkflowGitPromotionSuccess(commitSha: 'crash-resolved');
             },
@@ -475,85 +509,100 @@ void main() {
   // Cancellation mid-attempt
   // ---------------------------------------------------------------------------
 
-  test('cancellation mid-attempt — run fails, no further attempts launched, artifact records outcome=cancelled', () async {
-    final def = _mergeResolveDef(maxAttempts: 3);
-    final run = WorkflowRun(
-      id: 'run-cancel',
-      definitionName: def.name,
-      status: WorkflowRunStatus.running,
-      startedAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      variablesJson: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
-      definitionJson: def.toJson(),
-    );
-    await h.repository.insert(run);
-    final context = WorkflowContext(data: {
-      'stories': [
-        {'id': 'S01'},
-      ],
-    }, variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'});
+  test(
+    'cancellation mid-attempt — run fails, no further attempts launched, artifact records outcome=cancelled',
+    () async {
+      final def = _mergeResolveDef(maxAttempts: 3);
+      final run = WorkflowRun(
+        id: 'run-cancel',
+        definitionName: def.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+        definitionJson: def.toJson(),
+      );
+      await h.repository.insert(run);
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+          ],
+        },
+        variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+      );
 
-    var taskCount = 0;
-    String? storyTaskId;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
-      taskCount++;
-      await Future<void>.delayed(Duration.zero);
-      final task = await h.taskService.get(e.taskId);
-      if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
-        await h.completeTask(e.taskId, status: TaskStatus.cancelled);
-      } else {
-        storyTaskId = e.taskId;
-        await _bindWorktree(h, e.taskId, h.tempDir.path);
-        await h.completeTask(e.taskId);
-      }
-    });
+      var taskCount = 0;
+      String? storyTaskId;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskCount++;
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
+          await h.completeTask(e.taskId, status: TaskStatus.cancelled);
+        } else {
+          storyTaskId = e.taskId;
+          await _bindWorktree(h, e.taskId, h.tempDir.path);
+          await h.completeTask(e.taskId);
+        }
+      });
 
-    bool firstPromotion = true;
-    final executor = h.makeExecutor(
-      turnAdapter: WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-cancel'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
-        promoteWorkflowBranch:
-            ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async {
-              if (firstPromotion) {
-                firstPromotion = false;
-                return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict');
-              }
-              return const WorkflowGitPromotionSuccess(commitSha: 'should-not-reach');
-            },
-        captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-cancel',
-        captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
-            (sha: 'sha-cancel', isDirty: false, cleanupError: null),
-      ),
-    );
+      bool firstPromotion = true;
+      final executor = h.makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-cancel'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
+          promoteWorkflowBranch:
+              ({
+                required runId,
+                required projectId,
+                required branch,
+                required integrationBranch,
+                required strategy,
+                String? storyId,
+              }) async {
+                if (firstPromotion) {
+                  firstPromotion = false;
+                  return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict');
+                }
+                return const WorkflowGitPromotionSuccess(commitSha: 'should-not-reach');
+              },
+          captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-cancel',
+          captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
+              (sha: 'sha-cancel', isDirty: false, cleanupError: null),
+        ),
+      );
 
-    await executor.execute(run, def, context);
-    await sub.cancel();
+      await executor.execute(run, def, context);
+      await sub.cancel();
 
-    // 1 story task + 1 merge-resolve skill task (cancelled); no further retry.
-    expect(taskCount, equals(2));
-    final finalRun = await h.repository.getById(run.id);
-    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      // 1 story task + 1 merge-resolve skill task (cancelled); no further retry.
+      expect(taskCount, equals(2));
+      final finalRun = await h.repository.getById(run.id);
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
 
-    // M1 (2026-04-26 gap reviews): the cancelled-task artifact must record
-    // `outcome: cancelled` per PRD FR3 + Flow 4. Previously defaulted to
-    // 'failed' because cancelled tasks skip output extraction.
-    expect(storyTaskId, isNotNull);
-    final artifacts = await h.taskRepository.listArtifactsByTask(storyTaskId!);
-    final mrArtifacts = artifacts.where((a) => a.name.startsWith('merge_resolve_iter_')).toList();
-    expect(mrArtifacts, isNotEmpty, reason: 'merge-resolve attempt artifact must be persisted on cancellation');
-    final artifactJson = jsonDecode(await File(mrArtifacts.first.path).readAsString()) as Map<String, dynamic>;
-    final artifact = MergeResolveAttemptArtifact.fromJson(artifactJson);
-    expect(
-      artifact.outcome,
-      equals('cancelled'),
-      reason: 'M1: cancelled merge-resolve task must produce outcome=cancelled, not failed',
-    );
-    expect(artifact.errorMessage, equals('cancelled'));
-  });
+      // M1 (2026-04-26 gap reviews): the cancelled-task artifact must record
+      // `outcome: cancelled` per PRD FR3 + Flow 4. Previously defaulted to
+      // 'failed' because cancelled tasks skip output extraction.
+      expect(storyTaskId, isNotNull);
+      final artifacts = await h.taskRepository.listArtifactsByTask(storyTaskId!);
+      final mrArtifacts = artifacts.where((a) => a.name.startsWith('merge_resolve_iter_')).toList();
+      expect(mrArtifacts, isNotEmpty, reason: 'merge-resolve attempt artifact must be persisted on cancellation');
+      final artifactJson = jsonDecode(await File(mrArtifacts.first.path).readAsString()) as Map<String, dynamic>;
+      final artifact = MergeResolveAttemptArtifact.fromJson(artifactJson);
+      expect(
+        artifact.outcome,
+        equals('cancelled'),
+        reason: 'M1: cancelled merge-resolve task must produce outcome=cancelled, not failed',
+      );
+      expect(artifact.errorMessage, equals('cancelled'));
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // Pre-attempt cleanup failure — synthetic artifact persisted (HIGH 7)
@@ -571,15 +620,20 @@ void main() {
       definitionJson: def.toJson(),
     );
     await h.repository.insert(run);
-    final context = WorkflowContext(data: {
-      'stories': [
-        {'id': 'S01'},
-      ],
-    }, variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'});
+    final context = WorkflowContext(
+      data: {
+        'stories': [
+          {'id': 'S01'},
+        ],
+      },
+      variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+    );
 
     var taskCount = 0;
     String? storyTaskId;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       taskCount++;
       await Future<void>.delayed(Duration.zero);
       storyTaskId = e.taskId;
@@ -595,8 +649,14 @@ void main() {
         bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
             const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
         promoteWorkflowBranch:
-            ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async =>
-                const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-cleanup',
         captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
             (sha: 'sha-cleanup', isDirty: true, cleanupError: 'cleanup failed: git reset --hard exit=1'),
@@ -638,16 +698,21 @@ void main() {
       definitionJson: def.toJson(),
     );
     await h.repository.insert(run);
-    final context = WorkflowContext(data: {
-      'stories': [
-        {'id': 'S01'},
-        {'id': 'S02'},
-      ],
-    }, variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'});
+    final context = WorkflowContext(
+      data: {
+        'stories': [
+          {'id': 'S01'},
+          {'id': 'S02'},
+        ],
+      },
+      variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+    );
 
     int promoteCallCount = 0;
     final allStoryTaskIds = <String>[];
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
@@ -673,7 +738,14 @@ void main() {
         bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
             const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
         promoteWorkflowBranch:
-            ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async {
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
               promoteCallCount++;
               // Return conflict on first promotion call per story (odd calls), success on even.
               if (promoteCallCount.isOdd) {
@@ -716,94 +788,103 @@ void main() {
   // the skill executes against integration HEAD instead of the story branch.
   // ---------------------------------------------------------------------------
 
-  test(
-    'C1 — merge-resolve task carries _mapIterationIndex matching the conflicted iteration',
-    () async {
-      final def = _mergeResolveDef();
-      final run = WorkflowRun(
-        id: 'run-c1',
-        definitionName: def.name,
-        status: WorkflowRunStatus.running,
-        startedAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        variablesJson: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
-        definitionJson: def.toJson(),
-      );
-      await h.repository.insert(run);
-      final context = WorkflowContext(data: {
+  test('C1 — merge-resolve task carries _mapIterationIndex matching the conflicted iteration', () async {
+    final def = _mergeResolveDef();
+    final run = WorkflowRun(
+      id: 'run-c1',
+      definitionName: def.name,
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      variablesJson: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+      definitionJson: def.toJson(),
+    );
+    await h.repository.insert(run);
+    final context = WorkflowContext(
+      data: {
         'stories': [
           {'id': 'S01'},
         ],
-      }, variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'});
+      },
+      variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+    );
 
-      String? storyTaskId;
-      String? mergeResolveTaskId;
-      int? mergeResolveMapIterationIndex;
-      int? mergeResolveMapIterationTotal;
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
-        await Future<void>.delayed(Duration.zero);
-        final task = await h.taskService.get(e.taskId);
-        if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
-          mergeResolveTaskId = e.taskId;
-          mergeResolveMapIterationIndex = task.workflowStepExecution?.mapIterationIndex;
-          mergeResolveMapIterationTotal = task.workflowStepExecution?.mapIterationTotal;
-          final session = await h.sessionService.createSession(type: SessionType.task);
-          await h.taskService.updateFields(task.id, sessionId: session.id);
-          await h.messageService.insertMessage(
-            sessionId: session.id,
-            role: 'assistant',
-            content: _mergeResolveMessage(outcome: 'resolved'),
-          );
-        } else {
-          storyTaskId = e.taskId;
-          await _bindWorktree(h, e.taskId, h.tempDir.path);
-        }
-        await h.completeTask(e.taskId);
-      });
+    String? storyTaskId;
+    String? mergeResolveTaskId;
+    int? mergeResolveMapIterationIndex;
+    int? mergeResolveMapIterationTotal;
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      final task = await h.taskService.get(e.taskId);
+      if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
+        mergeResolveTaskId = e.taskId;
+        mergeResolveMapIterationIndex = task.workflowStepExecution?.mapIterationIndex;
+        mergeResolveMapIterationTotal = task.workflowStepExecution?.mapIterationTotal;
+        final session = await h.sessionService.createSession(type: SessionType.task);
+        await h.taskService.updateFields(task.id, sessionId: session.id);
+        await h.messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: _mergeResolveMessage(outcome: 'resolved'),
+        );
+      } else {
+        storyTaskId = e.taskId;
+        await _bindWorktree(h, e.taskId, h.tempDir.path);
+      }
+      await h.completeTask(e.taskId);
+    });
 
-      bool firstPromotion = true;
-      final executor = h.makeExecutor(
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-c1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
-          promoteWorkflowBranch:
-              ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async {
-                if (firstPromotion) {
-                  firstPromotion = false;
-                  return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict');
-                }
-                return const WorkflowGitPromotionSuccess(commitSha: 'abc123');
-              },
-          captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-c1',
-          captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
-              (sha: 'sha-c1', isDirty: false, cleanupError: null),
-        ),
-      );
+    bool firstPromotion = true;
+    final executor = h.makeExecutor(
+      turnAdapter: WorkflowTurnAdapter(
+        reserveTurn: (_) => Future.value('turn-c1'),
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+            const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
+              if (firstPromotion) {
+                firstPromotion = false;
+                return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict');
+              }
+              return const WorkflowGitPromotionSuccess(commitSha: 'abc123');
+            },
+        captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-c1',
+        captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
+            (sha: 'sha-c1', isDirty: false, cleanupError: null),
+      ),
+    );
 
-      await executor.execute(run, def, context);
-      await sub.cancel();
+    await executor.execute(run, def, context);
+    await sub.cancel();
 
-      expect(storyTaskId, isNotNull, reason: 'story task should have been dispatched');
-      expect(mergeResolveTaskId, isNotNull, reason: 'merge-resolve task should have been dispatched');
-      expect(
-        mergeResolveMapIterationIndex,
-        equals(0),
-        reason:
-            'C1: merge-resolve synthetic step must propagate the conflicted iteration\'s '
-            'MapContext so the WorkflowStepExecution carries mapIterationIndex; without this '
-            'the worktree binder routes the task away from the story-branch worktree '
-            '(per workflow_worktree_binder.dart workflowOwnedWorktreeKey logic).',
-      );
-      expect(
-        mergeResolveMapIterationTotal,
-        equals(1),
-        reason: 'C1: mapIterationTotal must also be propagated for downstream consumers.',
-      );
-    },
-  );
+    expect(storyTaskId, isNotNull, reason: 'story task should have been dispatched');
+    expect(mergeResolveTaskId, isNotNull, reason: 'merge-resolve task should have been dispatched');
+    expect(
+      mergeResolveMapIterationIndex,
+      equals(0),
+      reason:
+          'C1: merge-resolve synthetic step must propagate the conflicted iteration\'s '
+          'MapContext so the WorkflowStepExecution carries mapIterationIndex; without this '
+          'the worktree binder routes the task away from the story-branch worktree '
+          '(per workflow_worktree_binder.dart workflowOwnedWorktreeKey logic).',
+    );
+    expect(
+      mergeResolveMapIterationTotal,
+      equals(1),
+      reason: 'C1: mapIterationTotal must also be propagated for downstream consumers.',
+    );
+  });
 
   // ---------------------------------------------------------------------------
   // H1 (2026-04-26 gap reviews): the merge-resolve attempt must run under
@@ -813,98 +894,107 @@ void main() {
   // through it (env-injection → skill → promote retry).
   // ---------------------------------------------------------------------------
 
-  test(
-    'H1 — resolver attempt runs through runResolverAttemptUnderLock callback',
-    () async {
-      final def = _mergeResolveDef();
-      final run = WorkflowRun(
-        id: 'run-h1',
-        definitionName: def.name,
-        status: WorkflowRunStatus.running,
-        startedAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        variablesJson: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
-        definitionJson: def.toJson(),
-      );
-      await h.repository.insert(run);
-      final context = WorkflowContext(data: {
+  test('H1 — resolver attempt runs through runResolverAttemptUnderLock callback', () async {
+    final def = _mergeResolveDef();
+    final run = WorkflowRun(
+      id: 'run-h1',
+      definitionName: def.name,
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      variablesJson: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+      definitionJson: def.toJson(),
+    );
+    await h.repository.insert(run);
+    final context = WorkflowContext(
+      data: {
         'stories': [
           {'id': 'S01'},
         ],
-      }, variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'});
+      },
+      variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+    );
 
-      var lockEnterCount = 0;
-      var lockExitCount = 0;
-      var skillTaskDispatchedWhileLockHeld = false;
+    var lockEnterCount = 0;
+    var lockExitCount = 0;
+    var skillTaskDispatchedWhileLockHeld = false;
 
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
-        await Future<void>.delayed(Duration.zero);
-        final task = await h.taskService.get(e.taskId);
-        if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
-          // Skill task dispatch — assert lock is held at this moment.
-          if (lockEnterCount > lockExitCount) {
-            skillTaskDispatchedWhileLockHeld = true;
-          }
-          final session = await h.sessionService.createSession(type: SessionType.task);
-          await h.taskService.updateFields(task.id, sessionId: session.id);
-          await h.messageService.insertMessage(
-            sessionId: session.id,
-            role: 'assistant',
-            content: _mergeResolveMessage(outcome: 'resolved'),
-          );
-        } else {
-          await _bindWorktree(h, e.taskId, h.tempDir.path);
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      final task = await h.taskService.get(e.taskId);
+      if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
+        // Skill task dispatch — assert lock is held at this moment.
+        if (lockEnterCount > lockExitCount) {
+          skillTaskDispatchedWhileLockHeld = true;
         }
-        await h.completeTask(e.taskId);
-      });
+        final session = await h.sessionService.createSession(type: SessionType.task);
+        await h.taskService.updateFields(task.id, sessionId: session.id);
+        await h.messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: _mergeResolveMessage(outcome: 'resolved'),
+        );
+      } else {
+        await _bindWorktree(h, e.taskId, h.tempDir.path);
+      }
+      await h.completeTask(e.taskId);
+    });
 
-      bool firstPromotion = true;
-      final executor = h.makeExecutor(
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-h1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
-          promoteWorkflowBranch:
-              ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async {
-                if (firstPromotion) {
-                  firstPromotion = false;
-                  return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict');
-                }
-                return const WorkflowGitPromotionSuccess(commitSha: 'h1-ok');
-              },
-          captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-h1',
-          captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
-              (sha: 'sha-h1', isDirty: false, cleanupError: null),
-          runResolverAttemptUnderLock: <T>({required projectId, required body}) async {
-            lockEnterCount++;
-            try {
-              return await body();
-            } finally {
-              lockExitCount++;
-            }
-          },
-        ),
-      );
+    bool firstPromotion = true;
+    final executor = h.makeExecutor(
+      turnAdapter: WorkflowTurnAdapter(
+        reserveTurn: (_) => Future.value('turn-h1'),
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+            const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration'),
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
+              if (firstPromotion) {
+                firstPromotion = false;
+                return const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict');
+              }
+              return const WorkflowGitPromotionSuccess(commitSha: 'h1-ok');
+            },
+        captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-h1',
+        captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
+            (sha: 'sha-h1', isDirty: false, cleanupError: null),
+        runResolverAttemptUnderLock: <T>({required projectId, required body}) async {
+          lockEnterCount++;
+          try {
+            return await body();
+          } finally {
+            lockExitCount++;
+          }
+        },
+      ),
+    );
 
-      await executor.execute(run, def, context);
-      await sub.cancel();
+    await executor.execute(run, def, context);
+    await sub.cancel();
 
-      expect(
-        lockEnterCount,
-        greaterThanOrEqualTo(1),
-        reason: 'H1: each merge-resolve attempt body must run under runResolverAttemptUnderLock',
-      );
-      expect(lockEnterCount, equals(lockExitCount), reason: 'H1: lock must always be released');
-      expect(
-        skillTaskDispatchedWhileLockHeld,
-        isTrue,
-        reason: 'H1: skill task dispatch must occur inside the locked attempt body',
-      );
+    expect(
+      lockEnterCount,
+      greaterThanOrEqualTo(1),
+      reason: 'H1: each merge-resolve attempt body must run under runResolverAttemptUnderLock',
+    );
+    expect(lockEnterCount, equals(lockExitCount), reason: 'H1: lock must always be released');
+    expect(
+      skillTaskDispatchedWhileLockHeld,
+      isTrue,
+      reason: 'H1: skill task dispatch must occur inside the locked attempt body',
+    );
 
-      final finalRun = await h.repository.getById(run.id);
-      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
-    },
-  );
+    final finalRun = await h.repository.getById(run.id);
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
 }

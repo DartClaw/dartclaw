@@ -44,13 +44,12 @@ bool stepNeedsWorktree(
 }) {
   if (resolvedWorktreeMode == 'per-map-item') return true;
   if (step.isForeachController || step.outputKeys.contains('project_index')) return false;
-  if (step.project != null) return true;
   if (!shouldBindWorkflowProject(definition, step, resolved)) return false;
   final allowedTools = resolved.allowedTools;
   if (allowedTools != null) {
     return allowedTools.contains('file_write');
   }
-  return step.type == 'custom';
+  return step.type == 'agent';
 }
 
 /// Returns true when a step should be executed without write tools.
@@ -58,9 +57,6 @@ bool stepIsReadOnly(WorkflowStep step, ResolvedStepConfig resolved) {
   final allowedTools = resolved.allowedTools;
   if (allowedTools != null) {
     return !allowedTools.contains('file_write');
-  }
-  if (!step.typeAuthored) {
-    return step.type == 'research' || step.type == 'analysis';
   }
   return false;
 }
@@ -71,7 +67,6 @@ bool stepEmitsArtifactPath(WorkflowStep step) =>
 
 /// Returns true when a workflow task should bind to a project checkout.
 bool shouldBindWorkflowProject(WorkflowDefinition definition, WorkflowStep step, ResolvedStepConfig resolved) {
-  if (step.project != null) return true;
   if (definition.project == null) return false;
   if (step.isMapStep) return true;
   if (step.inputs.contains('project_index')) return true;
@@ -80,7 +75,7 @@ bool shouldBindWorkflowProject(WorkflowDefinition definition, WorkflowStep step,
   if (allowedTools != null) {
     return allowedTools.contains('file_write');
   }
-  return step.type == 'custom';
+  return step.type == 'agent';
 }
 
 /// Returns true when the step can mutate the workflow project branch.
@@ -89,7 +84,7 @@ bool stepTouchesProjectBranch(
   WorkflowStep step, {
   required WorkflowRoleDefaults roleDefaults,
 }) {
-  if (definition.project == null && step.project == null) return false;
+  if (definition.project == null) return false;
   final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults);
   if (!shouldBindWorkflowProject(definition, step, resolved)) return false;
   if (step.isForeachController || step.outputKeys.contains('project_index')) return false;

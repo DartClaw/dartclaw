@@ -90,7 +90,7 @@ void main() {
         workflowWorkspaceDir: p.join(tempDir.path, 'workflow-workspace'),
         taskId: 'task-1',
         run: _run(),
-        step: const WorkflowStep(id: 'step-1', name: 'Step 1', type: 'custom'),
+        step: const WorkflowStep(id: 'step-1', name: 'Step 1'),
         stepIndex: 0,
         title: 'Title',
         description: 'Prompt',
@@ -99,7 +99,7 @@ void main() {
         projectId: 'proj',
         maxTokens: 100,
         maxRetries: 2,
-        taskConfig: {'model': 'gpt-test', '_workflowStepType': 'custom'},
+        taskConfig: {'model': 'gpt-test'},
       );
 
       final task = await taskRepository.getById('task-1');
@@ -107,7 +107,9 @@ void main() {
       expect(task!.agentExecution, isNotNull);
       expect(task.configJson.containsKey('model'), isFalse);
       expect((await agentExecutionRepository.list()).single.model, equals('gpt-test'));
-      expect((await workflowStepExecutionRepository.getByTaskId('task-1'))?.stepId, equals('step-1'));
+      final stepExecution = await workflowStepExecutionRepository.getByTaskId('task-1');
+      expect(stepExecution?.stepId, equals('step-1'));
+      expect(stepExecution?.stepType, equals('agent'));
       expect(events.single.newStatus.name, equals('queued'));
     });
 
@@ -131,7 +133,7 @@ void main() {
           workflowWorkspaceDir: p.join(tempDir.path, 'workflow-workspace'),
           taskId: 'task-rollback',
           run: _run(),
-          step: const WorkflowStep(id: 'step-1', name: 'Step 1', type: 'custom'),
+          step: const WorkflowStep(id: 'step-1', name: 'Step 1'),
           stepIndex: 0,
           title: 'Title',
           description: 'Prompt',
@@ -140,7 +142,7 @@ void main() {
           projectId: null,
           maxTokens: null,
           maxRetries: 0,
-          taskConfig: const {'_workflowStepType': 'custom'},
+          taskConfig: const {},
         ),
         throwsStateError,
       );
@@ -186,9 +188,9 @@ void main() {
           name: 'wf',
           description: 'test',
           project: 'proj',
-          steps: [WorkflowStep(id: 'step-1', name: 'Step 1', type: 'custom', typeAuthored: true)],
+          steps: [WorkflowStep(id: 'step-1', name: 'Step 1')],
         ),
-        const WorkflowStep(id: 'step-1', name: 'Step 1', type: 'custom', typeAuthored: true),
+        const WorkflowStep(id: 'step-1', name: 'Step 1'),
         const ResolvedStepConfig(model: 'm', allowedTools: ['file_write']),
         WorkflowContext(variables: {'BRANCH': 'feature'}),
         resolvedWorktreeMode: 'per-task',
@@ -197,6 +199,8 @@ void main() {
       );
 
       expect(config['_workflowNeedsWorktree'], isTrue);
+      expect(config.keys.where((key) => key.contains('StepType')), isEmpty);
+      expect(config['reviewMode'], equals('auto-accept'));
       expect(config['_baseRef'], equals('feature'));
       expect(stripWorkflowStepConfig({...config, 'keep': true}).containsKey('_workflowGit'), isFalse);
       expect(stripWorkflowStepConfig({...config, 'keep': true}).containsKey('model'), isFalse);

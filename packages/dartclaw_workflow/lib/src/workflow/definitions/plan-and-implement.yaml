@@ -33,7 +33,6 @@ gitStrategy:
   artifacts:
     commit: true
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
-    project: "{{PROJECT}}"
   merge_resolve:
     enabled: true
     max_attempts: 2
@@ -76,7 +75,6 @@ steps:
   # plan step. The flat `story_specs` output remains the foreach handoff key.
   - id: discover-project
     name: Discover Project
-    type: custom
     skill: dartclaw-discover-project
     # read-only: discovers project layout, no writes — narrow surface preserves
     # step_config_policy.stepIsReadOnly inference (file_write non-membership).
@@ -106,7 +104,6 @@ steps:
   # entirely when discover-project found `project_index.active_prd`.
   - id: prd
     name: Draft PRD
-    type: custom
     skill: dartclaw-prd
     entryGate: "project_index.active_prd == null"
     inputs: [project_index]
@@ -128,7 +125,6 @@ steps:
   # when confidence is already >= 7.
   - id: revise-prd
     name: Revise PRD (low confidence)
-    type: custom
     skill: dartclaw-review
     entryGate: "project_index.active_prd == null && prd_confidence < 7"
     inputs: [project_index, prd, prd_confidence]
@@ -145,7 +141,6 @@ steps:
   # emits file paths + structured records, never inline artifact bodies.
   - id: plan
     name: Plan Stories and Specs
-    type: custom
     skill: dartclaw-plan
     entryGate: "plan == null"
     inputs: [project_index, prd]
@@ -183,7 +178,6 @@ steps:
       # per-story worktrees inherit the committed FIS from the workflow branch.
       - id: implement
         name: Implement Story
-        type: custom
         skill: dartclaw-exec-spec
         # Transient Codex CLI exits (exit code 1 with only `thread.started`
         # on stdout, typically under memory pressure with parallel runners)
@@ -196,13 +190,11 @@ steps:
           story_result:
             format: text
             schema: story-result
-            description: Per-story implementation result. Sibling or baseline failures are non-blocking when this story's scoped acceptance checks pass.
 
       # Review the implemented story against its spec and acceptance criteria.
       # exec-spec already ran analysis/tests/linting; this step gates the outcome.
       - id: quick-review
         name: Quick Review Story
-        type: custom
         skill: dartclaw-quick-review
         # Pin to @executor so the continued harness session is honored —
         # continueSession requires the same provider family as the root
@@ -232,7 +224,6 @@ steps:
   # simplifications) so the reviews see polished output.
   - id: refactor
     name: Refactor After Implementation
-    type: custom
     skill: dartclaw-refactor
     inputs: [project_index, story_specs, story_results, plan]
     prompt: "--auto {{context.plan}} - refactor only the changes introduced on the current branch (vs the base ref); preserve behavior; no scope creep into untouched packages."
@@ -255,7 +246,6 @@ steps:
   # different harnesses).
   - id: plan-review
     name: Review Full Implementation
-    type: custom
     skill: dartclaw-review
     parallel: true
     inputs: [project_index, story_specs, story_results, plan]
@@ -284,7 +274,6 @@ steps:
   # proportional to what the plan actually delivered.
   - id: architecture-review
     name: Architecture Review
-    type: custom
     skill: dartclaw-architecture
     parallel: true
     inputs: [project_index, story_specs, story_results, plan]
@@ -323,7 +312,6 @@ steps:
       # classified `already fixed` and skipped.
       - id: remediate
         name: Remediate Findings
-        type: custom
         skill: dartclaw-remediate-findings
         inputs: [project_index, review_findings, architecture_review_findings, story_results]
         prompt: "--auto {{context.review_findings}} {{context.architecture_review_findings}}"
@@ -342,7 +330,6 @@ steps:
       # the current workspace state on each iteration.
       - id: re-review
         name: Re-review After Remediation
-        type: custom
         skill: dartclaw-review
         # read-only review: matches plan-review's surface so the re-review pass
         # exercises the same tools.

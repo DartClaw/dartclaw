@@ -61,7 +61,6 @@ export 'src/workflow_definition.dart'
         MergeResolveConfig,
         StepConfigDefault,
         OnFailurePolicy,
-        StepReviewMode,
         ExtractionType,
         ExtractionConfig,
         OutputFormat,

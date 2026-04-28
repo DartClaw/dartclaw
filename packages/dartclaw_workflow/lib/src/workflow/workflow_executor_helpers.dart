@@ -568,12 +568,10 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     WorkflowContext context, {
     required ResolvedStepConfig resolved,
   }) {
-    final explicitProject = _resolveProjectTemplate(step.project, context);
-    if (explicitProject != null) return explicitProject;
     if (!_shouldBindWorkflowProject(definition, step, resolved)) {
       return null;
     }
-    return _resolveProjectTemplate(definition.project, context);
+    return _resolveWorkflowProjectTemplate(definition.project, context);
   }
 
   String? _resolveProjectIdWithMap(
@@ -583,21 +581,19 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     MapContext mapContext, {
     required ResolvedStepConfig resolved,
   }) {
-    final explicitProject = _resolveProjectTemplateWithMap(step.project, context, mapContext);
-    if (explicitProject != null) return explicitProject;
     if (!_shouldBindWorkflowProject(definition, step, resolved)) {
       return null;
     }
-    return _resolveProjectTemplateWithMap(definition.project, context, mapContext);
+    return _resolveWorkflowProjectTemplateWithMap(definition.project, context, mapContext);
   }
 
-  String? _resolveProjectTemplate(String? template, WorkflowContext context) {
+  String? _resolveWorkflowProjectTemplate(String? template, WorkflowContext context) {
     if (template == null) return null;
     final resolved = _templateEngine.resolve(template, context).trim();
     return resolved.isEmpty ? null : resolved;
   }
 
-  String? _resolveProjectTemplateWithMap(String? template, WorkflowContext context, MapContext mapContext) {
+  String? _resolveWorkflowProjectTemplateWithMap(String? template, WorkflowContext context, MapContext mapContext) {
     if (template == null) return null;
     final resolved = _templateEngine.resolveWithMap(template, context, mapContext).trim();
     return resolved.isEmpty ? null : resolved;

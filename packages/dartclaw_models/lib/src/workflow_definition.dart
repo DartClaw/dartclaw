@@ -132,28 +132,6 @@ class OutputConfig {
   );
 }
 
-/// Review mode for workflow steps.
-enum StepReviewMode {
-  /// Step always enters review status.
-  always,
-
-  /// Workflow-authored default. The generic meaning is "review coding work",
-  /// but the workflow executor now maps omitted/codingOnly steps to
-  /// auto-accept unless the YAML explicitly opts into `always`.
-  codingOnly,
-
-  /// Step auto-accepts on completion.
-  never;
-
-  /// Parses a YAML review mode string, supporting hyphenated form.
-  static StepReviewMode? fromYaml(String value) => switch (value) {
-    'always' => always,
-    'coding-only' => codingOnly,
-    'never' => never,
-    _ => null,
-  };
-}
-
 /// Policy applied when a workflow step reports an explicit failed outcome.
 enum OnFailurePolicy {
   fail('fail'),
@@ -494,15 +472,9 @@ class WorkflowStep {
   /// which execute as sequential turns in the same conversation session.
   final List<String>? prompts;
 
-  /// Task type string (research, analysis, writing, coding, automation, custom).
+  /// Step type string (`agent`, `bash`, `approval`, `foreach`, or `loop`).
   /// Stored as string to avoid cross-package dependency on dartclaw_core's TaskType.
   final String type;
-
-  /// Whether `type:` was authored explicitly in the source definition.
-  final bool typeAuthored;
-
-  /// Optional project reference (supports `{{variable}}` references).
-  final String? project;
 
   /// Optional provider override (e.g., "claude", "codex").
   final String? provider;
@@ -515,9 +487,6 @@ class WorkflowStep {
 
   /// Step timeout in seconds (null means no timeout).
   final int? timeoutSeconds;
-
-  /// Review mode for this step.
-  final StepReviewMode review;
 
   /// Whether this step executes in parallel with adjacent parallel steps.
   final bool parallel;
@@ -679,14 +648,11 @@ class WorkflowStep {
     required this.name,
     this.prompts,
     this.skill,
-    this.type = 'research',
-    this.typeAuthored = false,
-    this.project,
+    this.type = 'agent',
     this.provider,
     this.model,
     this.effort,
     this.timeoutSeconds,
-    this.review = StepReviewMode.codingOnly,
     this.parallel = false,
     this.gate,
     this.entryGate,
@@ -716,10 +682,8 @@ class WorkflowStep {
     'name': name,
     if (skill != null) 'skill': skill,
     if (prompts != null) 'prompts': prompts!.toList(),
-    if (typeAuthored || type != 'research') 'type': type,
-    'review': review.name,
+    if (type != 'agent') 'type': type,
     'parallel': parallel,
-    if (project != null) 'project': project,
     if (provider != null) 'provider': provider,
     if (model != null) 'model': model,
     if (effort != null) 'effort': effort,
@@ -764,15 +728,10 @@ class WorkflowStep {
       name: json['name'] as String,
       skill: json['skill'] as String?,
       prompts: prompts,
-      type: (json['type'] as String?) ?? 'research',
-      typeAuthored: (json['typeAuthored'] as bool?) ?? json.containsKey('type'),
-      project: json['project'] as String?,
+      type: (json['type'] as String?) ?? 'agent',
       provider: json['provider'] as String?,
       model: json['model'] as String?,
       timeoutSeconds: (json['timeout'] ?? json['timeoutSeconds']) as int?,
-      review: json['review'] != null
-          ? StepReviewMode.values.byName(json['review'] as String)
-          : StepReviewMode.codingOnly,
       parallel: (json['parallel'] as bool?) ?? false,
       gate: json['gate'] as String?,
       entryGate: json['entryGate'] as String?,

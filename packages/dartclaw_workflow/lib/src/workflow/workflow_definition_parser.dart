@@ -129,6 +129,7 @@ class WorkflowDefinitionParser {
     }
     _rejectLegacyContextOutputs(raw, id, sourcePath);
     _rejectLegacyContextInputs(raw, id, sourcePath);
+    _rejectRemovedStepFields(raw, id, sourcePath);
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {
       throw FormatException('Foreach "$id" must have a non-empty "name" field${_at(sourcePath)}.');
@@ -163,7 +164,6 @@ class WorkflowDefinitionParser {
       mapOver: mapOver,
       maxParallel: maxParallel,
       maxItems: maxItems,
-      project: raw['project'] as String?,
       inputs: _parseStringList(raw['inputs']),
       outputs: outputs,
       foreachSteps: childSteps.map((s) => s.id).toList(growable: false),
@@ -251,6 +251,7 @@ class WorkflowDefinitionParser {
     _rejectLegacyContextOutputs(raw, id, sourcePath);
     _rejectLegacyContextInputs(raw, id, sourcePath);
     _rejectRemovedExecutionMode(raw, id, sourcePath);
+    _rejectRemovedStepFields(raw, id, sourcePath);
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {
       throw FormatException('Step "$id" must have a non-empty "name" field${_at(sourcePath)}.');
@@ -287,8 +288,7 @@ class WorkflowDefinitionParser {
     }
 
     // Infer step type early so we can relax prompt requirements for hybrid types.
-    final stepType = (raw['type'] as String?) ?? 'research';
-    final typeAuthored = raw.containsKey('type');
+    final stepType = (raw['type'] as String?) ?? 'agent';
 
     // Reject no-skill + no-prompt at parse time, except for bash/approval steps
     // which do not need an agent prompt, and foreach controllers which are pure
@@ -298,12 +298,6 @@ class WorkflowDefinitionParser {
         throw FormatException('Step "$id" must have either "prompt" or "skill" (or both)${_at(sourcePath)}.');
       }
     }
-
-    final reviewRaw = raw['review'] as String?;
-    final review = reviewRaw != null
-        ? (StepReviewMode.fromYaml(reviewRaw) ??
-              (throw FormatException('Step "$id": unknown review mode "$reviewRaw"${_at(sourcePath)}.')))
-        : StepReviewMode.codingOnly;
 
     final timeoutRaw = raw['timeout'] ?? raw['timeoutSeconds'];
     int? timeoutSeconds;
@@ -344,13 +338,10 @@ class WorkflowDefinitionParser {
       skill: skill,
       prompts: prompts,
       type: stepType,
-      typeAuthored: typeAuthored,
-      project: raw['project'] as String?,
       provider: raw['provider'] as String?,
       model: raw['model'] as String?,
       effort: raw['effort'] as String?,
       timeoutSeconds: timeoutSeconds,
-      review: review,
       parallel: (raw['parallel'] as bool?) ?? false,
       gate: raw['gate'] as String?,
       entryGate: raw['entryGate'] as String?,
@@ -466,6 +457,13 @@ class WorkflowDefinitionParser {
       "Step '$stepId': contextInputs: is removed; declare context-read keys under inputs: instead, "
       'e.g. inputs: [project_index, prd]${_at(sourcePath)}.',
     );
+  }
+
+  void _rejectRemovedStepFields(YamlMap raw, String stepId, String? sourcePath) {
+    for (final field in const ['project', 'review']) {
+      if (!raw.containsKey(field)) continue;
+      throw FormatException('Step "$stepId": "$field:" was removed from workflow steps${_at(sourcePath)}.');
+    }
   }
 
   Map<String, OutputConfig>? _parseOutputs(Object? raw, String stepId, String? sourcePath) {

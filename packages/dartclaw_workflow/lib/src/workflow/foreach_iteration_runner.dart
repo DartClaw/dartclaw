@@ -1036,9 +1036,6 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           id: skillStepId,
           name: 'merge-resolve (attempt $attemptNumber)',
           skill: 'dartclaw-merge-resolve',
-          type: 'coding',
-          typeAuthored: true,
-          project: projectId,
           emitsOwnOutcome: true,
           outputs: const {
             'merge_resolve.outcome': OutputConfig(format: OutputFormat.text),

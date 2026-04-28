@@ -464,5 +464,6 @@ const storyResultPreset = SchemaPreset(
   name: 'story-result',
   defaultResolver: NarrativeOutput(schemaKey: 'story_result'),
   schema: {'type': 'string'},
-  description: 'Summary of what was implemented for this story — files changed, key decisions, and verification notes.',
+  description:
+      'Per-story result for this FIS only. Report success when scoped acceptance checks pass; unrelated sibling or baseline failures are non-blocking and should be named as external context, not as this story\'s failure.',
 );

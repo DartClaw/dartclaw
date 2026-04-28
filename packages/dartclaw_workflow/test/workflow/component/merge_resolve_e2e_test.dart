@@ -70,6 +70,7 @@ WorkflowDefinition _makeDefinition({
   return WorkflowDefinition(
     name: 'mr-e2e-wf',
     description: 'merge-resolve E2E test workflow',
+    project: '{{PROJECT}}',
     gitStrategy: WorkflowGitStrategy(
       bootstrap: true,
       worktree: const WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
@@ -97,8 +98,6 @@ WorkflowDefinition _makeDefinition({
       WorkflowStep(
         id: 'implement',
         name: 'Implement Story',
-        type: 'coding',
-        project: 'test-project',
         provider: provider,
         prompts: const ['Implement {{map.item.id}}'],
       ),
@@ -154,11 +153,14 @@ Future<List<MergeResolveAttemptArtifact>> _readArtifacts(WorkflowExecutorHarness
 
 /// Binds a worktree to a task so promotion can find the branch name.
 Future<void> _bindWorktree(WorkflowExecutorHarness h, String taskId) async {
-  await h.taskService.updateFields(taskId, worktreeJson: {
-    'path': p.join(h.tempDir.path, 'worktrees', taskId),
-    'branch': 'story-branch-$taskId',
-    'createdAt': DateTime.now().toIso8601String(),
-  });
+  await h.taskService.updateFields(
+    taskId,
+    worktreeJson: {
+      'path': p.join(h.tempDir.path, 'worktrees', taskId),
+      'branch': 'story-branch-$taskId',
+      'createdAt': DateTime.now().toIso8601String(),
+    },
+  );
 }
 
 /// Asserts the 9 required v1 fields on an artifact (Decision 9).
@@ -233,7 +235,14 @@ void main() {
             bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
                 const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
             promoteWorkflowBranch:
-                ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async {
+                ({
+                  required runId,
+                  required projectId,
+                  required branch,
+                  required integrationBranch,
+                  required strategy,
+                  String? storyId,
+                }) async {
                   if (firstPromotion) {
                     firstPromotion = false;
                     return const WorkflowGitPromotionConflict(
@@ -300,10 +309,7 @@ void main() {
               await h.messageService.insertMessage(
                 sessionId: session.id,
                 role: 'assistant',
-                content: _mrMessage(
-                  outcome: 'failed',
-                  errorMessage: 'token_ceiling exceeded at format',
-                ),
+                content: _mrMessage(outcome: 'failed', errorMessage: 'token_ceiling exceeded at format'),
               );
             } else {
               await h.messageService.insertMessage(
@@ -328,15 +334,19 @@ void main() {
             bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
                 const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
             promoteWorkflowBranch:
-                ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async {
+                ({
+                  required runId,
+                  required projectId,
+                  required branch,
+                  required integrationBranch,
+                  required strategy,
+                  String? storyId,
+                }) async {
                   promotionCount++;
                   // First promotion: conflict; subsequent (after resolve): success.
                   if (firstPromotion) {
                     firstPromotion = false;
-                    return const WorkflowGitPromotionConflict(
-                      conflictingFiles: ['docs/STATE.md'],
-                      details: 'conflict',
-                    );
+                    return const WorkflowGitPromotionConflict(conflictingFiles: ['docs/STATE.md'], details: 'conflict');
                   }
                   return WorkflowGitPromotionSuccess(commitSha: 'sha-p2-$promotionCount');
                 },
@@ -391,9 +401,7 @@ void main() {
         );
 
         final serializationEvents = <WorkflowSerializationEnactedEvent>[];
-        final eventSub = h.eventBus
-            .on<WorkflowSerializationEnactedEvent>()
-            .listen(serializationEvents.add);
+        final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
         String? conflictingStoryTaskId;
         final s02PromoteCount = <int>[0];
@@ -433,7 +441,14 @@ void main() {
             bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
                 const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
             promoteWorkflowBranch:
-                ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async {
+                ({
+                  required runId,
+                  required projectId,
+                  required branch,
+                  required integrationBranch,
+                  required strategy,
+                  String? storyId,
+                }) async {
                   if (storyId == 'S02') {
                     s02PromoteCount[0]++;
                     if (s02PromoteCount[0] <= 2) {
@@ -488,11 +503,7 @@ void main() {
 
     group('P4 — retry then fail [$provider]', () {
       test('workflow fails; two artifacts with distinct error_messages; no serialization event', () async {
-        final def = _makeDefinition(
-          escalation: 'fail',
-          maxAttempts: 2,
-          provider: provider,
-        );
+        final def = _makeDefinition(escalation: 'fail', maxAttempts: 2, provider: provider);
         final run = _makeRun(def, id: 'p4-$provider');
         await h.repository.insert(run);
         final ctx = WorkflowContext(
@@ -505,9 +516,7 @@ void main() {
         );
 
         final serializationEvents = <WorkflowSerializationEnactedEvent>[];
-        final eventSub = h.eventBus
-            .on<WorkflowSerializationEnactedEvent>()
-            .listen(serializationEvents.add);
+        final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
         String? storyTaskId;
         int mrAttemptCount = 0;
@@ -541,7 +550,14 @@ void main() {
             bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
                 const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
             promoteWorkflowBranch:
-                ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async =>
+                ({
+                  required runId,
+                  required projectId,
+                  required branch,
+                  required integrationBranch,
+                  required strategy,
+                  String? storyId,
+                }) async =>
                     const WorkflowGitPromotionConflict(conflictingFiles: ['docs/STATE.md'], details: 'conflict'),
             captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre-p4',
             captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
@@ -617,13 +633,17 @@ void main() {
             bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
                 const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
             promoteWorkflowBranch:
-                ({required runId, required projectId, required branch, required integrationBranch, required strategy, String? storyId}) async {
+                ({
+                  required runId,
+                  required projectId,
+                  required branch,
+                  required integrationBranch,
+                  required strategy,
+                  String? storyId,
+                }) async {
                   if (firstPromotion) {
                     firstPromotion = false;
-                    return const WorkflowGitPromotionConflict(
-                      conflictingFiles: ['docs/STATE.md'],
-                      details: 'conflict',
-                    );
+                    return const WorkflowGitPromotionConflict(conflictingFiles: ['docs/STATE.md'], details: 'conflict');
                   }
                   return const WorkflowGitPromotionSuccess(commitSha: 'sha-p5');
                 },
@@ -677,9 +697,7 @@ void main() {
     setUp(() async {
       fixture = await WorkflowGitFixture.create(
         runId: 'run-issue-c',
-        seedFiles: {
-          'docs/STATE.md': '# State\n\n- phase: in-progress\n',
-        },
+        seedFiles: {'docs/STATE.md': '# State\n\n- phase: in-progress\n'},
       );
     });
 
@@ -687,14 +705,20 @@ void main() {
 
     for (final provider in _harnesses) {
       test('both stories promote; integration branch has both STATE.md edits [$provider]', () async {
-        await fixture.createStoryBranch('S01', committedFiles: {
-          'src/a.dart': 'void a() {}\n',
-          'docs/STATE.md': '# State\n\n- phase: in-progress\n- s01: added A\n',
-        });
-        await fixture.createStoryBranch('S02', committedFiles: {
-          'src/b.dart': 'void b() {}\n',
-          'docs/STATE.md': '# State\n\n- phase: in-progress\n- s02: added B\n',
-        });
+        await fixture.createStoryBranch(
+          'S01',
+          committedFiles: {
+            'src/a.dart': 'void a() {}\n',
+            'docs/STATE.md': '# State\n\n- phase: in-progress\n- s01: added A\n',
+          },
+        );
+        await fixture.createStoryBranch(
+          'S02',
+          committedFiles: {
+            'src/b.dart': 'void b() {}\n',
+            'docs/STATE.md': '# State\n\n- phase: in-progress\n- s02: added B\n',
+          },
+        );
 
         // S01 promotes cleanly.
         final resultS01 = await promoteWorkflowBranchLocally(
@@ -739,30 +763,19 @@ void main() {
         await fixture.rawGit(['merge', '--abort']);
         // Write the resolved STATE.md with both entries.
         final stateMdPath = p.join(fixture.projectDir, 'docs', 'STATE.md');
-        File(stateMdPath).writeAsStringSync(
-          '# State\n\n- phase: in-progress\n- s01: added A\n- s02: added B\n',
-        );
+        File(stateMdPath).writeAsStringSync('# State\n\n- phase: in-progress\n- s01: added A\n- s02: added B\n');
         // Checkout S02's src/b.dart from the story branch so it lands on integration.
-        await fixture.rawGit([
-          'checkout',
-          fixture.storyBranch('S02'),
-          '--',
-          'src/b.dart',
-        ]);
+        await fixture.rawGit(['checkout', fixture.storyBranch('S02'), '--', 'src/b.dart']);
         await fixture.rawGit(['add', 'docs/STATE.md', 'src/b.dart']);
         await fixture.rawGit(['commit', '--no-edit', '-m', 'S62-test: merge-resolve S02']);
 
         // Verify both stories' work is on integration.
-        final tree = await fixture.rawGit(
-          ['ls-tree', '-r', '--name-only', fixture.integrationBranch],
-        );
+        final tree = await fixture.rawGit(['ls-tree', '-r', '--name-only', fixture.integrationBranch]);
         final files = (tree.stdout as String).split('\n');
         expect(files, contains('src/a.dart'), reason: 'S01 src file must be present');
         expect(files, contains('src/b.dart'), reason: 'S02 src file must be present');
 
-        final stateContent = await fixture.rawGit(
-          ['show', '${fixture.integrationBranch}:docs/STATE.md'],
-        );
+        final stateContent = await fixture.rawGit(['show', '${fixture.integrationBranch}:docs/STATE.md']);
         final text = stateContent.stdout as String;
         expect(text, contains('s01: added A'), reason: 'S01 STATE.md edit must be present');
         expect(text, contains('s02: added B'), reason: 'S02 STATE.md edit must be present');

@@ -45,7 +45,7 @@ final class TaskConfigView {
     };
   }
 
-  bool get isCodingTask => task.type == TaskType.coding || task.workflowStepExecution?.stepType == 'coding';
+  bool get isCodingTask => task.type == TaskType.coding;
 
   bool get needsWorktree {
     if (isWorkflowOrchestrated) {

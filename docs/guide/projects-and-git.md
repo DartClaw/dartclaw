@@ -150,7 +150,7 @@ When a coding task executes, DartClaw creates an isolated git worktree so the ag
 For **external projects**, the worktree is created from the project's clone directory:
 
 ```
-Task queued (type: coding, projectId: my-app)
+Task queued (coding task, projectId: my-app)
   |
   v
 TaskExecutor picks up task

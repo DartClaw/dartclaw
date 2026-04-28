@@ -31,7 +31,10 @@ class WorkflowDefinitionResolver {
         .map((step) => _resolveStep(step, def.stepDefaults, variableBindings))
         .toList(growable: false);
     final resolvedProject = switch ((def.project, variableBindings)) {
-      (final String project, final Map<String, String> bindings) when bindings.isNotEmpty => _substituteVariables(project, bindings),
+      (final String project, final Map<String, String> bindings) when bindings.isNotEmpty => _substituteVariables(
+        project,
+        bindings,
+      ),
       (final String project, _) => project,
       _ => null,
     };
@@ -117,13 +120,10 @@ class WorkflowDefinitionResolver {
       skill: step.skill,
       prompts: resolvedPrompts,
       type: step.type,
-      typeAuthored: step.typeAuthored,
-      project: step.project,
       provider: step.provider ?? matched?.provider,
       model: step.model ?? matched?.model,
       effort: step.effort ?? matched?.effort,
       timeoutSeconds: step.timeoutSeconds,
-      review: step.review,
       parallel: step.parallel,
       gate: step.gate,
       entryGate: step.entryGate,
@@ -234,7 +234,6 @@ class WorkflowDefinitionResolver {
     if (controller.mapOver != null) entries.add(MapEntry('map_over', controller.mapOver));
     if (controller.maxParallel != null) entries.add(MapEntry('max_parallel', controller.maxParallel));
     if (controller.maxItems != 20) entries.add(MapEntry('max_items', controller.maxItems));
-    if (controller.project != null) entries.add(MapEntry('project', controller.project));
     if (controller.inputs.isNotEmpty) {
       entries.add(MapEntry('inputs', controller.inputs.toList()));
     }
@@ -255,7 +254,7 @@ class WorkflowDefinitionResolver {
 
   List<MapEntry<String, dynamic>> _stepToOrderedMap(WorkflowStep step) {
     final entries = <MapEntry<String, dynamic>>[MapEntry('id', step.id), MapEntry('name', step.name)];
-    if (step.typeAuthored || step.type != 'research') {
+    if (step.type != 'agent') {
       entries.add(MapEntry('type', step.type));
     }
     if (step.skill != null) entries.add(MapEntry('skill', step.skill));
@@ -267,15 +266,9 @@ class WorkflowDefinitionResolver {
     if (step.model != null) entries.add(MapEntry('model', step.model));
     if (step.effort != null) entries.add(MapEntry('effort', step.effort));
     if (step.timeoutSeconds != null) entries.add(MapEntry('timeout', step.timeoutSeconds));
-    // Match the parser's default (coding-only) — only emit when the step
-    // actually chose a non-default review mode. Mirrors `if (step.parallel)`.
-    if (step.review != StepReviewMode.codingOnly) {
-      entries.add(MapEntry('review', _reviewModeToYaml(step.review)));
-    }
     if (step.parallel) entries.add(MapEntry('parallel', true));
     if (step.gate != null) entries.add(MapEntry('gate', step.gate));
     if (step.entryGate != null) entries.add(MapEntry('entryGate', step.entryGate));
-    if (step.project != null) entries.add(MapEntry('project', step.project));
     if (step.inputs.isNotEmpty) entries.add(MapEntry('inputs', step.inputs.toList()));
     if (step.extraction != null) entries.add(MapEntry('extraction', step.extraction!.toJson()));
     if (step.outputs != null && step.outputs!.isNotEmpty) {
@@ -469,14 +462,4 @@ class WorkflowDefinitionResolver {
   }
 
   String _spaces(int count) => ' ' * count;
-
-  /// Mirrors [StepReviewMode.fromYaml] so the emitted `review:` key can be
-  /// re-parsed through [WorkflowDefinitionParser]. The enum `name` property
-  /// (e.g. `codingOnly`) is not a valid YAML value; the parser expects the
-  /// hyphenated form (`coding-only`).
-  static String _reviewModeToYaml(StepReviewMode mode) => switch (mode) {
-    StepReviewMode.always => 'always',
-    StepReviewMode.codingOnly => 'coding-only',
-    StepReviewMode.never => 'never',
-  };
 }

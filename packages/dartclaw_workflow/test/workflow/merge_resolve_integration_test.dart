@@ -130,10 +130,7 @@ WorkflowDefinition _mergeResolveIntegrationDefinition() {
       WorkflowStep(
         id: 'apply-story',
         name: 'Apply story',
-        type: 'coding',
-        typeAuthored: true,
         provider: 'codex',
-        project: '{{PROJECT}}',
         prompts: [
           'In the current task worktree, edit docs/STATE.md only. '
               'Append exactly this line as the final line: '

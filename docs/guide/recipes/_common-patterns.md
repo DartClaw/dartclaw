@@ -200,7 +200,7 @@ channels:
     task_trigger:
       enabled: true
       prefix: "task:"            # prefix that triggers task creation
-      default_type: research     # type when not specified
+      default_type: "research"    # type when not specified
       auto_start: true           # start immediately or queue as draft
 ```
 

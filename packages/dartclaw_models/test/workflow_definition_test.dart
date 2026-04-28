@@ -2,24 +2,6 @@ import 'package:dartclaw_models/dartclaw_models.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('StepReviewMode', () {
-    test('fromYaml maps coding-only to codingOnly', () {
-      expect(StepReviewMode.fromYaml('coding-only'), StepReviewMode.codingOnly);
-    });
-
-    test('fromYaml maps always', () {
-      expect(StepReviewMode.fromYaml('always'), StepReviewMode.always);
-    });
-
-    test('fromYaml maps never', () {
-      expect(StepReviewMode.fromYaml('never'), StepReviewMode.never);
-    });
-
-    test('fromYaml returns null for unknown', () {
-      expect(StepReviewMode.fromYaml('invalid'), isNull);
-    });
-  });
-
   group('ExtractionConfig', () {
     test('round-trips via toJson/fromJson', () {
       const config = ExtractionConfig(type: ExtractionType.regex, pattern: r'\d+');
@@ -256,12 +238,10 @@ void main() {
         id: 'step-1',
         name: 'My Step',
         prompts: ['Do {{VAR}} and {{context.key}}'],
-        type: 'coding',
-        project: '{{PROJECT}}',
+        type: 'bash',
         provider: 'claude',
         model: 'claude-opus',
         timeoutSeconds: 1800,
-        review: StepReviewMode.always,
         parallel: true,
         gate: 'prev.status == done',
         inputs: ['in_key'],
@@ -277,12 +257,10 @@ void main() {
       expect(restored.id, 'step-1');
       expect(restored.name, 'My Step');
       expect(restored.prompt, 'Do {{VAR}} and {{context.key}}');
-      expect(restored.type, 'coding');
-      expect(restored.project, '{{PROJECT}}');
+      expect(restored.type, 'bash');
       expect(restored.provider, 'claude');
       expect(restored.model, 'claude-opus');
       expect(restored.timeoutSeconds, 1800);
-      expect(restored.review, StepReviewMode.always);
       expect(restored.parallel, true);
       expect(restored.gate, 'prev.status == done');
       expect(restored.inputs, ['in_key']);
@@ -297,8 +275,7 @@ void main() {
     test('round-trips with only required fields (defaults applied)', () {
       const step = WorkflowStep(id: 'step-1', name: 'Step One', prompts: ['Just do it']);
       final restored = WorkflowStep.fromJson(step.toJson());
-      expect(restored.type, 'research');
-      expect(restored.review, StepReviewMode.codingOnly);
+      expect(restored.type, 'agent');
       expect(restored.parallel, false);
       expect(restored.inputs, isEmpty);
       expect(restored.outputKeys, isEmpty);

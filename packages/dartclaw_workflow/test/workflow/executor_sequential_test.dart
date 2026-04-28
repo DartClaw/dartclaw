@@ -15,7 +15,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         ContextExtractor,
         OutputConfig,
         OutputFormat,
-        StepReviewMode,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
@@ -117,6 +116,7 @@ void main() {
           id: 'plan',
           name: 'Plan',
           prompts: ['plan'],
+          allowedTools: ['file_read'],
           outputs: {'plan': OutputConfig(format: OutputFormat.path)},
         ),
         WorkflowStep(
@@ -221,6 +221,7 @@ void main() {
     final definition = WorkflowDefinition(
       name: 'workflow-git-auto-accept',
       description: 'Workflow-owned git tasks should advance on accepted.',
+      project: '{{PROJECT}}',
       gitStrategy: const WorkflowGitStrategy(
         bootstrap: true,
         worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
@@ -228,13 +229,7 @@ void main() {
         publish: WorkflowGitPublishStrategy(enabled: false),
       ),
       steps: const [
-        WorkflowStep(
-          id: 'implement',
-          name: 'Implement',
-          type: 'coding',
-          project: 'my-project',
-          prompts: ['Implement the story'],
-        ),
+        WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement the story']),
       ],
     );
 
@@ -311,92 +306,6 @@ void main() {
     ]);
   });
 
-  test('explicit review: always keeps workflow waiting until a later accept', () async {
-    final definition = WorkflowDefinition(
-      name: 'workflow-git-review-gate',
-      description: 'Explicit review mode should still park for human review.',
-      gitStrategy: const WorkflowGitStrategy(
-        bootstrap: true,
-        worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
-        promotion: 'merge',
-        publish: WorkflowGitPublishStrategy(enabled: false),
-      ),
-      steps: const [
-        WorkflowStep(
-          id: 'implement',
-          name: 'Implement',
-          type: 'coding',
-          project: 'my-project',
-          review: StepReviewMode.always,
-          prompts: ['Implement the story'],
-        ),
-      ],
-    );
-
-    final run = h.makeRun(definition);
-    await h.repository.insert(run);
-    final context = WorkflowContext(variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'});
-    final reviewReached = Completer<void>();
-    final allowAccept = Completer<void>();
-    final runtimeExecutor = h.makeExecutor(
-      turnAdapter: WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
-        promoteWorkflowBranch:
-            ({
-              required runId,
-              required projectId,
-              required branch,
-              required integrationBranch,
-              required strategy,
-              String? storyId,
-            }) async => const WorkflowGitPromotionSuccess(commitSha: 'gate123'),
-      ),
-    );
-
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      await h.taskService.updateFields(
-        e.taskId,
-        worktreeJson: {
-          'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
-          'branch': 'story-branch',
-          'createdAt': DateTime.now().toIso8601String(),
-        },
-      );
-      try {
-        await h.taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
-      } on StateError {
-        // Already running.
-      }
-      await h.taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
-      if (!reviewReached.isCompleted) {
-        reviewReached.complete();
-      }
-      await allowAccept.future;
-      await h.taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
-    });
-
-    final executeFuture = runtimeExecutor.execute(run, definition, context);
-    await reviewReached.future;
-    await Future<void>.delayed(Duration.zero);
-    expect((await h.repository.getById('run-1'))?.status, equals(WorkflowRunStatus.running));
-
-    allowAccept.complete();
-    await executeFuture;
-    await sub.cancel();
-
-    final finalTask = (await h.taskService.list()).single;
-    final finalRun = await h.repository.getById('run-1');
-    expect(finalTask.status, equals(TaskStatus.accepted));
-    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
-  });
-
   test('context from step 1 is available in step 2 prompt', () async {
     final definition = h.makeDefinition(
       steps: [
@@ -454,13 +363,14 @@ void main() {
     final definition = WorkflowDefinition(
       name: 'loop-workflow-git-auto-accept',
       description: 'Loop-owned git tasks should promote after accepted completion.',
+      project: '{{PROJECT}}',
       gitStrategy: const WorkflowGitStrategy(
         bootstrap: true,
         worktree: WorkflowGitWorktreeStrategy(mode: 'per-task'),
         publish: WorkflowGitPublishStrategy(enabled: false),
       ),
       steps: const [
-        WorkflowStep(id: 'implement', name: 'Implement', type: 'coding', project: 'my-project', prompts: ['Implement']),
+        WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement']),
       ],
       loops: const [
         WorkflowLoop(
@@ -758,6 +668,7 @@ void main() {
     final definition = WorkflowDefinition(
       name: 'artifact-commit',
       description: 'Commits produced path artifacts',
+      project: '{{PROJECT}}',
       gitStrategy: const WorkflowGitStrategy(
         artifacts: WorkflowGitArtifactsStrategy(commit: true, commitMessage: 'workflow artifacts {{runId}}'),
       ),
@@ -766,8 +677,6 @@ void main() {
         WorkflowStep(
           id: 'spec',
           name: 'Spec',
-          type: 'writing',
-          project: '{{PROJECT}}',
           outputs: {'spec_path': OutputConfig(format: OutputFormat.path)},
           prompts: ['Write spec'],
         ),
@@ -859,6 +768,7 @@ void main() {
     final definition = WorkflowDefinition(
       name: 'artifact-commit-local-path',
       description: 'Commits artifacts in named localPath projects',
+      project: '{{PROJECT}}',
       gitStrategy: const WorkflowGitStrategy(
         artifacts: WorkflowGitArtifactsStrategy(commit: true, commitMessage: 'workflow artifacts {{runId}}'),
       ),
@@ -867,8 +777,6 @@ void main() {
         WorkflowStep(
           id: 'spec',
           name: 'Spec',
-          type: 'writing',
-          project: '{{PROJECT}}',
           outputs: {'spec_path': OutputConfig(format: OutputFormat.path)},
           prompts: ['Write spec'],
         ),
@@ -977,7 +885,7 @@ void main() {
     expect(finalRun?.errorMessage, contains('Gate failed'));
   });
 
-  test('workflow task config maps default and explicit review modes', () async {
+  test('workflow task config always uses auto-accept review mode', () async {
     Future<String?> captureReviewMode(WorkflowStep step, {TaskStatus completionStatus = TaskStatus.accepted}) async {
       final definition = WorkflowDefinition(
         name: 'review-mode-${step.id}',
@@ -1014,56 +922,18 @@ void main() {
     }
 
     expect(
-      await captureReviewMode(
-        const WorkflowStep(id: 'default-step', name: 'Default Step', type: 'coding', prompts: ['Implement']),
-      ),
-      'auto-accept',
-    );
-    expect(
-      await captureReviewMode(
-        const WorkflowStep(
-          id: 'coding-only-step',
-          name: 'Coding Only Step',
-          type: 'coding',
-          review: StepReviewMode.codingOnly,
-          prompts: ['Implement'],
-        ),
-      ),
-      'auto-accept',
-    );
-    expect(
-      await captureReviewMode(
-        const WorkflowStep(
-          id: 'review-step',
-          name: 'Review Step',
-          type: 'coding',
-          review: StepReviewMode.always,
-          prompts: ['Implement'],
-        ),
-      ),
-      'mandatory',
-    );
-    expect(
-      await captureReviewMode(
-        const WorkflowStep(
-          id: 'never-step',
-          name: 'Never Step',
-          type: 'coding',
-          review: StepReviewMode.never,
-          prompts: ['Implement'],
-        ),
-      ),
+      await captureReviewMode(const WorkflowStep(id: 'default-step', name: 'Default Step', prompts: ['Implement'])),
       'auto-accept',
     );
   });
 
-  test('workflow-level project does not bind semantic analysis steps in inline mode', () async {
+  test('workflow-level project does not bind read-only steps without project-index context', () async {
     const definition = WorkflowDefinition(
       name: 'workflow-project-analysis-unbound',
-      description: 'Semantic analysis labels should not bind workflow-level project ids.',
+      description: 'Read-only workflow steps should not bind workflow-level project ids.',
       project: '{{PROJECT}}',
       steps: [
-        WorkflowStep(id: 'review', name: 'Review', type: 'analysis', typeAuthored: true, prompts: ['Review the repo']),
+        WorkflowStep(id: 'review', name: 'Review', allowedTools: ['file_read'], prompts: ['Review the repo']),
       ],
     );
 
@@ -1086,8 +956,6 @@ void main() {
         WorkflowStep(
           id: 'review',
           name: 'Review',
-          type: 'custom',
-          typeAuthored: true,
           allowedTools: ['file_read'],
           inputs: ['project_index'],
           prompts: ['Review the generated plan'],
@@ -1110,56 +978,48 @@ void main() {
     expect(task.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
   });
 
-  test('workflow-level project still binds neutral custom steps without an explicit tool allowlist', () async {
+  test('workflow-level project still binds neutral agent steps without an explicit tool allowlist', () async {
     const definition = WorkflowDefinition(
-      name: 'workflow-project-custom-bound',
-      description: 'Neutral custom steps stay project-bound after S41.',
+      name: 'workflow-project-agent-bound',
+      description: 'Neutral agent steps bind the workflow project.',
       project: '{{PROJECT}}',
       steps: [
-        WorkflowStep(
-          id: 'implement',
-          name: 'Implement',
-          type: 'custom',
-          typeAuthored: true,
-          prompts: ['Implement the change'],
-        ),
+        WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement the change']),
       ],
     );
 
     final task = await h.executeAndCaptureSingleTask(
       definition: definition,
       context: WorkflowContext(variables: const {'PROJECT': 'demo-project'}),
-      runId: 'run-custom-bound',
+      runId: 'run-agent-bound',
     );
 
     expect(task.projectId, 'demo-project');
     expect(task.configJson['_workflowNeedsWorktree'], isTrue);
   });
 
-  test('explicit step project override still wins for semantic analysis steps', () async {
+  test('workflow-level project binds project-index agent steps', () async {
     const definition = WorkflowDefinition(
-      name: 'workflow-step-project-override',
-      description: 'Explicit step projects keep binding precedence.',
+      name: 'workflow-project-index-bound',
+      description: 'Workflow project binding is declared once at workflow level.',
       project: '{{PROJECT}}',
       steps: [
-        WorkflowStep(
-          id: 'review',
-          name: 'Review',
-          type: 'analysis',
-          typeAuthored: true,
-          project: 'docs-project',
-          prompts: ['Review the repo'],
-        ),
+        WorkflowStep(id: 'review', name: 'Review', inputs: ['project_index'], prompts: ['Review the repo']),
       ],
     );
 
     final task = await h.executeAndCaptureSingleTask(
       definition: definition,
-      context: WorkflowContext(variables: const {'PROJECT': 'code-project'}),
-      runId: 'run-step-override',
+      context: WorkflowContext(
+        variables: const {'PROJECT': 'code-project'},
+        data: const {
+          'project_index': {'project_root': '/repo/code-project'},
+        },
+      ),
+      runId: 'run-project-index-bound',
     );
 
-    expect(task.projectId, 'docs-project');
+    expect(task.projectId, 'code-project');
     expect(task.configJson['_workflowNeedsWorktree'], isTrue);
   });
 

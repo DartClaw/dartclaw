@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-28 13:09 CEST
+Last Updated: 2026-04-28 15:19 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -27,7 +27,8 @@ Last Updated: 2026-04-28 13:09 CEST
 
 - S72 — In Progress: Workflow E2E Integration Test Hardening. Tightening `workflow_e2e_integration_test.dart` with helper-level proofs for strict/soft paused status handling, branch cleanup tracking, functional diff verification, fixture seed assertions, and related e2e safeguards.
 - S73 — Done: Workflow Runtime + Built-in Definition Polish. Removed merge-resolve verification config/env vars in favor of project-convention verification, relaxed stepDefaults ambiguity warnings to runtime semantics, added `GateEvaluator` `||` support, added severity-aware `gating_findings_count` remediation gates, added spec workflow architecture review parity, typed publish status, split branch vs PR artifacts, and added opt-in failed-run remote branch cleanup.
-- S71 — Done: AndThen Skills Bootstrap re-executed under DartClaw's `dartclaw-` namespace. `SkillProvisioner` invokes `install-skills.sh --prefix dartclaw- --no-codex-agents`, startup no longer calls `WorkflowSkillMaterializer.materialize(...)`, `ServiceWiring` fails fast on missing DC-native skill source, workflow YAMLs resolve `dartclaw-*` skills, and the public/private docs now describe the runtime-provisioning contract.
+- S74 — Done: Workflow step semantics rename and deprecation cleanup. Renamed workflow agent steps from `custom` to `agent`, made omitted `type:` resolve to `agent`, removed ADR-024 compatibility shims for semantic step types plus per-step `project:` / `review:`, and swept built-ins, tests, docs, and changelogs to the closed five-value step-type surface.
+- S71 — Done: AndThen Skills Bootstrap re-executed under DartClaw's `dartclaw-` namespace. `SkillProvisioner` invokes `install-skills.sh --prefix dartclaw- --display-brand DartClaw`, startup no longer calls `WorkflowSkillMaterializer.materialize(...)`, `ServiceWiring` fails fast on missing DC-native skill source, workflow YAMLs resolve `dartclaw-*` skills, and the public/private docs now describe the runtime-provisioning contract.
 - S51-S55 — Done (workflow step semantics redesign + remediation).
 - S56 — Done: Live release gate and documentation closeout. The deferred `plan-and-implement` release-gate e2e was originally satisfied by S62's cross-harness component-tier suite, but the 2026-04-26 gap reviews showed that suite cannot prove the success metric (every component test injects `merge_resolve.outcome` directly via `messageService.insertMessage` rather than driving the executor → skill → worktree chain). S65 now supplies the real-harness proof.
 - S57 — Done: Harness env-var injection contract + Codex `!`-operator SPIKE-1 (GO; Codex matches Claude Code via POSIX shell expansion). Six `MERGE_RESOLVE_*` env-var names locked in `dartclaw_core`.
@@ -67,6 +68,7 @@ Last Updated: 2026-04-28 13:09 CEST
 
 ## Session Continuity Notes
 
+- [2026-04-28] S74 complete — workflow step types now close at `agent`, `bash`, `approval`, `foreach`, `loop`; omitted `type:` defaults to `agent`; deprecated semantic values plus per-step `project:` / `review:` now fail parse/validation. ADR-024, workflow architecture, baseline requirements, public guide, built-in YAMLs, tests, and changelogs were updated. Verification: targeted parser/validator/resolver/policy/task-factory tests passed; `dartclaw_workflow` and `dartclaw_server` package tests passed; `dart analyze` clean across touched packages; built-in workflows validate raw and resolved.
 - [2026-04-28] S73 complete — runtime and built-in workflow polish landed across workflow/model/config/core/CLI/server surfaces. Verification: `dart analyze` clean for touched packages; targeted scenario suites passed; all three built-in workflows validate, with only the pre-existing `plan-and-implement` inline-description/preset warning remaining.
 - [2026-04-27] S71 (AndThen Skills Bootstrap / `SkillProvisioner`) complete — `AndthenConfig` (4 keys, all non-reloadable), `SkillProvisioner` with `validateSpawnTargets` + `ensureCacheCurrent` (clone/pull, SHA-marker + completeness gate, install-skills.sh `--prefix dartclaw-`, DC-native copy), wired into `ServiceWiring.wire()` before HTTP listen. ADR-025 marked implemented with DartClaw-managed `dartclaw-*` runtime skill names. New `andthen-skills.md` public guide; STACK.md AndThen section rewritten; workflow architecture deep-dive gets a runtime-provisioning subsection; CLAUDE.md "DartClaw Skills" section updated. CHANGELOG entry under [0.16.4] Changed.
 - [2026-04-27] S70 (Built-in Workflow allowedTools Audit and Relaxation) complete — 7 sites dropped, 7 relaxed to add web_fetch/mcp_call, 3 kept narrow for read-only inference; new docs subsection in workflows.md; CHANGELOG entry under [0.16.4] Changed.

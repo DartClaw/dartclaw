@@ -5,7 +5,6 @@ import 'schema_presets.dart' show schemaPresets;
 import 'skill_registry.dart';
 import 'step_config_resolver.dart'
     show WorkflowRoleDefaults, globMatchStepId, resolveStepConfig, workflowRoleDefaultAliases;
-import 'workflow_context.dart';
 import 'workflow_template_engine.dart';
 
 part 'validation/workflow_structure_rules.dart';
@@ -83,25 +82,13 @@ class WorkflowDefinitionValidator {
   static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
 
   static const _artifactProducingSkills = {'dartclaw-prd', 'dartclaw-plan', 'dartclaw-spec'};
-  static const _semanticStepTypes = {'coding', 'analysis', 'research', 'writing'};
   final _engine = WorkflowTemplateEngine();
   final WorkflowRoleDefaults roleDefaults;
 
   WorkflowDefinitionValidator({this.roleDefaults = const WorkflowRoleDefaults()});
 
-  /// Step types known by the engine. Any other type produces a warning.
-  static const _knownTypes = {
-    'research',
-    'analysis',
-    'writing',
-    'coding',
-    'automation',
-    'custom',
-    'bash',
-    'approval',
-    'foreach',
-    'loop',
-  };
+  /// Step types known by the engine.
+  static const _knownTypes = {'agent', 'bash', 'approval', 'foreach', 'loop'};
 
   /// Optional skill registry for skill-aware validation.
   ///
@@ -125,7 +112,6 @@ class WorkflowDefinitionValidator {
     _validateMapAliases(definition, errors);
     _validateProviderAliases(definition, errors);
     _validateVariableReferences(definition, errors);
-    _validateDeprecationWarnings(definition, warnings);
     _validateContextKeyConsistency(definition, errors);
     _validateGateExpressions(definition, errors);
     _validateLoopGateExpressions(definition, errors);

@@ -136,7 +136,6 @@ Map<String, dynamic> buildStepConfig(
   if (step_config_policy.stepNeedsWorktree(definition, step, resolved, resolvedWorktreeMode: resolvedWorktreeMode)) {
     config['_workflowNeedsWorktree'] = true;
   }
-  config['_workflowStepType'] = step.type;
   final branch = context.variables['BRANCH']?.trim();
   if (branch != null && branch.isNotEmpty) {
     config['_baseRef'] = branch;
@@ -155,10 +154,7 @@ Map<String, dynamic> buildStepConfig(
     };
   }
   config['_workflowWorkspaceDir'] = workflowWorkspaceDir;
-  config['reviewMode'] = switch (step.review.name) {
-    'always' => 'mandatory',
-    _ => 'auto-accept',
-  };
+  config['reviewMode'] = 'auto-accept';
   return config;
 }
 
@@ -227,7 +223,6 @@ Map<String, dynamic>? buildStructuredOutputEnvelopeSchema(
 Map<String, dynamic> stripWorkflowStepConfig(Map<String, dynamic> taskConfig) {
   final sanitized = Map<String, dynamic>.from(taskConfig);
   for (final key in const <String>{
-    '_workflowStepType',
     '_workflowGit',
     '_workflowWorkspaceDir',
     '_workflow.externalArtifactMount',
@@ -265,7 +260,7 @@ WorkflowStepExecution buildWorkflowStepExecutionFromConfig({
     workflowRunId: runId,
     stepIndex: stepIndex,
     stepId: step.id,
-    stepType: trimmedString(taskConfig['_workflowStepType']) ?? step.type,
+    stepType: step.type,
     gitJson: encodeJsonString(taskConfig['_workflowGit']),
     providerSessionId: trimmedString(taskConfig['_continueProviderSessionId']),
     structuredSchemaJson: encodeJsonString(taskConfig['_workflowStructuredSchema']),

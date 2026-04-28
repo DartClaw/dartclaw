@@ -58,17 +58,21 @@ steps:
     prompt: Do the thing.
 ''';
 
-/// Valid YAML with a warning-only validation issue (unknown step type).
+/// Valid YAML with a warning-only validation issue.
 /// This should load successfully with a warning but not be excluded.
 String _warningsOnlyYaml(String name) =>
     '''
 name: $name
-description: Workflow with a future step type.
+description: Workflow with approval in a loop.
 steps:
   - id: step1
     name: Step 1
-    type: future-type
-    prompt: Do the thing.
+    type: approval
+loops:
+  - id: approval-loop
+    steps: [step1]
+    maxIterations: 1
+    exitGate: step1.done == true
 ''';
 
 /// Valid YAML with a hard error (approval step as parallel — always an error).
@@ -276,18 +280,18 @@ void main() {
 
       // spec-and-implement remediation loop: entryGate on integrated-review, exitGate on re-review.
       final specRemLoop = specAndImplement.loops.firstWhere((l) => l.entryGate?.contains('integrated-review') ?? false);
-      expect(specRemLoop.entryGate, contains('integrated-review.findings_count > 0'));
-      expect(specRemLoop.exitGate, contains('re-review.findings_count == 0'));
+      expect(specRemLoop.entryGate, contains('integrated-review.gating_findings_count > 0'));
+      expect(specRemLoop.exitGate, contains('re-review.gating_findings_count == 0'));
 
       // plan-and-implement remediation loop: entryGate on plan-review.
       final planRemLoop = planAndImplement.loops.firstWhere((l) => l.entryGate?.contains('plan-review') ?? false);
-      expect(planRemLoop.entryGate, contains('plan-review.findings_count > 0'));
-      expect(planRemLoop.exitGate, contains('re-review.findings_count == 0'));
+      expect(planRemLoop.entryGate, contains('plan-review.gating_findings_count > 0'));
+      expect(planRemLoop.exitGate, contains('re-review.gating_findings_count == 0'));
 
       // code-review remediation loop: entryGate on review-code.
       final codeRemLoop = codeReview.loops.firstWhere((l) => l.entryGate?.contains('review-code') ?? false);
-      expect(codeRemLoop.entryGate, contains('review-code.findings_count > 0'));
-      expect(codeRemLoop.exitGate, contains('re-review.findings_count == 0'));
+      expect(codeRemLoop.entryGate, contains('review-code.gating_findings_count > 0'));
+      expect(codeRemLoop.exitGate, contains('re-review.gating_findings_count == 0'));
     });
   });
 

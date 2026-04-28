@@ -236,10 +236,15 @@ void main() {
       // than a long step prompt.
       final def = _load('plan-and-implement.yaml');
       final implement = _flattenedSteps(def).firstWhere((s) => s.id == 'implement');
-      final description = implement.outputs!['story_result']!.description!;
-      expect(description, contains('Sibling or baseline failures'));
-      expect(description, contains('non-blocking'));
-      expect(description, contains('scoped acceptance checks pass'));
+      final output = implement.outputs!['story_result']!;
+      expect(output.schema, equals('story-result'));
+      expect(output.description, isNull);
+
+      final rendered = SkillPromptBuilder.formatContextSummary(
+        {'story_result': 'ok'},
+        outputConfigs: {'story_result': output},
+      );
+      expect(rendered, contains('unrelated sibling or baseline failures are non-blocking'));
     });
   });
 

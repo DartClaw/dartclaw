@@ -34,7 +34,6 @@ variables:
 steps:
   - id: review
     name: Code Review
-    type: analysis
     prompt: |
       Review {{TARGET}} for code quality, security vulnerabilities,
       and potential improvements. Be specific and actionable.
@@ -52,7 +51,6 @@ project: '{{PROJECT}}'
 steps:
   - id: review
     name: Code Review
-    type: analysis
     prompt: |
       Review {{TARGET}} for code quality, security, and improvements.
       List your findings with severity (critical/major/minor).
@@ -82,7 +80,6 @@ project: '{{PROJECT}}'
 
   - id: remediate
     name: Remediate Findings
-    review: always       # opt in only when you intentionally want a human stop
     gate: "review.status == accepted"   # only runs if review was accepted
     prompt: |
       Fix the issues identified in this review:
@@ -122,7 +119,6 @@ Declare each context-write key under `outputs:` with `format: json` to enforce s
 ```yaml
   - id: review
     name: Code Review
-    type: analysis
     prompt: |
       Review {{TARGET}} for code quality, security, and improvements.
     outputs:
@@ -244,7 +240,6 @@ Or narrow step scope with `allowedTools` — a research step probably doesn't ne
 ```yaml
   - id: research
     name: Research
-    type: research
     allowedTools: [file_read, web_fetch]   # no write tools, no shell (canonical names)
     prompt: |
       Explore the codebase and understand {{TARGET}}.
@@ -289,7 +284,6 @@ Use multi-prompt steps to refine output format within a single step boundary —
 ```yaml
   - id: review
     name: Code Review
-    type: analysis
     prompt:
       - |
         Review {{TARGET}} for code quality and security.
@@ -319,7 +313,6 @@ JSON outputs now support two output modes, with `format: json` + `schema` defaul
 steps:
   - id: review
     name: Review
-    type: analysis
     prompt: Review {{TARGET}}
     outputs:
       verdict:
@@ -403,7 +396,6 @@ The controller step's `outputs:` map names the exported aggregate key — contro
 ```yaml
 - id: review-story
   name: Review Story
-  type: analysis
   map_over: stories
   outputs:
     review_results:
@@ -544,13 +536,12 @@ gitStrategy:
   artifacts:
     commit: true                                    # default true if ≥1 artifact-producing step
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
-    project: '{{PROJECT}}'
 ```
 
 Key runtime behavior:
 
 - `bootstrap: true` initializes a workflow-owned integration branch from `BRANCH` (or project default branch).
-- Omitted `review:` now auto-accepts workflow-owned steps by default; use `review: always` only when you really want a human checkpoint.
+- Workflow-owned steps use task `reviewMode: auto-accept`; model human checkpoints with dedicated review or `approval` steps.
 - `worktree: auto` resolves to `per-map-item` only when the enclosing map/foreach actually runs with `max_parallel > 1`; otherwise it resolves to `inline`.
 - Omitted `gitStrategy.promotion` is inferred from the resolved worktree mode: `merge` for per-map-item isolation, `none` for inline/shared execution.
 - `worktree: shared` reuses one workflow-owned coding worktree across serial coding phases.
@@ -715,7 +706,6 @@ A workflow step can now be as thin as:
 ```yaml
 - id: quick-review
   name: Quick Review
-  type: analysis
   skill: dartclaw-quick-review
   inputs: [project_index, story_result]
   outputs:
@@ -960,7 +950,7 @@ DartClaw workflow steps are the unit of execution, but several step types act as
 
 | Container | Spelling | What it does | Task created? |
 |---|---|---|---|
-| Plain step | `type: research` / `analysis` / `coding` / `writing` | Runs one agent turn (or zero-turn bash/approval below) | 1 |
+| Plain step | Omit `type:` (defaults to `agent`) | Runs one agent turn (or zero-turn bash/approval below) | 1 |
 | Parallel group | `parallel: true` on ≥2 contiguous siblings | Runs the contiguous parallel-flagged steps concurrently; context merges after all finish | 1 per member |
 | Plain map | `mapOver:` (or `map_over:`) on a regular step | Runs the same step once per item in a context array, then aggregates results | 1 per item |
 | `foreach` | `type: foreach` + `map_over:` + nested `steps:` list | Runs an ordered sub-pipeline per item in the array | 1 per child step × items |
@@ -1061,7 +1051,6 @@ Worked example — an architecture review step that needs the network and MCP to
 ```yaml
 - id: research
   name: Architecture Review
-  type: custom
   skill: dartclaw-architecture
   # read-only: file_write absent → step is auto-marked read-only.
   allowedTools: [shell, file_read, web_fetch, mcp_call]
@@ -1072,7 +1061,6 @@ Contrast a code-only review step that should never need network access:
 ```yaml
 - id: review-code
   name: Review Code
-  type: custom
   skill: dartclaw-review
   # read-only review: narrow surface; only inspects the working tree.
   allowedTools: [shell, file_read]
@@ -1083,7 +1071,6 @@ A coding step that genuinely needs the full default surface (shell, file read/wr
 ```yaml
 - id: implement
   name: Implement Feature
-  type: custom
   skill: dartclaw-exec-spec
   # No allowedTools — inherits the harness default surface.
 ```
@@ -1144,12 +1131,10 @@ Non-existent `workdir` fails the step before the command runs.
 ```yaml
 - id: investigate
   name: Investigate
-  type: coding
   prompt: Investigate the bug and capture the root cause.
 
 - id: fix
   name: Fix
-  type: coding
   continueSession: true
   prompt: Implement the fix in the same coding session.
 ```
@@ -1161,7 +1146,6 @@ You can also point at an explicit earlier step ID when the continued step is not
 ```yaml
 - id: investigate
   name: Investigate
-  type: coding
   prompt: Investigate the bug and capture the root cause.
 
 - id: run-tests
@@ -1171,7 +1155,6 @@ You can also point at an explicit earlier step ID when the continued step is not
 
 - id: fix
   name: Fix
-  type: coding
   continueSession: investigate
   prompt: Implement the fix in the same coding session.
 ```

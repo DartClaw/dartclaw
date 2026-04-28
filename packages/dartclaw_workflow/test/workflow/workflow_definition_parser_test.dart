@@ -26,11 +26,9 @@ steps:
   - id: research
     name: Research Step
     prompt: Research {{PROJECT}} for {{ENV}}
-    type: research
     provider: claude
     model: claude-opus
     timeout: 30m
-    review: always
     parallel: false
     gate: null
     inputs: []
@@ -45,8 +43,6 @@ steps:
   - id: implement
     name: Implement Step
     prompt: Implement based on {{context.research_result}}
-    type: coding
-    review: coding-only
     parallel: true
     inputs:
       - research_result
@@ -202,11 +198,10 @@ void main() {
       expect(def.steps.length, 2);
       final research = def.steps[0];
       expect(research.id, 'research');
-      expect(research.type, 'research');
+      expect(research.type, 'agent');
       expect(research.provider, 'claude');
       expect(research.model, 'claude-opus');
       expect(research.timeoutSeconds, 1800); // 30m in seconds
-      expect(research.review, StepReviewMode.always);
       expect(research.parallel, false);
       expect(research.outputKeys, ['research_result']);
       expect(research.maxTokens, 10000);
@@ -215,8 +210,7 @@ void main() {
 
       final implement = def.steps[1];
       expect(implement.id, 'implement');
-      expect(implement.type, 'coding');
-      expect(implement.review, StepReviewMode.codingOnly);
+      expect(implement.type, 'agent');
       expect(implement.parallel, true);
       expect(implement.inputs, ['research_result']);
       expect(implement.extraction!.type, ExtractionType.regex);
@@ -511,7 +505,7 @@ steps:
       );
     });
 
-    test('parses review field: always, coding-only, never', () {
+    test('rejects removed per-step review field', () {
       final yaml = '''
 name: n
 description: d
@@ -529,10 +523,10 @@ steps:
     prompt: p
     review: never
 ''';
-      final def = parser.parse(yaml);
-      expect(def.steps[0].review, StepReviewMode.always);
-      expect(def.steps[1].review, StepReviewMode.codingOnly);
-      expect(def.steps[2].review, StepReviewMode.never);
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('"review:" was removed'))),
+      );
     });
 
     test('parses timeout string to seconds', () {
@@ -2109,7 +2103,7 @@ steps:
       expect(step.prompts, isNull);
     });
 
-    test('legacy research/coding steps still parse unchanged (backward compat)', () {
+    test('legacy research/coding step values are preserved for validator errors', () {
       const yaml = '''
 name: n
 description: d
@@ -2164,7 +2158,6 @@ steps:
       - id: implement
         name: Implement
         prompt: Build {{map.item}}
-        type: coding
       - id: validate
         name: Validate
         prompt: Validate {{map.item}}

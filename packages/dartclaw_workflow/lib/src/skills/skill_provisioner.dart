@@ -90,7 +90,7 @@ class _InstallDestination {
 ///
 /// At `dartclaw serve` startup, [ensureCacheCurrent] clones AndThen into
 /// `<dataDir>/andthen-src/`, runs AndThen's own `scripts/install-skills.sh
-/// --prefix dartclaw-` into the configured destination(s), and copies the
+/// --prefix dartclaw- --display-brand DartClaw` into the configured destination(s), and copies the
 /// DC-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`,
 /// `dartclaw-merge-resolve`) into the same skill trees.
 ///
@@ -314,7 +314,7 @@ class SkillProvisioner {
       throw SkillProvisionException('install-skills.sh missing at $script — check andthen.ref/git_url.');
     }
 
-    final args = <String>['--prefix', 'dartclaw-', '--no-codex-agents'];
+    final args = <String>['--prefix', 'dartclaw-', '--display-brand', 'DartClaw'];
     if (dest.useClaudeUser) {
       args.add('--claude-user');
     } else {

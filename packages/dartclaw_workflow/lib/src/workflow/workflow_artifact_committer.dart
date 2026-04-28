@@ -146,8 +146,8 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
   if (resolved == null) {
     _log.warning(
       "artifact-commit: step '${step.id}' produced paths but no project id "
-      'could be resolved (checked gitStrategy.artifacts.project, step.project, '
-      'and the {{PROJECT}} workflow variable)',
+      'could be resolved (checked gitStrategy.artifacts.project and '
+      'the workflow-level project binding)',
     );
     return ArtifactCommitResult.failed(
       failureReason: "artifact-commit: no project id resolved for step '${step.id}'",
@@ -285,9 +285,8 @@ Future<ResolvedArtifactProject?> resolveArtifactCommitProject({
   required WorkflowTemplateEngine templateEngine,
 }) async {
   final projectId =
-      _resolveProjectTemplate(strategy.project, context, templateEngine) ??
-      _resolveProjectTemplate(step.project, context, templateEngine) ??
-      _resolveProjectTemplate(definition.project, context, templateEngine);
+      _resolveArtifactProjectTemplate(strategy.project, context, templateEngine) ??
+      _resolveArtifactProjectTemplate(definition.project, context, templateEngine);
   if (projectId == null) return null;
   final project = await projectService?.get(projectId);
   final localPath = project?.localPath.trim();
@@ -295,7 +294,11 @@ Future<ResolvedArtifactProject?> resolveArtifactCommitProject({
   return ResolvedArtifactProject(projectId: projectId, dir: dir, exists: Directory(dir).existsSync());
 }
 
-String? _resolveProjectTemplate(String? template, WorkflowContext context, WorkflowTemplateEngine templateEngine) {
+String? _resolveArtifactProjectTemplate(
+  String? template,
+  WorkflowContext context,
+  WorkflowTemplateEngine templateEngine,
+) {
   if (template == null) return null;
   final resolved = templateEngine.resolve(template, context).trim();
   return resolved.isEmpty ? null : resolved;

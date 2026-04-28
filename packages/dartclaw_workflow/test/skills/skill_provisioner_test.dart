@@ -91,7 +91,10 @@ void main() {
         // Installer ran exactly once for the data_dir destination.
         final installer = runner.calls.where((c) => c.executable.endsWith('install-skills.sh')).toList();
         expect(installer, hasLength(1));
-        expect(installer.single.arguments, containsAll(['--prefix', 'dartclaw-', '--no-codex-agents']));
+        expect(
+          installer.single.arguments,
+          containsAll(['--prefix', 'dartclaw-', '--display-brand', 'DartClaw']),
+        );
         expect(installer.single.arguments, containsAll(['--skills-dir', p.join(dataDir, '.agents', 'skills')]));
         expect(installer.single.arguments, isNot(contains('--claude-user')));
 

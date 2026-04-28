@@ -103,20 +103,6 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
           );
         }
       }
-      if (step.project != null) {
-        final projectRefs = _engine.extractVariableReferences(step.project!, mapAliases: aliases);
-        for (final ref in projectRefs) {
-          if (!declaredVars.contains(ref)) {
-            errors.add(
-              ValidationError(
-                message: 'Step "${step.id}" project field references undeclared variable "{{$ref}}".',
-                type: ValidationErrorType.invalidReference,
-                stepId: step.id,
-              ),
-            );
-          }
-        }
-      }
       for (final name in step.workflowVariables) {
         if (!declaredVars.contains(name)) {
           errors.add(

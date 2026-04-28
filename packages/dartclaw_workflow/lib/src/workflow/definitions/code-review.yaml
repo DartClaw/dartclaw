@@ -45,7 +45,6 @@ steps:
   # Discover the project layout and relevant Git context before the review begins.
   - id: discover-project
     name: Discover Project
-    type: custom
     skill: dartclaw-discover-project
     # read-only: discovers project layout, no writes — narrow surface preserves
     # step_config_policy.stepIsReadOnly inference (file_write non-membership).
@@ -61,7 +60,6 @@ steps:
   # review skill select the right diffing strategy (PR vs branch vs plain target).
   - id: review-code
     name: Review Code
-    type: custom
     skill: dartclaw-review
     # read-only review: file_write absent preserves step_config_policy's
     # read-only inference. shell/web_fetch/mcp_call enable `git diff`,
@@ -101,7 +99,6 @@ steps:
       # on its edits before emitting a completed remediation result.
       - id: remediate
         name: Remediate Findings
-        type: custom
         skill: dartclaw-remediate-findings
         inputs: [project_index, review_summary]
         prompt: "--auto {{context.review_summary}}"
@@ -120,7 +117,6 @@ steps:
       # Re-run the code review on the remediated implementation to decide whether another pass is needed.
       - id: re-review
         name: Re-review
-        type: custom
         skill: dartclaw-review
         # read-only review: matches review-code's surface for the re-review pass.
         allowedTools: [shell, file_read, web_fetch, mcp_call]

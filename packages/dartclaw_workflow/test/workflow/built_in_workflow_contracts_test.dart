@@ -11,7 +11,8 @@
 //    bounds, skill presence, etc.)
 //  * State tracking: built-in authoring workflows do not add a separate
 //    `update-state` step; agents may update state docs during authored work.
-//  * Tool permissions: review steps are read-only, implement/remediate may
+//  * Tool permissions: structured review steps are read-only, file-backed
+//    review steps may write their report artifact, implement/remediate may
 //    write, discover-project is read-only.
 //  * Prompt minimality: step prompts are compact invocation hints that name
 //    the skill input and automation flags, not long instruction blocks.
@@ -142,26 +143,34 @@ void main() {
     });
   });
 
-  group('Tool permissions — review steps are read-only, authoring steps may write', () {
-    // Read-only review steps declare an explicit allowlist with `file_write`
-    // absent so step_config_policy.stepIsReadOnly returns true. Writeable
-    // review steps (those whose prompt invokes `--fix` to delegate
-    // remediation) intentionally omit allowedTools and inherit the harness
-    // default surface — they must not appear in this assertion.
+  group('Tool permissions — review steps match their output contract', () {
+    // Structured review steps declare an explicit allowlist with `file_write`
+    // absent so step_config_policy.stepIsReadOnly returns true. File-backed
+    // review steps need `file_write`; they emit a path to a report artifact
+    // that the workflow validates against the task worktree.
     const writeableReviewSteps = {'quick-review'};
 
-    test('read-only review steps declare allowedTools without file_write', () {
+    test('review steps declare tool access consistent with artifact outputs', () {
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
           if (!step.id.contains('review')) continue;
           if (writeableReviewSteps.contains(step.id)) continue;
           expect(step.allowedTools, isNotNull, reason: '$file → review step "${step.id}" must declare allowedTools');
-          expect(
-            step.allowedTools,
-            isNot(contains('file_write')),
-            reason: '$file → review step "${step.id}" must not include file_write in allowedTools',
-          );
+          final emitsPathArtifact = step.outputs?.values.any((config) => config.format == OutputFormat.path) ?? false;
+          if (emitsPathArtifact) {
+            expect(
+              step.allowedTools,
+              contains('file_write'),
+              reason: '$file → file-backed review step "${step.id}" must be able to write its report artifact',
+            );
+          } else {
+            expect(
+              step.allowedTools,
+              isNot(contains('file_write')),
+              reason: '$file → structured review step "${step.id}" must stay read-only',
+            );
+          }
         }
       }
     });

@@ -137,6 +137,30 @@ int _requireFindingsCount(_StepExecutionResult result, String outputKey) {
   return count!;
 }
 
+String _requireRelativeMarkdownArtifactPath(_StepExecutionResult result, String outputKey, {required String rootDir}) {
+  final value = result.outputs[outputKey];
+  expect(value, isA<String>(), reason: 'Expected $outputKey to be a path string. Artifact: ${result.artifactPath}');
+
+  final relativePath = (value as String).trim();
+  expect(relativePath, isNotEmpty, reason: 'Expected $outputKey to be non-empty. Artifact: ${result.artifactPath}');
+  expect(
+    p.isAbsolute(relativePath),
+    isFalse,
+    reason: 'Expected $outputKey to be workspace-relative, got $relativePath. Artifact: ${result.artifactPath}',
+  );
+  expect(
+    p.extension(relativePath),
+    '.md',
+    reason: 'Expected $outputKey to point at a markdown report. Artifact: ${result.artifactPath}',
+  );
+  expect(
+    File(p.join(rootDir, relativePath)).existsSync(),
+    isTrue,
+    reason: 'Expected $outputKey file to exist at $relativePath. Artifact: ${result.artifactPath}',
+  );
+  return relativePath;
+}
+
 class _StepExecutionResult {
   final String stepId;
   final String stepName;
@@ -624,11 +648,93 @@ void main() {
     // `plan-review.findings_count` output. Assert on those — the batch-level
     // `implementation_summary` key used by e2e overrides is not a real
     // extractor output.
-    expect(result.outputs['review_findings'], isA<String>());
-    expect((result.outputs['review_findings'] as String).trim(), isNotEmpty);
+    _requireRelativeMarkdownArtifactPath(result, 'review_findings', rootDir: fixtureDir);
+    expect(_requireFindingsCount(result, 'plan-review.findings_count'), 0, reason: 'Artifact: ${result.artifactPath}');
+  }, timeout: const Timeout(Duration(minutes: 5)));
+
+  test('architecture-review returns a workspace-relative findings report path', () async {
+    _writeMarkdownNote(fixtureDir, 'notes/alpha.md', 'Alpha Note', 'Validated');
+    _writeMarkdownNote(fixtureDir, 'notes/beta.md', 'Beta Note', 'Validated');
+    _writeMarkdownNote(
+      fixtureDir,
+      'docs/specs/demo/plan.md',
+      'Plan',
+      'Create two independent markdown notes with no production architecture changes.',
+    );
+
+    final storySpecs = [
+      {
+        'id': 'S01',
+        'title': 'Create Alpha Note',
+        'description': 'Create the alpha note file.',
+        'acceptance_criteria': [
+          'notes/alpha.md exists',
+          'Contains heading "Alpha Note"',
+          'Contains bullet "Validated"',
+        ],
+        'type': 'coding',
+        'dependencies': <String>[],
+        'key_files': ['notes/alpha.md'],
+        'effort': 'small',
+        'spec': 'Create notes/alpha.md with heading "Alpha Note" and bullet "Validated".',
+      },
+      {
+        'id': 'S02',
+        'title': 'Create Beta Note',
+        'description': 'Create the beta note file.',
+        'acceptance_criteria': ['notes/beta.md exists', 'Contains heading "Beta Note"', 'Contains bullet "Validated"'],
+        'type': 'coding',
+        'dependencies': ['S01'],
+        'key_files': ['notes/beta.md'],
+        'effort': 'small',
+        'spec': 'Create notes/beta.md with heading "Beta Note" and bullet "Validated".',
+      },
+    ];
+    final storyResults = [
+      {
+        'implement': {'story_result': 'Created notes/alpha.md with heading "Alpha Note" and bullet "Validated".'},
+        'quick-review': {
+          'quick_review_summary': 'Story S01 matches its spec and acceptance criteria. No findings.',
+          'quick_review_findings_count': 0,
+        },
+      },
+      {
+        'implement': {'story_result': 'Created notes/beta.md with heading "Beta Note" and bullet "Validated".'},
+        'quick-review': {
+          'quick_review_summary': 'Story S02 matches its spec and acceptance criteria. No findings.',
+          'quick_review_findings_count': 0,
+        },
+      },
+    ];
+
+    final result = await executeStep(
+      step: _stepById(planDefinition, 'architecture-review'),
+      context: WorkflowContext(
+        variables: const {
+          'REQUIREMENTS': 'Create two small markdown notes exactly as specified.',
+          'PROJECT': 'workflow-testing',
+          'BRANCH': 'main',
+          'MAX_PARALLEL': '1',
+        },
+        data: {
+          'project_index': {
+            'framework': 'markdown',
+            'project_root': fixtureDir,
+            'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
+            'state_protocol': {'state_file': 'STATE.md'},
+          },
+          'story_specs': storySpecs,
+          'story_results': storyResults,
+          'plan': 'docs/specs/demo/plan.md',
+        },
+      ),
+      artifactLabel: 'architecture-review-clean-two-story-batch',
+    );
+
+    _requireRelativeMarkdownArtifactPath(result, 'architecture_review_findings', rootDir: fixtureDir);
     expect(
-      _requireFindingsCount(result, 'plan-review.findings_count'),
-      0,
+      _requireFindingsCount(result, 'architecture-review.findings_count'),
+      inInclusiveRange(0, 1),
       reason: 'Artifact: ${result.artifactPath}',
     );
   }, timeout: const Timeout(Duration(minutes: 5)));
@@ -706,8 +812,7 @@ void main() {
       // findings_count tolerated as 0..1: a picky LLM pass occasionally flags the
       // single-line "Validated" bullet as vague. Test invariant is the wiring,
       // not the LLM's verdict on a synthetic fixture.
-      expect(result.outputs['review_findings'], isA<String>());
-      expect((result.outputs['review_findings'] as String).trim(), isNotEmpty);
+      _requireRelativeMarkdownArtifactPath(result, 'review_findings', rootDir: fixtureDir);
       expect(
         _requireFindingsCount(result, 're-review.findings_count'),
         inInclusiveRange(0, 1),

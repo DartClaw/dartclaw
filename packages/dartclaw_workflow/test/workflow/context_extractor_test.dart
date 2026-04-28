@@ -77,18 +77,8 @@ void main() {
     );
   }
 
-  WorkflowStep makeStep({
-    String id = 'step1',
-    ExtractionConfig? extraction,
-    Map<String, OutputConfig>? outputs,
-  }) {
-    return WorkflowStep(
-      id: id,
-      name: 'Step 1',
-      prompts: ['Do something'],
-      extraction: extraction,
-      outputs: outputs,
-    );
+  WorkflowStep makeStep({String id = 'step1', ExtractionConfig? extraction, Map<String, OutputConfig>? outputs}) {
+    return WorkflowStep(id: id, name: 'Step 1', prompts: ['Do something'], extraction: extraction, outputs: outputs);
   }
 
   test('returns empty map when step has no outputs', () async {
@@ -415,9 +405,7 @@ void main() {
     await taskService.updateFields('task-path-1', sessionId: session.id);
     final taskWithSession = (await taskService.get('task-path-1'))!;
 
-    final step = makeStep(
-      outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
-    );
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
 
     await expectLater(
       extractor.extract(step, taskWithSession),
@@ -428,6 +416,90 @@ void main() {
             .having((failure) => failure.reason, 'reason', 'path claimed but not present in worktree diff'),
       ),
     );
+  });
+
+  test('uses changed architecture review report file when assistant claims a stale report path', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-review-report'))..createSync();
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'docs/specs/demo/plan-architecture-codex-2026-04-28.md')
+      ..addUntracked(worktree.path, 'docs/specs/demo/unrelated.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final claimedPath = 'docs/specs/demo/plan-architecture-codex-codex-2026-04-28.md';
+    final actualPath = 'docs/specs/demo/plan-architecture-codex-2026-04-28.md';
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Architecture review completed.\n\n'
+          'No architecture findings of concern.\n\n'
+          '<workflow-context>${jsonEncode({'architecture_review_findings': claimedPath, 'architecture-review.findings_count': 0})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields('task-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-review-report-path'))!;
+    final step = makeStep(outputs: const {'architecture_review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['architecture_review_findings'], actualPath);
+  });
+
+  test('uses changed review findings file when assistant claims a stale report path', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-plan-review-report'))..createSync();
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'docs/specs/demo/plan-review-codex-2026-04-28.md')
+      ..addUntracked(worktree.path, 'docs/specs/demo/architecture-notes.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final claimedPath = 'docs/specs/demo/plan-review-codex-codex-2026-04-28.md';
+    final actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Plan review completed.\n\n'
+          'No findings of concern.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': claimedPath, 'plan-review.findings_count': 0})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields('task-plan-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], actualPath);
   });
 
   test('resolves list path outputs from workflow git diff', () async {
@@ -462,9 +534,7 @@ void main() {
     await taskService.updateFields('task-fis-paths', sessionId: session.id, worktreeJson: {'path': worktree.path});
     final taskWithWorktree = (await taskService.get('task-fis-paths'))!;
 
-    final step = makeStep(
-      outputs: const {'fis_paths': OutputConfig(format: OutputFormat.lines)},
-    );
+    final step = makeStep(outputs: const {'fis_paths': OutputConfig(format: OutputFormat.lines)});
 
     final outputs = await localExtractor.extract(step, taskWithWorktree);
 
@@ -496,9 +566,7 @@ void main() {
     );
     await taskService.updateFields('task-phantom-path', sessionId: session.id, worktreeJson: {'path': worktree.path});
     final taskWithWorktree = (await taskService.get('task-phantom-path'))!;
-    final step = makeStep(
-      outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
-    );
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
 
     await expectLater(
       localExtractor.extract(step, taskWithWorktree),
@@ -540,9 +608,7 @@ void main() {
     );
     await taskService.updateFields('task-existing-path', sessionId: session.id, worktreeJson: {'path': worktree.path});
     final taskWithWorktree = (await taskService.get('task-existing-path'))!;
-    final step = makeStep(
-      outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
-    );
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
 
     final outputs = await localExtractor.extract(step, taskWithWorktree);
 
@@ -582,9 +648,7 @@ void main() {
       worktreeJson: {'path': worktree.path},
     );
     final taskWithWorktree = (await taskService.get('task-explicit-singular'))!;
-    final step = makeStep(
-      outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
-    );
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
 
     final outputs = await localExtractor.extract(step, taskWithWorktree);
 
@@ -624,9 +688,7 @@ void main() {
     await taskService.updateFields('task-explicit-list', sessionId: session.id, worktreeJson: {'path': worktree.path});
     final taskWithWorktree = (await taskService.get('task-explicit-list'))!;
 
-    final step = makeStep(
-      outputs: const {'fis_paths': OutputConfig(format: OutputFormat.lines)},
-    );
+    final step = makeStep(outputs: const {'fis_paths': OutputConfig(format: OutputFormat.lines)});
 
     final outputs = await localExtractor.extract(step, taskWithWorktree);
 
@@ -654,9 +716,7 @@ void main() {
     );
     await taskService.updateFields('task-ambiguous-path', worktreeJson: {'path': worktree.path});
     final taskWithWorktree = (await taskService.get('task-ambiguous-path'))!;
-    final step = makeStep(
-      outputs: const {'prd': OutputConfig(format: OutputFormat.path)},
-    );
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
 
     await expectLater(
       localExtractor.extract(step, taskWithWorktree),
@@ -808,9 +868,7 @@ void main() {
     await taskService.updateFields('task-json-list-1', sessionId: session.id);
     final taskWithSession = (await taskService.get('task-json-list-1'))!;
 
-    final step = makeStep(
-      outputs: {'result': const OutputConfig(format: OutputFormat.json)},
-    );
+    final step = makeStep(outputs: {'result': const OutputConfig(format: OutputFormat.json)});
 
     final outputs = await extractor.extract(step, taskWithSession);
     final result = outputs['result'] as List<Object?>;
@@ -834,9 +892,7 @@ void main() {
     await taskService.updateFields('task-lines-1', sessionId: session.id);
     final taskWithSession = (await taskService.get('task-lines-1'))!;
 
-    final step = makeStep(
-      outputs: {'result': const OutputConfig(format: OutputFormat.lines)},
-    );
+    final step = makeStep(outputs: {'result': const OutputConfig(format: OutputFormat.lines)});
 
     final outputs = await extractor.extract(step, taskWithSession);
     expect(outputs['result'], equals(['alpha', 'beta', 'gamma']));
@@ -1329,9 +1385,7 @@ void main() {
 
     test('writes non-null literal to context', () async {
       final task = await createTask();
-      final step = makeStep(
-        outputs: const {'k': OutputConfig(setValue: 'literal')},
-      );
+      final step = makeStep(outputs: const {'k': OutputConfig(setValue: 'literal')});
       final outputs = await extractor.extract(step, task);
       expect(outputs['k'], 'literal');
     });

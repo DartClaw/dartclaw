@@ -106,6 +106,7 @@ typedef CliWorkflowPrCreator =
 class CliWorkflowWiring {
   final DartclawConfig config;
   final String dataDir;
+  final String runtimeCwd;
   final String? skillsHomeDir;
   final Map<String, String> environment;
   final HarnessFactory _harnessFactory;
@@ -142,6 +143,7 @@ class CliWorkflowWiring {
   CliWorkflowWiring({
     required this.config,
     required this.dataDir,
+    String? runtimeCwd,
     this.skillsHomeDir,
     Map<String, String>? environment,
     HarnessFactory? harnessFactory,
@@ -150,7 +152,8 @@ class CliWorkflowWiring {
     AssetResolver? assetResolver,
     this.workflowStepOutputTransformer,
     this.prCreator,
-  }) : environment = environment ?? Platform.environment,
+  }) : runtimeCwd = runtimeCwd ?? Directory.current.path,
+       environment = environment ?? Platform.environment,
        _harnessFactory = harnessFactory ?? HarnessFactory(),
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _taskDbFactory = taskDbFactory ?? openTaskDb,
@@ -171,7 +174,7 @@ class CliWorkflowWiring {
     }
 
     eventBus = EventBus();
-    final projectDirs = _workflowSkillProjectDirs(config);
+    final projectDirs = _workflowSkillProjectDirs(config, runtimeCwd: runtimeCwd);
     final resolvedAssets = assetResolver.resolve();
     final builtInSkillsSourceDir =
         resolvedAssets?.skillsDir ?? WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
@@ -189,6 +192,8 @@ class CliWorkflowWiring {
       projectDirs: projectDirs,
       workspaceDir: config.workspaceDir,
       dataDir: dataDir,
+      dataDirClaudeSkillsDir: p.join(dataDir, '.claude', 'skills'),
+      dataDirAgentsSkillsDir: p.join(dataDir, '.agents', 'skills'),
       builtInSkillsDir: builtInSkillsSourceDir,
     );
 
@@ -250,7 +255,7 @@ class CliWorkflowWiring {
     final harness = _harnessFactory.create(
       defaultProviderId,
       HarnessFactoryConfig(
-        cwd: Directory.current.path,
+        cwd: runtimeCwd,
         executable: _resolveProviderExecutable(config, defaultProviderId),
         harnessConfig: _harnessConfig,
         providerOptions: _providerOptions(config, defaultProviderId),
@@ -312,7 +317,7 @@ class CliWorkflowWiring {
       sessionsDir: config.sessionsDir,
       dataDir: dataDir,
       workspaceDir: config.workspaceDir,
-      diffGenerator: DiffGenerator(projectDir: Directory.current.path),
+      diffGenerator: DiffGenerator(projectDir: runtimeCwd),
       projectService: projectService,
     );
     workflowCliRunner = WorkflowCliRunner(
@@ -600,7 +605,7 @@ class CliWorkflowWiring {
   Future<String> _resolveWorkflowProjectDir(String? projectId) async {
     final trimmed = projectId?.trim();
     if (trimmed == null || trimmed.isEmpty || trimmed == '_local') {
-      return Directory.current.path;
+      return runtimeCwd;
     }
     final project = await projectService.get(trimmed);
     if (project == null) {
@@ -626,19 +631,30 @@ class CliWorkflowWiring {
     final workflowTasks = (await taskService.list()).where((task) => task.workflowRunId != null).toList();
     if (workflowTasks.isEmpty) return;
 
-    final worktreePaths = <String>{};
-    final branches = <String>{};
     final runIds = workflowTasks.map((task) => task.workflowRunId).whereType<String>().toSet();
     for (final runId in runIds) {
-      final cleanupPlan = _buildWorkflowCleanupPlan(
-        runId,
-        workflowTasks.where((task) => task.workflowRunId == runId).toList(),
-      );
-      worktreePaths.addAll(cleanupPlan.worktreePaths);
-      branches.addAll(cleanupPlan.branches);
+      final runTasks = workflowTasks.where((task) => task.workflowRunId == runId).toList();
+      final projectIds = runTasks
+          .map((task) => task.projectId?.trim())
+          .where((id) => id != null && id.isNotEmpty && id != '_local')
+          .toSet();
+      final localTasks = runTasks.where((task) {
+        final projectId = task.projectId?.trim();
+        return projectId == null || projectId.isEmpty || projectId == '_local';
+      }).toList();
+      if (localTasks.isNotEmpty) {
+        await _runWorkflowGitCleanupPlan(_buildWorkflowCleanupPlan(runId, localTasks), projectDir: runtimeCwd);
+      }
+      if (projectIds.isEmpty) {
+        continue;
+      }
+      for (final projectId in projectIds) {
+        await _runWorkflowGitCleanupPlan(
+          _buildWorkflowCleanupPlan(runId, runTasks.where((task) => task.projectId?.trim() == projectId).toList()),
+          projectDir: await _resolveWorkflowProjectDir(projectId),
+        );
+      }
     }
-
-    await _runWorkflowGitCleanupPlan(_WorkflowGitCleanupPlan(worktreePaths: worktreePaths, branches: branches));
   }
 
   Future<Set<String>> _pushedWorkflowBranches(List<Task> runTasks) async {
@@ -667,11 +683,11 @@ class CliWorkflowWiring {
       }
     }
     for (final worktreePath in cleanupPlan.worktreePaths) {
-      await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: Directory.current.path);
+      await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: projectDir ?? runtimeCwd);
     }
     for (final branch in cleanupPlan.branches) {
       if (branch.startsWith('origin/')) continue;
-      await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: Directory.current.path);
+      await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: projectDir ?? runtimeCwd);
     }
   }
 
@@ -708,7 +724,7 @@ class CliWorkflowWiring {
     final harness = _harnessFactory.create(
       providerId,
       HarnessFactoryConfig(
-        cwd: Directory.current.path,
+        cwd: runtimeCwd,
         executable: _resolveProviderExecutable(config, providerId),
         harnessConfig: _harnessConfig,
         providerOptions: _providerOptions(config, providerId),
@@ -746,9 +762,9 @@ Set<String> _activeHarnessTypes(DartclawConfig config) {
   return harnessTypes;
 }
 
-List<String> _workflowSkillProjectDirs(DartclawConfig config) {
+List<String> _workflowSkillProjectDirs(DartclawConfig config, {required String runtimeCwd}) {
   if (config.projects.definitions.isEmpty) {
-    return [Directory.current.path];
+    return [runtimeCwd];
   }
   return configuredProjectDirectories(config);
 }

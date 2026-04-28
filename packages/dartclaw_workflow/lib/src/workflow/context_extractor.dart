@@ -331,6 +331,18 @@ class ContextExtractor {
         .where((path) => !matches.contains(p.normalize(path)) && !existingClaims.contains(path))
         .toList();
     if (missingClaims.isNotEmpty) {
+      if (matches.isNotEmpty) {
+        _log.warning(
+          'Ignoring stale claimed path(s) for "$outputKey" on task ${task.id}: '
+          '$missingClaims; using changed file(s): $matches',
+        );
+        if (resolver.listMode) return matches;
+        if (matches.length == 1) return matches.single;
+        throw StateError(
+          'Multiple filesystem artifacts matched "$outputKey" in $worktreePath '
+          'after stale claims $missingClaims: $matches',
+        );
+      }
       throw MissingArtifactFailure(
         claimedPaths: claimedPaths,
         missingPaths: missingClaims,

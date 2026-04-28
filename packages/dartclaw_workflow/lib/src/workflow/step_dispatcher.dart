@@ -254,7 +254,9 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       final wj = finalTask.worktreeJson;
       outputs['${step.id}.branch'] = (wj?['branch'] as String?) ?? '';
       outputs['${step.id}.worktree_path'] = (wj?['path'] as String?) ?? '';
-      if (wj == null && _stepNeedsWorktree(definition, step, resolved, resolvedWorktreeMode: resolvedWorktreeMode)) {
+      if (wj == null &&
+          resolvedWorktreeMode != 'inline' &&
+          _stepNeedsWorktree(definition, step, resolved, resolvedWorktreeMode: resolvedWorktreeMode)) {
         WorkflowExecutor._log.warning(
           "Workflow '${run.id}': step '${step.id}' requires a worktree but has no worktree metadata — "
           'branch/worktree_path context values will be empty',

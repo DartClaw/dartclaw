@@ -5,7 +5,7 @@ import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_security/dartclaw_security.dart' show GuardConfig;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowStepOutputTransformer;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillProvisioner, WorkflowStepOutputTransformer;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
@@ -150,7 +150,9 @@ final class E2EFixture {
   final String taskCompletionAction;
   final bool workspaceGitSyncEnabled;
   final bool workspaceGitSyncPushEnabled;
+  final bool provisionWorkflowSkills;
   final E2EProjectSetup? projectSetup;
+  final Map<String, String> environment;
 
   factory E2EFixture({
     String fixtureProfile = 'workflow-e2e-profile',
@@ -176,6 +178,7 @@ final class E2EFixture {
     String taskCompletionAction = 'accept',
     bool workspaceGitSyncEnabled = false,
     bool workspaceGitSyncPushEnabled = true,
+    bool provisionWorkflowSkills = false,
     E2EProjectSetup? projectSetup,
     Map<String, String>? environment,
   }) {
@@ -212,7 +215,9 @@ final class E2EFixture {
       taskCompletionAction: taskCompletionAction,
       workspaceGitSyncEnabled: workspaceGitSyncEnabled,
       workspaceGitSyncPushEnabled: workspaceGitSyncPushEnabled,
+      provisionWorkflowSkills: provisionWorkflowSkills,
       projectSetup: projectSetup,
+      environment: Map<String, String>.unmodifiable(environment ?? Platform.environment),
     );
   }
 
@@ -240,7 +245,9 @@ final class E2EFixture {
     required this.taskCompletionAction,
     required this.workspaceGitSyncEnabled,
     required this.workspaceGitSyncPushEnabled,
+    required this.provisionWorkflowSkills,
     required this.projectSetup,
+    required this.environment,
   });
 
   E2EFixture withFixtureProfile(String value) => _copy(fixtureProfile: value);
@@ -305,10 +312,12 @@ final class E2EFixture {
     final dataDir = p.join(runtimeDir.path, 'data');
     final workspaceDir = p.join(dataDir, 'workspace');
     final workflowWorkspaceDir = p.join(dataDir, 'workflow-workspace');
+    final runtimeCwd = p.join(dataDir, 'runtime-cwd');
     final projectDir = p.join(dataDir, 'projects', projectId);
 
     _copyDirectorySync(Directory(p.join(profileDir, 'workspace')), Directory(workspaceDir));
     _copyDirectorySync(Directory(p.join(profileDir, 'workflow-workspace')), Directory(workflowWorkspaceDir));
+    Directory(runtimeCwd).createSync(recursive: true);
     Directory(p.dirname(projectDir)).createSync(recursive: true);
 
     if (projectSetup != null) {
@@ -324,7 +333,7 @@ final class E2EFixture {
             token: '',
             repository: 'DartClaw/workflow-test-todo-app',
             envVars: ['GITHUB_TOKEN'],
-          ),
+          ).resolveFrom(environment),
         },
         null => null,
       },
@@ -339,9 +348,7 @@ final class E2EFixture {
           provider: ProviderEntry(
             executable: provider,
             poolSize: poolSize,
-            options: provider == 'claude'
-                ? {'permissionMode': sandbox}
-                : {'approval': 'never', 'sandbox': sandbox},
+            options: provider == 'claude' ? {'permissionMode': sandbox} : {'approval': 'never', 'sandbox': sandbox},
           ),
         },
       ),
@@ -383,11 +390,23 @@ final class E2EFixture {
       features: FeaturesConfig(threadBinding: ThreadBindingFeatureConfig(enabled: threadBindingEnabled)),
     );
 
+    if (provisionWorkflowSkills) {
+      final sourceDir = _builtInSkillsSourceDir();
+      final provisioner = SkillProvisioner(
+        config: config.andthen,
+        dataDir: dataDir,
+        dcNativeSkillsSourceDir: sourceDir,
+      );
+      provisioner.validateSpawnTargets([runtimeCwd, projectDir]);
+      await provisioner.ensureCacheCurrent();
+    }
+
     return E2EFixtureInstance._(
       runtimeDir: runtimeDir,
       dataDir: dataDir,
       workspaceDir: workspaceDir,
       workflowWorkspaceDir: workflowWorkspaceDir,
+      runtimeCwd: runtimeCwd,
       projectDir: projectDir,
       fixtureProfileDir: profileDir,
       config: config,
@@ -418,7 +437,9 @@ final class E2EFixture {
     String? taskCompletionAction,
     bool? workspaceGitSyncEnabled,
     bool? workspaceGitSyncPushEnabled,
+    bool? provisionWorkflowSkills,
     Object? projectSetup = _unset,
+    Map<String, String>? environment,
   }) {
     return E2EFixture._(
       fixtureProfile: fixtureProfile ?? this.fixtureProfile,
@@ -426,7 +447,9 @@ final class E2EFixture {
       projectRemote: projectRemote ?? this.projectRemote,
       useLocalProjectPath: useLocalProjectPath ?? this.useLocalProjectPath,
       projectBranch: projectBranch ?? this.projectBranch,
-      projectCredentials: identical(projectCredentials, _unset) ? this.projectCredentials : projectCredentials as String?,
+      projectCredentials: identical(projectCredentials, _unset)
+          ? this.projectCredentials
+          : projectCredentials as String?,
       projectDefault: projectDefault ?? this.projectDefault,
       port: port ?? this.port,
       provider: provider ?? this.provider,
@@ -444,7 +467,9 @@ final class E2EFixture {
       taskCompletionAction: taskCompletionAction ?? this.taskCompletionAction,
       workspaceGitSyncEnabled: workspaceGitSyncEnabled ?? this.workspaceGitSyncEnabled,
       workspaceGitSyncPushEnabled: workspaceGitSyncPushEnabled ?? this.workspaceGitSyncPushEnabled,
+      provisionWorkflowSkills: provisionWorkflowSkills ?? this.provisionWorkflowSkills,
       projectSetup: identical(projectSetup, _unset) ? this.projectSetup : projectSetup as E2EProjectSetup?,
+      environment: Map<String, String>.unmodifiable(environment ?? this.environment),
     );
   }
 
@@ -457,11 +482,7 @@ final class E2EFixture {
   /// runtime — it builds [DartclawConfig] programmatically — but goldens
   /// in `e2e_fixture_test.dart` exercise this method to lock the templating
   /// shape across provider presets.
-  String renderProfileYaml({
-    required String dataDir,
-    required String workflowWorkspaceDir,
-    String? templatePath,
-  }) {
+  String renderProfileYaml({required String dataDir, required String workflowWorkspaceDir, String? templatePath}) {
     final path = templatePath ?? p.join(_fixturesRoot(), fixtureProfile, 'workflow_profile.yaml');
     final template = File(path).readAsStringSync();
     final providerBlock = _renderProvidersBlock();
@@ -508,6 +529,7 @@ final class E2EFixtureInstance {
   final String dataDir;
   final String workspaceDir;
   final String workflowWorkspaceDir;
+  final String runtimeCwd;
   final String projectDir;
   final String fixtureProfileDir;
   final DartclawConfig config;
@@ -517,6 +539,7 @@ final class E2EFixtureInstance {
     required this.dataDir,
     required this.workspaceDir,
     required this.workflowWorkspaceDir,
+    required this.runtimeCwd,
     required this.projectDir,
     required this.fixtureProfileDir,
     required this.config,
@@ -526,10 +549,13 @@ final class E2EFixtureInstance {
     WorkflowStepOutputTransformer? outputTransformer,
     CliWorkflowPrCreator? prCreator,
     HarnessFactory? harnessFactory,
+    String? skillsHomeDir,
   }) async {
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: config.server.dataDir,
+      runtimeCwd: runtimeCwd,
+      skillsHomeDir: skillsHomeDir,
       harnessFactory: harnessFactory,
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
@@ -540,6 +566,15 @@ final class E2EFixtureInstance {
     return wiring;
   }
 
+  void writeDataDirWorkflowSkills(Iterable<String> names) {
+    for (final root in [p.join(dataDir, '.claude', 'skills'), p.join(dataDir, '.agents', 'skills')]) {
+      for (final name in names) {
+        final skillDir = Directory(p.join(root, name))..createSync(recursive: true);
+        File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('---\nname: $name\n---\n\n# $name\n');
+      }
+    }
+  }
+
   Future<void> dispose() async {
     if (runtimeDir.existsSync()) {
       await runtimeDir.delete(recursive: true);
@@ -548,3 +583,35 @@ final class E2EFixtureInstance {
 }
 
 const _unset = Object();
+
+extension on CredentialEntry {
+  CredentialEntry resolveFrom(Map<String, String> environment) {
+    if (isPresent) return this;
+    for (final envVar in envVars) {
+      final value = environment[envVar]?.trim();
+      if (value == null || value.isEmpty) continue;
+      return switch (type) {
+        CredentialType.apiKey => CredentialEntry(apiKey: value, envVars: envVars),
+        CredentialType.githubToken => CredentialEntry.githubToken(
+          token: value,
+          repository: repository,
+          envVars: envVars,
+        ),
+      };
+    }
+    return this;
+  }
+}
+
+String _builtInSkillsSourceDir() {
+  var current = Directory.current;
+  while (true) {
+    final candidate = p.join(current.path, 'packages', 'dartclaw_workflow', 'skills');
+    if (Directory(candidate).existsSync()) return candidate;
+    final parent = current.parent;
+    if (parent.path == current.path) {
+      throw StateError('Could not locate DartClaw built-in skills source');
+    }
+    current = parent;
+  }
+}

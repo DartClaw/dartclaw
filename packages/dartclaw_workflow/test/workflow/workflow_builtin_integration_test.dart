@@ -1205,7 +1205,7 @@ void main() {
     expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('plan-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('plan-review').single.type, TaskType.coding);
-    expect(trace.tasksForStep('plan-review').single.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
+    expect(trace.tasksForStep('plan-review').single.configJson['_workflowNeedsWorktree'], isTrue);
     expect(trace.tasksForStep('update-state'), isEmpty);
   });
 

@@ -307,11 +307,13 @@ Map<String, dynamic> forcedReviewRemediationOutputs({
       findings: 'review_findings',
       count: 'findings_count',
       scopedCount: 'plan-review.findings_count',
+      scopedGatingCount: 'plan-review.gating_findings_count',
     ),
     'architecture-review' when targetReviews.contains('architecture-review') => (
       findings: 'architecture_review_findings',
       count: 'findings_count',
       scopedCount: 'architecture-review.findings_count',
+      scopedGatingCount: 'architecture-review.gating_findings_count',
     ),
     _ => null,
   };
@@ -333,6 +335,7 @@ Map<String, dynamic> forcedReviewRemediationOutputs({
     'remediation_plan': remediationPlan,
     reviewConfig.count: 1,
     reviewConfig.scopedCount: 1,
+    reviewConfig.scopedGatingCount: 1,
   };
 }
 

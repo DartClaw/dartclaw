@@ -156,7 +156,9 @@ steps:
     skill: dartclaw-architecture
     parallel: true
     inputs: [project_index, spec_path, diff_summary]
-    allowedTools: [shell, file_read, web_fetch, mcp_call]
+    # File-backed review: the step writes a review report artifact and emits
+    # its workspace-relative path, so it needs a project worktree and file_write.
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: "--mode review --auto {{context.spec_path}}. Scope the review to changes introduced on the current branch (vs the base ref) — skip packages untouched by this spec."
     outputs:
       architecture_review_findings:

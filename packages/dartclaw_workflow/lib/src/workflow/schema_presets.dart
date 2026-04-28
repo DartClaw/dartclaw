@@ -90,6 +90,8 @@ String _defaultPathPattern(String outputKey) {
     'technical_research' || 'technical_research_path' => '**/.technical-research.md',
     'fis_paths' || 'story_spec_paths' => 'fis/s*.md',
     'spec_path' || 'story_spec' || 'story_spec_path' => '**/*.md',
+    'review_findings' => '**/*review*.md',
+    'architecture_review_findings' => '**/*architecture*.md',
     _ => '**/*',
   };
 }

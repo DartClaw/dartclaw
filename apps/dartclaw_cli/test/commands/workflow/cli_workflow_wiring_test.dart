@@ -23,6 +23,11 @@ void _runGit(String workingDirectory, List<String> args) {
   }
 }
 
+void _writeSkill(String skillsRoot, String name) {
+  final skillDir = Directory(p.join(skillsRoot, name))..createSync(recursive: true);
+  File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('---\nname: $name\n---\n\n# $name\n');
+}
+
 Future<void> _waitFor(bool Function() predicate, {Duration timeout = const Duration(seconds: 5)}) async {
   final deadline = DateTime.now().add(timeout);
   while (!predicate()) {
@@ -140,7 +145,7 @@ description: Loaded from a localPath project
 steps:
   - id: check
     name: Check
-    type: analysis
+    type: agent
     prompt: |
       Say OK.
 ''');
@@ -384,6 +389,144 @@ steps:
     expect(claudeConfigs.single.environment['ANTHROPIC_API_KEY'], 'anthropic-key');
   });
 
+  test('defaults standalone harness cwd to the process cwd when runtime cwd is omitted', () async {
+    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
+    final captured = <HarnessFactoryConfig>[];
+    final factory = HarnessFactory()
+      ..register('claude', (config) {
+        captured.add(config);
+        return FakeAgentHarness();
+      });
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    );
+
+    final savedCwd = Directory.current;
+    Directory.current = launchDir;
+    CliWorkflowWiring? wiring;
+    try {
+      wiring = CliWorkflowWiring(
+        config: config,
+        dataDir: tempDir.path,
+        skillsHomeDir: p.join(tempDir.path, 'home'),
+        harnessFactory: factory,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+      );
+      await wiring.wire();
+    } finally {
+      Directory.current = savedCwd;
+      if (wiring != null) {
+        await wiring.dispose();
+      }
+    }
+
+    expect(captured.map((config) => config.cwd).toSet(), {launchDir.resolveSymbolicLinksSync()});
+  });
+
+  test('uses injected runtime cwd for primary and task-runner harnesses', () async {
+    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
+    final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
+    final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
+    final factory = HarnessFactory()
+      ..register('codex', (config) {
+        capturedByProvider.putIfAbsent('codex', () => <HarnessFactoryConfig>[]).add(config);
+        return FakeAgentHarness();
+      })
+      ..register('claude', (config) {
+        capturedByProvider.putIfAbsent('claude', () => <HarnessFactoryConfig>[]).add(config);
+        return FakeAgentHarness();
+      });
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'codex'),
+      providers: const ProvidersConfig(
+        entries: {
+          'codex': ProviderEntry(executable: 'codex', poolSize: 2),
+          'claude': ProviderEntry(executable: 'claude', poolSize: 0),
+        },
+      ),
+      credentials: const CredentialsConfig(
+        entries: {
+          'anthropic': CredentialEntry(apiKey: 'anthropic-key'),
+          'openai': CredentialEntry(apiKey: 'openai-key'),
+        },
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    );
+
+    final savedCwd = Directory.current;
+    Directory.current = launchDir;
+    CliWorkflowWiring? wiring;
+    try {
+      wiring = CliWorkflowWiring(
+        config: config,
+        dataDir: tempDir.path,
+        runtimeCwd: runtimeCwd.path,
+        skillsHomeDir: p.join(tempDir.path, 'home'),
+        harnessFactory: factory,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+      );
+      await wiring.wire();
+      await wiring.ensureTaskRunnersForProviders({'claude'});
+    } finally {
+      Directory.current = savedCwd;
+      if (wiring != null) {
+        await wiring.dispose();
+      }
+    }
+
+    final captured = [
+      ...capturedByProvider['codex'] ?? const <HarnessFactoryConfig>[],
+      ...capturedByProvider['claude'] ?? const <HarnessFactoryConfig>[],
+    ];
+    expect(captured, hasLength(4), reason: 'primary, two default task runners, and one added provider runner');
+    expect(captured.map((config) => config.cwd).toSet(), {runtimeCwd.path});
+  });
+
+  test('discovers dartclaw workflow skills from data-dir scoped roots before user roots', () async {
+    final dataClaudeSkills = p.join(tempDir.path, '.claude', 'skills');
+    final dataAgentsSkills = p.join(tempDir.path, '.agents', 'skills');
+    for (final name in const ['dartclaw-prd', 'dartclaw-plan']) {
+      _writeSkill(dataClaudeSkills, name);
+      _writeSkill(dataAgentsSkills, name);
+    }
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    );
+
+    final wiring = CliWorkflowWiring(
+      config: config,
+      dataDir: tempDir.path,
+      skillsHomeDir: p.join(tempDir.path, 'sanitized-home'),
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+    );
+    addTearDown(wiring.dispose);
+
+    await wiring.wire();
+
+    for (final name in const ['dartclaw-prd', 'dartclaw-plan']) {
+      final skill = wiring.skillRegistry.getByName(name);
+      expect(skill, isNotNull);
+      expect(skill!.path, startsWith(tempDir.path));
+      expect(skill.source, SkillSource.userClaude);
+      expect(skill.nativeHarnesses, {'claude', 'codex'});
+    }
+  });
+
   test('dispose cleans up workflow task worktrees in headless mode', () async {
     final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
     final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
@@ -463,6 +606,143 @@ steps:
     ], workingDirectory: repoDir.path);
     expect(branchResult.exitCode, 0);
     expect((branchResult.stdout as String).trim(), isEmpty);
+  });
+
+  test('local project fallback resolves against runtime cwd instead of launch cwd', () async {
+    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
+    final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-repo'))..createSync(recursive: true);
+    _runGit(runtimeCwd.path, ['init', '-b', 'main']);
+    _runGit(runtimeCwd.path, ['config', 'user.name', 'Test User']);
+    _runGit(runtimeCwd.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(runtimeCwd.path, 'README.md')).writeAsStringSync('runtime\n');
+    _runGit(runtimeCwd.path, ['add', 'README.md']);
+    _runGit(runtimeCwd.path, ['commit', '-m', 'initial']);
+    _runGit(runtimeCwd.path, ['checkout', '-b', 'runtime-feature']);
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    );
+
+    final savedCwd = Directory.current;
+    Directory.current = launchDir;
+    CliWorkflowWiring? wiring;
+    try {
+      wiring = CliWorkflowWiring(
+        config: config,
+        dataDir: tempDir.path,
+        runtimeCwd: runtimeCwd.path,
+        skillsHomeDir: p.join(tempDir.path, 'home'),
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+      );
+      await wiring.wire();
+
+      final definition = WorkflowDefinition(
+        name: 'local-runtime',
+        description: 'Checks local project fallback',
+        variables: const {
+          'PROJECT': WorkflowVariable(required: false, description: 'Target project'),
+          'BRANCH': WorkflowVariable(required: false, description: 'Requested branch'),
+        },
+        steps: const [
+          WorkflowStep(id: 'check', name: 'Check', type: 'analysis', prompts: ['Say OK']),
+        ],
+      );
+
+      final run = await wiring.workflowService.start(definition, const {
+        'PROJECT': '_local',
+        'BRANCH': 'runtime-feature',
+      }, headless: true);
+      expect(run.variablesJson['BRANCH'], 'runtime-feature');
+    } finally {
+      Directory.current = savedCwd;
+      if (wiring != null) {
+        await wiring.dispose();
+      }
+    }
+  });
+
+  test('tracked workflow git cleanup for named projects runs in the project checkout', () async {
+    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
+    final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
+    final projectDir = Directory(p.join(tempDir.path, 'project-alpha'))..createSync(recursive: true);
+    final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
+
+    _runGit(projectDir.path, ['init', '-b', 'main']);
+    _runGit(projectDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(projectDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('# project\n');
+    _runGit(projectDir.path, ['add', 'README.md']);
+    _runGit(projectDir.path, ['commit', '-m', 'initial']);
+
+    final worktreePath = p.join(workspaceDir.path, '.dartclaw', 'worktrees', 'task-1');
+    _runGit(projectDir.path, ['worktree', 'add', worktreePath, '-b', 'dartclaw/task-task-1', 'main']);
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path)},
+      ),
+    );
+
+    final savedCwd = Directory.current;
+    Directory.current = launchDir;
+    CliWorkflowWiring? wiring;
+    try {
+      wiring = CliWorkflowWiring(
+        config: config,
+        dataDir: tempDir.path,
+        runtimeCwd: runtimeCwd.path,
+        skillsHomeDir: p.join(tempDir.path, 'home'),
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+      );
+      await wiring.wire();
+
+      final task = await wiring.taskService.create(
+        id: 'task-1',
+        title: 'Cleanup',
+        description: 'Cleanup worktree',
+        type: TaskType.coding,
+        projectId: 'alpha',
+        workflowRunId: 'run-123',
+      );
+      await wiring.taskService.updateFields(
+        task.id,
+        worktreeJson: {
+          'path': worktreePath,
+          'branch': 'dartclaw/task-task-1',
+          'createdAt': DateTime.parse('2026-01-01T00:00:00Z').toIso8601String(),
+        },
+      );
+
+      await wiring.dispose();
+      wiring = null;
+    } finally {
+      Directory.current = savedCwd;
+      if (wiring != null) {
+        await wiring.dispose();
+      }
+    }
+
+    expect(Directory(worktreePath).existsSync(), isFalse);
+    final projectBranchResult = Process.runSync('git', [
+      'branch',
+      '--list',
+      'dartclaw/task-task-1',
+    ], workingDirectory: projectDir.path);
+    expect(projectBranchResult.exitCode, 0);
+    expect((projectBranchResult.stdout as String).trim(), isEmpty);
   });
 
   test('standalone coding tasks use the configured project clone instead of cwd', () async {

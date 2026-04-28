@@ -131,6 +131,7 @@ class WorkflowExecutionRecorder {
   final WorkflowDefinition _definition;
   final Directory _artifactDir;
   final Logger _log;
+  final Map<String, dynamic> _isolationDiagnostics;
   final List<WorkflowStepTrace> traces = [];
   final List<String> stepOrder = [];
   final Map<String, List<String>> descriptionsByStep = {};
@@ -158,7 +159,9 @@ class WorkflowExecutionRecorder {
     this._definition, {
     required Directory artifactDir,
     required String dataDir,
+    Map<String, dynamic> isolationDiagnostics = const {},
   }) : _artifactDir = artifactDir,
+       _isolationDiagnostics = isolationDiagnostics,
        _contextExtractor = ContextExtractor(
          taskService: _taskService,
          messageService: _messageService,
@@ -394,6 +397,7 @@ class WorkflowExecutionRecorder {
       'lastAssistantMessage': lastAssistantMessage,
       'messages': persistedMessages,
       'taskEvents': taskEvents,
+      'isolation': _isolationDiagnostics,
     };
     await file.writeAsString(const JsonEncoder.withIndent('  ').convert(payload));
     _log.info('Wrote step artifact: ${file.path}');
@@ -485,14 +489,6 @@ void expectStepInputContainsProjectIndex(WorkflowExecutionRecorder recorder, Str
   expectStepInputsContainProjectIndex(inputs, stepKey);
 }
 
-void expectStepInputContainsAllSubstrings(
-  WorkflowExecutionRecorder recorder,
-  String stepKey,
-  List<String> expectedSubstrings,
-) {
-  expectStepInputContainsAll(recorder.descriptionsByStep[stepKey] ?? const [], stepKey, expectedSubstrings);
-}
-
 void expectWorktreeRecorded(WorkflowExecutionRecorder recorder, String stepKey) {
   final stepTraces = recorder.tracesForStep(stepKey);
   if (stepTraces.isEmpty) {
@@ -517,6 +513,34 @@ void expectNoMissingFisFallbacks(Directory artifactDir) {
   }
   expect(offenders, isEmpty, reason: offenders.join('\n'));
 }
+
+void expectIsolationDiagnostics(Directory artifactDir, E2EFixtureInstance fixture) {
+  final payloads = artifactDir
+      .listSync()
+      .whereType<File>()
+      .where((file) => file.path.endsWith('.json'))
+      .map((file) => jsonDecode(file.readAsStringSync()) as Map<String, dynamic>)
+      .toList(growable: false);
+  expect(payloads, isNotEmpty, reason: 'Expected step artifacts with isolation diagnostics.');
+  for (final payload in payloads) {
+    final isolation = (payload['isolation'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+    expect(isolation['runtimeCwd'], fixture.runtimeCwd);
+    expect(isolation['projectDir'], fixture.projectDir);
+    expect(isolation['workflowWorkspaceDir'], fixture.workflowWorkspaceDir);
+    expect(isolation['dataDirClaudeSkillsDir'], p.join(fixture.dataDir, '.claude', 'skills'));
+    expect(isolation['dataDirAgentsSkillsDir'], p.join(fixture.dataDir, '.agents', 'skills'));
+    expect(p.isWithin(fixture.dataDir, isolation['runtimeCwd'] as String), isTrue);
+    expect(p.isWithin(fixture.projectDir, isolation['runtimeCwd'] as String), isFalse);
+  }
+}
+
+Map<String, dynamic> _isolationDiagnosticsFor(E2EFixtureInstance fixture) => {
+  'runtimeCwd': fixture.runtimeCwd,
+  'projectDir': fixture.projectDir,
+  'workflowWorkspaceDir': fixture.workflowWorkspaceDir,
+  'dataDirClaudeSkillsDir': p.join(fixture.dataDir, '.claude', 'skills'),
+  'dataDirAgentsSkillsDir': p.join(fixture.dataDir, '.agents', 'skills'),
+};
 
 void expectCommittedPlanArtifacts({required String projectDir, required Directory artifactDir}) {
   final planArtifacts = artifactDir
@@ -649,11 +673,9 @@ Future<void> _closePrByBranch(String branch, String repo, {String? projectDir}) 
 Future<void> _cloneTodoAppFixtureRepo(String targetDir) async {
   Directory(targetDir).parent.createSync(recursive: true);
 
-  // Two auth paths:
-  // 1. HTTPS+token — for CI / headless envs. Chosen when GITHUB_TOKEN is set.
-  // 2. SSH — for a developer who already has their key in ssh-agent locally.
-  //    Uses BatchMode=yes so any missing-agent/passphrase situation fails
-  //    fast with a clear error instead of hanging on an interactive prompt.
+  // Clone never needs write access. Use HTTPS+token in CI/headless envs when
+  // available, otherwise public HTTPS so branch-only local runs don't depend
+  // on SSH agent state before the test redirects origin to a local bare repo.
   final githubToken = Platform.environment['GITHUB_TOKEN']?.trim();
   final useHttps = githubToken != null && githubToken.isNotEmpty;
   final cloneUri = useHttps
@@ -663,23 +685,52 @@ Future<void> _cloneTodoAppFixtureRepo(String targetDir) async {
           host: 'github.com',
           path: '/DartClaw/workflow-test-todo-app.git',
         ).toString()
-      : 'git@github.com:DartClaw/workflow-test-todo-app.git';
-  final cloneEnv = <String, String>{
-    'GIT_TERMINAL_PROMPT': '0',
-    if (!useHttps) 'GIT_SSH_COMMAND': 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new',
-  };
+      : 'https://github.com/DartClaw/workflow-test-todo-app.git';
+  final cloneEnv = <String, String>{'GIT_TERMINAL_PROMPT': '0'};
 
   final result = await Process.run('git', ['clone', '--depth', '1', cloneUri, targetDir], environment: cloneEnv);
   if (result.exitCode != 0) {
-    final mode = useHttps ? 'HTTPS+token' : 'SSH (ssh-agent)';
+    final mode = useHttps ? 'HTTPS+token' : 'public HTTPS';
     throw StateError(
       'Failed to clone workflow-test-todo-app fixture repo over $mode: ${result.stderr}\n'
-      'Tip: set GITHUB_TOKEN for HTTPS, or ensure your SSH key is loaded via `ssh-add` for SSH.',
+      'Tip: set GITHUB_TOKEN for authenticated HTTPS if GitHub rate-limits anonymous clone.',
     );
   }
   Process.runSync('git', ['config', 'user.name', 'Workflow E2E Test'], workingDirectory: targetDir);
   Process.runSync('git', ['config', 'user.email', 'workflow-e2e@example.com'], workingDirectory: targetDir);
   assertKnownDefectsBacklogEntries(targetDir);
+}
+
+Future<void> _setOriginUrl(String projectDir, String url) async {
+  final result = await Process.run('git', ['remote', 'set-url', 'origin', url], workingDirectory: projectDir);
+  if (result.exitCode != 0) {
+    throw StateError('Failed to set fixture origin URL to "$url": ${result.stderr}');
+  }
+}
+
+Future<void> _redirectOriginToLocalBareRemote(String projectDir) async {
+  final originDir = Directory(p.join(Directory(projectDir).parent.path, 'workflow-test-todo-app-origin.git'));
+  if (originDir.existsSync()) {
+    originDir.deleteSync(recursive: true);
+  }
+  originDir.createSync(recursive: true);
+
+  var result = await Process.run('git', ['init', '--bare'], workingDirectory: originDir.path);
+  if (result.exitCode != 0) {
+    throw StateError('Failed to initialize local fixture origin: ${result.stderr}');
+  }
+
+  result = await Process.run('git', ['config', 'receive.shallowUpdate', 'true'], workingDirectory: originDir.path);
+  if (result.exitCode != 0) {
+    throw StateError('Failed to configure local fixture origin: ${result.stderr}');
+  }
+
+  await _setOriginUrl(projectDir, originDir.path);
+
+  result = await Process.run('git', ['push', '-u', 'origin', 'HEAD:main'], workingDirectory: projectDir);
+  if (result.exitCode != 0) {
+    throw StateError('Failed to seed local fixture origin: ${result.stderr}');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -732,13 +783,20 @@ void main() {
         'Export GITHUB_TOKEN or fix `gh auth status` to enable PR URL assertions.',
       );
     }
-    fixture = await E2EFixture()
+    fixture = await E2EFixture(provisionWorkflowSkills: true)
         .withProject(
           'workflow-test-todo-app',
           credentials: Platform.environment['GITHUB_TOKEN']?.trim().isNotEmpty == true ? 'github-main' : null,
           localPath: Platform.environment['GITHUB_TOKEN']?.trim().isNotEmpty != true,
         )
-        .withProjectSetup(_cloneTodoAppFixtureRepo)
+        .withProjectSetup((projectDir) async {
+          await _cloneTodoAppFixtureRepo(projectDir);
+          if (!canCreateGitHubPr) {
+            await _redirectOriginToLocalBareRemote(projectDir);
+          } else if (Platform.environment['GITHUB_TOKEN']?.trim().isNotEmpty != true) {
+            await _setOriginUrl(projectDir, 'git@github.com:DartClaw/workflow-test-todo-app.git');
+          }
+        })
         .build();
     fixtureDir = fixture!.projectDir;
     // Keep the cloned project checkout pristine so workflow bootstrap can
@@ -813,6 +871,8 @@ void main() {
     final w = CliWorkflowWiring(
       config: config,
       dataDir: config.server.dataDir,
+      runtimeCwd: fixture!.runtimeCwd,
+      skillsHomeDir: p.join(config.server.dataDir, 'harness-home'),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
       workflowStepOutputTransformer: outputTransformer,
@@ -909,6 +969,7 @@ void main() {
       definition,
       artifactDir: artifactDir,
       dataDir: config.server.dataDir,
+      isolationDiagnostics: _isolationDiagnosticsFor(fixture!),
     );
     recorder.start();
 
@@ -968,6 +1029,7 @@ void main() {
       agentSteps: const ['discover-project', 'spec', 'implement', 'integrated-review'],
     );
     expectNoMissingFisFallbacks(artifactDir);
+    expectIsolationDiagnostics(artifactDir, fixture!);
 
     // Safety net: publish step runs at the end of the workflow. A `failed`
     // terminal state here usually means the publish callback (push or PR
@@ -1034,6 +1096,7 @@ void main() {
       definition,
       artifactDir: artifactDir,
       dataDir: config.server.dataDir,
+      isolationDiagnostics: _isolationDiagnosticsFor(fixture!),
     );
     recorder.start();
 
@@ -1075,11 +1138,18 @@ void main() {
       'plan',
       'implement',
       'quick-review',
-      'plan-review',
+      'refactor',
       'remediate',
       're-review',
     ];
-    expectStepOrder(recorder, coreSteps);
+    expectStepOrderSubsequence(recorder.stepOrder, coreSteps);
+    final remediateIndex = recorder.stepOrder.indexOf('remediate');
+    expect(remediateIndex, isNonNegative, reason: 'remediate should run after forced review findings');
+    for (final reviewStep in const ['plan-review', 'architecture-review']) {
+      final reviewIndex = recorder.stepOrder.indexOf(reviewStep);
+      expect(reviewIndex, isNonNegative, reason: '$reviewStep should run before remediation');
+      expect(reviewIndex, lessThan(remediateIndex), reason: '$reviewStep should run before remediation');
+    }
 
     // merged plan step now emits both stories and story_specs in a single pass — runs exactly once.
     expect(recorder.count('plan'), 1, reason: 'plan should run exactly once');
@@ -1098,12 +1168,18 @@ void main() {
 
     expect(recorder.count('quick-review'), greaterThanOrEqualTo(2), reason: 'quick-review should run at least twice');
     expect(recorder.count('plan-review'), 1, reason: 'plan-review should run exactly once');
+    expect(recorder.count('architecture-review'), 1, reason: 'architecture-review should run exactly once');
     expect(recorder.count('remediate'), greaterThanOrEqualTo(1), reason: 'remediate should run at least once');
     expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 're-review should run at least once');
-    expectStepInputContainsAllSubstrings(recorder, 'remediate', [
-      '<review_findings>',
-      '<architecture_review_findings>',
-    ]);
+    final remediateInputs = recorder.tracesForStep('remediate').map((trace) => trace.inputs).toList(growable: false);
+    expect(remediateInputs, isNotEmpty, reason: 'remediate should receive review findings inputs');
+    for (final key in const ['review_findings', 'architecture_review_findings']) {
+      expect(
+        remediateInputs.any((inputs) => (inputs[key]?.toString().trim() ?? '').isNotEmpty),
+        isTrue,
+        reason: 'remediate should receive non-empty $key input',
+      );
+    }
 
     // Assert worktrees were recorded for coding steps
     expectWorktreeRecorded(recorder, 'implement');
@@ -1113,6 +1189,7 @@ void main() {
         .toList(growable: false);
     expectDistinctWorktreePaths(implementPaths);
     expectNoMissingFisFallbacks(artifactDir);
+    expectIsolationDiagnostics(artifactDir, fixture!);
     expectCommittedPlanArtifacts(projectDir: fixtureDir, artifactDir: artifactDir);
 
     // Safety net — see spec-and-implement test above for rationale.

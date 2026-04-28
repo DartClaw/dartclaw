@@ -16,13 +16,13 @@ steps:
 ''';
 
 const _warningsOnlyYaml = '''
-name: future-workflow
-description: Workflow with unknown step type.
+name: warning-workflow
+description: Workflow with a soft validation warning.
 steps:
   - id: step1
     name: Step 1
-    type: future-type
     prompt: Do the thing.
+    onError: future-mode
 ''';
 
 const _validationErrorYaml = '''
@@ -204,8 +204,8 @@ steps:
     parallel: true
   - id: future-step
     name: Future
-    type: future-type
     prompt: p
+    onError: future-mode
 ''';
       final path = writeFixture('both.yaml', bothYaml);
       await runner.run(['validate', path]);

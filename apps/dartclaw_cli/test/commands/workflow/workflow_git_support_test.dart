@@ -235,7 +235,7 @@ void main() {
 
     final result = await publishWorkflowBranchLocally(projectDir: repoDir.path, branch: branch);
 
-    expect(result.status, 'success');
+    expect(result.status, WorkflowPublishStatus.success);
 
     final remoteTracking = await _git(repoDir.path, ['rev-parse', '--verify', 'origin/$branch']);
     expect(remoteTracking.exitCode, 0);

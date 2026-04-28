@@ -249,10 +249,11 @@ steps:
     skill: dartclaw-review
     parallel: true
     inputs: [project_index, story_specs, story_results, plan]
-    # read-only review: file_write absent so step_config_policy marks the step
-    # read-only and skips worktree binding. shell/web_fetch/mcp_call enable
-    # `git diff`, `dart analyze`, doc lookup, and MCP-routed checks.
-    allowedTools: [shell, file_read, web_fetch, mcp_call]
+    # File-backed review: the step writes a review report artifact and emits
+    # its workspace-relative path, so it needs a project worktree and file_write.
+    # shell/web_fetch/mcp_call enable `git diff`, `dart analyze`, doc lookup,
+    # and MCP-routed checks.
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: "--mode gap,code --auto {{context.plan}}"
     outputs:
       review_findings:
@@ -277,10 +278,11 @@ steps:
     skill: dartclaw-architecture
     parallel: true
     inputs: [project_index, story_specs, story_results, plan]
-    # read-only review: file_write absent preserves step_config_policy's
-    # read-only inference. web_fetch/mcp_call cover doc lookup and any
-    # architecture-pattern references the skill consults.
-    allowedTools: [shell, file_read, web_fetch, mcp_call]
+    # File-backed review: the step writes a review report artifact and emits
+    # its workspace-relative path, so it needs a project worktree and file_write.
+    # web_fetch/mcp_call cover doc lookup and any architecture-pattern
+    # references the skill consults.
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: "--mode review --auto {{context.plan}}. Scope the review to changes introduced on the current branch (vs the base ref) — skip packages untouched by this plan."
     outputs:
       architecture_review_findings:
@@ -331,9 +333,9 @@ steps:
       - id: re-review
         name: Re-review After Remediation
         skill: dartclaw-review
-        # read-only review: matches plan-review's surface so the re-review pass
-        # exercises the same tools.
-        allowedTools: [shell, file_read, web_fetch, mcp_call]
+        # File-backed review: matches plan-review's surface so the re-review
+        # pass can write the next review report artifact.
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
         inputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
         prompt: "--mode gap,code --auto {{context.plan}}"
         outputs:

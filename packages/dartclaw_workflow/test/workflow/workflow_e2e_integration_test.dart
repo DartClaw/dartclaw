@@ -28,87 +28,38 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../fixtures/e2e_fixture.dart';
-
-// ---------------------------------------------------------------------------
-// Codex availability check
-// ---------------------------------------------------------------------------
-
-Future<bool> _codexAvailable() async {
-  try {
-    final result = await Process.run('codex', ['--version']);
-    return result.exitCode == 0;
-  } catch (_) {
-    return false;
-  }
-}
-
-bool _hasGitHubTokenEnv() {
-  final token = Platform.environment['GITHUB_TOKEN']?.trim();
-  return token != null && token.isNotEmpty;
-}
-
-Future<bool> _ghAuthenticated() async {
-  try {
-    final result = await Process.run('gh', ['auth', 'status']);
-    return result.exitCode == 0;
-  } catch (_) {
-    return false;
-  }
-}
-
-Future<bool> _gitSshAuthenticated() async {
-  try {
-    final result = await Process.run('ssh', [
-      '-o',
-      'BatchMode=yes',
-      '-o',
-      'ConnectTimeout=10',
-      '-o',
-      'StrictHostKeyChecking=accept-new',
-      '-T',
-      'git@github.com',
-    ]);
-    final output = '${result.stdout}\n${result.stderr}';
-    return output.contains("You've successfully authenticated");
-  } catch (_) {
-    return false;
-  }
-}
+import 'workflow_e2e_test_support.dart';
 
 WorkflowStepOutputTransformer _forceSinglePlanReviewRemediationLoop({
   required String remediationPlan,
   required String implementationSummary,
+  required Set<String> targetReviews,
 }) {
-  var forced = false;
+  final forcedTargets = <String>{};
   final log = Logger('E2E.ForcedRemediation');
   return (run, definition, step, task, outputs) {
-    if (forced || definition.name != 'plan-and-implement' || step.id != 'plan-review') {
+    if (definition.name != 'plan-and-implement' ||
+        !targetReviews.contains(step.id) ||
+        forcedTargets.contains(step.id)) {
+      return outputs;
+    }
+    final transformed = forcedReviewRemediationOutputs(
+      stepId: step.id,
+      outputs: outputs,
+      targetReviews: targetReviews,
+      remediationPlan: remediationPlan,
+      implementationSummary: implementationSummary,
+    );
+    if (identical(transformed, outputs)) {
       return outputs;
     }
 
-    final findingsValue = outputs['findings_count'];
-    final findingsCount = switch (findingsValue) {
-      final int numeric => numeric,
-      _ => int.tryParse('$findingsValue') ?? 0,
-    };
-    if (findingsCount > 0) {
-      return outputs;
-    }
-
-    forced = true;
+    forcedTargets.add(step.id);
     log.info(
       'Forcing a single remediation-loop iteration for workflow ${run.id} '
-      'by overriding clean plan-review outputs',
+      'by overriding clean ${step.id} outputs',
     );
-    return {
-      ...outputs,
-      'implementation_summary': (outputs['implementation_summary'] as String?)?.trim().isNotEmpty == true
-          ? outputs['implementation_summary']
-          : implementationSummary,
-      'remediation_plan': remediationPlan,
-      'findings_count': 1,
-      'plan-review.findings_count': 1,
-    };
+    return transformed;
   };
 }
 
@@ -230,6 +181,13 @@ class WorkflowExecutionRecorder {
       await Future<void>.delayed(Duration.zero);
       final task = await _taskService.get(e.taskId);
       if (task == null || task.stepIndex == null || task.workflowRunId == null) return;
+      if (task.stepIndex! < 0 || task.stepIndex! >= _definition.steps.length) {
+        _log.warning(
+          'Skipping auxiliary workflow task ${task.id} with out-of-range stepIndex=${task.stepIndex} '
+          'for definition "${_definition.name}" (${_definition.steps.length} steps)',
+        );
+        return;
+      }
 
       final step = _definition.steps[task.stepIndex!];
       final stepKey = step.id;
@@ -504,19 +462,7 @@ Directory _createPreservedArtifactDir(String testName) {
 // ---------------------------------------------------------------------------
 
 void expectStepOrder(WorkflowExecutionRecorder recorder, List<String> expectedSteps) {
-  final actual = recorder.stepOrder;
-  var expectedIdx = 0;
-  for (var i = 0; i < actual.length && expectedIdx < expectedSteps.length; i++) {
-    if (actual[i] == expectedSteps[expectedIdx]) {
-      expectedIdx++;
-    }
-  }
-  if (expectedIdx < expectedSteps.length) {
-    fail(
-      'Step ordering mismatch: expected steps ${expectedSteps.sublist(expectedIdx)} '
-      'were not found in order.\nActual step order: $actual',
-    );
-  }
+  expectStepOrderStrict(recorder.stepOrder, expectedSteps);
 }
 
 void expectStepInputContains(WorkflowExecutionRecorder recorder, String stepKey, String expectedSubstring) {
@@ -533,6 +479,19 @@ void expectStepInputContains(WorkflowExecutionRecorder recorder, String stepKey,
   }
 }
 
+void expectStepInputContainsProjectIndex(WorkflowExecutionRecorder recorder, String stepKey) {
+  final inputs = recorder.tracesForStep(stepKey).map((trace) => trace.inputs).toList(growable: false);
+  expectStepInputsContainProjectIndex(inputs, stepKey);
+}
+
+void expectStepInputContainsAllSubstrings(
+  WorkflowExecutionRecorder recorder,
+  String stepKey,
+  List<String> expectedSubstrings,
+) {
+  expectStepInputContainsAll(recorder.descriptionsByStep[stepKey] ?? const [], stepKey, expectedSubstrings);
+}
+
 void expectWorktreeRecorded(WorkflowExecutionRecorder recorder, String stepKey) {
   final stepTraces = recorder.tracesForStep(stepKey);
   if (stepTraces.isEmpty) {
@@ -542,50 +501,6 @@ void expectWorktreeRecorded(WorkflowExecutionRecorder recorder, String stepKey) 
     expect(trace.worktreeJson, isNotNull, reason: 'Step "$stepKey" (task ${trace.taskId}) should have worktreeJson');
     expect(trace.worktreeJson!['path'], isNotNull, reason: 'Step "$stepKey" worktreeJson should contain a "path" key');
   }
-}
-
-/// Asserts at least one preserved step artifact shows a non-zero workflow
-/// token key on a step that actually ran an agent turn. Proves the end-to-end
-/// token-mirroring path: TurnOutcome → TaskExecutor → task.configJson →
-/// preserved artifact file.
-void expectPreservedArtifactsHaveNonZeroTokenKeys(Directory artifactDir, {required List<String> agentSteps}) {
-  final files = artifactDir.listSync().whereType<File>().where((f) => f.path.endsWith('.json')).toList();
-  expect(files, isNotEmpty, reason: 'No preserved artifacts found under ${artifactDir.path}');
-
-  final tokenKeys = const ['_workflowInputTokensNew', '_workflowCacheReadTokens', '_workflowOutputTokens'];
-  final agentStepSet = agentSteps.toSet();
-  var anyAgentArtifactSeen = false;
-  var anyNonZeroSeen = false;
-  final inspected = <String>[];
-
-  for (final file in files) {
-    final payload = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-    final stepKey = payload['stepKey'] as String? ?? '';
-    if (!agentStepSet.contains(stepKey)) continue;
-    anyAgentArtifactSeen = true;
-    final configJson = (payload['configJson'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final values = {for (final key in tokenKeys) key: configJson[key]};
-    inspected.add('${p.basename(file.path)} -> $values');
-    if (tokenKeys.any((key) {
-      final value = configJson[key];
-      return value is num && value > 0;
-    })) {
-      anyNonZeroSeen = true;
-    }
-  }
-
-  expect(
-    anyAgentArtifactSeen,
-    isTrue,
-    reason: 'Expected at least one preserved artifact for steps $agentSteps; inspected: $inspected',
-  );
-  expect(
-    anyNonZeroSeen,
-    isTrue,
-    reason:
-        'Expected at least one preserved artifact under ${artifactDir.path} with a non-zero '
-        '_workflow*Tokens* key on an agent-turn step, but all were zero.\nInspected: $inspected',
-  );
 }
 
 void expectNoMissingFisFallbacks(Directory artifactDir) {
@@ -640,15 +555,6 @@ void expectCommittedPlanArtifacts({required String projectDir, required Director
     }
   }
   expect(missing, isEmpty, reason: 'Expected committed plan artifacts at HEAD: $missing');
-}
-
-void expectKnownDefectsBacklog(String fixtureDir) {
-  final backlog = File(p.join(fixtureDir, 'docs', 'PRODUCT-BACKLOG.md'));
-  expect(backlog.existsSync(), isTrue, reason: 'Fixture backlog missing: ${backlog.path}');
-  final text = backlog.readAsStringSync();
-  for (final id in const ['BUG-001', 'BUG-002', 'BUG-003']) {
-    expect(text, contains(id), reason: 'Fixture backlog should contain $id in Known Defects.');
-  }
 }
 
 void expectPublishSuccess(Map<String, dynamic> contextJson) {
@@ -736,18 +642,7 @@ Future<void> _closePr(String prUrl) async {
 }
 
 Future<void> _closePrByBranch(String branch, String repo, {String? projectDir}) async {
-  if (branch.isEmpty) return;
-  final ghResult = await Process.run('gh', ['pr', 'close', branch, '--repo', repo, '--delete-branch']);
-  if (ghResult.exitCode == 0 || projectDir == null) return;
-  await Process.run(
-    'git',
-    ['push', 'origin', '--delete', branch],
-    workingDirectory: projectDir,
-    environment: const {
-      'GIT_TERMINAL_PROMPT': '0',
-      'GIT_SSH_COMMAND': 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new',
-    },
-  );
+  await closePrByBranch(branch: branch, repo: repo, projectDir: projectDir);
 }
 
 Future<void> _cloneTodoAppFixtureRepo(String targetDir) async {
@@ -783,49 +678,7 @@ Future<void> _cloneTodoAppFixtureRepo(String targetDir) async {
   }
   Process.runSync('git', ['config', 'user.name', 'Workflow E2E Test'], workingDirectory: targetDir);
   Process.runSync('git', ['config', 'user.email', 'workflow-e2e@example.com'], workingDirectory: targetDir);
-  final backlogChanged = _ensureKnownDefectsBacklogEntries(targetDir);
-  if (backlogChanged) {
-    Process.runSync('git', ['add', 'docs/PRODUCT-BACKLOG.md'], workingDirectory: targetDir);
-    Process.runSync(
-      'git',
-      ['commit', '-m', 'test fixture: seed known defects', '--no-gpg-sign'],
-      workingDirectory: targetDir,
-      environment: const {
-        'GIT_AUTHOR_NAME': 'Workflow E2E Test',
-        'GIT_AUTHOR_EMAIL': 'workflow-e2e@example.com',
-        'GIT_COMMITTER_NAME': 'Workflow E2E Test',
-        'GIT_COMMITTER_EMAIL': 'workflow-e2e@example.com',
-      },
-    );
-  }
-}
-
-bool _ensureKnownDefectsBacklogEntries(String targetDir) {
-  final backlog = File(p.join(targetDir, 'docs', 'PRODUCT-BACKLOG.md'));
-  if (!backlog.existsSync()) {
-    return false;
-  }
-
-  var text = backlog.readAsStringSync();
-  final requiredEntries = const <String, String>{
-    'BUG-001': 'BUG-001 — the sidebar incomplete-count is not updated when a todo is deleted.',
-    'BUG-002': 'BUG-002 — due dates set in the edit dialog do not persist after save.',
-    'BUG-003': 'BUG-003 — quick-add todos have no default priority.',
-  };
-  final missing = requiredEntries.entries.where((entry) => !text.contains(entry.key)).toList(growable: false);
-  if (missing.isEmpty) {
-    return false;
-  }
-
-  final sectionHeader = '## Known Defects';
-  final bulletLines = missing.map((entry) => '- ${entry.value}').join('\n');
-  if (text.contains(sectionHeader)) {
-    text = '$text\n$bulletLines\n';
-  } else {
-    text = '$text\n\n$sectionHeader\n\n$bulletLines\n';
-  }
-  backlog.writeAsStringSync(text);
-  return true;
+  assertKnownDefectsBacklogEntries(targetDir);
 }
 
 // ---------------------------------------------------------------------------
@@ -837,8 +690,9 @@ void main() {
   late DartclawConfig config;
   E2EFixtureInstance? fixture;
   final createdPrUrls = <String>[];
-  final createdBranches = <String>[];
+  final createdBranches = <String>{};
   var canCreateGitHubPr = false;
+  late final bool requireCompleted;
 
   CliWorkflowWiring? wiring;
   LogService? logService;
@@ -848,32 +702,14 @@ void main() {
 
   setUpAll(() async {
     // ── Logging ──────────────────────────────────────────────────────────
-    // Install LogService at FINE level so every _log.info / _log.fine call
-    // across WorkflowExecutor, TaskExecutor, TurnRunner, etc. is visible.
-    logService = LogService.fromConfig(level: 'FINE');
+    logService = LogService.fromConfig(level: e2eLogLevelFromEnv(Platform.environment));
     logService!.install();
+    requireCompleted = e2eRequireCompletedFromEnv(Platform.environment);
 
-    final hasCodex = await _codexAvailable();
-    if (!hasCodex) {
-      markTestSkipped(
-        'Codex is not available — skipping e2e integration tests. '
-        'Install Codex and authenticate, or set CODEX_API_KEY.',
-      );
+    final prereqs = await evaluateWorkflowE2ePrerequisites(environment: Platform.environment, runProcess: Process.run);
+    if (prereqs.shouldSkip) {
+      markTestSkipped(prereqs.skipReason!);
       return;
-    }
-    final hasGitHubToken = _hasGitHubTokenEnv();
-    canCreateGitHubPr = hasGitHubToken || await _ghAuthenticated();
-    if (!hasGitHubToken && !await _gitSshAuthenticated()) {
-      fail(
-        'GitHub git access is required for workflow e2e. Either export GITHUB_TOKEN, or ensure your SSH key '
-        'is loaded via `ssh-add` so the fixture repo can be cloned and workflow branches can be pushed.',
-      );
-    }
-    if (!canCreateGitHubPr) {
-      Logger('E2E.Setup').warning(
-        'gh PR creation is unavailable; workflow e2e will validate branch publish only. '
-        'Export GITHUB_TOKEN or fix `gh auth status` to enable PR URL assertions.',
-      );
     }
   });
 
@@ -888,11 +724,18 @@ void main() {
   setUp(() async {
     createdPrUrls.clear();
     createdBranches.clear();
+    canCreateGitHubPr = await canCreateGitHubPrForEnv(environment: Platform.environment, runProcess: Process.run);
+    if (!canCreateGitHubPr) {
+      Logger('E2E.Setup').warning(
+        'gh PR creation is unavailable; workflow e2e will validate branch publish only. '
+        'Export GITHUB_TOKEN or fix `gh auth status` to enable PR URL assertions.',
+      );
+    }
     fixture = await E2EFixture()
         .withProject(
           'workflow-test-todo-app',
-          credentials: _hasGitHubTokenEnv() ? 'github-main' : null,
-          localPath: !_hasGitHubTokenEnv(),
+          credentials: Platform.environment['GITHUB_TOKEN']?.trim().isNotEmpty == true ? 'github-main' : null,
+          localPath: Platform.environment['GITHUB_TOKEN']?.trim().isNotEmpty != true,
         )
         .withProjectSetup(_cloneTodoAppFixtureRepo)
         .build();
@@ -901,7 +744,7 @@ void main() {
     // switch to its owned branch before the first step runs. The fixture
     // workspace/workflow-workspace already provide the AGENTS.md content that
     // the workflow task path injects into prompts and Codex home.
-    expectKnownDefectsBacklog(fixtureDir);
+    assertKnownDefectsBacklogEntries(fixtureDir);
     config = fixture!.config;
   });
 
@@ -1048,117 +891,110 @@ void main() {
     final artifactDir = _createPreservedArtifactDir('spec-and-implement-e2e');
     Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
 
-    // Set CWD to fixture repo for git operations
-    final savedCwd = Directory.current;
-    Directory.current = Directory(fixtureDir);
+    // Look up the built-in definition
+    final definition = w.registry.getByName('spec-and-implement')!;
 
-    try {
-      // Look up the built-in definition
-      final definition = w.registry.getByName('spec-and-implement')!;
+    // Start step recorder
+    final recorder = WorkflowExecutionRecorder(
+      w.eventBus,
+      w.taskService,
+      w.messageService,
+      w.workflowService,
+      w.kvService,
+      definition,
+      artifactDir: artifactDir,
+      dataDir: config.server.dataDir,
+    );
+    recorder.start();
 
-      // Start step recorder
-      final recorder = WorkflowExecutionRecorder(
-        w.eventBus,
-        w.taskService,
-        w.messageService,
-        w.workflowService,
-        w.kvService,
-        definition,
-        artifactDir: artifactDir,
-        dataDir: config.server.dataDir,
+    // Start workflow
+    //
+    // The FEATURE text references a defect tracked in the fixture repo's
+    // docs/PRODUCT-BACKLOG.md. The agent is expected to consult the backlog
+    // via discover-project / spec steps rather than reason from the prose
+    // description alone — this exercises the project-index → spec handoff
+    // that a trivial "create a markdown file" prompt cannot.
+    final variables = {
+      'FEATURE':
+          'Fix BUG-001 from docs/PRODUCT-BACKLOG.md (Known Defects section): '
+          'the sidebar incomplete-count is not updated when a todo is deleted. '
+          'Follow the codebase\'s existing HTMX out-of-band swap pattern — '
+          'see how toggle_todo updates the same count in its response.',
+      'PROJECT': 'workflow-test-todo-app',
+      'BRANCH': 'main',
+    };
+    final run = await w.workflowService.start(definition, variables, headless: true);
+    final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
+
+    // 60 min covers up to ~3 remediation iterations (maxIterations=3); the
+    // happy path runs in ~15-18 min.
+    final finalStatus = await completionFuture.timeout(
+      Duration(minutes: 60),
+      onTimeout: () {
+        fail('Workflow timed out after 60 minutes');
+      },
+    );
+
+    // Allow pending events to settle
+    await Future<void>.delayed(Duration(seconds: 2));
+    await recorder.dispose();
+
+    expectWorkflowFinalStatus(finalStatus: finalStatus, requireCompleted: requireCompleted, runId: run.id);
+
+    // Core pipeline steps that must ALWAYS appear in order. Gated/optional
+    // steps (revise-spec runs only when spec_source=synthesized & confidence<7;
+    // remediate/re-review only when integrated-review finds issues) are
+    // excluded — assert their runs separately if they occur.
+    final expectedOrder = ['discover-project', 'spec', 'implement', 'integrated-review'];
+    expectStepOrder(recorder, expectedOrder);
+
+    // Assert context handoff: discover output flows into spec
+    expectStepInputContainsProjectIndex(recorder, 'spec');
+
+    // Assert worktrees were recorded for coding steps
+    expectWorktreeRecorded(recorder, 'implement');
+
+    // Prove the token-mirroring path wrote non-zero `_workflow*Tokens*`
+    // onto task.configJson for steps that ran agent turns. Catches the
+    // regression where artifact consumers saw zero totals despite the
+    // step completing with real usage.
+    expectPreservedArtifactsHaveNonZeroTokenKeys(
+      artifactDir,
+      agentSteps: const ['discover-project', 'spec', 'implement', 'integrated-review'],
+    );
+    expectNoMissingFisFallbacks(artifactDir);
+
+    // Safety net: publish step runs at the end of the workflow. A `failed`
+    // terminal state here usually means the publish callback (push or PR
+    // creation) errored — surface that up front so the test doesn't pass
+    // silently by skipping the publish block below.
+    expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);
+
+    // Publish assertions only apply when the workflow completed.
+    if (finalStatus == WorkflowRunStatus.completed) {
+      final completedRun = await w.workflowService.get(run.id);
+      expect(completedRun, isNotNull, reason: 'Completed run should be retrievable');
+      expectPublishSuccess(completedRun!.contextJson);
+
+      final publishBranch = _findPublishedBranch(fixtureDir, run.id);
+      expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
+      final branch = publishBranch!;
+      createdBranches.add(branch);
+      await assertDiffTouchesExpectedFiles(
+        projectDir: fixtureDir,
+        headRef: 'main',
+        publishedBranch: 'origin/$branch',
+        bugAllowlist: bugFileAllowlist,
+        activeBugs: const ['BUG-001'],
       );
-      recorder.start();
 
-      // Start workflow
-      //
-      // The FEATURE text references a defect tracked in the fixture repo's
-      // docs/PRODUCT-BACKLOG.md. The agent is expected to consult the backlog
-      // via discover-project / spec steps rather than reason from the prose
-      // description alone — this exercises the project-index → spec handoff
-      // that a trivial "create a markdown file" prompt cannot.
-      final variables = {
-        'FEATURE':
-            'Fix BUG-001 from docs/PRODUCT-BACKLOG.md (Known Defects section): '
-            'the sidebar incomplete-count is not updated when a todo is deleted. '
-            'Follow the codebase\'s existing HTMX out-of-band swap pattern — '
-            'see how toggle_todo updates the same count in its response.',
-        'PROJECT': 'workflow-test-todo-app',
-        'BRANCH': 'main',
-      };
-      final run = await w.workflowService.start(definition, variables, headless: true);
-      final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
-
-      // 60 min covers up to ~3 remediation iterations (maxIterations=3); the
-      // happy path runs in ~15-18 min.
-      final finalStatus = await completionFuture.timeout(
-        Duration(minutes: 60),
-        onTimeout: () {
-          fail('Workflow timed out after 60 minutes');
-        },
-      );
-
-      // Allow pending events to settle
-      await Future<void>.delayed(Duration(seconds: 2));
-      await recorder.dispose();
-
-      // Accept completed or paused (paused = remediation loop exhausted max iterations,
-      // which is a valid non-deterministic outcome in an LLM-driven e2e test).
-      expect(
-        finalStatus,
-        anyOf(WorkflowRunStatus.completed, WorkflowRunStatus.paused),
-        reason: 'spec-and-implement should complete or pause (remediation loop exhausted)',
-      );
-
-      // Core pipeline steps that must ALWAYS appear in order. Gated/optional
-      // steps (revise-spec runs only when spec_source=synthesized & confidence<7;
-      // remediate/re-review only when integrated-review finds issues) are
-      // excluded — assert their runs separately if they occur.
-      final expectedOrder = ['discover-project', 'spec', 'implement', 'integrated-review'];
-      expectStepOrder(recorder, expectedOrder);
-
-      // Assert context handoff: discover output flows into spec
-      expectStepInputContains(recorder, 'spec', 'framework');
-
-      // Assert worktrees were recorded for coding steps
-      expectWorktreeRecorded(recorder, 'implement');
-
-      // Prove the token-mirroring path wrote non-zero `_workflow*Tokens*`
-      // onto task.configJson for steps that ran agent turns. Catches the
-      // regression where artifact consumers saw zero totals despite the
-      // step completing with real usage.
-      expectPreservedArtifactsHaveNonZeroTokenKeys(
-        artifactDir,
-        agentSteps: const ['discover-project', 'spec', 'implement', 'integrated-review'],
-      );
-      expectNoMissingFisFallbacks(artifactDir);
-
-      // Safety net: publish step runs at the end of the workflow. A `failed`
-      // terminal state here usually means the publish callback (push or PR
-      // creation) errored — surface that up front so the test doesn't pass
-      // silently by skipping the publish block below.
-      expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);
-
-      // Publish assertions only apply when the workflow completed.
-      if (finalStatus == WorkflowRunStatus.completed) {
-        final completedRun = await w.workflowService.get(run.id);
-        expect(completedRun, isNotNull, reason: 'Completed run should be retrievable');
-        expectPublishSuccess(completedRun!.contextJson);
-
-        final publishBranch = _findPublishedBranch(fixtureDir, run.id);
-        expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
-        final branch = publishBranch!;
-
-        if (canCreateGitHubPr) {
-          // Assert the workflow itself produced the PR URL via its publish
-          // callback (injected test prCreator → `gh pr create` → URL → context).
-          expectWorkflowCreatedPr(completedRun.contextJson, expectedBranch: branch);
-        } else {
-          createdBranches.add(branch);
-          expectWorkflowPublishedBranchOnly(completedRun.contextJson, expectedBranch: branch);
-        }
+      if (canCreateGitHubPr) {
+        // Assert the workflow itself produced the PR URL via its publish
+        // callback (injected test prCreator → `gh pr create` → URL → context).
+        expectWorkflowCreatedPr(completedRun.contextJson, expectedBranch: branch);
+      } else {
+        expectWorkflowPublishedBranchOnly(completedRun.contextJson, expectedBranch: branch);
       }
-    } finally {
-      Directory.current = savedCwd;
     }
   }, timeout: Timeout(Duration(minutes: 65)));
 
@@ -1175,129 +1011,133 @@ void main() {
         implementationSummary:
             'Synthetic test summary: both story implementations merged cleanly, '
             'but the E2E test is forcing one remediation iteration for coverage.',
+        targetReviews: const {'plan-review', 'architecture-review'},
       ),
       prTitle: 'E2E plan-and-implement $timestamp',
     );
     final artifactDir = _createPreservedArtifactDir('plan-and-implement-e2e');
     Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
 
-    final savedCwd = Directory.current;
-    Directory.current = Directory(fixtureDir);
+    final definition = w.registry.getByName('plan-and-implement')!;
 
-    try {
-      final definition = w.registry.getByName('plan-and-implement')!;
+    final recorder = WorkflowExecutionRecorder(
+      w.eventBus,
+      w.taskService,
+      w.messageService,
+      w.workflowService,
+      w.kvService,
+      definition,
+      artifactDir: artifactDir,
+      dataDir: config.server.dataDir,
+    );
+    recorder.start();
 
-      final recorder = WorkflowExecutionRecorder(
-        w.eventBus,
-        w.taskService,
-        w.messageService,
-        w.workflowService,
-        w.kvService,
-        definition,
-        artifactDir: artifactDir,
-        dataDir: config.server.dataDir,
+    // Two independent defects from the fixture repo's Known Defects backlog.
+    // Chosen so the two story worktrees touch disjoint files and can merge
+    // without conflict, while still exercising the full plan → parallel
+    // implement → review → remediate pipeline against a realistic codebase.
+    final variables = {
+      'REQUIREMENTS':
+          'Fix BUG-002 and BUG-003 from docs/PRODUCT-BACKLOG.md (Known Defects section) '
+          'as two independent, thin stories. '
+          'Story 1: BUG-002 — due dates set in the edit dialog do not persist after save. '
+          'Story 2: BUG-003 — quick-add todos have no default priority. '
+          'Keep each story isolated to its own files; they must merge without conflict.',
+      'PROJECT': 'workflow-test-todo-app',
+      'BRANCH': 'main',
+      'MAX_PARALLEL': '2',
+    };
+    final run = await w.workflowService.start(definition, variables, headless: true);
+    final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
+
+    final finalStatus = await completionFuture.timeout(
+      Duration(minutes: 75),
+      onTimeout: () {
+        fail('Workflow timed out after 75 minutes');
+      },
+    );
+
+    await Future<void>.delayed(Duration(seconds: 2));
+    await recorder.dispose();
+
+    expectWorkflowFinalStatus(finalStatus: finalStatus, requireCompleted: requireCompleted, runId: run.id);
+
+    // This E2E forces at least one remediation-loop iteration when plan-review
+    // would otherwise be clean, so the remediation loop should always appear.
+    final coreSteps = [
+      'discover-project',
+      'prd',
+      'plan',
+      'implement',
+      'quick-review',
+      'plan-review',
+      'remediate',
+      're-review',
+    ];
+    expectStepOrder(recorder, coreSteps);
+
+    // merged plan step now emits both stories and story_specs in a single pass — runs exactly once.
+    expect(recorder.count('plan'), 1, reason: 'plan should run exactly once');
+    expect(recorder.count('prd'), 1, reason: 'prd should run exactly once');
+    expect(
+      recorder.count('revise-prd'),
+      inInclusiveRange(0, 1),
+      reason: 'revise-prd should be skipped on high-confidence PRDs and run at most once otherwise',
+    );
+
+    expect(
+      recorder.count('implement'),
+      greaterThanOrEqualTo(2),
+      reason: 'implement should run at least twice (once per story)',
+    );
+
+    expect(recorder.count('quick-review'), greaterThanOrEqualTo(2), reason: 'quick-review should run at least twice');
+    expect(recorder.count('plan-review'), 1, reason: 'plan-review should run exactly once');
+    expect(recorder.count('remediate'), greaterThanOrEqualTo(1), reason: 'remediate should run at least once');
+    expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 're-review should run at least once');
+    expectStepInputContainsAllSubstrings(recorder, 'remediate', [
+      '<review_findings>',
+      '<architecture_review_findings>',
+    ]);
+
+    // Assert worktrees were recorded for coding steps
+    expectWorktreeRecorded(recorder, 'implement');
+    final implementPaths = recorder
+        .tracesForStep('implement')
+        .map((trace) => trace.worktreeJson!['path'] as String)
+        .toList(growable: false);
+    expectDistinctWorktreePaths(implementPaths);
+    expectNoMissingFisFallbacks(artifactDir);
+    expectCommittedPlanArtifacts(projectDir: fixtureDir, artifactDir: artifactDir);
+
+    // Safety net — see spec-and-implement test above for rationale.
+    expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);
+
+    // Publish assertions only when completed
+    if (finalStatus == WorkflowRunStatus.completed) {
+      final completedRun = await w.workflowService.get(run.id);
+      expect(completedRun, isNotNull, reason: 'Completed run should be retrievable');
+      expectPublishSuccess(completedRun!.contextJson);
+
+      final publishBranch = _findPublishedBranch(fixtureDir, run.id);
+      expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
+      final branch = publishBranch!;
+      createdBranches.add(branch);
+      await assertDiffTouchesExpectedFiles(
+        projectDir: fixtureDir,
+        headRef: 'main',
+        publishedBranch: 'origin/$branch',
+        bugAllowlist: bugFileAllowlist,
+        activeBugs: const ['BUG-002', 'BUG-003'],
       );
-      recorder.start();
 
-      // Two independent defects from the fixture repo's Known Defects backlog.
-      // Chosen so the two story worktrees touch disjoint files and can merge
-      // without conflict, while still exercising the full plan → parallel
-      // implement → review → remediate pipeline against a realistic codebase.
-      final variables = {
-        'REQUIREMENTS':
-            'Fix BUG-002 and BUG-003 from docs/PRODUCT-BACKLOG.md (Known Defects section) '
-            'as two independent, thin stories. '
-            'Story 1: BUG-002 — due dates set in the edit dialog do not persist after save. '
-            'Story 2: BUG-003 — quick-add todos have no default priority. '
-            'Keep each story isolated to its own files; they must merge without conflict.',
-        'PROJECT': 'workflow-test-todo-app',
-        'BRANCH': 'main',
-        'MAX_PARALLEL': '2',
-      };
-      final run = await w.workflowService.start(definition, variables, headless: true);
-      final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
-
-      final finalStatus = await completionFuture.timeout(
-        Duration(minutes: 75),
-        onTimeout: () {
-          fail('Workflow timed out after 75 minutes');
-        },
-      );
-
-      await Future<void>.delayed(Duration(seconds: 2));
-      await recorder.dispose();
-
-      // Accept completed or paused (paused = remediation/review loop exhausted).
-      expect(
-        finalStatus,
-        anyOf(WorkflowRunStatus.completed, WorkflowRunStatus.paused),
-        reason: 'plan-and-implement should complete or pause (loop exhausted)',
-      );
-
-      // This E2E forces at least one remediation-loop iteration when plan-review
-      // would otherwise be clean, so the remediation loop should always appear.
-      final coreSteps = [
-        'discover-project',
-        'prd',
-        'plan',
-        'implement',
-        'quick-review',
-        'plan-review',
-        'remediate',
-        're-review',
-      ];
-      expectStepOrder(recorder, coreSteps);
-
-      // merged plan step now emits both stories and story_specs in a single pass — runs exactly once.
-      expect(recorder.count('plan'), 1, reason: 'plan should run exactly once');
-      expect(recorder.count('prd'), 1, reason: 'prd should run exactly once');
-      expect(
-        recorder.count('revise-prd'),
-        inInclusiveRange(0, 1),
-        reason: 'revise-prd should be skipped on high-confidence PRDs and run at most once otherwise',
-      );
-
-      expect(
-        recorder.count('implement'),
-        greaterThanOrEqualTo(2),
-        reason: 'implement should run at least twice (once per story)',
-      );
-
-      expect(recorder.count('quick-review'), greaterThanOrEqualTo(2), reason: 'quick-review should run at least twice');
-      expect(recorder.count('plan-review'), 1, reason: 'plan-review should run exactly once');
-      expect(recorder.count('remediate'), greaterThanOrEqualTo(1), reason: 'remediate should run at least once');
-      expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 're-review should run at least once');
-      expectStepInputContains(recorder, 'remediate', '<review_findings>');
-
-      // Assert worktrees were recorded for coding steps
-      expectWorktreeRecorded(recorder, 'implement');
-      expectNoMissingFisFallbacks(artifactDir);
-      expectCommittedPlanArtifacts(projectDir: fixtureDir, artifactDir: artifactDir);
-
-      // Safety net — see spec-and-implement test above for rationale.
-      expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);
-
-      // Publish assertions only when completed
-      if (finalStatus == WorkflowRunStatus.completed) {
-        final completedRun = await w.workflowService.get(run.id);
-        expect(completedRun, isNotNull, reason: 'Completed run should be retrievable');
-        expectPublishSuccess(completedRun!.contextJson);
-
-        final publishBranch = _findPublishedBranch(fixtureDir, run.id);
-        expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
-        final branch = publishBranch!;
-
-        if (canCreateGitHubPr) {
-          // Assert the workflow itself produced the PR URL via its publish
-          // callback (injected test prCreator → `gh pr create` → URL → context).
-          expectWorkflowCreatedPr(completedRun.contextJson, expectedBranch: branch);
-        } else {
-          createdBranches.add(branch);
-          expectWorkflowPublishedBranchOnly(completedRun.contextJson, expectedBranch: branch);
-        }
+      if (canCreateGitHubPr) {
+        // Assert the workflow itself produced the PR URL via its publish
+        // callback (injected test prCreator → `gh pr create` → URL → context).
+        expectWorkflowCreatedPr(completedRun.contextJson, expectedBranch: branch);
+      } else {
+        expectWorkflowPublishedBranchOnly(completedRun.contextJson, expectedBranch: branch);
       }
-    } finally {
-      Directory.current = savedCwd;
     }
   }, timeout: Timeout(Duration(minutes: 80)));
 }

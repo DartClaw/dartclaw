@@ -2,6 +2,44 @@
 
 Open items only. Resolved or obsolete historical entries were removed during backlog cleanup; milestone docs, specs, and CHANGELOG entries are the historical record.
 
+## TD-068 — `HarnessPool` is a single shared pool with mixed providers; should be per-provider pools
+
+**Severity**: Low (architectural smell — head-of-line blocking + magic-number floor on shared capacity)
+**Found**: Workflow E2E test + runtime code review (2026-04-28; finding L4) and follow-up
+**Affects**: `packages/dartclaw_server/lib/src/harness_pool.dart` (single-pool design), `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` (`_standaloneTaskRunnerCapacity` minimum-3 floor, `ensureTaskRunnersForProviders`), call sites of `pool.tryAcquireForProvider`.
+
+**Context**: `HarnessPool` carries a single `_busy` counter against `_maxConcurrentTasks` for all providers combined, and acquisition by provider is a linear scan over a mixed set. Standalone CLI wiring layers a `_standaloneTaskRunnerCapacity` floor on top — `max(configuredProviders.length, 3, config.tasks.maxConcurrent)` — to leave headroom for non-default providers (built-in workflows can target Claude when the default is Codex). The "3" is a guess based on "two harness families today + a slot of slack."
+
+The configured `providers.<id>.pool_size` from dartclaw.yaml drives initial spawn for the default provider — that part is correct and already per-provider. The smell is on the runtime side: the pool itself doesn't enforce per-provider limits at acquisition time, so when `_busy` saturates with one provider's tasks, every other provider's tasks block even when the matching runner is idle. That's head-of-line blocking, not a deliberate fairness policy. The minimum-3 floor is a symptom — the cure is structural, not a bigger magic number.
+
+**Fix shape**: replace the single shared pool with a `HarnessPoolGroup` carrying one `HarnessPool` per provider. Each pool's capacity is the configured `providers.<id>.pool_size`. Acquisition routes by `providerId` to the matching pool. The `_standaloneTaskRunnerCapacity` magic 3 disappears naturally — adding a third built-in provider becomes "configure `pool_size` for it" not "bump a magic number." Optional: keep a small "primary" runner outside the per-provider pools for interactive use (mirroring the current `_runners[0]` carve-out).
+
+**Why deferred**: today's two-family setup (Codex, Claude) makes head-of-line blocking mostly invisible — both pools are typically sized comfortably above the working set. The magic 3 is correct for the current built-in workflow set. Refactor cost is moderate but the ROI only appears when (a) a third built-in provider lands, (b) a workload genuinely saturates one provider's capacity, or (c) per-provider quota / rate-limit / billing controls become a requirement.
+
+**Source review**: `docs/specs/0.16.4/workflow-e2e-test-and-runtime-code-review-claude-2026-04-28.md` (private repo) finding L4.
+
+**Trigger**: a third built-in provider being added; observed head-of-line blocking in production traces; a per-provider quota / rate-limit / billing requirement.
+
+---
+
+## TD-067 — Workflow E2E test re-clones GitHub fixture every run with no retry or cache
+
+**Severity**: Low (test reliability — single point of failure on transient network)
+**Found**: Workflow E2E test + runtime code review (2026-04-28; finding L1)
+**Affects**: `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` (`_cloneTodoAppFixtureRepo`).
+
+**Context**: Every e2e test `setUp` does a fresh `git clone --depth 1 git@github.com:DartClaw/workflow-test-todo-app.git` into a temp dir. No retry, no fallback, no cached copy. A transient GitHub outage during that single second is enough to fail an entire 60–75 minute test budget. The clone itself is cheap (shallow), so the ROI on caching is not obvious until the failure mode actually surfaces — which it has not yet.
+
+**Fix shape**: cache the clone in `_fixturesRoot()` keyed by `git ls-remote origin HEAD` SHA; reuse when SHA matches, re-clone when stale. Add a `DARTCLAW_E2E_FIXTURE_OFFLINE=true` escape hatch for offline runs. Keep S72 TI04's fixture fail-fast assertion (the M6 remediation) as the line of defense against stale-fixture content masking upstream `BUG-001..003` regressions.
+
+**Why deferred**: failure mode is "test errors out cleanly with a network message," not "test passes incorrectly." The clone is seconds of a 60–75 minute run. Caching introduces its own bug class (stale fixture versions silently masking upstream BUG entry regressions, which the test now relies on). Wait for an actual CI failure traced to a transient blip before adding the layer.
+
+**Source review**: `docs/specs/0.16.4/workflow-e2e-test-and-runtime-code-review-claude-2026-04-28.md` (private repo) finding L1.
+
+**Trigger**: a CI failure traced to a transient GitHub outage, or when offline e2e runs become a real workflow.
+
+---
+
 ## TD-066 — Workflow token metrics live on `task.configJson` with `_workflow*` underscore-prefixed keys
 
 **Severity**: Low (architectural smell — accounting state mixed with declarative config)

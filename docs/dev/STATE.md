@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-27 22:48 CEST
+Last Updated: 2026-04-28 08:54 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -25,6 +25,7 @@ Last Updated: 2026-04-27 22:48 CEST
 
 ## Active Stories
 
+- S72 — In Progress: Workflow E2E Integration Test Hardening. Tightening `workflow_e2e_integration_test.dart` with helper-level proofs for strict/soft paused status handling, branch cleanup tracking, functional diff verification, fixture seed assertions, and related e2e safeguards.
 - S71 — Done: AndThen Skills Bootstrap re-executed under DartClaw's `dartclaw-` namespace. `SkillProvisioner` invokes `install-skills.sh --prefix dartclaw- --no-codex-agents`, startup no longer calls `WorkflowSkillMaterializer.materialize(...)`, `ServiceWiring` fails fast on missing DC-native skill source, workflow YAMLs resolve `dartclaw-*` skills, and the public/private docs now describe the runtime-provisioning contract.
 - S51-S55 — Done (workflow step semantics redesign + remediation).
 - S56 — Done: Live release gate and documentation closeout. The deferred `plan-and-implement` release-gate e2e was originally satisfied by S62's cross-harness component-tier suite, but the 2026-04-26 gap reviews showed that suite cannot prove the success metric (every component test injects `merge_resolve.outcome` directly via `messageService.insertMessage` rather than driving the executor → skill → worktree chain). S65 now supplies the real-harness proof.

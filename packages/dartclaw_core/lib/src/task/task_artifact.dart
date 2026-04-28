@@ -9,7 +9,10 @@ enum ArtifactKind {
   /// Structured machine-readable output such as JSON or CSV.
   data,
 
-  /// Pull request URL, branch reference, or PR creation instructions.
+  /// Published branch reference.
+  branch,
+
+  /// Pull request URL.
   pr,
 }
 

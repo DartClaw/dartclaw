@@ -10,6 +10,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionError,
         WorkflowGitPromotionResult,
         WorkflowGitPromotionSuccess,
+        WorkflowPublishStatus,
         WorkflowGitPublishResult;
 import 'package:path/path.dart' as p;
 
@@ -356,7 +357,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocallyUnlocked({
     );
   } catch (e) {
     return WorkflowGitPublishResult(
-      status: 'failed',
+      status: WorkflowPublishStatus.failed,
       branch: branch,
       remote: remote,
       prUrl: '',
@@ -367,7 +368,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocallyUnlocked({
   final push = await _workflowGit(['push', remote, branch], workingDirectory: projectDir);
   if (push.exitCode != 0) {
     return WorkflowGitPublishResult(
-      status: 'failed',
+      status: WorkflowPublishStatus.failed,
       branch: branch,
       remote: remote,
       prUrl: '',
@@ -382,7 +383,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocallyUnlocked({
     final stdout = (fetch.stdout as String).trim();
     final detail = stderr.isNotEmpty ? stderr : stdout;
     return WorkflowGitPublishResult(
-      status: 'failed',
+      status: WorkflowPublishStatus.failed,
       branch: branch,
       remote: remote,
       prUrl: '',
@@ -397,7 +398,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocallyUnlocked({
   ], workingDirectory: projectDir);
   if (verify.exitCode != 0) {
     return WorkflowGitPublishResult(
-      status: 'failed',
+      status: WorkflowPublishStatus.failed,
       branch: branch,
       remote: remote,
       prUrl: '',
@@ -405,7 +406,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocallyUnlocked({
     );
   }
 
-  return WorkflowGitPublishResult(status: 'success', branch: branch, remote: remote, prUrl: '');
+  return WorkflowGitPublishResult(status: WorkflowPublishStatus.success, branch: branch, remote: remote, prUrl: '');
 }
 
 Future<String?> _findWorktreePathForBranch({required String projectDir, required String branch}) async {

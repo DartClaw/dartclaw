@@ -5,6 +5,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowPublishStatus;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
@@ -98,19 +99,26 @@ void main() {
         prCreator: prCreator,
       );
 
-      expect(result.status, 'success');
+      expect(result.status, WorkflowPublishStatus.success);
       expect(result.branch, 'dartclaw/workflow/run123');
       expect(result.prUrl, 'https://github.com/acme/workflow-testing/pull/42');
       expect(pushService.callCount, 1);
       expect(prCreator.calls, hasLength(1));
       expect(prCreator.calls.single.task.id, 'task-2');
       final artifacts = await taskService.listArtifacts('task-2');
-      expect(artifacts, hasLength(1));
-      expect(artifacts.single.name, 'Workflow Publish');
-      expect(artifacts.single.path, 'https://github.com/acme/workflow-testing/pull/42');
+      expect(artifacts, hasLength(2));
+      final branchArtifact = artifacts.singleWhere((artifact) => artifact.kind == ArtifactKind.branch);
+      final prArtifact = artifacts.singleWhere((artifact) => artifact.kind == ArtifactKind.pr);
+      expect(branchArtifact.name, 'Workflow Branch');
+      expect(branchArtifact.path, 'dartclaw/workflow/run123');
+      expect(prArtifact.name, 'Workflow Pull Request');
+      expect(prArtifact.path, 'https://github.com/acme/workflow-testing/pull/42');
+      expect(await pushedWorkflowBranches(taskService, [await taskService.get('task-2') as Task]), {
+        'dartclaw/workflow/run123',
+      });
     });
 
-    test('manual PR fallback returns manual status and persists instructions', () async {
+    test('manual PR fallback returns manual status and persists only the branch artifact', () async {
       await putWorkflowTask('task-1', 'run-123', DateTime.parse('2026-04-15T10:01:00Z'));
 
       final projectService = FakeProjectService(
@@ -131,11 +139,12 @@ void main() {
         prCreator: prCreator,
       );
 
-      expect(result.status, 'manual');
+      expect(result.status, WorkflowPublishStatus.manual);
       expect(result.prUrl, isEmpty);
       final artifacts = await taskService.listArtifacts('task-1');
       expect(artifacts, hasLength(1));
-      expect(artifacts.single.path, 'Create the PR manually.');
+      expect(artifacts.single.kind, ArtifactKind.branch);
+      expect(artifacts.single.path, 'dartclaw/workflow/run123');
     });
 
     test('push auth failure returns failed status and does not create publish artifacts', () async {
@@ -159,13 +168,13 @@ void main() {
         prCreator: prCreator,
       );
 
-      expect(result.status, 'failed');
+      expect(result.status, WorkflowPublishStatus.failed);
       expect(result.error, 'Authentication failed: Authentication denied.');
       expect(prCreator.calls, isEmpty);
       expect(await taskService.listArtifacts('task-1'), isEmpty);
     });
 
-    test('PR creation failure returns failed status and persists a failure artifact', () async {
+    test('PR creation failure returns failed status and persists only the branch artifact', () async {
       await putWorkflowTask('task-1', 'run-123', DateTime.parse('2026-04-15T10:01:00Z'));
 
       final projectService = FakeProjectService(
@@ -191,12 +200,13 @@ void main() {
         prCreator: prCreator,
       );
 
-      expect(result.status, 'failed');
+      expect(result.status, WorkflowPublishStatus.failed);
       expect(result.prUrl, isEmpty);
       expect(result.error, contains('GitHub PR creation failed (HTTP 422)'));
       final artifacts = await taskService.listArtifacts('task-1');
       expect(artifacts, hasLength(1));
-      expect(artifacts.single.path, contains('PR creation failed: GitHub PR creation failed (HTTP 422)'));
+      expect(artifacts.single.kind, ArtifactKind.branch);
+      expect(artifacts.single.path, 'dartclaw/workflow/run123');
     });
   });
 }

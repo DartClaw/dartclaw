@@ -985,37 +985,6 @@ void main() {
     });
   });
 
-  group('MergeResolveVerificationConfig', () {
-    test('fromJson parses all three fields', () {
-      final cfg = MergeResolveVerificationConfig.fromJson({'format': 'a', 'analyze': 'b', 'test': 'c'});
-      expect(cfg.format, 'a');
-      expect(cfg.analyze, 'b');
-      expect(cfg.test, 'c');
-      expect(cfg.unknownFields, isEmpty);
-    });
-
-    test('fromJson captures unknown keys', () {
-      final cfg = MergeResolveVerificationConfig.fromJson({'format': 'a', 'analyze': 'b', 'test': 'c', 'lint': 'd'});
-      expect(cfg.unknownFields, ['lint']);
-      expect(cfg.format, 'a');
-    });
-
-    test('fromJson handles empty map', () {
-      final cfg = MergeResolveVerificationConfig.fromJson({});
-      expect(cfg.format, isNull);
-      expect(cfg.analyze, isNull);
-      expect(cfg.test, isNull);
-      expect(cfg.unknownFields, isEmpty);
-    });
-
-    test('fromJson handles Map<Object?, Object?>', () {
-      final raw = <Object?, Object?>{'format': 'fmt', 'lint': 'bad'};
-      final cfg = MergeResolveVerificationConfig.fromJson(raw);
-      expect(cfg.format, 'fmt');
-      expect(cfg.unknownFields, ['lint']);
-    });
-  });
-
   group('MergeResolveConfig', () {
     test('const default materializes BPC-18 defaults', () {
       const cfg = MergeResolveConfig();
@@ -1023,9 +992,6 @@ void main() {
       expect(cfg.maxAttempts, 2);
       expect(cfg.tokenCeiling, 100000);
       expect(cfg.escalation, MergeResolveEscalation.serializeRemaining);
-      expect(cfg.verification.format, isNull);
-      expect(cfg.verification.analyze, isNull);
-      expect(cfg.verification.test, isNull);
       expect(cfg.unknownFields, isEmpty);
     });
 
@@ -1035,14 +1001,12 @@ void main() {
         'max_attempts': 3,
         'token_ceiling': 200000,
         'escalation': 'fail',
-        'verification': {'format': 'dart format .', 'analyze': 'dart analyze', 'test': 'dart test'},
       });
       expect(cfg.enabled, isTrue);
       expect(cfg.maxAttempts, 3);
       expect(cfg.tokenCeiling, 200000);
       expect(cfg.escalation, MergeResolveEscalation.fail);
       expect(cfg.rawEscalation, 'fail');
-      expect(cfg.verification.format, 'dart format .');
     });
 
     test('fromJson captures unknown top-level keys', () {
@@ -1086,14 +1050,12 @@ void main() {
         'max_attempts': 3,
         'token_ceiling': 200000,
         'escalation': 'fail',
-        'verification': {'format': 'dart format .'},
       });
       final json = cfg.toJson();
       expect(json['enabled'], isTrue);
       expect(json['max_attempts'], 3);
       expect(json['token_ceiling'], 200000);
       expect(json['escalation'], 'fail');
-      expect((json['verification'] as Map)['format'], 'dart format .');
     });
   });
 
@@ -1115,13 +1077,7 @@ void main() {
     test('round-trip preserves all merge_resolve fields', () {
       final strategy = WorkflowGitStrategy.fromJson({
         'promotion': 'merge',
-        'merge_resolve': {
-          'enabled': true,
-          'max_attempts': 3,
-          'token_ceiling': 200000,
-          'escalation': 'fail',
-          'verification': {'format': 'dart format .', 'analyze': 'dart analyze', 'test': 'dart test'},
-        },
+        'merge_resolve': {'enabled': true, 'max_attempts': 3, 'token_ceiling': 200000, 'escalation': 'fail'},
       });
       final json = strategy.toJson();
       final restored = WorkflowGitStrategy.fromJson(json);
@@ -1129,9 +1085,6 @@ void main() {
       expect(restored.mergeResolve.maxAttempts, 3);
       expect(restored.mergeResolve.tokenCeiling, 200000);
       expect(restored.mergeResolve.escalation, MergeResolveEscalation.fail);
-      expect(restored.mergeResolve.verification.format, 'dart format .');
-      expect(restored.mergeResolve.verification.analyze, 'dart analyze');
-      expect(restored.mergeResolve.verification.test, 'dart test');
     });
 
     test('toJson omits merge_resolve key when block was absent', () {

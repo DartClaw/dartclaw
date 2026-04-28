@@ -420,6 +420,7 @@ class WorkflowsPage extends DashboardPage {
       ArtifactKind.document => 'Document',
       ArtifactKind.diff => 'Diff',
       ArtifactKind.data => 'Data',
+      ArtifactKind.branch => 'Branch',
       ArtifactKind.pr => 'Pull Request',
     };
   }
@@ -429,6 +430,7 @@ class WorkflowsPage extends DashboardPage {
       ArtifactKind.diff => 'workflow-artifact-badge--diff',
       ArtifactKind.document => 'workflow-artifact-badge--document',
       ArtifactKind.data => 'workflow-artifact-badge--data',
+      ArtifactKind.branch => 'workflow-artifact-badge--data',
       ArtifactKind.pr => 'workflow-artifact-badge--pr',
     };
   }
@@ -438,5 +440,4 @@ class WorkflowsPage extends DashboardPage {
     final regex = RegExp(r'\{\{context\.([^}]+)\}\}');
     return regex.allMatches(prompt).map((m) => m.group(1)!).toSet().toList();
   }
-
 }

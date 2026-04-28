@@ -35,5 +35,25 @@ void main() {
         expect(restored.path, 'https://github.com/u/r/pull/42');
       });
     });
+
+    group('ArtifactKind.branch', () {
+      test('byName resolves branch', () {
+        expect(ArtifactKind.values.byName('branch'), ArtifactKind.branch);
+      });
+
+      test('round-trips through toJson and fromJson', () {
+        final artifact = TaskArtifact(
+          id: 'artifact-branch',
+          taskId: 'task-1',
+          name: 'Workflow Branch',
+          kind: ArtifactKind.branch,
+          path: 'dartclaw/workflow/run/integration',
+          createdAt: DateTime.utc(2026, 3, 24, 12, 0, 0),
+        );
+        final restored = TaskArtifact.fromJson(artifact.toJson());
+        expect(restored.kind, ArtifactKind.branch);
+        expect(restored.path, 'dartclaw/workflow/run/integration');
+      });
+    });
   });
 }

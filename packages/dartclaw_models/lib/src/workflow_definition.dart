@@ -968,54 +968,11 @@ enum MergeResolveEscalation {
   };
 }
 
-/// Verification command configuration nested under [MergeResolveConfig].
-///
-/// All fields are optional — absent/empty block means markers + `git diff
-/// --check` only (BPC-19). Unknown keys are captured in [unknownFields] so
-/// the validator can emit a BPC-17 error without making [fromJson] throwing.
-class MergeResolveVerificationConfig {
-  /// Shell command to run for format verification (e.g. `dart format --set-exit-if-changed .`).
-  final String? format;
-
-  /// Shell command to run for static analysis (e.g. `dart analyze`).
-  final String? analyze;
-
-  /// Shell command to run for tests (e.g. `dart test`).
-  final String? test;
-
-  /// Unknown keys captured at parse time for validator surfacing.
-  final List<String> unknownFields;
-
-  const MergeResolveVerificationConfig({this.format, this.analyze, this.test, this.unknownFields = const []});
-
-  Map<String, dynamic> toJson() => {
-    if (format != null) 'format': format,
-    if (analyze != null) 'analyze': analyze,
-    if (test != null) 'test': test,
-  };
-
-  factory MergeResolveVerificationConfig.fromJson(Object? raw) {
-    final json = switch (raw) {
-      Map<String, dynamic> m => m,
-      Map<Object?, Object?> m => Map<String, dynamic>.from(m),
-      _ => <String, dynamic>{},
-    };
-    const knownKeys = {'format', 'analyze', 'test'};
-    final unknown = json.keys.where((k) => !knownKeys.contains(k)).toList();
-    return MergeResolveVerificationConfig(
-      format: json['format'] as String?,
-      analyze: json['analyze'] as String?,
-      test: json['test'] as String?,
-      unknownFields: unknown,
-    );
-  }
-}
-
 /// Typed configuration for the `merge_resolve:` block under `gitStrategy:`.
 ///
 /// BPC-18 defaults apply when the block is absent or fields are omitted:
 /// `enabled: false`, `maxAttempts: 2`, `tokenCeiling: 100000`,
-/// `escalation: serialize-remaining`, `verification: {}`.
+/// `escalation: serialize-remaining`.
 ///
 /// [rawEscalation] preserves the authored string when it does not map to a
 /// known [MergeResolveEscalation] value (e.g. the reserved `pause`) so the
@@ -1033,8 +990,6 @@ class MergeResolveConfig {
   /// Raw escalation string from YAML — `null` when the key was absent.
   final String? rawEscalation;
 
-  final MergeResolveVerificationConfig verification;
-
   /// Unknown top-level keys captured at parse time for validator surfacing.
   final List<String> unknownFields;
 
@@ -1044,7 +999,6 @@ class MergeResolveConfig {
     this.tokenCeiling = 100000,
     this.escalation = MergeResolveEscalation.serializeRemaining,
     this.rawEscalation,
-    this.verification = const MergeResolveVerificationConfig(),
     this.unknownFields = const [],
   });
 
@@ -1056,8 +1010,6 @@ class MergeResolveConfig {
       'escalation': escalation!.toYamlString()
     else if (rawEscalation != null)
       'escalation': rawEscalation,
-    if (verification.format != null || verification.analyze != null || verification.test != null)
-      'verification': verification.toJson(),
   };
 
   factory MergeResolveConfig.fromJson(Object? raw) {
@@ -1066,7 +1018,7 @@ class MergeResolveConfig {
       Map<Object?, Object?> m => Map<String, dynamic>.from(m),
       _ => <String, dynamic>{},
     };
-    const knownKeys = {'enabled', 'max_attempts', 'token_ceiling', 'escalation', 'verification'};
+    const knownKeys = {'enabled', 'max_attempts', 'token_ceiling', 'escalation'};
     final unknown = json.keys.where((k) => !knownKeys.contains(k)).toList();
     final rawEsc = json['escalation'] as String?;
     return MergeResolveConfig(
@@ -1075,7 +1027,6 @@ class MergeResolveConfig {
       tokenCeiling: (json['token_ceiling'] as int?) ?? 100000,
       escalation: rawEsc == null ? MergeResolveEscalation.serializeRemaining : MergeResolveEscalation.tryParse(rawEsc),
       rawEscalation: rawEsc,
-      verification: MergeResolveVerificationConfig.fromJson(json['verification']),
       unknownFields: unknown,
     );
   }

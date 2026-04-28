@@ -53,10 +53,21 @@ class WorkflowGitPromotionSerializeRemaining extends WorkflowGitPromotionResult 
   const WorkflowGitPromotionSerializeRemaining();
 }
 
+/// Workflow publish status.
+enum WorkflowPublishStatus {
+  success,
+  manual,
+  failed;
+
+  String toJson() => name;
+
+  static WorkflowPublishStatus fromJson(String value) => WorkflowPublishStatus.values.byName(value);
+}
+
 /// Result of deterministic workflow publish.
 class WorkflowGitPublishResult {
   /// `success`, `manual`, or `failed`.
-  final String status;
+  final WorkflowPublishStatus status;
 
   /// Branch that was published.
   final String branch;
@@ -181,10 +192,7 @@ class WorkflowTurnAdapter {
   /// The lock is reentrant within the body's zone, so inner primitives
   /// (e.g. [captureAndCleanWorktreeForRetry], [promoteWorkflowBranch]) that
   /// take the same lock on their own continue to work without modification.
-  final Future<T> Function<T>({
-    required String projectId,
-    required Future<T> Function() body,
-  })?
+  final Future<T> Function<T>({required String projectId, required Future<T> Function() body})?
   runResolverAttemptUnderLock;
 
   const WorkflowTurnAdapter({

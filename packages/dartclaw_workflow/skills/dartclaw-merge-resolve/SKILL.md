@@ -36,12 +36,6 @@ The following env vars are injected by the S60 plumbing on process spawn. `$VAR`
 - `MERGE_RESOLVE_STORY_BRANCH` — current story branch name (used in log/commit messages)
 - `MERGE_RESOLVE_TOKEN_CEILING` — per-attempt token budget (informational; harness enforces the ceiling)
 
-### Optional (absent or empty = skip that verification check)
-
-- `MERGE_RESOLVE_VERIFY_FORMAT` — shell command to verify formatting (e.g. `dart format --set-exit-if-changed .`)
-- `MERGE_RESOLVE_VERIFY_ANALYZE` — shell command to run static analysis (e.g. `dart analyze`)
-- `MERGE_RESOLVE_VERIFY_TEST` — shell command to run tests (e.g. `dart test`)
-
 ## FAIL-FAST: Required Env Vars
 
 Before doing anything else, check that the three required env vars are set:
@@ -94,51 +88,9 @@ For each file listed by `!git diff --name-only --diff-filter=U`:
 
 Accumulate reasoning notes throughout; these become `merge_resolve.resolution_summary`.
 
-## STEP 4 — Verification Chain
+## STEP 4 — Verification
 
-Run these checks in order. For each check, use output-encoded status (not bare exit-code branching):
-
-### 4a. No remaining conflict markers
-
-Scan every file that was in the conflict list (from STEP 1) for any remaining `<<<<<<<` marker, then run `git diff --check` via the bang operator using output-encoded status:
-
-```
-!sh -c 'git diff --check && echo DIFF_CHECK_OK || echo DIFF_CHECK_FAIL'
-```
-
-`DIFF_CHECK_FAIL` indicates unresolved whitespace/marker issues — enter the remediation loop (STEP 5).
-
-### 4b. Optional format verification
-
-```
-!sh -c 'test -z "$MERGE_RESOLVE_VERIFY_FORMAT" && echo FORMAT_SKIP || (eval "$MERGE_RESOLVE_VERIFY_FORMAT" && echo FORMAT_OK || echo FORMAT_FAIL)'
-```
-
-- `FORMAT_SKIP`: env var absent or empty — skip cleanly, no error.
-- `FORMAT_OK`: format check passed.
-- `FORMAT_FAIL`: format check failed — enter the remediation loop (STEP 5) for formatting.
-
-### 4c. Optional static analysis
-
-```
-!sh -c 'test -z "$MERGE_RESOLVE_VERIFY_ANALYZE" && echo ANALYZE_SKIP || (eval "$MERGE_RESOLVE_VERIFY_ANALYZE" && echo ANALYZE_OK || echo ANALYZE_FAIL)'
-```
-
-- `ANALYZE_SKIP`: skip cleanly.
-- `ANALYZE_OK`: analysis passed.
-- `ANALYZE_FAIL`: analysis failed — enter the remediation loop (STEP 5).
-
-### 4d. Optional test run
-
-```
-!sh -c 'test -z "$MERGE_RESOLVE_VERIFY_TEST" && echo TEST_SKIP || (eval "$MERGE_RESOLVE_VERIFY_TEST" && echo TEST_OK || echo TEST_FAIL)'
-```
-
-- `TEST_SKIP`: skip cleanly.
-- `TEST_OK`: tests passed.
-- `TEST_FAIL`: tests failed — enter the remediation loop (STEP 5).
-
-If all checks pass (OK or SKIP), proceed to **STEP 6** (commit).
+Run the project's applicable verification commands — formatting, static analysis / linting, type checks, tests — using whatever invocations the project documents (CLAUDE.md, AGENTS.md, contributor docs, `pyproject.toml`/`pubspec.yaml`/`package.json` scripts, etc.). All applicable checks must pass; pre-existing failures unrelated to this merge must be explicitly recorded in `merge_resolve.verification_notes`. If the project documents no verification commands, fall back to markers + `git diff --check` only.
 
 ## STEP 5 — Internal Remediation Loop
 
@@ -146,7 +98,7 @@ When any verification check fails:
 
 1. Identify the offending file(s) from the failure output.
 2. Edit the file(s) to fix the issue (reformatting, resolving analysis errors, fixing test failures).
-3. Re-run the **entire** verification chain (STEP 4a through 4d).
+3. Re-run the **entire** verification step (STEP 4).
 4. Repeat until all checks pass or the token budget (`MERGE_RESOLVE_TOKEN_CEILING`) is exhausted.
 
 **Token ceiling exhaustion**: If you detect that you are approaching the token ceiling and verification is still failing, terminate with:

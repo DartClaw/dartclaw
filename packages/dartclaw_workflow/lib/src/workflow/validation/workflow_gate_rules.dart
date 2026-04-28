@@ -5,7 +5,7 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
     for (final step in definition.steps) {
       final expression = step.entryGate;
       if (expression == null || expression.trim().isEmpty) continue;
-      final conditions = expression.split('&&').map((c) => c.trim());
+      final conditions = _gateLeafConditions(expression);
       for (final condition in conditions) {
         if (!WorkflowDefinitionValidator._entryGateConditionPattern.hasMatch(condition)) {
           errors.add(
@@ -28,7 +28,7 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
 
     for (final step in definition.steps) {
       if (step.gate == null) continue;
-      final conditions = step.gate!.split('&&').map((c) => c.trim());
+      final conditions = _gateLeafConditions(step.gate!);
       for (final condition in conditions) {
         final match = WorkflowDefinitionValidator._gateConditionPattern.firstMatch(condition);
         if (match == null) {
@@ -66,7 +66,7 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
         final expression = gateEntry.value;
         if (expression == null || expression.trim().isEmpty) continue;
 
-        final conditions = expression.split('&&').map((c) => c.trim());
+        final conditions = _gateLeafConditions(expression);
         for (final condition in conditions) {
           final match = WorkflowDefinitionValidator._gateConditionPattern.firstMatch(condition);
           if (match == null) {
@@ -106,4 +106,7 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
     }
     return rawKey.split('.').first;
   }
+
+  Iterable<String> _gateLeafConditions(String expression) =>
+      expression.split('||').expand((group) => group.split('&&')).map((condition) => condition.trim());
 }

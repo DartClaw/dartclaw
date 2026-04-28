@@ -58,7 +58,6 @@ export 'src/workflow_definition.dart'
         WorkflowGitWorktreeStrategy,
         WorkflowGitStrategy,
         MergeResolveEscalation,
-        MergeResolveVerificationConfig,
         MergeResolveConfig,
         StepConfigDefault,
         OnFailurePolicy,

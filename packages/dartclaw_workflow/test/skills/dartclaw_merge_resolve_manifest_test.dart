@@ -66,7 +66,11 @@ void main() {
 
       setUp(() {
         final workflow = frontmatter['workflow'] as Map<Object?, Object?>;
-        expect(workflow['default_outputs'], isA<Map<Object?, Object?>>(), reason: 'workflow.default_outputs must be a map');
+        expect(
+          workflow['default_outputs'],
+          isA<Map<Object?, Object?>>(),
+          reason: 'workflow.default_outputs must be a map',
+        );
         defaultOutputs = workflow['default_outputs'] as Map<Object?, Object?>;
       });
 
@@ -123,16 +127,9 @@ void main() {
       });
     });
 
-    // TI04 — all six env-var names present verbatim
+    // TI04 — required env-var names present verbatim
     group('env-var names in prompt body', () {
-      const envVars = [
-        'MERGE_RESOLVE_INTEGRATION_BRANCH',
-        'MERGE_RESOLVE_STORY_BRANCH',
-        'MERGE_RESOLVE_TOKEN_CEILING',
-        'MERGE_RESOLVE_VERIFY_FORMAT',
-        'MERGE_RESOLVE_VERIFY_ANALYZE',
-        'MERGE_RESOLVE_VERIFY_TEST',
-      ];
+      const envVars = ['MERGE_RESOLVE_INTEGRATION_BRANCH', 'MERGE_RESOLVE_STORY_BRANCH', 'MERGE_RESOLVE_TOKEN_CEILING'];
 
       for (final varName in envVars) {
         test('contains $varName', () {
@@ -194,44 +191,29 @@ void main() {
       });
     });
 
-    // TI08 — verification chain with output-encoded status
-    group('verification chain', () {
+    // TI08 — project-convention verification
+    group('verification step', () {
       test('contains git diff --check via output-encoded form', () {
         expect(content, contains('git diff --check'));
-        expect(content, contains('DIFF_CHECK_OK'));
-        expect(content, contains('DIFF_CHECK_FAIL'));
       });
 
-      test('uses output-encoded status for format verification', () {
-        expect(content, contains('FORMAT_OK'));
-        expect(content, contains('FORMAT_FAIL'));
-        expect(content, contains('FORMAT_SKIP'));
+      test('asks for project-documented verification commands', () {
+        expect(content, contains('applicable verification commands'));
+        expect(content, contains('CLAUDE.md, AGENTS.md'));
+        expect(content, contains('pyproject.toml'));
+        expect(content, contains('pubspec.yaml'));
+        expect(content, contains('package.json'));
       });
 
-      test('uses output-encoded status for analysis verification', () {
-        expect(content, contains('ANALYZE_OK'));
-        expect(content, contains('ANALYZE_FAIL'));
-        expect(content, contains('ANALYZE_SKIP'));
-      });
-
-      test('uses output-encoded status for test verification', () {
-        expect(content, contains('TEST_OK'));
-        expect(content, contains('TEST_FAIL'));
-        expect(content, contains('TEST_SKIP'));
-      });
-
-      test('documents skip branch for absent optional env vars', () {
-        // Must have a conditional skip for each optional var
-        expect(content, contains('test -z "\$MERGE_RESOLVE_VERIFY_FORMAT"'));
-        expect(content, contains('test -z "\$MERGE_RESOLVE_VERIFY_ANALYZE"'));
-        expect(content, contains('test -z "\$MERGE_RESOLVE_VERIFY_TEST"'));
+      test('records pre-existing failures in verification notes', () {
+        expect(content, contains('merge_resolve.verification_notes'));
       });
     });
 
     // TI09 — remediation loop with token ceiling bound
     group('remediation loop', () {
       test('documents remediation loop', () {
-        expect(content, contains('remediation'));
+        expect(content, contains('Remediation'));
       });
 
       test('names MERGE_RESOLVE_TOKEN_CEILING as the bound', () {

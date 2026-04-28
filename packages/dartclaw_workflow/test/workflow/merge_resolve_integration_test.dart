@@ -11,7 +11,6 @@ import 'package:dartclaw_core/dartclaw_core.dart' show Task, WorkflowStepComplet
 import 'package:dartclaw_models/dartclaw_models.dart'
     show
         MergeResolveConfig,
-        MergeResolveVerificationConfig,
         OutputConfig,
         OutputFormat,
         WorkflowDefinition,
@@ -58,10 +57,6 @@ import '../fixtures/e2e_fixture.dart';
 /// surfaced by the harness. Auth failures, workflow failures, assertion
 /// failures, and merge-resolve failures are not retried.
 ///
-/// The fixture project has no Dart package, so merge_resolve verification
-/// commands are intentionally substituted with `true` no-ops; the live proof is
-/// conflict resolution plus workflow plumbing, not fixture-package validation.
-
 const _projectId = 'merge-resolve-e2e-project';
 const _statePath = 'docs/STATE.md';
 const _storyOneMarker = '- S01: e2e marker';
@@ -113,12 +108,7 @@ WorkflowDefinition _mergeResolveIntegrationDefinition() {
       worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
       promotion: 'merge',
       publish: WorkflowGitPublishStrategy(enabled: false),
-      mergeResolve: MergeResolveConfig(
-        enabled: true,
-        maxAttempts: 2,
-        tokenCeiling: 100000,
-        verification: MergeResolveVerificationConfig(format: 'true', analyze: 'true', test: 'true'),
-      ),
+      mergeResolve: MergeResolveConfig(enabled: true, maxAttempts: 2, tokenCeiling: 100000),
     ),
     steps: const [
       WorkflowStep(
@@ -376,9 +366,6 @@ Future<String> _workflowFailureDetails(CliWorkflowWiring wiring, String runId, S
 
 void _assertDefinitionContract(WorkflowDefinition definition) {
   expect(definition.gitStrategy?.mergeResolve.enabled, isTrue);
-  expect(definition.gitStrategy?.mergeResolve.verification.format, equals('true'));
-  expect(definition.gitStrategy?.mergeResolve.verification.analyze, equals('true'));
-  expect(definition.gitStrategy?.mergeResolve.verification.test, equals('true'));
   final seed = definition.steps.firstWhere((step) => step.id == 'seed-stories');
   final foreach = definition.steps.firstWhere((step) => step.id == 'story-foreach');
   expect(seed.type, equals('bash'));

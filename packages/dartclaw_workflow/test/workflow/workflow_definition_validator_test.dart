@@ -1679,12 +1679,79 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p'], provider: 'claude'),
           WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous', provider: 'claude'),
         ],
       );
       final report = validator.validate(def, continuityProviders: {'claude'});
       expect(report.errors.any((e) => e.stepId == 's2'), isFalse);
+    });
+
+    test('continueSession provider matches previous step provider', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], provider: 'codex'),
+          WorkflowStep(
+            id: 'quick-review',
+            name: 'Quick Review',
+            prompts: ['p'],
+            continueSession: '@previous',
+            provider: 'codex',
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.any((e) => e.message.contains('requires the same provider')), isFalse);
+    });
+
+    test('continueSession provider mismatch fails and names both providers', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], provider: 'codex'),
+          WorkflowStep(
+            id: 'quick-review',
+            name: 'Quick Review',
+            prompts: ['p'],
+            continueSession: '@previous',
+            provider: 'claude',
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      final error = report.errors.singleWhere((e) => e.message.contains('requires the same provider'));
+      expect(error.message, contains('implement'));
+      expect(error.message, contains('quick-review'));
+      expect(error.message, contains('codex'));
+      expect(error.message, contains('claude'));
+    });
+
+    test('continueSession provider comparison resolves role aliases', () {
+      final validator = WorkflowDefinitionValidator(
+        roleDefaults: const WorkflowRoleDefaults(
+          workflow: WorkflowRoleDefault(provider: 'claude'),
+          executor: WorkflowRoleDefault(provider: 'codex'),
+        ),
+      );
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], provider: 'codex'),
+          WorkflowStep(
+            id: 'quick-review',
+            name: 'Quick Review',
+            prompts: ['p'],
+            continueSession: '@previous',
+            provider: '@executor',
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.any((e) => e.message.contains('requires the same provider')), isFalse);
     });
 
     test('continueSession with @-prefixed alias provider validates clean', () {
@@ -2207,22 +2274,40 @@ steps:
         expect(report.errors.any((e) => e.message.contains('gitStrategy.worktree.externalArtifactMount')), isTrue);
       });
 
-      test('stepDefaults ordering note is emitted when multiple patterns match a step', () {
+      test('stepDefaults ordering note is not emitted for non-overlapping literal and glob', () {
         final def = WorkflowDefinition(
           name: 'wf',
           description: 'd',
           stepDefaults: const [
-            StepConfigDefault(match: 'prd', provider: '@planner'),
-            StepConfigDefault(match: '*review*', provider: '@reviewer'),
+            StepConfigDefault(match: 'revise*', provider: '@reviewer'),
+            StepConfigDefault(match: 'spec', provider: '@planner'),
             StepConfigDefault(match: '*', provider: '@workflow'),
           ],
           steps: const [
-            WorkflowStep(id: 'review-prd', name: 'Review PRD', prompts: ['p']),
+            WorkflowStep(id: 'spec', name: 'Spec', prompts: ['p']),
           ],
         );
         final report = validator.validate(def);
-        expect(report.warnings.any((w) => w.message.contains('stepDefaults ordering is load-bearing')), isTrue);
-        expect(report.warnings.any((w) => w.message.contains('review-prd')), isTrue);
+        expect(report.warnings.any((w) => w.message.contains('stepDefaults ordering is load-bearing')), isFalse);
+      });
+
+      test('stepDefaults ordering note is emitted when literal overlaps with later glob', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          stepDefaults: const [
+            StepConfigDefault(match: 'spec-foo', provider: '@planner'),
+            StepConfigDefault(match: 'spec*', provider: '@reviewer'),
+            StepConfigDefault(match: '*', provider: '@workflow'),
+          ],
+          steps: const [
+            WorkflowStep(id: 'spec-foo', name: 'Spec Foo', prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        final warning = report.warnings.singleWhere((w) => w.message.contains('stepDefaults ordering is load-bearing'));
+        expect(warning.message, contains('spec-foo'));
+        expect(warning.message, contains('spec*'));
       });
     });
 
@@ -2415,18 +2500,16 @@ steps:
         );
       });
 
-      test('unknown verification key emits exact BPC-17 row 5 error with verification path', () {
+      test('stale verification block emits unknown top-level key error', () {
         final def = mrDef(
           mergeResolve: MergeResolveConfig.fromJson({
-            'verification': {'lint': 'x'},
+            'verification': {'format': 'x'},
           }),
         );
         final errors = validator.validate(def).errors;
         expect(
           errors.any(
-            (e) =>
-                e.message ==
-                "WorkflowDefinitionError: unknown field 'lint' under gitStrategy.merge_resolve.verification",
+            (e) => e.message == "WorkflowDefinitionError: unknown field 'verification' under gitStrategy.merge_resolve",
           ),
           isTrue,
         );

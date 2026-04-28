@@ -17,6 +17,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitCleanupStrategy,
         WorkflowGitException,
         WorkflowGitPublishResult,
+        WorkflowPublishStatus,
         WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowRun,
@@ -197,7 +198,12 @@ void main() {
           executeTurn: (_, _, _, {required source, required resume}) {},
           waitForOutcome: (_, _) async => const WorkflowTurnOutcome(status: 'completed'),
           publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
-              WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: ''),
+              WorkflowGitPublishResult(
+                status: WorkflowPublishStatus.success,
+                branch: branch,
+                remote: 'origin',
+                prUrl: '',
+              ),
         ),
         variables: const {'BRANCH': 'feature/test'},
         defId: 'no-project',
@@ -213,7 +219,12 @@ void main() {
           executeTurn: (_, _, _, {required source, required resume}) {},
           waitForOutcome: (_, _) async => const WorkflowTurnOutcome(status: 'completed'),
           publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
-              WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: ''),
+              WorkflowGitPublishResult(
+                status: WorkflowPublishStatus.success,
+                branch: branch,
+                remote: 'origin',
+                prUrl: '',
+              ),
         ),
         variables: const {'PROJECT': 'my-project'},
         defId: 'no-branch',
@@ -230,7 +241,7 @@ void main() {
           waitForOutcome: (_, _) async => const WorkflowTurnOutcome(status: 'completed'),
           publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
               WorkflowGitPublishResult(
-                status: 'failed',
+                status: WorkflowPublishStatus.failed,
                 branch: branch,
                 remote: 'origin',
                 prUrl: '',

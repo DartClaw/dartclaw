@@ -39,26 +39,17 @@ gitStrategy:
     max_attempts: 2
     token_ceiling: 100000
     escalation: serialize-remaining
-    verification:
-      format: "dart format --set-exit-if-changed ."
-      analyze: "dart analyze"
-      test: "dart test"
 
 stepDefaults:
-  # `revise*` is listed before the literal `prd` / `plan` matches so the
-  # validator's literal-token-match forward-compatibility check doesn't flag
-  # `prd` / `plan` as ambiguous with `revise-prd`. Literal matches are
-  # evaluated by equality at runtime, so `prd` never catches `revise-prd`
-  # regardless of order; the reorder is purely for validator hygiene.
-  - match: "revise*"
-    provider: "@reviewer"
-    model: "@reviewer"
   - match: "prd"
     provider: "@planner"
     model: "@planner"
   - match: "plan"
     provider: "@planner"
     model: "@planner"
+  - match: "revise*"
+    provider: "@reviewer"
+    model: "@reviewer"
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
@@ -238,16 +229,13 @@ steps:
 
   # Refactor pass after implementation, before review. Cleans up code
   # shape from the parallel story pipeline (consistency, dead code, small
-  # simplifications) so the reviews see polished output. Note: the
-  # dartclaw-refactor skill currently has no `--auto` flag and may ask for
-  # confirmation if it judges changes substantial — monitor for pauses
-  # under unattended runs and tighten the prompt scope if needed.
+  # simplifications) so the reviews see polished output.
   - id: refactor
     name: Refactor After Implementation
     type: custom
     skill: dartclaw-refactor
     inputs: [project_index, story_specs, story_results, plan]
-    prompt: "{{context.plan}} - refactor only the changes introduced on the current branch (vs the base ref); preserve behavior; no scope creep into untouched packages."
+    prompt: "--auto {{context.plan}} - refactor only the changes introduced on the current branch (vs the base ref); preserve behavior; no scope creep into untouched packages."
     outputs:
       refactor_summary:
         format: text
@@ -284,6 +272,10 @@ steps:
         format: json
         schema: non-negative-integer
         description: Total number of issues requiring remediation; 0 means the remediation loop can exit.
+      plan-review.gating_findings_count:
+        format: json
+        schema: non-negative-integer
+        description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
 
   # Architecture review running in parallel with plan-review. Independent
   # concern (modularity, coupling, anti-patterns, fitness) from gap/code
@@ -309,14 +301,18 @@ steps:
         format: json
         schema: non-negative-integer
         description: Number of architecture findings; combined with plan-review.findings_count to gate the remediation loop.
+      architecture-review.gating_findings_count:
+        format: json
+        schema: non-negative-integer
+        description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
 
   # Iterate plan-level remediation until validation and re-review both pass or the loop is exhausted.
   - id: remediation-loop
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    entryGate: "plan-review.findings_count > 0 || architecture-review.findings_count > 0"
-    exitGate: "re-review.findings_count == 0"
+    entryGate: "plan-review.gating_findings_count > 0 || architecture-review.gating_findings_count > 0"
+    exitGate: "re-review.gating_findings_count == 0"
     steps:
       # Single remediation pass that addresses findings from both the
       # plan/code review and the architecture review. Both findings
@@ -361,3 +357,7 @@ steps:
             format: json
             schema: non-negative-integer
             description: Number of remaining plan-level issues after this re-review; 0 exits the remediation loop.
+          re-review.gating_findings_count:
+            format: json
+            schema: non-negative-integer
+            description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."

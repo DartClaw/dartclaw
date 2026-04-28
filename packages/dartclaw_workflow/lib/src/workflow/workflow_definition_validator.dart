@@ -3,7 +3,8 @@ import 'package:logging/logging.dart';
 
 import 'schema_presets.dart' show schemaPresets;
 import 'skill_registry.dart';
-import 'step_config_resolver.dart' show globMatchStepId, workflowRoleDefaultAliases;
+import 'step_config_resolver.dart'
+    show WorkflowRoleDefaults, globMatchStepId, resolveStepConfig, workflowRoleDefaultAliases;
 import 'workflow_context.dart';
 import 'workflow_template_engine.dart';
 
@@ -84,6 +85,9 @@ class WorkflowDefinitionValidator {
   static const _artifactProducingSkills = {'dartclaw-prd', 'dartclaw-plan', 'dartclaw-spec'};
   static const _semanticStepTypes = {'coding', 'analysis', 'research', 'writing'};
   final _engine = WorkflowTemplateEngine();
+  final WorkflowRoleDefaults roleDefaults;
+
+  WorkflowDefinitionValidator({this.roleDefaults = const WorkflowRoleDefaults()});
 
   /// Step types known by the engine. Any other type produces a warning.
   static const _knownTypes = {

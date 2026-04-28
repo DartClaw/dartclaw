@@ -15,6 +15,7 @@ void main() {
       expect(config.workspaceDir, isNull);
       expect(config.defaults.workflow.provider, 'claude');
       expect(config.defaults.reviewer.model, 'claude-opus-4');
+      expect(config.cleanup.deleteRemoteBranchOnFailure, isFalse);
     });
 
     test('equality includes workspaceDir and role defaults', () {
@@ -35,6 +36,10 @@ void main() {
             ),
           ),
         ),
+      );
+      expect(
+        const WorkflowConfig(),
+        isNot(equals(const WorkflowConfig(cleanup: WorkflowCleanupConfig(deleteRemoteBranchOnFailure: true)))),
       );
     });
   });
@@ -98,6 +103,17 @@ workflow:
       expect(config.workflow.defaults.reviewer.model, 'opus');
       expect(config.workflow.defaults.executor.provider, 'codex');
       expect(config.workflow.defaults.executor.model, 'gpt-5.4-mini');
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.cleanup.delete_remote_branch_on_failure parses bool', () {
+      final config = _load('''
+workflow:
+  cleanup:
+    delete_remote_branch_on_failure: true
+''');
+
+      expect(config.workflow.cleanup.deleteRemoteBranchOnFailure, isTrue);
       expect(config.warnings, isEmpty);
     });
   });

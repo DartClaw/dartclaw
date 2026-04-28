@@ -5,8 +5,9 @@ import 'workflow_context_resolver.dart';
 
 /// Evaluates simple gate expressions against workflow context.
 ///
-/// Gate syntax: `<key> <operator> <value>` joined by `&&`.
-/// Example: `implement.status == accepted && research.tokenCount < 50000`
+/// Gate syntax: `<key> <operator> <value>` leaves joined as
+/// `<a> [&& <b>]* [|| <c> [&& <d>]*]*`; `&&` binds tighter than `||`.
+/// Parentheses, NOT, and deeper nesting are not supported.
 class GateEvaluator {
   static final _log = Logger('GateEvaluator');
   static final _conditionPattern = RegExp(r'^(.+?)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
@@ -19,8 +20,11 @@ class GateEvaluator {
   ///
   /// Malformed expressions and missing context keys return false (fail-safe).
   bool evaluate(String expression, WorkflowContext context) {
-    final conditions = expression.split('&&').map((s) => s.trim());
-    return conditions.every((cond) => _evaluateCondition(cond, context));
+    final orGroups = expression.split('||').map((s) => s.trim());
+    return orGroups.any((group) {
+      final conditions = group.split('&&').map((s) => s.trim());
+      return conditions.every((cond) => _evaluateCondition(cond, context));
+    });
   }
 
   bool _evaluateCondition(String condition, WorkflowContext context) {

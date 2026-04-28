@@ -227,19 +227,11 @@ extension _WorkflowGitStrategyRules on WorkflowDefinitionValidator {
       }
     }
 
-    // TI08 — BPC-17 row 5: unknown fields under merge_resolve: and verification:
+    // Unknown fields under merge_resolve.
     for (final name in mr.unknownFields) {
       errors.add(
         ValidationError(
           message: "WorkflowDefinitionError: unknown field '$name' under gitStrategy.merge_resolve",
-          type: ValidationErrorType.invalidReference,
-        ),
-      );
-    }
-    for (final name in mr.verification.unknownFields) {
-      errors.add(
-        ValidationError(
-          message: "WorkflowDefinitionError: unknown field '$name' under gitStrategy.merge_resolve.verification",
           type: ValidationErrorType.invalidReference,
         ),
       );
@@ -285,51 +277,31 @@ extension _WorkflowGitStrategyRules on WorkflowDefinitionValidator {
 
     final seen = <String>{};
     for (final step in definition.steps) {
-      final matches = <String>[];
       for (var i = 0; i < defaults.length; i++) {
         final current = defaults[i];
         if (current.match == '*') continue; // intentional catch-all; too noisy to warn on
-
-        if (globMatchStepId(current.match, step.id)) {
-          matches.add(current.match);
-          continue;
-        }
-
-        final isLiteral = !current.match.contains('*');
-        if (!isLiteral || !_literalTokenMatch(current.match, step.id)) continue;
+        if (current.match.contains('*') || !globMatchStepId(current.match, step.id)) continue;
 
         for (var j = i + 1; j < defaults.length; j++) {
           final later = defaults[j];
           if (later.match == '*') continue;
-          if (globMatchStepId(later.match, step.id)) {
-            matches.add(current.match);
-            matches.add(later.match);
-            break;
-          }
+          if (!later.match.contains('*') || !globMatchStepId(later.match, step.id)) continue;
+
+          final key = '${step.id}\x00${current.match}\x00${later.match}';
+          if (!seen.add(key)) continue;
+          warnings.add(
+            ValidationError(
+              message:
+                  'Info: stepDefaults ordering is load-bearing for step "${step.id}" — '
+                  'both ${current.match} and ${later.match} match. The first match wins, '
+                  'so reordering or glob widening can change which provider/model applies.',
+              type: ValidationErrorType.invalidReference,
+              stepId: step.id,
+            ),
+          );
+          break;
         }
       }
-      if (matches.length < 2) continue;
-
-      final key = '${step.id}\x00${matches.join("\x00")}';
-      if (!seen.add(key)) continue;
-      warnings.add(
-        ValidationError(
-          message:
-              'Info: stepDefaults ordering is load-bearing for step "${step.id}" — '
-              'multiple patterns match (${matches.join(', ')}). The first match '
-              'wins, so reordering or glob widening can change which provider/model applies.',
-          type: ValidationErrorType.invalidReference,
-          stepId: step.id,
-        ),
-      );
     }
-  }
-
-  bool _literalTokenMatch(String literal, String stepId) {
-    if (literal.isEmpty) return false;
-    return stepId.endsWith('-$literal') ||
-        stepId.contains('-$literal-') ||
-        stepId.endsWith('_$literal') ||
-        stepId.contains('_${literal}_');
   }
 }

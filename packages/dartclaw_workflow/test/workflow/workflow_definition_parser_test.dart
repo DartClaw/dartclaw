@@ -266,10 +266,6 @@ gitStrategy:
     max_attempts: 3
     token_ceiling: 200000
     escalation: fail
-    verification:
-      format: dart format --set-exit-if-changed .
-      analyze: dart analyze
-      test: dart test
 steps:
   - id: s1
     name: S
@@ -281,9 +277,6 @@ steps:
       expect(mr.maxAttempts, 3);
       expect(mr.tokenCeiling, 200000);
       expect(mr.escalation, MergeResolveEscalation.fail);
-      expect(mr.verification.format, 'dart format --set-exit-if-changed .');
-      expect(mr.verification.analyze, 'dart analyze');
-      expect(mr.verification.test, 'dart test');
     });
 
     test('parses workflow-level project', () {

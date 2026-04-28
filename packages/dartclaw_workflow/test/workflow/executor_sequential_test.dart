@@ -24,6 +24,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitBootstrapResult,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
+        WorkflowPublishStatus,
         WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
@@ -399,7 +400,12 @@ void main() {
   test('context from step 1 is available in step 2 prompt', () async {
     final definition = h.makeDefinition(
       steps: [
-        const WorkflowStep(id: 'step1', name: 'Research', prompts: ['Do research'], outputs: {'research_notes': OutputConfig()}),
+        const WorkflowStep(
+          id: 'step1',
+          name: 'Research',
+          prompts: ['Do research'],
+          outputs: {'research_notes': OutputConfig()},
+        ),
         const WorkflowStep(id: 'step2', name: 'Summarize', prompts: ['Summarize: {{context.research_notes}}']),
       ],
     );
@@ -655,7 +661,7 @@ void main() {
         waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
         publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
             WorkflowGitPublishResult(
-              status: 'success',
+              status: WorkflowPublishStatus.success,
               branch: branch,
               remote: 'origin',
               prUrl: 'https://example.test/pr/123',

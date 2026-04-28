@@ -27,23 +27,14 @@ gitStrategy:
     max_attempts: 2
     token_ceiling: 100000
     escalation: serialize-remaining
-    verification:
-      format: "dart format --set-exit-if-changed ."
-      analyze: "dart analyze"
-      test: "dart test"
 
 stepDefaults:
-  # `revise*` is listed before the literal `spec` match so the validator's
-  # literal-token-match forward-compatibility check doesn't flag `spec` as
-  # ambiguous with `revise-spec`. Literal matches are evaluated by equality
-  # at runtime, so `spec` never catches `revise-spec` regardless of order;
-  # the reorder is purely for validator hygiene.
-  - match: "revise*"
-    provider: "@reviewer"
-    model: "@reviewer"
   - match: "spec"
     provider: "@planner"
     model: "@planner"
+  - match: "revise*"
+    provider: "@reviewer"
+    model: "@reviewer"
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
@@ -144,6 +135,7 @@ steps:
     name: Integrated Review
     type: custom
     skill: dartclaw-review
+    parallel: true
     # read-only review: file_write absent preserves step_config_policy's
     # read-only inference. shell/web_fetch/mcp_call enable `git diff`,
     # `dart analyze`, doc lookup, and MCP-routed checks.
@@ -159,6 +151,31 @@ steps:
         format: json
         schema: non-negative-integer
         description: Number of issues flagged by the integrated review; 0 means the remediation loop can exit.
+      integrated-review.gating_findings_count:
+        format: json
+        schema: non-negative-integer
+        description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
+
+  - id: architecture-review
+    name: Architecture Review
+    type: custom
+    skill: dartclaw-architecture
+    parallel: true
+    inputs: [project_index, spec_path, diff_summary]
+    allowedTools: [shell, file_read, web_fetch, mcp_call]
+    prompt: "--mode review --auto {{context.spec_path}}. Scope the review to changes introduced on the current branch (vs the base ref) — skip packages untouched by this spec."
+    outputs:
+      architecture_review_findings:
+        format: path
+        description: Workspace-relative path to the architecture review report file written by dartclaw-architecture.
+      architecture-review.findings_count:
+        format: json
+        schema: non-negative-integer
+        description: Number of architecture findings; combined with integrated-review.findings_count to gate the remediation loop.
+      architecture-review.gating_findings_count:
+        format: json
+        schema: non-negative-integer
+        description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
 
   # Iterate remediation until re-review reports a clean result or the loop is exhausted.
   # The remediation skill is responsible for running analysis/tests/linting on its
@@ -167,16 +184,16 @@ steps:
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    entryGate: "integrated-review.findings_count > 0"
-    exitGate: "re-review.findings_count == 0"
+    entryGate: "integrated-review.gating_findings_count > 0 || architecture-review.gating_findings_count > 0"
+    exitGate: "re-review.gating_findings_count == 0"
     steps:
       # Apply fixes for the current set of integrated-review findings.
       - id: remediate
         name: Remediate Findings
         type: custom
         skill: dartclaw-remediate-findings
-        inputs: [project_index, spec_path, review_findings]
-        prompt: "--auto {{context.review_findings}}"
+        inputs: [project_index, spec_path, review_findings, architecture_review_findings]
+        prompt: "--auto {{context.review_findings}} {{context.architecture_review_findings}}"
         outputs:
           remediation_summary:
             format: text
@@ -203,3 +220,7 @@ steps:
             format: json
             schema: non-negative-integer
             description: Number of remaining issues after this re-review; 0 exits the remediation loop.
+          re-review.gating_findings_count:
+            format: json
+            schema: non-negative-integer
+            description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."

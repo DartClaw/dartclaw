@@ -46,6 +46,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowService,
         WorkflowGitBootstrapResult,
         WorkflowGitPublishResult,
+        WorkflowPublishStatus,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
@@ -80,7 +81,7 @@ import 'workflow_local_path_preflight.dart';
 /// `WorkflowGitPublishResult.prUrl` into the workflow context as
 /// `publish.pr_url`.
 class CliWorkflowPrResult {
-  final String status;
+  final WorkflowPublishStatus status;
   final String prUrl;
   final String? error;
 
@@ -350,6 +351,29 @@ class CliWorkflowWiring {
     );
     taskExecutor.start();
 
+    final workflowRoleDefaults = WorkflowRoleDefaults(
+      workflow: WorkflowRoleDefault(
+        provider: config.workflow.defaults.workflow.provider,
+        model: config.workflow.defaults.workflow.model,
+        effort: config.workflow.defaults.workflow.effort,
+      ),
+      planner: WorkflowRoleDefault(
+        provider: config.workflow.defaults.planner.provider,
+        model: config.workflow.defaults.planner.model,
+        effort: config.workflow.defaults.planner.effort,
+      ),
+      executor: WorkflowRoleDefault(
+        provider: config.workflow.defaults.executor.provider,
+        model: config.workflow.defaults.executor.model,
+        effort: config.workflow.defaults.executor.effort,
+      ),
+      reviewer: WorkflowRoleDefault(
+        provider: config.workflow.defaults.reviewer.provider,
+        model: config.workflow.defaults.reviewer.model,
+        effort: config.workflow.defaults.reviewer.effort,
+      ),
+    );
+
     // Workflow layer
     workflowService = WorkflowService(
       repository: workflowRunRepository,
@@ -363,28 +387,7 @@ class CliWorkflowWiring {
       executionRepositoryTransactor: executionRepositoryTransactor,
       projectService: projectService,
       workflowGitPort: WorkflowGitPortProcess(worktreeManager: worktreeManager),
-      roleDefaults: WorkflowRoleDefaults(
-        workflow: WorkflowRoleDefault(
-          provider: config.workflow.defaults.workflow.provider,
-          model: config.workflow.defaults.workflow.model,
-          effort: config.workflow.defaults.workflow.effort,
-        ),
-        planner: WorkflowRoleDefault(
-          provider: config.workflow.defaults.planner.provider,
-          model: config.workflow.defaults.planner.model,
-          effort: config.workflow.defaults.planner.effort,
-        ),
-        executor: WorkflowRoleDefault(
-          provider: config.workflow.defaults.executor.provider,
-          model: config.workflow.defaults.executor.model,
-          effort: config.workflow.defaults.executor.effort,
-        ),
-        reviewer: WorkflowRoleDefault(
-          provider: config.workflow.defaults.reviewer.provider,
-          model: config.workflow.defaults.reviewer.model,
-          effort: config.workflow.defaults.reviewer.effort,
-        ),
-      ),
+      roleDefaults: workflowRoleDefaults,
       structuredOutputFallbackRecorder: taskEventRecorder.recordStructuredOutputFallbackUsed,
       skillRegistry: skillRegistry,
       hydrateWorkflowWorktreeBinding: taskExecutor.hydrateWorkflowSharedWorktreeBinding,
@@ -466,7 +469,7 @@ class CliWorkflowWiring {
             projectDir: await _resolveWorkflowProjectDir(projectId),
             branch: branch,
           );
-          if (pushResult.status != 'success') {
+          if (pushResult.status != WorkflowPublishStatus.success) {
             return pushResult;
           }
 
@@ -491,28 +494,33 @@ class CliWorkflowWiring {
             ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
           final artifactTaskId = workflowTasks.isEmpty ? null : workflowTasks.last.id;
           if (artifactTaskId != null) {
-            final artifactPath = result.prUrl.isNotEmpty ? result.prUrl : branch;
+            final artifactIdSuffix = DateTime.now().microsecondsSinceEpoch;
             await taskService.addArtifact(
-              id: 'workflow-publish-$runId-${DateTime.now().microsecondsSinceEpoch}',
+              id: 'workflow-publish-$runId-branch-$artifactIdSuffix',
               taskId: artifactTaskId,
-              name: 'Workflow Publish',
-              kind: ArtifactKind.pr,
-              path: artifactPath,
+              name: 'Workflow Branch',
+              kind: ArtifactKind.branch,
+              path: branch,
             );
+            if (result.prUrl.isNotEmpty) {
+              await taskService.addArtifact(
+                id: 'workflow-publish-$runId-pr-$artifactIdSuffix',
+                taskId: artifactTaskId,
+                name: 'Workflow Pull Request',
+                kind: ArtifactKind.pr,
+                path: result.prUrl,
+              );
+            }
           }
           return result;
         },
         cleanupWorkflowGit: ({required runId, required projectId, required status, required preserveWorktrees}) async {
           if (preserveWorktrees) return;
-          await _cleanupWorkflowGitRun(runId);
+          await _cleanupWorkflowGitRun(runId, projectId: projectId, terminalStatus: status);
         },
         cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async {
           final projectDir = await _resolveWorkflowProjectDir(projectId);
-          return cleanupWorktreeForRetry(
-            projectDir: projectDir,
-            branch: branch,
-            preAttemptSha: preAttemptSha,
-          );
+          return cleanupWorktreeForRetry(projectDir: projectDir, branch: branch, preAttemptSha: preAttemptSha);
         },
         captureWorkflowBranchSha: ({required projectId, required branch}) async {
           final projectDir = await _resolveWorkflowProjectDir(projectId);
@@ -564,7 +572,7 @@ class CliWorkflowWiring {
         .toSet();
     registry = WorkflowRegistry(
       parser: WorkflowDefinitionParser(),
-      validator: WorkflowDefinitionValidator(),
+      validator: WorkflowDefinitionValidator(roleDefaults: workflowRoleDefaults),
       continuityProviders: continuityProviders,
     );
     registry.skillRegistry = skillRegistry;
@@ -601,10 +609,17 @@ class CliWorkflowWiring {
     return project.localPath;
   }
 
-  Future<void> _cleanupWorkflowGitRun(String runId) async {
+  Future<void> _cleanupWorkflowGitRun(String runId, {required String projectId, required String terminalStatus}) async {
     final runTasks = (await taskService.list()).where((task) => task.workflowRunId == runId).toList();
     final cleanupPlan = _buildWorkflowCleanupPlan(runId, runTasks);
-    await _runWorkflowGitCleanupPlan(cleanupPlan);
+    final pushedBranches = config.workflow.cleanup.deleteRemoteBranchOnFailure && terminalStatus == 'failed'
+        ? await _pushedWorkflowBranches(runTasks)
+        : const <String>{};
+    await _runWorkflowGitCleanupPlan(
+      cleanupPlan,
+      projectDir: await _resolveWorkflowProjectDir(projectId),
+      remoteBranchesToDelete: pushedBranches,
+    );
   }
 
   Future<void> _cleanupTrackedWorkflowGit() async {
@@ -626,7 +641,31 @@ class CliWorkflowWiring {
     await _runWorkflowGitCleanupPlan(_WorkflowGitCleanupPlan(worktreePaths: worktreePaths, branches: branches));
   }
 
-  Future<void> _runWorkflowGitCleanupPlan(_WorkflowGitCleanupPlan cleanupPlan) async {
+  Future<Set<String>> _pushedWorkflowBranches(List<Task> runTasks) async {
+    final branches = <String>{};
+    for (final task in runTasks) {
+      final artifacts = await taskService.listArtifacts(task.id);
+      for (final artifact in artifacts) {
+        if (artifact.kind == ArtifactKind.branch && artifact.path.trim().isNotEmpty) {
+          branches.add(artifact.path.trim());
+        }
+      }
+    }
+    return branches;
+  }
+
+  Future<void> _runWorkflowGitCleanupPlan(
+    _WorkflowGitCleanupPlan cleanupPlan, {
+    String? projectDir,
+    Set<String> remoteBranchesToDelete = const {},
+  }) async {
+    if (projectDir != null) {
+      for (final branch in remoteBranchesToDelete) {
+        final result = await _workflowGit(['push', 'origin', '--delete', branch], workingDirectory: projectDir);
+        final detail = result.exitCode == 0 ? 'succeeded' : 'failed: ${(result.stderr as String).trim()}';
+        Logger('CliWorkflowWiring').info('Remote workflow branch cleanup for "$branch" $detail');
+      }
+    }
     for (final worktreePath in cleanupPlan.worktreePaths) {
       await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: Directory.current.path);
     }

@@ -85,7 +85,7 @@ Future<String?> runDeterministicPublish({
   _log.info("Workflow '${run.id}': publishing branch '$branch' for project '$projectId'");
   try {
     final result = await publish(runId: run.id, projectId: projectId, branch: branch);
-    context['publish.status'] = result.status;
+    context['publish.status'] = result.status.toJson();
     context['publish.branch'] = result.branch;
     context['publish.remote'] = result.remote;
     context['publish.pr_url'] = result.prUrl;
@@ -104,7 +104,7 @@ Future<String?> runDeterministicPublish({
         updatedAt: DateTime.now(),
       ),
     );
-    if (result.status == 'failed') {
+    if (result.status == WorkflowPublishStatus.failed) {
       _log.warning("Workflow '${run.id}': publish failed for branch '$branch': ${result.error ?? 'unknown error'}");
       return 'publish failed: ${result.error ?? 'unknown error'}';
     }

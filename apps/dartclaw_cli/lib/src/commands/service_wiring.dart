@@ -25,6 +25,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionError,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
+        WorkflowPublishStatus,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
@@ -425,6 +426,29 @@ class ServiceWiring {
     // 7. Tasks (post-server) — executor, artifacts, observer — need live turns.
     await task.wirePostServer(turns: serverTurns, pool: harness.pool, onSpawnNeeded: harness.onSpawnNeeded);
 
+    final workflowRoleDefaults = WorkflowRoleDefaults(
+      workflow: WorkflowRoleDefault(
+        provider: config.workflow.defaults.workflow.provider,
+        model: config.workflow.defaults.workflow.model,
+        effort: config.workflow.defaults.workflow.effort,
+      ),
+      planner: WorkflowRoleDefault(
+        provider: config.workflow.defaults.planner.provider,
+        model: config.workflow.defaults.planner.model,
+        effort: config.workflow.defaults.planner.effort,
+      ),
+      executor: WorkflowRoleDefault(
+        provider: config.workflow.defaults.executor.provider,
+        model: config.workflow.defaults.executor.model,
+        effort: config.workflow.defaults.executor.effort,
+      ),
+      reviewer: WorkflowRoleDefault(
+        provider: config.workflow.defaults.reviewer.provider,
+        model: config.workflow.defaults.reviewer.model,
+        effort: config.workflow.defaults.reviewer.effort,
+      ),
+    );
+
     // Workflow service — wired after task executor so TaskService is live.
     final workflowService = WorkflowService(
       repository: storage.workflowRunRepository,
@@ -432,28 +456,7 @@ class ServiceWiring {
       messageService: storage.messages,
       bashStepEnvAllowlist: config.security.bashStep.envAllowlist,
       bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
-      roleDefaults: WorkflowRoleDefaults(
-        workflow: WorkflowRoleDefault(
-          provider: config.workflow.defaults.workflow.provider,
-          model: config.workflow.defaults.workflow.model,
-          effort: config.workflow.defaults.workflow.effort,
-        ),
-        planner: WorkflowRoleDefault(
-          provider: config.workflow.defaults.planner.provider,
-          model: config.workflow.defaults.planner.model,
-          effort: config.workflow.defaults.planner.effort,
-        ),
-        executor: WorkflowRoleDefault(
-          provider: config.workflow.defaults.executor.provider,
-          model: config.workflow.defaults.executor.model,
-          effort: config.workflow.defaults.executor.effort,
-        ),
-        reviewer: WorkflowRoleDefault(
-          provider: config.workflow.defaults.reviewer.provider,
-          model: config.workflow.defaults.reviewer.model,
-          effort: config.workflow.defaults.reviewer.effort,
-        ),
-      ),
+      roleDefaults: workflowRoleDefaults,
       workflowGitPort: WorkflowGitPortProcess(
         worktreeManager: task.worktreeManager,
         remotePushService: task.remotePushService,
@@ -602,6 +605,15 @@ class ServiceWiring {
           final cleanupPlan = buildWorkflowCleanupPlan(runId, runTasks);
           final gitDir = resolvedProject.localPath;
 
+          if (config.workflow.cleanup.deleteRemoteBranchOnFailure && status == 'failed') {
+            final pushedBranches = await pushedWorkflowBranches(storage.taskService, runTasks);
+            for (final branch in pushedBranches) {
+              final result = await _workflowGit(['push', 'origin', '--delete', branch], workingDirectory: gitDir);
+              final detail = result.exitCode == 0 ? 'succeeded' : 'failed: ${(result.stderr as String).trim()}';
+              Logger('ServiceWiring').info('Remote workflow branch cleanup for "$branch" $detail');
+            }
+          }
+
           for (final worktreePath in cleanupPlan.worktreePaths) {
             await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: gitDir);
           }
@@ -679,7 +691,7 @@ class ServiceWiring {
     await WorkflowMaterializer.materialize(dataDir: dataDir, assetResolver: assetResolver);
     final workflowRegistry = WorkflowRegistry(
       parser: WorkflowDefinitionParser(),
-      validator: WorkflowDefinitionValidator(),
+      validator: WorkflowDefinitionValidator(roleDefaults: workflowRoleDefaults),
       continuityProviders: continuityProviders,
     );
     workflowRegistry.skillRegistry = skillRegistry;
@@ -1293,13 +1305,20 @@ Future<void> _ensureLocalBranch({
   }
 }
 
-Future<void> _persistWorkflowPrArtifact(TaskService taskService, String runId, String? taskId, String content) async {
+Future<void> _persistWorkflowArtifact(
+  TaskService taskService,
+  String runId,
+  String? taskId,
+  String name,
+  ArtifactKind kind,
+  String content,
+) async {
   if (taskId == null || taskId.isEmpty) return;
   await taskService.addArtifact(
-    id: 'workflow-publish-$runId-${DateTime.now().microsecondsSinceEpoch}',
+    id: 'workflow-publish-$runId-${kind.name}-${DateTime.now().microsecondsSinceEpoch}',
     taskId: taskId,
-    name: 'Workflow Publish',
-    kind: ArtifactKind.pr,
+    name: name,
+    kind: kind,
     path: content,
   );
 }
@@ -1316,7 +1335,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
   final resolvedProject = await projectService.get(projectId);
   if (resolvedProject == null) {
     return WorkflowGitPublishResult(
-      status: 'failed',
+      status: WorkflowPublishStatus.failed,
       branch: branch,
       remote: 'origin',
       prUrl: '',
@@ -1330,6 +1349,14 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
       final runTasks = (await taskService.list()).where((candidate) => candidate.workflowRunId == runId).toList()
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
       final artifactTask = runTasks.isEmpty ? null : runTasks.last;
+      await _persistWorkflowArtifact(
+        taskService,
+        runId,
+        artifactTask?.id,
+        'Workflow Branch',
+        ArtifactKind.branch,
+        branch,
+      );
       if (resolvedProject.pr.strategy == PrStrategy.githubPr) {
         final syntheticTask =
             artifactTask ??
@@ -1343,20 +1370,30 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
         final prResult = await prCreator.create(project: resolvedProject, task: syntheticTask, branch: branch);
         switch (prResult) {
           case PrCreated(:final url):
-            await _persistWorkflowPrArtifact(taskService, runId, artifactTask?.id, url);
-            return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: url);
-          case PrGhNotFound(:final instructions):
-            await _persistWorkflowPrArtifact(taskService, runId, artifactTask?.id, instructions);
-            return WorkflowGitPublishResult(status: 'manual', branch: branch, remote: 'origin', prUrl: '');
-          case PrCreationFailed(:final error, :final details):
-            await _persistWorkflowPrArtifact(
+            await _persistWorkflowArtifact(
               taskService,
               runId,
               artifactTask?.id,
-              'PR creation failed: $error\n$details',
+              'Workflow Pull Request',
+              ArtifactKind.pr,
+              url,
             );
             return WorkflowGitPublishResult(
-              status: 'failed',
+              status: WorkflowPublishStatus.success,
+              branch: branch,
+              remote: 'origin',
+              prUrl: url,
+            );
+          case PrGhNotFound():
+            return WorkflowGitPublishResult(
+              status: WorkflowPublishStatus.manual,
+              branch: branch,
+              remote: 'origin',
+              prUrl: '',
+            );
+          case PrCreationFailed(:final error, :final details):
+            return WorkflowGitPublishResult(
+              status: WorkflowPublishStatus.failed,
               branch: branch,
               remote: 'origin',
               prUrl: '',
@@ -1364,11 +1401,15 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
             );
         }
       }
-      await _persistWorkflowPrArtifact(taskService, runId, artifactTask?.id, branch);
-      return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: '');
+      return WorkflowGitPublishResult(
+        status: WorkflowPublishStatus.success,
+        branch: branch,
+        remote: 'origin',
+        prUrl: '',
+      );
     case PushAuthFailure(:final details):
       return WorkflowGitPublishResult(
-        status: 'failed',
+        status: WorkflowPublishStatus.failed,
         branch: branch,
         remote: 'origin',
         prUrl: '',
@@ -1376,14 +1417,20 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
       );
     case PushRejected(:final reason):
       return WorkflowGitPublishResult(
-        status: 'failed',
+        status: WorkflowPublishStatus.failed,
         branch: branch,
         remote: 'origin',
         prUrl: '',
         error: 'Remote rejected push: $reason',
       );
     case PushError(:final message):
-      return WorkflowGitPublishResult(status: 'failed', branch: branch, remote: 'origin', prUrl: '', error: message);
+      return WorkflowGitPublishResult(
+        status: WorkflowPublishStatus.failed,
+        branch: branch,
+        remote: 'origin',
+        prUrl: '',
+        error: message,
+      );
   }
 }
 
@@ -1392,6 +1439,19 @@ class WorkflowGitCleanupPlan {
   final Set<String> branches;
 
   const WorkflowGitCleanupPlan({required this.worktreePaths, required this.branches});
+}
+
+Future<Set<String>> pushedWorkflowBranches(TaskService taskService, List<Task> runTasks) async {
+  final branches = <String>{};
+  for (final task in runTasks) {
+    final artifacts = await taskService.listArtifacts(task.id);
+    for (final artifact in artifacts) {
+      if (artifact.kind == ArtifactKind.branch && artifact.path.trim().isNotEmpty) {
+        branches.add(artifact.path.trim());
+      }
+    }
+  }
+  return branches;
 }
 
 Future<ProcessResult> _workflowGit(List<String> args, {required String workingDirectory}) {

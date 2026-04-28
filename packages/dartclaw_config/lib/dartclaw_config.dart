@@ -64,6 +64,11 @@ export 'src/session_maintenance_config.dart' show SessionMaintenanceConfig, Main
 export 'src/task_config.dart' show TaskBudgetConfig, TaskConfig;
 export 'src/usage_config.dart' show UsageConfig;
 export 'src/workflow_config.dart'
-    show WorkflowConfig, WorkflowRoleDefaultsConfig, WorkflowRoleModelConfig, parseWorkflowConfig;
+    show
+        WorkflowCleanupConfig,
+        WorkflowConfig,
+        WorkflowRoleDefaultsConfig,
+        WorkflowRoleModelConfig,
+        parseWorkflowConfig;
 export 'src/workspace_config.dart' show WorkspaceConfig;
 export 'src/path_utils.dart' show expandHome;

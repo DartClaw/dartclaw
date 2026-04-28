@@ -62,6 +62,26 @@ class WorkflowRoleDefaultsConfig {
       ')';
 }
 
+/// Cleanup behavior for workflow-owned git resources.
+class WorkflowCleanupConfig {
+  final bool deleteRemoteBranchOnFailure;
+
+  const WorkflowCleanupConfig({this.deleteRemoteBranchOnFailure = false});
+
+  const WorkflowCleanupConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WorkflowCleanupConfig && deleteRemoteBranchOnFailure == other.deleteRemoteBranchOnFailure;
+
+  @override
+  int get hashCode => deleteRemoteBranchOnFailure.hashCode;
+
+  @override
+  String toString() => 'WorkflowCleanupConfig(deleteRemoteBranchOnFailure: $deleteRemoteBranchOnFailure)';
+}
+
 /// Configuration for the workflow workspace subsystem.
 ///
 /// `workspaceDir` overrides the built-in workflow workspace location when set.
@@ -73,7 +93,14 @@ class WorkflowConfig {
   /// Provider/model defaults for workflow roles.
   final WorkflowRoleDefaultsConfig defaults;
 
-  const WorkflowConfig({this.workspaceDir, this.defaults = const WorkflowRoleDefaultsConfig.defaults()});
+  /// Workflow-owned git cleanup settings.
+  final WorkflowCleanupConfig cleanup;
+
+  const WorkflowConfig({
+    this.workspaceDir,
+    this.defaults = const WorkflowRoleDefaultsConfig.defaults(),
+    this.cleanup = const WorkflowCleanupConfig.defaults(),
+  });
 
   /// Default configuration with no custom workflow workspace override.
   const WorkflowConfig.defaults() : this();
@@ -81,13 +108,16 @@ class WorkflowConfig {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is WorkflowConfig && workspaceDir == other.workspaceDir && defaults == other.defaults;
+      other is WorkflowConfig &&
+          workspaceDir == other.workspaceDir &&
+          defaults == other.defaults &&
+          cleanup == other.cleanup;
 
   @override
-  int get hashCode => Object.hash(workspaceDir, defaults);
+  int get hashCode => Object.hash(workspaceDir, defaults, cleanup);
 
   @override
-  String toString() => 'WorkflowConfig(workspaceDir: $workspaceDir, defaults: $defaults)';
+  String toString() => 'WorkflowConfig(workspaceDir: $workspaceDir, defaults: $defaults, cleanup: $cleanup)';
 }
 
 /// Parses the `workflow:` YAML section into a [WorkflowConfig].
@@ -113,7 +143,31 @@ WorkflowConfig parseWorkflowConfig(Map<String, dynamic>? workflowMap, List<Strin
   return WorkflowConfig(
     workspaceDir: workspaceDir,
     defaults: _parseWorkflowRoleDefaults(workflowMap['defaults'], warns),
+    cleanup: _parseWorkflowCleanup(workflowMap['cleanup'], warns),
   );
+}
+
+WorkflowCleanupConfig _parseWorkflowCleanup(Object? raw, List<String> warns) {
+  if (raw == null) {
+    return const WorkflowCleanupConfig.defaults();
+  }
+  if (raw is! Map) {
+    warns.add('Invalid type for workflow.cleanup: "${raw.runtimeType}" — using defaults');
+    return const WorkflowCleanupConfig.defaults();
+  }
+  final cleanupMap = raw.cast<Object?, Object?>();
+  final deleteRemote = cleanupMap['delete_remote_branch_on_failure'];
+  if (deleteRemote == null) {
+    return const WorkflowCleanupConfig.defaults();
+  }
+  if (deleteRemote is! bool) {
+    warns.add(
+      'Invalid type for workflow.cleanup.delete_remote_branch_on_failure: '
+      '"${deleteRemote.runtimeType}" — using default false',
+    );
+    return const WorkflowCleanupConfig.defaults();
+  }
+  return WorkflowCleanupConfig(deleteRemoteBranchOnFailure: deleteRemote);
 }
 
 WorkflowRoleDefaultsConfig _parseWorkflowRoleDefaults(Object? raw, List<String> warns) {

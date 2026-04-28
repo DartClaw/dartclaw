@@ -83,14 +83,18 @@ steps:
         format: json
         schema: non-negative-integer
         description: Number of findings flagged by the review; 0 means the remediation loop can exit.
+      review-code.gating_findings_count:
+        format: json
+        schema: non-negative-integer
+        description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
 
   # Iterate remediation until both validation and re-review report a clean result or the loop is exhausted.
   - id: remediation-loop
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    entryGate: "review-code.findings_count > 0"
-    exitGate: "re-review.findings_count == 0"
+    entryGate: "review-code.gating_findings_count > 0"
+    exitGate: "re-review.gating_findings_count == 0"
     steps:
       # Apply fixes for the issues captured in the current review summary.
       # The remediation skill is responsible for running analysis/tests/linting
@@ -131,3 +135,7 @@ steps:
             format: json
             schema: non-negative-integer
             description: Number of remaining issues after this re-review; 0 exits the remediation loop.
+          re-review.gating_findings_count:
+            format: json
+            schema: non-negative-integer
+            description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."

@@ -4,7 +4,6 @@
 //   TI02 — ClaudeCodeHarness forwards per-invocation env vars to Process.start
 //   TI03 — CodexHarness forwards per-invocation env vars, surviving CodexEnvironment merge
 //   TI04 — Default empty environment produces no MERGE_RESOLVE_* keys on either harness
-//   TI05 — Unset MERGE_RESOLVE_VERIFY_FORMAT does not cause harness rejection
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -16,10 +15,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         mergeResolveEnvVarNames,
         mergeResolveIntegrationBranchEnvVar,
         mergeResolveStoryBranchEnvVar,
-        mergeResolveTokenCeilingEnvVar,
-        mergeResolveVerifyFormatEnvVar,
-        mergeResolveVerifyAnalyzeEnvVar,
-        mergeResolveVerifyTestEnvVar;
+        mergeResolveTokenCeilingEnvVar;
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
@@ -96,10 +92,7 @@ void main() {
           'ANTHROPIC_API_KEY': 'sk-test',
         };
 
-        final harness = _buildClaudeHarness(
-          environment: env,
-          onSpawn: (e) => captured = Map<String, String>.from(e),
-        );
+        final harness = _buildClaudeHarness(environment: env, onSpawn: (e) => captured = Map<String, String>.from(e));
         addTearDown(() async => harness.dispose());
 
         await harness.start();
@@ -110,22 +103,16 @@ void main() {
         expect(captured!.containsKey('PATH'), isTrue);
       });
 
-      test('all six MERGE_RESOLVE_* keys are forwarded', () async {
+      test('all three MERGE_RESOLVE_* keys are forwarded', () async {
         Map<String, String>? captured;
         const env = {
           mergeResolveIntegrationBranchEnvVar: 'integration/0.16.4',
           mergeResolveStoryBranchEnvVar: 'story/bar',
           mergeResolveTokenCeilingEnvVar: '100000',
-          mergeResolveVerifyFormatEnvVar: 'dart format --set-exit-if-changed .',
-          mergeResolveVerifyAnalyzeEnvVar: 'dart analyze',
-          mergeResolveVerifyTestEnvVar: 'dart test',
           'ANTHROPIC_API_KEY': 'sk-test',
         };
 
-        final harness = _buildClaudeHarness(
-          environment: env,
-          onSpawn: (e) => captured = Map<String, String>.from(e),
-        );
+        final harness = _buildClaudeHarness(environment: env, onSpawn: (e) => captured = Map<String, String>.from(e));
         addTearDown(() async => harness.dispose());
 
         await harness.start();
@@ -151,10 +138,7 @@ void main() {
           },
           commandProbe: defaultCommandProbe,
           delayFactory: noOpDelay,
-          environment: {
-            mergeResolveTokenCeilingEnvVar: '100000',
-            'OPENAI_API_KEY': 'sk-test',
-          },
+          environment: {mergeResolveTokenCeilingEnvVar: '100000', 'OPENAI_API_KEY': 'sk-test'},
           providerOptions: const {'use_system_codex_home': false},
         );
         addTearDown(() async => harness.dispose());
@@ -165,7 +149,7 @@ void main() {
         expect(captured![mergeResolveTokenCeilingEnvVar], '100000');
       });
 
-      test('all six MERGE_RESOLVE_* keys are present in Codex spawn env', () async {
+      test('all three MERGE_RESOLVE_* keys are present in Codex spawn env', () async {
         Map<String, String>? captured;
         final fakeProcess = FakeCodexProcess();
 
@@ -182,9 +166,6 @@ void main() {
             mergeResolveIntegrationBranchEnvVar: 'integration/0.16.4',
             mergeResolveStoryBranchEnvVar: 'story/baz',
             mergeResolveTokenCeilingEnvVar: '50000',
-            mergeResolveVerifyFormatEnvVar: 'dart format --set-exit-if-changed .',
-            mergeResolveVerifyAnalyzeEnvVar: 'dart analyze',
-            mergeResolveVerifyTestEnvVar: 'dart test',
             'OPENAI_API_KEY': 'sk-test',
           },
           providerOptions: const {'use_system_codex_home': false},
@@ -257,61 +238,8 @@ void main() {
 
         expect(captured, isNotNull);
         for (final key in mergeResolveEnvVarNames) {
-          expect(
-            captured!.containsKey(key),
-            isFalse,
-            reason: '$key unexpectedly present when not explicitly supplied',
-          );
+          expect(captured!.containsKey(key), isFalse, reason: '$key unexpectedly present when not explicitly supplied');
         }
-      });
-    });
-
-    group('TI05 — Unset MERGE_RESOLVE_VERIFY_FORMAT does not cause harness rejection', () {
-      test('ClaudeCodeHarness: start succeeds when MERGE_RESOLVE_VERIFY_FORMAT is omitted', () async {
-        // Policy: harness MUST NOT reject spawn when any MERGE_RESOLVE_* key is unset.
-        final harness = _buildClaudeHarness(
-          environment: {
-            mergeResolveIntegrationBranchEnvVar: 'integration/0.16.4',
-            mergeResolveStoryBranchEnvVar: 'story/foo',
-            mergeResolveTokenCeilingEnvVar: '100000',
-            // mergeResolveVerifyFormatEnvVar intentionally omitted
-            mergeResolveVerifyAnalyzeEnvVar: 'dart analyze',
-            mergeResolveVerifyTestEnvVar: 'dart test',
-            'ANTHROPIC_API_KEY': 'sk-test',
-          },
-          onSpawn: (_) {},
-        );
-        addTearDown(() async => harness.dispose());
-
-        // Must not throw.
-        await expectLater(harness.start(), completes);
-      });
-
-      test('CodexHarness: start succeeds when MERGE_RESOLVE_VERIFY_FORMAT is omitted', () async {
-        final fakeProcess = FakeCodexProcess();
-
-        final harness = CodexHarness(
-          cwd: '/tmp',
-          executable: 'codex',
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-              fakeProcess,
-          commandProbe: defaultCommandProbe,
-          delayFactory: noOpDelay,
-          environment: {
-            mergeResolveIntegrationBranchEnvVar: 'integration/0.16.4',
-            mergeResolveStoryBranchEnvVar: 'story/foo',
-            mergeResolveTokenCeilingEnvVar: '100000',
-            // mergeResolveVerifyFormatEnvVar intentionally omitted
-            mergeResolveVerifyAnalyzeEnvVar: 'dart analyze',
-            mergeResolveVerifyTestEnvVar: 'dart test',
-            'OPENAI_API_KEY': 'sk-test',
-          },
-          providerOptions: const {'use_system_codex_home': false},
-        );
-        addTearDown(() async => harness.dispose());
-
-        // Must not throw.
-        await expectLater(startHarness(harness, fakeProcess), completes);
       });
     });
 
@@ -325,10 +253,7 @@ void main() {
       test('CodexHarness spawns with the environment values present at start() time', () async {
         Map<String, String>? captured;
         final fakeProcess = FakeCodexProcess();
-        final env = {
-          mergeResolveIntegrationBranchEnvVar: 'integration/0.16.4',
-          'OPENAI_API_KEY': 'sk-test',
-        };
+        final env = {mergeResolveIntegrationBranchEnvVar: 'integration/0.16.4', 'OPENAI_API_KEY': 'sk-test'};
 
         final harness = CodexHarness(
           cwd: '/tmp',
@@ -382,10 +307,7 @@ void main() {
           final config = HarnessFactoryConfig(
             cwd: '/tmp',
             executable: 'codex',
-            environment: {
-              mergeResolveIntegrationBranchEnvVar: branch,
-              'OPENAI_API_KEY': 'sk-test',
-            },
+            environment: {mergeResolveIntegrationBranchEnvVar: branch, 'OPENAI_API_KEY': 'sk-test'},
           );
           final harness = factory.create('codex', config) as CodexHarness;
           addTearDown(() async => harness.dispose());
@@ -399,23 +321,17 @@ void main() {
     });
 
     group('TI06 — MERGE_RESOLVE_* name set completeness', () {
-      test('mergeResolveEnvVarNames contains all six locked names', () {
-        expect(mergeResolveEnvVarNames, hasLength(6));
+      test('mergeResolveEnvVarNames contains all three locked names', () {
+        expect(mergeResolveEnvVarNames, hasLength(3));
         expect(mergeResolveEnvVarNames, contains(mergeResolveIntegrationBranchEnvVar));
         expect(mergeResolveEnvVarNames, contains(mergeResolveStoryBranchEnvVar));
         expect(mergeResolveEnvVarNames, contains(mergeResolveTokenCeilingEnvVar));
-        expect(mergeResolveEnvVarNames, contains(mergeResolveVerifyFormatEnvVar));
-        expect(mergeResolveEnvVarNames, contains(mergeResolveVerifyAnalyzeEnvVar));
-        expect(mergeResolveEnvVarNames, contains(mergeResolveVerifyTestEnvVar));
       });
 
       test('locked name values match the spec verbatim', () {
         expect(mergeResolveIntegrationBranchEnvVar, 'MERGE_RESOLVE_INTEGRATION_BRANCH');
         expect(mergeResolveStoryBranchEnvVar, 'MERGE_RESOLVE_STORY_BRANCH');
         expect(mergeResolveTokenCeilingEnvVar, 'MERGE_RESOLVE_TOKEN_CEILING');
-        expect(mergeResolveVerifyFormatEnvVar, 'MERGE_RESOLVE_VERIFY_FORMAT');
-        expect(mergeResolveVerifyAnalyzeEnvVar, 'MERGE_RESOLVE_VERIFY_ANALYZE');
-        expect(mergeResolveVerifyTestEnvVar, 'MERGE_RESOLVE_VERIFY_TEST');
       });
     });
   });

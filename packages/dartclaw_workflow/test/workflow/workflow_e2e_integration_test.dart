@@ -18,6 +18,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowService,
+        WorkflowPublishStatus,
         WorkflowStepOutputTransformer;
 import 'package:dartclaw_server/dartclaw_server.dart' show LogService, TaskService;
 import 'package:dartclaw_workflow/src/workflow/context_extractor.dart';
@@ -823,9 +824,13 @@ void main() {
               // safety net below reports it clearly.
               try {
                 final url = await createPr(branch: branch, title: resolvedTitle);
-                return CliWorkflowPrResult(status: 'success', prUrl: url);
+                return CliWorkflowPrResult(status: WorkflowPublishStatus.success, prUrl: url);
               } catch (e) {
-                return CliWorkflowPrResult(status: 'failed', prUrl: '', error: 'createPr failed: $e');
+                return CliWorkflowPrResult(
+                  status: WorkflowPublishStatus.failed,
+                  prUrl: '',
+                  error: 'createPr failed: $e',
+                );
               }
             }
           : null,

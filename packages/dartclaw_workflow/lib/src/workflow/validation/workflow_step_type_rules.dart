@@ -314,6 +314,25 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
           );
         }
 
+        final stepProvider = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults).provider;
+        final targetProvider = resolveStepConfig(
+          targetStep,
+          definition.stepDefaults,
+          roleDefaults: roleDefaults,
+        ).provider;
+        if (stepProvider != null && targetProvider != null && stepProvider != targetProvider) {
+          errors.add(
+            ValidationError(
+              message:
+                  'continueSession: true on step "${step.id}" requires the same provider as the previous step '
+                  '"${targetStep.id}", but they resolve to "$stepProvider" and "$targetProvider" respectively. '
+                  'Either pin a matching provider explicitly or remove continueSession.',
+              type: ValidationErrorType.hybridStepConstraint,
+              stepId: step.id,
+            ),
+          );
+        }
+
         // continueSession crossing a loop boundary — hard error.
         final stepLoopId = stepToLoop[step.id];
         final targetLoopId = stepToLoop[targetStep.id];

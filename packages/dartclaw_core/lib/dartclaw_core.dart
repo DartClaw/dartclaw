@@ -87,9 +87,6 @@ export 'src/harness/merge_resolve_env_vars.dart'
         mergeResolveIntegrationBranchEnvVar,
         mergeResolveStoryBranchEnvVar,
         mergeResolveTokenCeilingEnvVar,
-        mergeResolveVerifyFormatEnvVar,
-        mergeResolveVerifyAnalyzeEnvVar,
-        mergeResolveVerifyTestEnvVar,
         mergeResolveEnvVarNames;
 export 'src/harness/mcp_tool.dart' show McpTool;
 export 'src/harness/claude_protocol.dart' show claudeHardeningEnvVars;

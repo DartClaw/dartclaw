@@ -97,6 +97,36 @@ void main() {
       );
     });
 
+    test('|| returns true when first clause is true', () {
+      final ctx = WorkflowContext(data: {'a': 1, 'b': 0});
+      expect(evaluator.evaluate('a > 0 || b > 0', ctx), isTrue);
+    });
+
+    test('|| returns true when second clause is true', () {
+      final ctx = WorkflowContext(data: {'a': 0, 'b': 1});
+      expect(evaluator.evaluate('a > 0 || b > 0', ctx), isTrue);
+    });
+
+    test('|| returns false when both clauses are false', () {
+      final ctx = WorkflowContext(data: {'a': 0, 'b': 0});
+      expect(evaluator.evaluate('a > 0 || b > 0', ctx), isFalse);
+    });
+
+    test('&& binds tighter than ||', () {
+      final ctx = WorkflowContext(data: {'a': 1, 'b': 0, 'c': 0});
+      expect(evaluator.evaluate('a > 0 || b > 0 && c > 0', ctx), isTrue);
+    });
+
+    test('remediation loop exits with LOW-only findings', () {
+      final ctx = WorkflowContext(data: {'re-review.findings_count': 3, 're-review.gating_findings_count': 0});
+      expect(evaluator.evaluate('re-review.gating_findings_count == 0', ctx), isTrue);
+    });
+
+    test('remediation loop continues on MEDIUM finding', () {
+      final ctx = WorkflowContext(data: {'re-review.findings_count': 3, 're-review.gating_findings_count': 1});
+      expect(evaluator.evaluate('re-review.gating_findings_count == 0', ctx), isFalse);
+    });
+
     test('empty expression evaluates as true (no conditions)', () {
       // Split by && on empty string gives [''] — one empty condition.
       // An empty condition doesn't match the regex → false.

@@ -4,6 +4,12 @@ const workflowRoleDefaultAlias = '@workflow';
 const plannerRoleDefaultAlias = '@planner';
 const executorRoleDefaultAlias = '@executor';
 const reviewerRoleDefaultAlias = '@reviewer';
+const workflowRoleDefaultAliases = {
+  workflowRoleDefaultAlias,
+  plannerRoleDefaultAlias,
+  executorRoleDefaultAlias,
+  reviewerRoleDefaultAlias,
+};
 
 /// Provider/model defaults for workflow execution roles.
 class WorkflowRoleDefault {
@@ -128,13 +134,7 @@ String? _resolveAlias(String? value, WorkflowRoleDefaults? roleDefaults, {requir
     return value;
   }
 
-  final role = switch (value) {
-    workflowRoleDefaultAlias ||
-    plannerRoleDefaultAlias ||
-    executorRoleDefaultAlias ||
-    reviewerRoleDefaultAlias => value,
-    _ => null,
-  };
+  final role = workflowRoleDefaultAliases.contains(value) ? value : null;
   if (role == null) {
     return value;
   }
@@ -152,13 +152,7 @@ String? _resolveEffort(String? effort, String? providerOrModel, WorkflowRoleDefa
   // Infer the role alias from provider or model (whichever is a role alias).
   final alias = providerOrModel;
   if (alias == null) return null;
-  final role = switch (alias) {
-    workflowRoleDefaultAlias ||
-    plannerRoleDefaultAlias ||
-    executorRoleDefaultAlias ||
-    reviewerRoleDefaultAlias => alias,
-    _ => null,
-  };
+  final role = workflowRoleDefaultAliases.contains(alias) ? alias : null;
   if (role == null) return null;
   return roleDefaults.resolve(role).effort;
 }

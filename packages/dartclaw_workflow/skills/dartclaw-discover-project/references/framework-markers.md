@@ -63,7 +63,7 @@ Document locations should use canonical keys, even if the detected framework sto
 ## Artifact Locations Per Framework
 
 `artifact_locations` is the canonical write target for artifact-producing skills
-(`andthen-prd`, `andthen-plan`, `andthen-spec`). Each key is a workspace-relative
+(`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`). Each key is a workspace-relative
 path string. `fis_dir` is a directory path (trailing slash optional). When no
 active milestone exists, emit all keys as `null`.
 

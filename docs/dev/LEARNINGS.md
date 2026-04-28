@@ -65,6 +65,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Empty YAML document root is null, not an empty map.** Initialize with `editor.update([], {})` before path creation works.
 - **Trim string-to-enum config values on both parse paths.** `default_type: "analysis "` (trailing space) silently resolves to a different value.
 - **JSON decoders emit doubles for whole-number values.** Distinguish `3000.0` (accept) from `3000.5` (reject) via `value != value.toInt().toDouble()`.
+- **Data-dir scoped skill installs validate the process cwd.** Testing profiles that pass `--data-dir` outside the public repo must launch the CLI with `Directory.current` inside that data dir, or use `andthen.install_scope: user|both`; otherwise startup correctly rejects the public-repo cwd as an unreachable spawn target. The dartclaw-private `docs/testing/_profile_lib.sh` helper handles this by `cd`-ing into the profile data directory before exec'ing the public-repo CLI entrypoint.
 
 ## Concurrency / Async
 

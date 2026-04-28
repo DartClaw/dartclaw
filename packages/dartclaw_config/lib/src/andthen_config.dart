@@ -31,7 +31,7 @@ enum AndthenNetworkPolicy {
 ///
 /// At `dartclaw serve` startup, [SkillProvisioner] (in `dartclaw_workflow`)
 /// uses this config to clone AndThen, run AndThen's own `install-skills.sh
-/// --prefix andthen-`, and copy the DC-native skills into the same scope(s).
+/// --prefix dartclaw-`, and copy the DC-native skills into the same scope(s).
 ///
 /// All four fields require a server restart to change — see
 /// `ConfigNotifier.nonReloadableKeys`.

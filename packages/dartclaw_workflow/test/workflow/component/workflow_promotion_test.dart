@@ -32,11 +32,11 @@ void main() {
 
     test('Issue B — sweeps dirty integration worktree before merging (STATE.md / LEARNINGS.md)', () async {
       // Model the inline-mode state that broke Issue B: an upstream skill
-      // (e.g. andthen-plan) wrote sibling docs into the integration worktree
+      // (e.g. dartclaw-plan) wrote sibling docs into the integration worktree
       // outside its declared outputs. The artifact committer did not stage
       // them, so they linger as uncommitted modifications at promote time.
       fixture.writeUncommittedIntegrationFiles({
-        'docs/STATE.md': 'updated by andthen-plan\n',
+        'docs/STATE.md': 'updated by dartclaw-plan\n',
         'docs/LEARNINGS.md': '- learning emitted by plan step\n',
         'docs/.technical-research.md': 'notes\n',
       });
@@ -44,9 +44,7 @@ void main() {
       // Story branch writes its own files and commits them (simulating the
       // artifact committer on the story worktree). This is the only path
       // that should end up in the integration merge commit.
-      await fixture.createStoryBranch('S01', committedFiles: {
-        'src/story.dart': 'void story() {}\n',
-      });
+      await fixture.createStoryBranch('S01', committedFiles: {'src/story.dart': 'void story() {}\n'});
 
       final result = await promoteWorkflowBranchLocally(
         projectDir: fixture.projectDir,
@@ -65,22 +63,16 @@ void main() {
 
       // All four artifacts must be present in the integration tree: the
       // three previously-dirty sibling docs (swept in), plus the story code.
-      final tree = await fixture.rawGit(
-        ['ls-tree', '-r', '--name-only', fixture.integrationBranch],
-      );
+      final tree = await fixture.rawGit(['ls-tree', '-r', '--name-only', fixture.integrationBranch]);
       final files = (tree.stdout as String).split('\n');
-      expect(files, containsAll([
-        'docs/STATE.md',
-        'docs/LEARNINGS.md',
-        'docs/.technical-research.md',
-        'src/story.dart',
-      ]));
+      expect(
+        files,
+        containsAll(['docs/STATE.md', 'docs/LEARNINGS.md', 'docs/.technical-research.md', 'src/story.dart']),
+      );
     });
 
     test('clean integration worktree does not generate a spurious sweep commit', () async {
-      await fixture.createStoryBranch('S02', committedFiles: {
-        'src/story.dart': 'void story() {}\n',
-      });
+      await fixture.createStoryBranch('S02', committedFiles: {'src/story.dart': 'void story() {}\n'});
 
       final result = await promoteWorkflowBranchLocally(
         projectDir: fixture.projectDir,
@@ -102,9 +94,7 @@ void main() {
     });
 
     test('sweep commit uses the canonical commit message format', () async {
-      fixture.writeUncommittedIntegrationFiles({
-        'docs/LEARNINGS.md': 'append\n',
-      });
+      fixture.writeUncommittedIntegrationFiles({'docs/LEARNINGS.md': 'append\n'});
       await fixture.createStoryBranch('S03', committedFiles: {'src/a.dart': 'a\n'});
 
       await promoteWorkflowBranchLocally(
@@ -117,10 +107,7 @@ void main() {
       );
 
       final integrationLog = await fixture.logSubjects(fixture.integrationBranch);
-      final sweepSubject = integrationLog.firstWhere(
-        (s) => s.contains('sweep integration worktree'),
-        orElse: () => '',
-      );
+      final sweepSubject = integrationLog.firstWhere((s) => s.contains('sweep integration worktree'), orElse: () => '');
       expect(sweepSubject, 'workflow(${fixture.runId}): sweep integration worktree before promotion');
     });
   });
@@ -137,10 +124,7 @@ void main() {
     test('returns WorkflowGitPromotionConflict naming the conflicting file when merge truly conflicts', () async {
       // Integration branch modifies shared.md to value A.
       fixture.writeUncommittedIntegrationFiles({'shared.md': 'integration version A\n'});
-      await fixture.commitAll(
-        worktreePath: fixture.projectDir,
-        message: 'integration writes shared.md',
-      );
+      await fixture.commitAll(worktreePath: fixture.projectDir, message: 'integration writes shared.md');
 
       // Story branch, forked from integration BEFORE the A commit, modifies
       // shared.md to an incompatible value B. Easiest way to model this: create
@@ -152,31 +136,19 @@ void main() {
       // a different approach: create a second fixture with story branched
       // earlier. To keep the test readable, rebuild from scratch.
       await fixture.dispose();
-      fixture = await WorkflowGitFixture.create(
-        runId: 'run-fail',
-        seedFiles: {'shared.md': 'base\n'},
-      );
+      fixture = await WorkflowGitFixture.create(runId: 'run-fail', seedFiles: {'shared.md': 'base\n'});
 
       // Now commit A on integration.
       fixture.writeUncommittedIntegrationFiles({'shared.md': 'integration version A\n'});
-      await fixture.commitAll(
-        worktreePath: fixture.projectDir,
-        message: 'integration sets shared.md=A',
-      );
+      await fixture.commitAll(worktreePath: fixture.projectDir, message: 'integration sets shared.md=A');
 
       // Create story branch off the current integration tip (which has A),
       // reset story branch back to the initial commit so its history is
       // divergent, then commit B on story.
       await fixture.createStoryBranch('S01');
-      await fixture.rawGit(
-        ['reset', '--hard', 'main'],
-        inDir: fixture.worktreeFor('S01'),
-      );
+      await fixture.rawGit(['reset', '--hard', 'main'], inDir: fixture.worktreeFor('S01'));
       fixture.writeUncommittedStoryFiles('S01', {'shared.md': 'story version B\n'});
-      await fixture.commitAll(
-        worktreePath: fixture.worktreeFor('S01'),
-        message: 'story sets shared.md=B',
-      );
+      await fixture.commitAll(worktreePath: fixture.worktreeFor('S01'), message: 'story sets shared.md=B');
 
       final result = await promoteWorkflowBranchLocally(
         projectDir: fixture.projectDir,
@@ -238,10 +210,7 @@ void main() {
     test('sweeps both tracked modifications AND new untracked files in one commit', () async {
       // Dirty the integration worktree with both a modified tracked file
       // (README.md, seeded in the fixture) and a new untracked file.
-      fixture.writeUncommittedIntegrationFiles({
-        'README.md': 'modified\n',
-        'docs/new-unttracked.md': 'brand new\n',
-      });
+      fixture.writeUncommittedIntegrationFiles({'README.md': 'modified\n', 'docs/new-unttracked.md': 'brand new\n'});
 
       await commitWorkflowWorktreeChangesIfNeeded(
         projectDir: fixture.projectDir,
@@ -254,9 +223,7 @@ void main() {
       final status = await fixture.rawGit(['status', '--porcelain', '--untracked-files=all']);
       expect((status.stdout as String).trim(), isEmpty);
 
-      final tree = await fixture.rawGit(
-        ['ls-tree', '-r', '--name-only', fixture.integrationBranch],
-      );
+      final tree = await fixture.rawGit(['ls-tree', '-r', '--name-only', fixture.integrationBranch]);
       final files = (tree.stdout as String).split('\n');
       expect(files, containsAll(['README.md', 'docs/new-unttracked.md']));
     });

@@ -217,7 +217,7 @@ void main() {
       expect(reviseSpec.entryGate, contains('spec_confidence'));
       // spec_path is referenced somewhere in the definition steps.
       expect(specAndImplement.steps.any((s) => s.prompts?.any((p) => p.contains('spec_path')) ?? false), isTrue);
-      assertSkills(specAndImplement, ['andthen-review'], ['dartclaw-review', 'dartclaw-review-gap']);
+      assertSkills(specAndImplement, ['dartclaw-review'], ['andthen-review', 'dartclaw-review-gap']);
 
       // plan-and-implement: BRANCH variable, gitStrategy, revise-prd step, not review-prd.
       expect(planAndImplement.variables.containsKey('BRANCH'), isTrue);
@@ -229,29 +229,35 @@ void main() {
       expect(planAndImplement.steps.any((s) => s.id == 'update-state'), isFalse);
       assertSkills(
         planAndImplement,
-        ['andthen-quick-review', 'andthen-review', 'andthen-plan', 'andthen-prd'],
-        ['dartclaw-review-gap', 'dartclaw-spec-plan', 'andthen-ops', 'dartclaw-update-state'],
+        ['dartclaw-quick-review', 'dartclaw-review', 'dartclaw-plan', 'dartclaw-prd'],
+        ['andthen-quick-review', 'andthen-review', 'andthen-plan', 'andthen-prd', 'dartclaw-spec-plan'],
       );
 
-      // code-review: PROJECT variable (not REPO), gitStrategy, andthen-review skill.
+      // code-review: PROJECT variable (not REPO), gitStrategy, dartclaw-review skill.
       expect(codeReview.variables.containsKey('PROJECT'), isTrue);
       expect(codeReview.variables.containsKey('REPO'), isFalse);
       expect(codeReview.gitStrategy, isNotNull);
-      assertSkills(codeReview, ['andthen-review'], ['dartclaw-review', 'dartclaw-review-code']);
+      assertSkills(codeReview, ['dartclaw-review'], ['andthen-review', 'dartclaw-review-code']);
     });
 
-    test('code-review keeps review and re-review on the unified andthen-review specialist', () async {
+    test('code-review uses dartclaw-review and forbids legacy andthen-review', () async {
       final parser = WorkflowDefinitionParser();
       final codeReview = await parser.parseFile(p.join(_workflowDefinitionsDir(), 'code-review.yaml'));
 
-      // Exactly two steps use andthen-review (initial review + re-review).
-      final reviewSteps = codeReview.steps.where((s) => s.skill == 'andthen-review').toList();
+      // Exactly two steps use dartclaw-review (initial review + re-review).
+      final reviewSteps = codeReview.steps.where((s) => s.skill == 'dartclaw-review').toList();
       expect(reviewSteps.length, equals(2));
+      expect(codeReview.steps.map((s) => s.skill), isNot(contains('andthen-review')));
 
       // No legacy multi-pass step IDs that pre-date the unified reviewer.
       final stepIds = codeReview.steps.map((s) => s.id).toSet();
-      for (final legacy in ['extract-diff', 'gather-context', 'review-correctness', 'review-security',
-          'review-architecture']) {
+      for (final legacy in [
+        'extract-diff',
+        'gather-context',
+        'review-correctness',
+        'review-security',
+        'review-architecture',
+      ]) {
         expect(stepIds, isNot(contains(legacy)));
       }
     });
@@ -269,23 +275,17 @@ void main() {
       }
 
       // spec-and-implement remediation loop: entryGate on integrated-review, exitGate on re-review.
-      final specRemLoop = specAndImplement.loops.firstWhere(
-        (l) => l.entryGate?.contains('integrated-review') ?? false,
-      );
+      final specRemLoop = specAndImplement.loops.firstWhere((l) => l.entryGate?.contains('integrated-review') ?? false);
       expect(specRemLoop.entryGate, contains('integrated-review.findings_count > 0'));
       expect(specRemLoop.exitGate, contains('re-review.findings_count == 0'));
 
       // plan-and-implement remediation loop: entryGate on plan-review.
-      final planRemLoop = planAndImplement.loops.firstWhere(
-        (l) => l.entryGate?.contains('plan-review') ?? false,
-      );
+      final planRemLoop = planAndImplement.loops.firstWhere((l) => l.entryGate?.contains('plan-review') ?? false);
       expect(planRemLoop.entryGate, contains('plan-review.findings_count > 0'));
       expect(planRemLoop.exitGate, contains('re-review.findings_count == 0'));
 
       // code-review remediation loop: entryGate on review-code.
-      final codeRemLoop = codeReview.loops.firstWhere(
-        (l) => l.entryGate?.contains('review-code') ?? false,
-      );
+      final codeRemLoop = codeReview.loops.firstWhere((l) => l.entryGate?.contains('review-code') ?? false);
       expect(codeRemLoop.entryGate, contains('review-code.findings_count > 0'));
       expect(codeRemLoop.exitGate, contains('re-review.findings_count == 0'));
     });

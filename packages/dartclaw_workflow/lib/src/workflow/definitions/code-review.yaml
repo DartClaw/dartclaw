@@ -62,7 +62,7 @@ steps:
   - id: review-code
     name: Review Code
     type: custom
-    skill: andthen-review
+    skill: dartclaw-review
     # read-only review: file_write absent preserves step_config_policy's
     # read-only inference. shell/web_fetch/mcp_call enable `git diff`,
     # `gh pr diff`, `dart analyze`, doc lookup, and MCP-routed checks.
@@ -98,7 +98,7 @@ steps:
       - id: remediate
         name: Remediate Findings
         type: custom
-        skill: andthen-remediate-findings
+        skill: dartclaw-remediate-findings
         inputs: [project_index, review_summary]
         prompt: "--auto {{context.review_summary}}"
         outputs:
@@ -117,7 +117,7 @@ steps:
       - id: re-review
         name: Re-review
         type: custom
-        skill: andthen-review
+        skill: dartclaw-review
         # read-only review: matches review-code's surface for the re-review pass.
         allowedTools: [shell, file_read, web_fetch, mcp_call]
         inputs: [project_index, review_summary, remediation_summary, diff_summary]

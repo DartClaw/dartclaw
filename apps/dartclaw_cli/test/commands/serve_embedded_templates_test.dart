@@ -92,6 +92,7 @@ void main() {
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 

@@ -91,7 +91,7 @@ void main() {
         // Installer ran exactly once for the data_dir destination.
         final installer = runner.calls.where((c) => c.executable.endsWith('install-skills.sh')).toList();
         expect(installer, hasLength(1));
-        expect(installer.single.arguments, containsAll(['--prefix', 'andthen-', '--no-codex-agents']));
+        expect(installer.single.arguments, containsAll(['--prefix', 'dartclaw-', '--no-codex-agents']));
         expect(installer.single.arguments, containsAll(['--skills-dir', p.join(dataDir, '.agents', 'skills')]));
         expect(installer.single.arguments, isNot(contains('--claude-user')));
 
@@ -163,10 +163,10 @@ void main() {
         );
 
         // Prove the user-tier install actually landed under fakeHome — both
-        // AndThen-derived (`andthen-prd`) and DC-native skills must exist in
+        // AndThen-derived (`dartclaw-prd`) and DC-native skills must exist in
         // the same destinations the provisioner's completeness check walks.
-        expect(File(p.join(fakeHome.path, '.agents', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
-        expect(File(p.join(fakeHome.path, '.claude', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
+        expect(File(p.join(fakeHome.path, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+        expect(File(p.join(fakeHome.path, '.claude', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
         for (final name in dcNativeSkillNames) {
           expect(File(p.join(fakeHome.path, '.agents', 'skills', name, 'SKILL.md')).existsSync(), isTrue, reason: name);
           expect(File(p.join(fakeHome.path, '.claude', 'skills', name, 'SKILL.md')).existsSync(), isTrue, reason: name);
@@ -226,13 +226,13 @@ void main() {
         );
         await provisioner.ensureCacheCurrent();
 
-        // Simulate operator deleting the andthen-prd skill while marker stays.
-        Directory(p.join(dataDir, '.agents', 'skills', 'andthen-prd')).deleteSync(recursive: true);
+        // Simulate operator deleting the dartclaw-prd skill while marker stays.
+        Directory(p.join(dataDir, '.agents', 'skills', 'dartclaw-prd')).deleteSync(recursive: true);
         runner.calls.clear();
 
         await provisioner.ensureCacheCurrent();
         expect(runner.calls.where((c) => c.executable.endsWith('install-skills.sh')), hasLength(1));
-        expect(File(p.join(dataDir, '.agents', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
+        expect(File(p.join(dataDir, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
       });
 
       test('marker-present partial install repairs missing DC-native skill', () async {
@@ -524,7 +524,7 @@ class _FakeProcessRunner {
         for (final dir in [skillsDir, claudeSkillsDir, claudeAgentsDir]) {
           Directory(dir).createSync(recursive: true);
         }
-        for (final name in const ['andthen-prd', 'andthen-spec', 'andthen-exec-spec']) {
+        for (final name in const ['dartclaw-prd', 'dartclaw-spec', 'dartclaw-exec-spec']) {
           File(p.join(skillsDir, name, 'SKILL.md'))
             ..createSync(recursive: true)
             ..writeAsStringSync('# $name\n');
@@ -612,7 +612,7 @@ class _StubInstallerNoAgentsDirRunner {
         }
       }
       if (skillsDir != null && claudeSkillsDir != null) {
-        for (final name in const ['andthen-prd']) {
+        for (final name in const ['dartclaw-prd']) {
           File(p.join(skillsDir, name, 'SKILL.md'))
             ..createSync(recursive: true)
             ..writeAsStringSync('# $name\n');

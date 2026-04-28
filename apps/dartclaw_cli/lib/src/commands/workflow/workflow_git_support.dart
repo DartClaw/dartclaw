@@ -80,11 +80,7 @@ Future<String?> cleanupWorktreeForRetry({
   required String preAttemptSha,
 }) {
   return _workflowGitRepoLock.acquire(_repoLockKey(projectDir), () async {
-    return _cleanupWorktreeForRetryUnlocked(
-      projectDir: projectDir,
-      branch: branch,
-      preAttemptSha: preAttemptSha,
-    );
+    return _cleanupWorktreeForRetryUnlocked(projectDir: projectDir, branch: branch, preAttemptSha: preAttemptSha);
   });
 }
 
@@ -105,10 +101,7 @@ Future<String?> _cleanupWorktreeForRetryUnlocked({
     }
   }
 
-  final resetResult = await _workflowGit(
-    ['reset', '--hard', preAttemptSha],
-    workingDirectory: worktreePath,
-  );
+  final resetResult = await _workflowGit(['reset', '--hard', preAttemptSha], workingDirectory: worktreePath);
   if (resetResult.exitCode != 0) {
     final detail = (resetResult.stderr as String).trim();
     return 'cleanup failed: git reset --hard exit=${resetResult.exitCode} path=$worktreePath'
@@ -163,10 +156,11 @@ Future<CaptureAndCleanResult> captureAndCleanWorktreeForRetry({
     final revResult = await _workflowGit(['rev-parse', branch], workingDirectory: worktreePath);
     final sha = revResult.exitCode == 0 ? (revResult.stdout as String).trim() : null;
 
-    final statusResult = await _workflowGit(
-      ['status', '--porcelain', '--untracked-files=all'],
-      workingDirectory: worktreePath,
-    );
+    final statusResult = await _workflowGit([
+      'status',
+      '--porcelain',
+      '--untracked-files=all',
+    ], workingDirectory: worktreePath);
     final isDirty = statusResult.exitCode == 0
         ? (statusResult.stdout as String).trim().isNotEmpty
         : true; // conservatively assume dirty on error
@@ -175,7 +169,11 @@ Future<CaptureAndCleanResult> captureAndCleanWorktreeForRetry({
 
     final effectiveSha = preAttemptSha ?? sha;
     if (effectiveSha == null || effectiveSha.isEmpty) {
-      return CaptureAndCleanResult(sha: null, isDirty: true, cleanupError: 'cleanup failed: no SHA available for reset');
+      return CaptureAndCleanResult(
+        sha: null,
+        isDirty: true,
+        cleanupError: 'cleanup failed: no SHA available for reset',
+      );
     }
 
     final cleanupError = await _cleanupWorktreeForRetryUnlocked(
@@ -183,11 +181,7 @@ Future<CaptureAndCleanResult> captureAndCleanWorktreeForRetry({
       branch: branch,
       preAttemptSha: effectiveSha,
     );
-    return CaptureAndCleanResult(
-      sha: sha?.isEmpty == true ? null : sha,
-      isDirty: true,
-      cleanupError: cleanupError,
-    );
+    return CaptureAndCleanResult(sha: sha?.isEmpty == true ? null : sha, isDirty: true, cleanupError: cleanupError);
   });
 }
 
@@ -201,10 +195,7 @@ Future<CaptureAndCleanResult> captureAndCleanWorktreeForRetry({
 /// Inner primitives in this file (e.g. [captureAndCleanWorktreeForRetry],
 /// [promoteWorkflowBranchLocally]) that take the same lock continue to work
 /// unchanged because [RepoLock] is reentrant within the same zone.
-Future<T> runWorkflowGitResolverAttemptUnderLock<T>({
-  required String projectDir,
-  required Future<T> Function() body,
-}) {
+Future<T> runWorkflowGitResolverAttemptUnderLock<T>({required String projectDir, required Future<T> Function() body}) {
   return _workflowGitRepoLock.acquire(_repoLockKey(projectDir), body);
 }
 
@@ -244,7 +235,7 @@ Future<WorkflowGitPromotionResult> _promoteWorkflowBranchLocallyUnlocked({
     );
     // Sweep pending changes in the integration worktree too. In inline mode
     // the integration branch is checked out in the project root while
-    // upstream artifact-producing steps (andthen-prd / andthen-plan) run
+    // upstream artifact-producing steps (dartclaw-prd / dartclaw-plan) run
     // there; anything they wrote that the artifact committer did not add
     // (intermediate files, STATE/LEARNINGS edits, untracked research docs)
     // would leave a dirty index/tree and fail MergeExecutor's pre-merge

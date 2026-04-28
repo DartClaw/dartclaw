@@ -11,6 +11,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         SkillProvisionConfigException,
         SkillProvisionException,
         SkillProvisioner,
+        ProcessRunner,
         SkillRegistryImpl,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
@@ -26,7 +27,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPublishResult,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
-        WorkflowTurnOutcome;
+        WorkflowTurnOutcome,
+        dcNativeSkillNames;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -45,12 +47,11 @@ import 'wiring/storage_wiring.dart';
 import 'wiring/task_wiring.dart';
 import 'wiring/project_wiring.dart';
 
-/// Immutable holder for services needed by [ServeCommand.run] after
-/// [ServiceWiring.wire] completes.
+/// Immutable holder for services produced by [ServiceWiring.wire].
 ///
-/// Contains only the references required for HTTP server startup, startup
-/// banner, channel connection, and graceful shutdown. All other services are
-/// wired internally by [ServiceWiring.wire] and do not leak out.
+/// Contains the references needed by the serve command and integration tests
+/// for HTTP server startup, startup banner, channel connection, graceful
+/// shutdown, and workflow-skill bootstrap verification.
 class WiringResult {
   final DartclawServer server;
   final Database searchDb;
@@ -73,6 +74,17 @@ class WiringResult {
   final ProjectService projectService;
   final ConfigNotifier configNotifier;
 
+  /// Skill registry populated by [ServiceWiring.wire]. Exposed so tests can
+  /// assert that data-dir-provisioned `dartclaw-*` skills resolve through the
+  /// production discovery path.
+  final SkillRegistryImpl skillRegistry;
+
+  /// Workflow registry populated by [ServiceWiring.wire]. Exposed so tests can
+  /// assert that the shipped built-in workflow definitions (`plan-and-implement`,
+  /// `spec-and-implement`, `code-review`) register against the runtime skill
+  /// registry.
+  final WorkflowRegistry workflowRegistry;
+
   const WiringResult({
     required this.server,
     required this.searchDb,
@@ -94,6 +106,8 @@ class WiringResult {
     required this.shutdownExtras,
     required this.projectService,
     required this.configNotifier,
+    required this.skillRegistry,
+    required this.workflowRegistry,
   });
 }
 
@@ -131,6 +145,12 @@ class ServiceWiring {
   /// developer's real `~/.agents` or `~/.claude` trees.
   final Map<String, String>? skillProvisionerEnvironment;
 
+  /// Child-process seam passed to [SkillProvisioner] for deterministic tests.
+  final ProcessRunner? skillProvisionerProcessRunner;
+
+  /// Spawn-target CWD seam passed to [SkillProvisioner] for deterministic tests.
+  final List<String>? skillProvisionerSpawnTargetCwds;
+
   static final _log = Logger('ServiceWiring');
 
   ServiceWiring({
@@ -150,6 +170,8 @@ class ServiceWiring {
     AssetResolver? assetResolver,
     this.runAndthenSkillsBootstrap = true,
     this.skillProvisionerEnvironment,
+    this.skillProvisionerProcessRunner,
+    this.skillProvisionerSpawnTargetCwds,
   }) : assetResolver = assetResolver ?? AssetResolver();
 
   /// Constructs all services, wires them together via [DartclawServerBuilder],
@@ -173,36 +195,40 @@ class ServiceWiring {
     final builtInSkillsSourceDir =
         resolvedAssets?.skillsDir ?? WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
 
-    // 0.5. AndThen skills bootstrap — clone AndThen + install andthen-* skills + copy DC-native
-    // skills (per S71 / ADR-025). Validate spawn targets before any network/filesystem work so
+    // 0.5. AndThen skills bootstrap — clone AndThen + install dartclaw-* skills + copy DC-native
+    // skills per ADR-025. Validate spawn targets before any network/filesystem work so
     // misconfiguration surfaces as a fast non-zero `dartclaw serve` exit, not a per-request error.
     if (runAndthenSkillsBootstrap) {
       await _bootstrapAndthenSkills(
         config: config,
         dataDir: dataDir,
         builtInSkillsSourceDir: builtInSkillsSourceDir,
-        stderrLine: stderrLine,
-        exitFn: exitFn,
         environment: skillProvisionerEnvironment,
+        processRunner: skillProvisionerProcessRunner,
+        spawnTargetCwds: skillProvisionerSpawnTargetCwds,
       );
     }
-    await WorkflowSkillMaterializer.materialize(
-      activeHarnessTypes: _activeHarnessTypes(config),
-      homeDir: skillsHomeDir,
-      dataDir: dataDir,
-      sourceDir: builtInSkillsSourceDir,
-    );
 
     // Skill registry — discover Agent Skills from 7 prioritized sources.
     // Built here (before WorkflowService / task executor) so downstream
     // services that need the registry (workflow executor skill defaults,
     // MCP/SSE handlers, etc.) can reference the same instance.
+    //
+    // For andthen.install_scope: data_dir / both, also point discovery at
+    // <dataDir>/.{claude,agents}/skills/ — the destinations SkillProvisioner
+    // populated above. Without these, workflow YAMLs that reference
+    // dartclaw-* skills (e.g. spec-and-implement → dartclaw-spec) would be
+    // excluded from the registry as unresolved skill refs.
+    final scanDataDirSkills = config.andthen.installScope != config_tools.AndthenInstallScope.user;
+    final dataDirAbs = p.normalize(p.absolute(dataDir));
     final skillRegistry = SkillRegistryImpl();
     skillRegistry.discover(
       projectDirs: projectDirs,
       workspaceDir: config.workspaceDir,
       dataDir: dataDir,
       builtInSkillsDir: builtInSkillsSourceDir,
+      dataDirClaudeSkillsDir: scanDataDirSkills ? p.join(dataDirAbs, '.claude', 'skills') : null,
+      dataDirAgentsSkillsDir: scanDataDirSkills ? p.join(dataDirAbs, '.agents', 'skills') : null,
     );
 
     // 1. Storage — databases, sessions, messages, memory, KV, QMD.
@@ -895,6 +921,8 @@ class ServiceWiring {
       containerManagers: security.containerManagers,
       projectService: project.projectService,
       configNotifier: configNotifier,
+      skillRegistry: skillRegistry,
+      workflowRegistry: workflowRegistry,
       shutdownExtras: () async {
         lifecycleManager?.dispose();
         await workflowService.dispose();
@@ -1151,24 +1179,6 @@ const _legacySessionCostFreshInputKey =
     'input_tokens';
 final _serviceWiringLog = Logger('ServiceWiring');
 
-Set<String> _activeHarnessTypes(config_tools.DartclawConfig config) {
-  final harnessTypes = <String>{};
-
-  void addProvider(String providerId) {
-    final family = config_tools.ProviderIdentity.family(providerId);
-    if (family == 'claude' || family == 'codex') {
-      harnessTypes.add(family);
-    }
-  }
-
-  addProvider(config.agent.provider);
-  for (final providerId in config.providers.entries.keys) {
-    addProvider(providerId);
-  }
-
-  return harnessTypes;
-}
-
 List<String> _workflowSkillProjectDirs(config_tools.DartclawConfig config) {
   if (config.projects.definitions.isEmpty) {
     return [Directory.current.path];
@@ -1178,14 +1188,17 @@ List<String> _workflowSkillProjectDirs(config_tools.DartclawConfig config) {
 
 /// Spawn-target CWDs used by [SkillProvisioner.validateSpawnTargets].
 ///
-/// Includes the synthesized clone path (`<dataDir>/projects/<id>`) when no
-/// `localPath` is set so the dataDir-scope check sees the resolved location;
-/// includes `Directory.current.path` to cover ad-hoc `dartclaw serve` runs
-/// against a working tree.
+/// Includes only registered project `localPath` values plus the
+/// `Directory.current.path` captured at serve startup. Projects without
+/// `localPath` clone under `<dataDir>` and are therefore compatible with
+/// `install_scope: data_dir` by construction.
 List<String> _spawnTargetCwds(config_tools.DartclawConfig config) {
   final cwds = <String>{Directory.current.path};
   for (final def in config.projects.definitions.values) {
-    cwds.add(configuredProjectDirectory(config, def));
+    final localPath = def.localPath;
+    if (localPath != null && localPath.isNotEmpty) {
+      cwds.add(localPath);
+    }
   }
   return cwds.toList();
 }
@@ -1194,26 +1207,23 @@ Future<void> _bootstrapAndthenSkills({
   required config_tools.DartclawConfig config,
   required String dataDir,
   required String? builtInSkillsSourceDir,
-  required WriteLine stderrLine,
-  required ExitFn exitFn,
   Map<String, String>? environment,
+  ProcessRunner? processRunner,
+  List<String>? spawnTargetCwds,
 }) async {
   if (builtInSkillsSourceDir == null) {
-    stderrLine(
-      'ERROR: AndThen skills bootstrap cannot run — DC-native skills source not found. '
-      'Built-in workflows reference andthen-* and dartclaw-* skills that must be provisioned '
-      'before serve. Tests that intentionally skip this step set '
-      'ServiceWiring.runAndthenSkillsBootstrap: false.',
+    throw const SkillProvisionException(
+      'built-in skills source missing or invalid: null. '
+      'Tests that intentionally skip this step set ServiceWiring.runAndthenSkillsBootstrap: false.',
     );
-    exitFn(1);
   }
-  if (!Directory(p.join(builtInSkillsSourceDir, 'dartclaw-discover-project')).existsSync()) {
-    stderrLine(
-      'ERROR: AndThen skills bootstrap cannot run — DC-native skills not present at '
-      '$builtInSkillsSourceDir. Verify the bundled assets layout or, in tests, opt out via '
-      'ServiceWiring.runAndthenSkillsBootstrap: false.',
-    );
-    exitFn(1);
+  for (final skillName in dcNativeSkillNames) {
+    if (!Directory(p.join(builtInSkillsSourceDir, skillName)).existsSync()) {
+      throw SkillProvisionException(
+        'built-in skills source missing or invalid: $builtInSkillsSourceDir (missing $skillName). '
+        'Tests that intentionally skip this step set ServiceWiring.runAndthenSkillsBootstrap: false.',
+      );
+    }
   }
 
   final provisioner = SkillProvisioner(
@@ -1221,20 +1231,19 @@ Future<void> _bootstrapAndthenSkills({
     dataDir: dataDir,
     dcNativeSkillsSourceDir: builtInSkillsSourceDir,
     environment: environment,
+    processRunner: processRunner,
   );
 
   try {
-    provisioner.validateSpawnTargets(_spawnTargetCwds(config));
+    provisioner.validateSpawnTargets(spawnTargetCwds ?? _spawnTargetCwds(config));
   } on SkillProvisionConfigException catch (e) {
-    stderrLine('ERROR: ${e.message}');
-    exitFn(1);
+    throw SkillProvisionException(e.message);
   }
 
   try {
     await provisioner.ensureCacheCurrent();
   } on SkillProvisionException catch (e) {
-    stderrLine('ERROR: AndThen skills provisioning failed: ${e.message}');
-    exitFn(1);
+    throw SkillProvisionException('AndThen skills provisioning failed: ${e.message}');
   }
 }
 

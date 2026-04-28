@@ -527,18 +527,25 @@ void main() {
       expect(error, contains('No skills discovered'));
     });
 
-    test('validateRef for missing andthen-* skill includes install hint', () {
-      final error = registry.validateRef('andthen-spec');
+    test('validateRef for missing dartclaw-* skill includes provisioning recovery hint', () {
+      final error = registry.validateRef('dartclaw-spec');
       expect(error, isNotNull);
-      expect(error, contains('andthen-spec'), reason: 'error message should name the missing skill');
+      expect(error, contains('dartclaw-spec'), reason: 'error message should name the missing skill');
       expect(error, contains('not found'), reason: 'error message should indicate skill was not found');
-      expect(error, contains('install-skills.sh'), reason: 'error message should include the install hint');
-      // Version requirement must be present (non-empty); exact version is in
-      // the source constant — test the behavioral contract, not the literal.
-      expect(RegExp(r'\d+\.\d+').hasMatch(error!), isTrue, reason: 'error message should include a version requirement');
+      expect(
+        error,
+        contains('SkillProvisioner'),
+        reason: 'hint should point at the provisioner that owns dartclaw-* installs',
+      );
+      expect(
+        error,
+        contains('andthen.network'),
+        reason: 'hint should name the relevant config key the operator can fix',
+      );
+      expect(error, contains('dartclaw serve'), reason: 'hint should name the restart command');
     });
 
-    test('validateRef for missing andthen-* skill with no skills discovered includes install hint', () {
+    test('validateRef for missing dartclaw-* skill with no skills discovered includes recovery hint', () {
       final emptyWs = Directory('${tmpDir.path}/empty2')..createSync();
       final fresh = makeRegistry();
       fresh.discover(
@@ -548,16 +555,17 @@ void main() {
         userAgentsSkillsDir: '/nonexistent',
         builtInSkillsDir: '/nonexistent',
       );
-      final error = fresh.validateRef('andthen-plan');
+      final error = fresh.validateRef('dartclaw-plan');
       expect(error, isNotNull);
       expect(error, contains('No skills discovered'));
-      expect(error, contains('install-skills.sh'));
+      expect(error, contains('SkillProvisioner'));
     });
 
-    test('validateRef for non-andthen missing skill does NOT include install hint', () {
+    test('validateRef for non-dartclaw missing skill does NOT include provisioning recovery hint', () {
       final error = registry.validateRef('some-other-skill');
       expect(error, isNotNull);
-      expect(error, isNot(contains('install-skills.sh')));
+      expect(error, isNot(contains('SkillProvisioner')));
+      expect(error, isNot(contains('andthen.network')));
     });
   });
 
@@ -683,8 +691,11 @@ void main() {
           'merge_resolve.resolution_summary',
           'merge_resolve.error_message',
         };
-        expect(outputs!.keys.toSet().containsAll(requiredKeys), isTrue,
-            reason: 'all four merge_resolve.* outputs must be present (got: ${outputs.keys})');
+        expect(
+          outputs!.keys.toSet().containsAll(requiredKeys),
+          isTrue,
+          reason: 'all four merge_resolve.* outputs must be present (got: ${outputs.keys})',
+        );
 
         // Spec/runtime contract: outcome is a string-typed enum (runtime format=text);
         // conflicted_files is JSON; summary and error_message are text.
@@ -694,8 +705,7 @@ void main() {
         expect(outputs['merge_resolve.error_message']!.format, OutputFormat.text);
 
         final mrWarnings = warnings.where((w) => w.contains('default_outputs.merge_resolve.')).toList();
-        expect(mrWarnings, isEmpty,
-            reason: 'no parse warnings expected for merge_resolve outputs; got: $mrWarnings');
+        expect(mrWarnings, isEmpty, reason: 'no parse warnings expected for merge_resolve outputs; got: $mrWarnings');
       } finally {
         await sub.cancel();
         Logger.root.level = originalLevel;

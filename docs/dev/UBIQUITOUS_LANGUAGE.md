@@ -151,7 +151,7 @@
 | Guard | Security | Policy evaluator in defense chain | UI | Not used |
 | Bridge | Protocol | Harness-to-host event translation | Channels | `ChannelTaskBridge` (channel-to-task routing) |
 | Drain | Workflow git | Cancelling and re-queueing in-flight foreach iterations on Serialize-remaining | Emergency Control | Informal use in `/resume (drain queue)` describing message-queue replay |
-| Verification | Workflow git | Resolution Verification — merge-resolve skill's post-resolution checks | Workflow execution | Generic step-level review/verification activities (e.g. `andthen-review`) |
+| Verification | Workflow git | Resolution Verification — merge-resolve skill's post-resolution checks | Workflow execution | Generic step-level review/verification activities (e.g. `dartclaw-review`) |
 
 ## Changelog
 

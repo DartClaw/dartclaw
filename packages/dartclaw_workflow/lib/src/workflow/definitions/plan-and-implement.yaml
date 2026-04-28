@@ -28,8 +28,8 @@ gitStrategy:
     enabled: true
   # Auto-commit generated artifacts (PRD, plan, per-story FIS) on the workflow
   # branch so parallel per-story worktrees inherit them when created. Required
-  # when artifact-producing steps (andthen-prd / andthen-plan /
-  # andthen-spec) run under worktree: auto with max_parallel > 1.
+  # when artifact-producing steps (dartclaw-prd / dartclaw-plan /
+  # dartclaw-spec) run under worktree: auto with max_parallel > 1.
   artifacts:
     commit: true
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
@@ -116,7 +116,7 @@ steps:
   - id: prd
     name: Draft PRD
     type: custom
-    skill: andthen-prd
+    skill: dartclaw-prd
     entryGate: "project_index.active_prd == null"
     inputs: [project_index]
     workflowVariables: [REQUIREMENTS]
@@ -131,14 +131,14 @@ steps:
         description: "Skill's self-rated 1-10 readiness of the synthesized PRD. `<7` triggers the revise-prd step when this workflow authored the PRD."
 
   # Review-and-revise pass gated on the PRD skill's own confidence score.
-  # The `--fix` flag on andthen-review writes a doc-review report and
-  # delegates remediation to andthen-remediate-findings in one invocation.
+  # The `--fix` flag on dartclaw-review writes a doc-review report and
+  # delegates remediation to dartclaw-remediate-findings in one invocation.
   # Skipped entirely when the PRD was reused via project_index.active_prd or
   # when confidence is already >= 7.
   - id: revise-prd
     name: Revise PRD (low confidence)
     type: custom
-    skill: andthen-review
+    skill: dartclaw-review
     entryGate: "project_index.active_prd == null && prd_confidence < 7"
     inputs: [project_index, prd, prd_confidence]
     prompt: |
@@ -155,7 +155,7 @@ steps:
   - id: plan
     name: Plan Stories and Specs
     type: custom
-    skill: andthen-plan
+    skill: dartclaw-plan
     entryGate: "plan == null"
     inputs: [project_index, prd]
     # Retry once on failure so we recover from a flaky plan pass where the
@@ -188,12 +188,12 @@ steps:
         format: json
     steps:
       # Implement one story against its generated story spec.
-      # andthen-exec-spec reads the FIS body from disk at story.spec_path;
+      # dartclaw-exec-spec reads the FIS body from disk at story.spec_path;
       # per-story worktrees inherit the committed FIS from the workflow branch.
       - id: implement
         name: Implement Story
         type: custom
-        skill: andthen-exec-spec
+        skill: dartclaw-exec-spec
         # Transient Codex CLI exits (exit code 1 with only `thread.started`
         # on stdout, typically under memory pressure with parallel runners)
         # have been observed mid-turn. Retry once before failing the story.
@@ -212,7 +212,7 @@ steps:
       - id: quick-review
         name: Quick Review Story
         type: custom
-        skill: andthen-quick-review
+        skill: dartclaw-quick-review
         # Pin to @executor so the continued harness session is honored —
         # continueSession requires the same provider family as the root
         # (implement) step. The *review* stepDefault would otherwise route
@@ -239,13 +239,13 @@ steps:
   # Refactor pass after implementation, before review. Cleans up code
   # shape from the parallel story pipeline (consistency, dead code, small
   # simplifications) so the reviews see polished output. Note: the
-  # andthen-refactor skill currently has no `--auto` flag and may ask for
+  # dartclaw-refactor skill currently has no `--auto` flag and may ask for
   # confirmation if it judges changes substantial — monitor for pauses
   # under unattended runs and tighten the prompt scope if needed.
   - id: refactor
     name: Refactor After Implementation
     type: custom
-    skill: andthen-refactor
+    skill: dartclaw-refactor
     inputs: [project_index, story_specs, story_results, plan]
     prompt: "{{context.plan}} - refactor only the changes introduced on the current branch (vs the base ref); preserve behavior; no scope creep into untouched packages."
     outputs:
@@ -268,7 +268,7 @@ steps:
   - id: plan-review
     name: Review Full Implementation
     type: custom
-    skill: andthen-review
+    skill: dartclaw-review
     parallel: true
     inputs: [project_index, story_specs, story_results, plan]
     # read-only review: file_write absent so step_config_policy marks the step
@@ -279,7 +279,7 @@ steps:
     outputs:
       review_findings:
         format: path
-        description: Workspace-relative path to the review report file written by andthen-review.
+        description: Workspace-relative path to the review report file written by dartclaw-review.
       plan-review.findings_count:
         format: json
         schema: non-negative-integer
@@ -293,7 +293,7 @@ steps:
   - id: architecture-review
     name: Architecture Review
     type: custom
-    skill: andthen-architecture
+    skill: dartclaw-architecture
     parallel: true
     inputs: [project_index, story_specs, story_results, plan]
     # read-only review: file_write absent preserves step_config_policy's
@@ -304,7 +304,7 @@ steps:
     outputs:
       architecture_review_findings:
         format: path
-        description: Workspace-relative path to the architecture review report file written by andthen-architecture.
+        description: Workspace-relative path to the architecture review report file written by dartclaw-architecture.
       architecture-review.findings_count:
         format: json
         schema: non-negative-integer
@@ -328,7 +328,7 @@ steps:
       - id: remediate
         name: Remediate Findings
         type: custom
-        skill: andthen-remediate-findings
+        skill: dartclaw-remediate-findings
         inputs: [project_index, review_findings, architecture_review_findings, story_results]
         prompt: "--auto {{context.review_findings}} {{context.architecture_review_findings}}"
         outputs:
@@ -342,12 +342,12 @@ steps:
       # Re-review the full implementation after remediation. Mirrors
       # plan-review's invocation shape so the output is a fresh review
       # report file path consumable by the next iteration's remediate
-      # step. No session continuity — andthen-review reads the plan and
+      # step. No session continuity — dartclaw-review reads the plan and
       # the current workspace state on each iteration.
       - id: re-review
         name: Re-review After Remediation
         type: custom
-        skill: andthen-review
+        skill: dartclaw-review
         # read-only review: matches plan-review's surface so the re-review pass
         # exercises the same tools.
         allowedTools: [shell, file_read, web_fetch, mcp_call]
@@ -356,7 +356,7 @@ steps:
         outputs:
           review_findings:
             format: path
-            description: Workspace-relative path to the review report file written by andthen-review.
+            description: Workspace-relative path to the review report file written by dartclaw-review.
           re-review.findings_count:
             format: json
             schema: non-negative-integer

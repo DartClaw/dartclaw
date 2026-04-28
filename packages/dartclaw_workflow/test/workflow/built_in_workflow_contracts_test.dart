@@ -200,10 +200,7 @@ void main() {
     // opt into automation-safe execution via the prompt). Keep this list tight
     // — the moment a skill grows an `--auto` flag, drop it from here so the
     // contract assertion starts enforcing automation-safety on it.
-    const skillsWithoutAutoFlag = {
-      'dartclaw-discover-project',
-      'andthen-refactor',
-    };
+    const skillsWithoutAutoFlag = {'dartclaw-discover-project', 'dartclaw-refactor'};
 
     test('custom skill prompts are short and automation-safe when present', () {
       for (final file in _builtInWorkflows) {

@@ -113,8 +113,7 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
       if (!step.isMultiPrompt) continue;
       final provider = step.provider;
       if (provider == null) continue; // No explicit provider — skip (default may support it).
-      // Role aliases (`@executor`, `@reviewer`, `@planner`, `@workflow`, ...) resolve at
-      // runtime to a concrete provider; the alias itself is never in the
+      // Role aliases resolve at runtime to a concrete provider; the alias itself is never in the
       // `continuityProviders` set (which is built from `config.providers.entries.keys`).
       // The runtime fallback in `WorkflowExecutor._resolveContinueSessionProvider`
       // emits a warning and re-routes to the root provider when the resolved
@@ -237,13 +236,6 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         final targetStep = targetStepId != null ? _findStep(definition, targetStepId) : null;
 
         // continueSession with unsupported provider — hard error.
-        // Role aliases (`@executor`, `@reviewer`, ...) resolve at runtime to
-        // concrete providers and are never in the `continuityProviders` set,
-        // so we skip the check for `@`-prefixed providers; the runtime
-        // fallback in `WorkflowExecutor._resolveContinueSessionProvider`
-        // covers the alias-mismatch safety net (re-routes to root provider
-        // with a warning). See `_validateMultiPromptProviders` for the
-        // mirrored skip and the `TODO(0.16.7+)` deferral note.
         if (continuityProviders != null) {
           final provider = step.provider ?? targetStep?.provider;
           if (provider != null && !provider.startsWith('@') && !continuityProviders.contains(provider)) {

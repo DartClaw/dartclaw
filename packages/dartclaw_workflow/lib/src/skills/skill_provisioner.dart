@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show AndthenConfig, AndthenInstallScope, AndthenNetworkPolicy;
+import 'package:dartclaw_config/dartclaw_config.dart'
+    show AndthenConfig, AndthenInstallScope, AndthenNetworkPolicy, expandHome;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -21,7 +22,7 @@ typedef DirectoryCopier = Future<void> Function(Directory source, Directory dest
 ///
 /// Matches the public repo's `packages/dartclaw_workflow/skills/` inventory.
 /// Listed explicitly so cleanup can never wildcard-delete a skill that should
-/// be retained. See FIS S71 for the keep-list contract.
+/// be retained when the provisioned AndThen tree is refreshed.
 const dcNativeSkillNames = <String>[
   'dartclaw-discover-project',
   'dartclaw-validate-workflow',
@@ -32,7 +33,7 @@ const dcNativeSkillNames = <String>[
 /// record which AndThen commit SHA the destination was last installed from.
 const skillProvisionerMarkerFile = '.dartclaw-andthen-sha';
 
-/// Thrown for config/CWD validation failures (Step 7 in FIS scenarios).
+/// Thrown for config/CWD validation failures.
 ///
 /// Caught at the `dartclaw serve` startup boundary and surfaced to stderr.
 class SkillProvisionConfigException implements Exception {
@@ -61,6 +62,10 @@ class _InstallDestination {
   final String claudeSkillsDir;
 
   /// Claude Code agents tier (e.g. `<dataDir>/.claude/agents` or `~/.claude/agents`).
+  ///
+  /// DartClaw materializes this directory after installer success so
+  /// destination-completeness checks stay stable even when upstream ships no
+  /// Claude agents.
   final String claudeAgentsDir;
 
   /// Whether this destination uses `--claude-user` (user-tier defaults inside
@@ -85,7 +90,7 @@ class _InstallDestination {
 ///
 /// At `dartclaw serve` startup, [ensureCacheCurrent] clones AndThen into
 /// `<dataDir>/andthen-src/`, runs AndThen's own `scripts/install-skills.sh
-/// --prefix andthen-` into the configured destination(s), and copies the
+/// --prefix dartclaw-` into the configured destination(s), and copies the
 /// DC-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`,
 /// `dartclaw-merge-resolve`) into the same skill trees.
 ///
@@ -120,6 +125,11 @@ class SkillProvisioner {
   /// `Directory.current.path` captured at `dartclaw serve` startup. Validation
   /// runs before any network or filesystem work so misconfiguration surfaces as
   /// a fast non-zero `dartclaw serve` exit.
+  ///
+  /// Throws [SkillProvisionConfigException] at this direct call site. Note:
+  /// `ServiceWiring.wire()` rewraps that as [SkillProvisionException] at the
+  /// startup boundary so all skill-provisioning failures surface a single
+  /// exception type to the operator.
   void validateSpawnTargets(List<String> spawnCwds) {
     if (config.installScope != AndthenInstallScope.dataDir) return;
 
@@ -175,12 +185,11 @@ class SkillProvisioner {
       claudeAgentsDir: p.join(dataDirAbs, '.claude', 'agents'),
       useClaudeUser: false,
     );
-    final home = environment['HOME'] ?? environment['USERPROFILE'] ?? '';
     final userDest = _InstallDestination(
       label: 'user',
-      skillsDir: p.join(home, '.agents', 'skills'),
-      claudeSkillsDir: p.join(home, '.claude', 'skills'),
-      claudeAgentsDir: p.join(home, '.claude', 'agents'),
+      skillsDir: expandHome('~/.agents/skills', env: environment),
+      claudeSkillsDir: expandHome('~/.claude/skills', env: environment),
+      claudeAgentsDir: expandHome('~/.claude/agents', env: environment),
       useClaudeUser: true,
     );
     return switch (config.installScope) {
@@ -286,10 +295,10 @@ class SkillProvisioner {
     final markerContents = (await markerFile.readAsString()).trim();
     if (markerContents != sha) return false;
 
-    // `andthen-prd` is the canary skill — pinned by FIS S71. If upstream ever
+    // `dartclaw-prd` is the canary skill. If upstream ever
     // renames or drops it, this check needs to follow.
-    if (!File(p.join(dest.skillsDir, 'andthen-prd', 'SKILL.md')).existsSync()) return false;
-    if (!File(p.join(dest.claudeSkillsDir, 'andthen-prd', 'SKILL.md')).existsSync()) return false;
+    if (!File(p.join(dest.skillsDir, 'dartclaw-prd', 'SKILL.md')).existsSync()) return false;
+    if (!File(p.join(dest.claudeSkillsDir, 'dartclaw-prd', 'SKILL.md')).existsSync()) return false;
     if (!Directory(dest.claudeAgentsDir).existsSync()) return false;
 
     for (final name in dcNativeSkillNames) {
@@ -305,7 +314,7 @@ class SkillProvisioner {
       throw SkillProvisionException('install-skills.sh missing at $script — check andthen.ref/git_url.');
     }
 
-    final args = <String>['--prefix', 'andthen-', '--no-codex-agents'];
+    final args = <String>['--prefix', 'dartclaw-', '--no-codex-agents'];
     if (dest.useClaudeUser) {
       args.add('--claude-user');
     } else {
@@ -367,6 +376,9 @@ class SkillProvisioner {
   Future<void> _writeMarker(_InstallDestination dest, String sha) async {
     final dir = Directory(dest.skillsDir);
     if (!dir.existsSync()) dir.createSync(recursive: true);
+    // Keep this as a parent-dir marker. If per-skill `.dartclaw-managed`
+    // markers are added later, add regression coverage for SkillRegistryImpl's
+    // data-dir source handling before changing this write path.
     final tmp = File('${dest.markerPath}.tmp');
     await tmp.writeAsString(sha, flush: true);
     await tmp.rename(dest.markerPath);

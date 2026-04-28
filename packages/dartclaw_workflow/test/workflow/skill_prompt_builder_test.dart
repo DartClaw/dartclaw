@@ -8,27 +8,27 @@ void main() {
 
   group('SkillPromptBuilder.build', () {
     test('skill + prompt -> skill line + blank line + prompt', () {
-      final result = builder.build(skill: 'andthen-review', resolvedPrompt: 'Review this file.');
-      expect(result, "Use the 'andthen-review' skill.\n\nReview this file.");
+      final result = builder.build(skill: 'dartclaw-review', resolvedPrompt: 'Review this file.');
+      expect(result, "Use the 'dartclaw-review' skill.\n\nReview this file.");
     });
 
     test('skill + no prompt + contextSummary -> skill line + sections', () {
       final summary = SkillPromptBuilder.formatContextSummary({'findings': 'some findings'});
-      final result = builder.build(skill: 'andthen-review', contextSummary: summary);
-      expect(result, "Use the 'andthen-review' skill.\n\n## Findings\n\nsome findings");
+      final result = builder.build(skill: 'dartclaw-review', contextSummary: summary);
+      expect(result, "Use the 'dartclaw-review' skill.\n\n## Findings\n\nsome findings");
     });
 
     test('skill + no prompt + contextSummary does not emit legacy "Context:" preamble', () {
       // Regression: pre-Level-1 Case 2 rendered "Use the '...' skill.\n\nContext:\n- k: v".
       // The new sections carry their own `##` headers, so the "Context:" line is gone.
       final summary = SkillPromptBuilder.formatContextSummary({'findings': 'some findings'});
-      final result = builder.build(skill: 'andthen-review', contextSummary: summary);
+      final result = builder.build(skill: 'dartclaw-review', contextSummary: summary);
       expect(result, isNot(contains('Context:')));
     });
 
     test('skill + no prompt + no context -> skill line only', () {
-      final result = builder.build(skill: 'andthen-review');
-      expect(result, "Use the 'andthen-review' skill.");
+      final result = builder.build(skill: 'dartclaw-review');
+      expect(result, "Use the 'dartclaw-review' skill.");
     });
 
     test('no skill + prompt -> passthrough', () {
@@ -83,18 +83,18 @@ void main() {
 
     test('skill + prompt + schema -> skill line + prompt + Required Output Format', () {
       final result = builder.build(
-        skill: 'andthen-review',
+        skill: 'dartclaw-review',
         resolvedPrompt: 'Review this.',
         outputs: {'result': const OutputConfig(format: OutputFormat.json, schema: 'verdict')},
       );
-      expect(result, contains("Use the 'andthen-review' skill."));
+      expect(result, contains("Use the 'dartclaw-review' skill."));
       expect(result, contains('Review this.'));
       expect(result, contains('## Required Output Format'));
     });
 
     test('context outputs append workflow-context contract', () {
       final result = builder.build(
-        skill: 'andthen-review',
+        skill: 'dartclaw-review',
         resolvedPrompt: 'Review this.',
         outputs: const {'review_summary': OutputConfig(), 'findings_count': OutputConfig()},
         outputKeys: const ['review_summary', 'findings_count'],
@@ -118,15 +118,15 @@ void main() {
 
     test('skill + no prompt + skillDefaultPrompt -> skill line + default prompt', () {
       final result = builder.build(
-        skill: 'andthen-quick-review',
+        skill: 'dartclaw-quick-review',
         skillDefaultPrompt: 'Quick-review the recent change set.',
       );
-      expect(result, "Use the 'andthen-quick-review' skill.\n\nQuick-review the recent change set.");
+      expect(result, "Use the 'dartclaw-quick-review' skill.\n\nQuick-review the recent change set.");
     });
 
     test('skill + explicit prompt overrides skillDefaultPrompt', () {
       final result = builder.build(
-        skill: 'andthen-quick-review',
+        skill: 'dartclaw-quick-review',
         resolvedPrompt: 'Custom prompt.',
         skillDefaultPrompt: 'Default prompt that should NOT appear.',
       );
@@ -324,10 +324,7 @@ void main() {
     });
 
     test('missing outputConfig entry -> no description line', () {
-      final result = SkillPromptBuilder.formatContextSummary(
-        {'plain_key': 'val'},
-        outputConfigs: const {},
-      );
+      final result = SkillPromptBuilder.formatContextSummary({'plain_key': 'val'}, outputConfigs: const {});
       expect(result, '## Plain Key\n\nval');
     });
 
@@ -343,11 +340,7 @@ void main() {
       final result = SkillPromptBuilder.formatContextSummary(
         {'story_result': 'r'},
         outputConfigs: {
-          'story_result': const OutputConfig(
-            format: OutputFormat.text,
-            schema: 'story-result',
-            description: '   ',
-          ),
+          'story_result': const OutputConfig(format: OutputFormat.text, schema: 'story-result', description: '   '),
         },
       );
       expect(result, contains('Summary of what was implemented'));
@@ -375,10 +368,7 @@ void main() {
 
     test('value exceeding maxValueLength is truncated with visible marker', () {
       final longValue = 'x' * 1200;
-      final result = SkillPromptBuilder.formatContextSummary(
-        {'big': longValue},
-        maxValueLength: 1000,
-      );
+      final result = SkillPromptBuilder.formatContextSummary({'big': longValue}, maxValueLength: 1000);
       expect(result, contains('x' * 1000));
       expect(result, contains('_…[truncated 200 chars]_'));
       expect(result, isNot(contains('x' * 1001)));
@@ -391,10 +381,7 @@ void main() {
       // mojibake. _safeTruncateIndex snaps back to index 1 (keeps "a").
       final raw = 'a🎉b';
       expect(raw.length, 4); // 1 + 2 (surrogate pair) + 1 in code units.
-      final result = SkillPromptBuilder.formatContextSummary(
-        {'key': raw},
-        maxValueLength: 2,
-      );
+      final result = SkillPromptBuilder.formatContextSummary({'key': raw}, maxValueLength: 2);
       final kept = result.substring('## Key\n\n'.length, result.indexOf('\n\n_…'));
       expect(kept, 'a');
       expect(result, contains('_…[truncated 3 chars]_'));
@@ -404,10 +391,7 @@ void main() {
       // Same string, maxValueLength=3: substring(0, 3) ends cleanly after
       // the low surrogate ("a🎉"), so no snap-back happens.
       final raw = 'a🎉b';
-      final result = SkillPromptBuilder.formatContextSummary(
-        {'key': raw},
-        maxValueLength: 3,
-      );
+      final result = SkillPromptBuilder.formatContextSummary({'key': raw}, maxValueLength: 3);
       final kept = result.substring('## Key\n\n'.length, result.indexOf('\n\n_…'));
       expect(kept, 'a🎉');
       expect(result, contains('_…[truncated 1 chars]_'));
@@ -439,17 +423,13 @@ void main() {
         id: 'a',
         name: 'A',
         type: 'analysis',
-        outputs: {
-          'summary': OutputConfig(format: OutputFormat.text, description: 'From A'),
-        },
+        outputs: {'summary': OutputConfig(format: OutputFormat.text, description: 'From A')},
       );
       const second = WorkflowStep(
         id: 'b',
         name: 'B',
         type: 'analysis',
-        outputs: {
-          'summary': OutputConfig(format: OutputFormat.text, description: 'From B'),
-        },
+        outputs: {'summary': OutputConfig(format: OutputFormat.text, description: 'From B')},
       );
       final result = SkillPromptBuilder.collectInputConfigs([first, second], ['summary']);
       expect(result['summary']?.description, 'From A');
@@ -483,9 +463,7 @@ void main() {
         id: 'b',
         name: 'B',
         type: 'analysis',
-        outputs: {
-          'alpha': OutputConfig(format: OutputFormat.text, description: 'B-alpha'),
-        },
+        outputs: {'alpha': OutputConfig(format: OutputFormat.text, description: 'B-alpha')},
       );
       final result = SkillPromptBuilder.collectInputConfigs([first, second], ['alpha', 'beta']);
       expect(result['alpha']?.description, 'A-alpha');

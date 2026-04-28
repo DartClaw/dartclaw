@@ -90,7 +90,7 @@ steps:
   - id: spec
     name: Generate Specification
     type: custom
-    skill: andthen-spec
+    skill: dartclaw-spec
     entryGate: "spec_source == synthesized"
     inputs: [project_index]
     workflowVariables: [FEATURE]
@@ -108,14 +108,14 @@ steps:
         description: "Skill's self-rated 1-10 readiness of the synthesized FIS (per the Confidence Check in fis-authoring-guidelines.md). `0` when spec_source == existing (pass-through). `<7` triggers the revise-spec step."
 
   # Review-and-revise pass gated on the spec skill's own confidence score.
-  # The `--fix` flag on andthen-review writes a doc-review report and
-  # delegates remediation to andthen-remediate-findings in one invocation.
+  # The `--fix` flag on dartclaw-review writes a doc-review report and
+  # delegates remediation to dartclaw-remediate-findings in one invocation.
   # Skipped entirely when the spec was reused (spec_source == existing) or
   # when confidence is already >= 7.
   - id: revise-spec
     name: Revise Spec (low confidence)
     type: custom
-    skill: andthen-review
+    skill: dartclaw-review
     entryGate: "spec_source == synthesized && spec_confidence < 7"
     inputs: [project_index, spec_path, spec_confidence]
     prompt: "--mode doc --fix --auto {{context.spec_path}}"
@@ -128,7 +128,7 @@ steps:
   - id: implement
     name: Implement
     type: custom
-    skill: andthen-exec-spec
+    skill: dartclaw-exec-spec
     inputs: [project_index, spec_path]
     prompt: "--auto {{context.spec_path}}"
     outputs:
@@ -143,7 +143,7 @@ steps:
   - id: integrated-review
     name: Integrated Review
     type: custom
-    skill: andthen-review
+    skill: dartclaw-review
     # read-only review: file_write absent preserves step_config_policy's
     # read-only inference. shell/web_fetch/mcp_call enable `git diff`,
     # `dart analyze`, doc lookup, and MCP-routed checks.
@@ -174,7 +174,7 @@ steps:
       - id: remediate
         name: Remediate Findings
         type: custom
-        skill: andthen-remediate-findings
+        skill: dartclaw-remediate-findings
         inputs: [project_index, spec_path, review_findings]
         prompt: "--auto {{context.review_findings}}"
         outputs:
@@ -189,7 +189,7 @@ steps:
       - id: re-review
         name: Re-review Gaps
         type: custom
-        skill: andthen-quick-review
+        skill: dartclaw-quick-review
         # read-only review: matches integrated-review's surface.
         allowedTools: [shell, file_read, web_fetch, mcp_call]
         inputs: [project_index, spec_path, remediation_summary, diff_summary]

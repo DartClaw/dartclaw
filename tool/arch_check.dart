@@ -44,7 +44,7 @@ const _expectedWorkspaceDependencies = <String, Set<String>>{
     'dartclaw_server',
   },
   'dartclaw_whatsapp': {'dartclaw_config', 'dartclaw_core'},
-  'dartclaw_workflow': {'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_storage'},
+  'dartclaw_workflow': {'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_security', 'dartclaw_storage'},
 };
 
 final class _CheckResult {

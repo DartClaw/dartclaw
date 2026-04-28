@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -594,6 +595,20 @@ steps:
         expect(validator.validate(def, continuityProviders: {'claude', 'codex'}).errors, isEmpty);
       });
 
+      test('single-prompt step with unknown @-prefixed provider produces invalidReference error', () {
+        final def = _buildDef(
+          steps: [
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['Only one prompt'], provider: '@executer'),
+          ],
+        );
+        final errors = validator.validate(def, continuityProviders: {'claude', 'codex'}).errors;
+        expect(errors, hasLength(1));
+        expect(errors.first.type, ValidationErrorType.invalidReference);
+        expect(errors.first.stepId, 's1');
+        expect(errors.first.message, contains('@executer'));
+        expect(errors.first.message, contains('@executor'));
+      });
+
       test('multi-prompt step with no explicit provider produces no error', () {
         final def = _buildDef(
           steps: [
@@ -628,6 +643,25 @@ steps:
               .errors
               .any((e) => e.type == ValidationErrorType.unsupportedProviderCapability),
           isFalse,
+        );
+      });
+
+      test('multi-prompt step with unknown @-prefixed provider produces invalidReference error', () {
+        final def = _buildDef(
+          steps: [
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: '@executer'),
+          ],
+        );
+        final errors = validator.validate(def, continuityProviders: {'claude', 'codex'}).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.type == ValidationErrorType.invalidReference &&
+                e.stepId == 's1' &&
+                e.message.contains('@executer') &&
+                e.message.contains('@executor'),
+          ),
+          isTrue,
         );
       });
     });
@@ -771,6 +805,23 @@ steps:
       expect(errors, isEmpty);
     });
 
+    test('stepDefaults with unknown role-alias provider produces invalidReference error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'review', name: 'Review', prompts: ['p']),
+        ],
+        stepDefaults: const [StepConfigDefault(match: '*', provider: '@executer')],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors, hasLength(1));
+      expect(errors.first.type, ValidationErrorType.invalidReference);
+      expect(errors.first.message, contains('@executer'));
+      expect(errors.first.message, contains('@executor'));
+      expect(errors.first.message, contains('review'));
+    });
+
     test('null stepDefaults -> valid (backward compat)', () {
       final def = WorkflowDefinition(
         name: 'wf',
@@ -884,6 +935,23 @@ steps:
       expect(errors.first.message, contains('nonexistent-skill'));
     });
 
+    test('missing skill reference with unknown role-alias provider collects both errors', () {
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final def = makeSkillDef(
+        const WorkflowStep(id: 's', name: 'S', skill: 'nonexistent-skill', provider: '@executer', prompts: ['p']),
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors, hasLength(2));
+      expect(
+        errors.any((e) => e.type == ValidationErrorType.invalidReference && e.message.contains('@executer')),
+        isTrue,
+      );
+      expect(
+        errors.any((e) => e.type == ValidationErrorType.invalidReference && e.message.contains('nonexistent-skill')),
+        isTrue,
+      );
+    });
+
     test('skill with explicit provider that is native -> no error', () {
       final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
       final def = makeSkillDef(
@@ -911,6 +979,47 @@ steps:
       expect(errors.first.message, contains('claude'));
     });
 
+    test('skill with unknown role-alias provider -> validation error', () {
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final def = makeSkillDef(
+        const WorkflowStep(id: 's', name: 'S', skill: 'review-code', provider: '@executer', prompts: ['p']),
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors, hasLength(1));
+      expect(errors.first.type, ValidationErrorType.invalidReference);
+      expect(errors.first.message, contains('@executer'));
+      expect(errors.first.message, contains('@executor'));
+    });
+
+    test('skill with valid role-alias provider keeps single-harness warning', () async {
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final def = makeSkillDef(
+        const WorkflowStep(id: 's', name: 'S', skill: 'review-code', provider: '@executor', prompts: ['p']),
+      );
+      final previousLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final records = <LogRecord>[];
+      final sub = Logger('WorkflowDefinitionValidator').onRecord.listen(records.add);
+      addTearDown(() async {
+        await sub.cancel();
+        Logger.root.level = previousLevel;
+      });
+
+      final errors = validator.validate(def).errors;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(errors, isEmpty);
+      expect(
+        records.any(
+          (record) =>
+              record.level == Level.WARNING &&
+              record.message.contains('review-code') &&
+              record.message.contains('found only in claude harness'),
+        ),
+        isTrue,
+      );
+    });
+
     test('skill with both harnesses + explicit provider -> no error', () {
       final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(bothSkills: {'shared-skill'});
       final def = makeSkillDef(
@@ -930,10 +1039,10 @@ steps:
         if (userClaudeSkillsDir.existsSync()) userClaudeSkillsDir.deleteSync(recursive: true);
       });
 
-      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'andthen-review'))..createSync(recursive: true);
+      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'dartclaw-review'))..createSync(recursive: true);
       File(
         p.join(skillDir.path, 'SKILL.md'),
-      ).writeAsStringSync('---\nname: andthen-review\ndescription: Filesystem review skill\n---\n\n# review');
+      ).writeAsStringSync('---\nname: dartclaw-review\ndescription: Filesystem review skill\n---\n\n# review');
 
       final registry = SkillRegistryImpl();
       registry.discover(
@@ -946,7 +1055,7 @@ steps:
 
       final validator = WorkflowDefinitionValidator()..skillRegistry = registry;
       final def = makeSkillDef(
-        const WorkflowStep(id: 's', name: 'S', skill: 'andthen-review', provider: 'claude', prompts: ['p']),
+        const WorkflowStep(id: 's', name: 'S', skill: 'dartclaw-review', provider: 'claude', prompts: ['p']),
       );
 
       expect(validator.validate(def).errors, isEmpty);
@@ -1598,6 +1707,28 @@ steps:
       );
     });
 
+    test('continueSession with unknown @-prefixed provider produces invalidReference error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous', provider: '@executer'),
+        ],
+      );
+      final report = validator.validate(def, continuityProviders: {'claude'});
+      expect(
+        report.errors.any(
+          (e) =>
+              e.type == ValidationErrorType.invalidReference &&
+              e.stepId == 's2' &&
+              e.message.contains('@executer') &&
+              e.message.contains('@executor'),
+        ),
+        isTrue,
+      );
+    });
+
     test('parallel continueSession step is a hard error', () {
       final def = WorkflowDefinition(
         name: 'wf',
@@ -1946,7 +2077,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
           ],
         );
         final report = validator.validate(def);
@@ -1962,7 +2093,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
             WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 2),
           ],
         );
@@ -1979,7 +2110,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
             WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 1),
           ],
         );
@@ -1996,7 +2127,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
           ],
         );
         final report = validator.validate(def);

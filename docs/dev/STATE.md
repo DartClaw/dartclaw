@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-27 17:25 CEST
+Last Updated: 2026-04-27 22:48 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -25,6 +25,7 @@ Last Updated: 2026-04-27 17:25 CEST
 
 ## Active Stories
 
+- S71 — Done: AndThen Skills Bootstrap re-executed under DartClaw's `dartclaw-` namespace. `SkillProvisioner` invokes `install-skills.sh --prefix dartclaw- --no-codex-agents`, startup no longer calls `WorkflowSkillMaterializer.materialize(...)`, `ServiceWiring` fails fast on missing DC-native skill source, workflow YAMLs resolve `dartclaw-*` skills, and the public/private docs now describe the runtime-provisioning contract.
 - S51-S55 — Done (workflow step semantics redesign + remediation).
 - S56 — Done: Live release gate and documentation closeout. The deferred `plan-and-implement` release-gate e2e was originally satisfied by S62's cross-harness component-tier suite, but the 2026-04-26 gap reviews showed that suite cannot prove the success metric (every component test injects `merge_resolve.outcome` directly via `messageService.insertMessage` rather than driving the executor → skill → worktree chain). S65 now supplies the real-harness proof.
 - S57 — Done: Harness env-var injection contract + Codex `!`-operator SPIKE-1 (GO; Codex matches Claude Code via POSIX shell expansion). Six `MERGE_RESOLVE_*` env-var names locked in `dartclaw_core`.
@@ -64,7 +65,7 @@ Last Updated: 2026-04-27 17:25 CEST
 
 ## Session Continuity Notes
 
-- [2026-04-27] S71 (AndThen Skills Bootstrap / `SkillProvisioner`) complete — `AndthenConfig` (4 keys, all non-reloadable), `SkillProvisioner` with `validateSpawnTargets` + `ensureCacheCurrent` (clone/pull, SHA-marker + completeness gate, install-skills.sh `--prefix andthen-`, DC-native copy), wired into `ServiceWiring.wire()` before HTTP listen. ADR-025 marked implemented. New `andthen-skills.md` public guide; STACK.md AndThen section rewritten; workflow architecture deep-dive gets a runtime-provisioning subsection; CLAUDE.md "DartClaw Skills" section updated. CHANGELOG entry under [0.16.4] Changed.
+- [2026-04-27] S71 (AndThen Skills Bootstrap / `SkillProvisioner`) complete — `AndthenConfig` (4 keys, all non-reloadable), `SkillProvisioner` with `validateSpawnTargets` + `ensureCacheCurrent` (clone/pull, SHA-marker + completeness gate, install-skills.sh `--prefix dartclaw-`, DC-native copy), wired into `ServiceWiring.wire()` before HTTP listen. ADR-025 marked implemented with DartClaw-managed `dartclaw-*` runtime skill names. New `andthen-skills.md` public guide; STACK.md AndThen section rewritten; workflow architecture deep-dive gets a runtime-provisioning subsection; CLAUDE.md "DartClaw Skills" section updated. CHANGELOG entry under [0.16.4] Changed.
 - [2026-04-27] S70 (Built-in Workflow allowedTools Audit and Relaxation) complete — 7 sites dropped, 7 relaxed to add web_fetch/mcp_call, 3 kept narrow for read-only inference; new docs subsection in workflows.md; CHANGELOG entry under [0.16.4] Changed.
 - [2026-04-27] S69 — Done: Workflow integration test fixture model-selection. E2EFixture executor/reviewer defaults dropped to `gpt-5.3-codex-spark`; five DARTCLAW_TEST_* env vars override at construction time (provider preset + per-role models); claude preset switches to opus-4-7/sonnet-4-6 with bypassPermissions. workflow_profile.yaml gained provider/model placeholder tokens with codex/claude goldens. merge_resolve_integration_test inherits fixture defaults. New TESTING-STRATEGY subsection + CHANGELOG entry.
 - [2026-04-27] S68 done — contextInputs:→inputs: rename across schema/model/parser/validator/server-templates/built-ins/docs; parser hard-errors on legacy contextInputs:; canonical pair is inputs:/outputs:.

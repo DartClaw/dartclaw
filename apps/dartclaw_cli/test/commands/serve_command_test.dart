@@ -197,6 +197,7 @@ void main() {
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -254,6 +255,7 @@ channels:
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -292,6 +294,7 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -328,6 +331,7 @@ channels:
           resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'),
           homeDir: p.join(tempDir.path, 'home'),
         ),
+        runAndthenSkillsBootstrap: false,
         assetDownloader: downloader,
       );
       final localRunner = DartclawRunner()..addCommand(command);
@@ -434,6 +438,7 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: AssetResolver(resolvedExecutable: p.join(prefixDir.path, 'bin', 'dartclaw')),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -486,6 +491,7 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -537,6 +543,7 @@ channels:
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -583,6 +590,7 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -619,6 +627,7 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -651,6 +660,7 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -697,6 +707,7 @@ channels:
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
+        runAndthenSkillsBootstrap: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 

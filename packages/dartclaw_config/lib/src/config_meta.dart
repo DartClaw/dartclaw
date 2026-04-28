@@ -1277,7 +1277,7 @@ abstract final class ConfigMeta {
       min: 1,
     ),
 
-    // --- AndThen runtime-skill provisioning (S71) ---
+    // --- AndThen runtime-skill provisioning ---
     // All four restart-required: changing them implies re-clone / re-install.
     'andthen.git_url': FieldMeta(
       yamlPath: 'andthen.git_url',

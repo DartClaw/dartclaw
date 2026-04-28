@@ -19,11 +19,11 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
         continue; // Skip harness checks if skill doesn't exist.
       }
 
-      // Harness compatibility check.
       final stepProvider = step.provider;
       if (stepProvider != null) {
+        final isRoleAlias = workflowRoleDefaultAliases.contains(stepProvider);
         // Explicit provider: hard error if skill not native for that harness.
-        if (!skillRegistry!.isNativeFor(step.skill!, stepProvider)) {
+        if (!stepProvider.startsWith('@') && !isRoleAlias && !skillRegistry!.isNativeFor(step.skill!, stepProvider)) {
           final skill = skillRegistry!.getByName(step.skill!);
           final available = skill?.nativeHarnesses.join(', ') ?? 'none';
           errors.add(
@@ -39,7 +39,9 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
             ),
           );
         }
-      } else {
+      }
+
+      if (stepProvider == null || workflowRoleDefaultAliases.contains(stepProvider)) {
         // Default provider: warn if skill only found in one harness.
         final skill = skillRegistry!.getByName(step.skill!);
         if (skill != null && skill.nativeHarnesses.length == 1) {

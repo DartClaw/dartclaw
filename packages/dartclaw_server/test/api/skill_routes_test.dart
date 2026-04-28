@@ -6,9 +6,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistryImpl
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-// DC-native skills shipped with DartClaw (post-ADR-025 migration).
+// DC-native skills shipped in-tree with DartClaw (post-ADR-025 migration).
 // The 8 ported SYNC-VERBATIM skills and dartclaw-update-state were removed;
-// workflows now resolve against the user's installed andthen-* skills.
+// workflows now resolve against runtime-provisioned `dartclaw-*` skills
+// installed by SkillProvisioner (AndThen >= 0.14.3, `--prefix dartclaw-`).
 const dartclawSkillNames = <String>{'dartclaw-discover-project', 'dartclaw-validate-workflow'};
 
 void main() {

@@ -39,22 +39,22 @@ void _runGit(String workingDirectory, List<String> args) {
   }
 }
 
-/// Stages skeletal `andthen-*` skills directly into the SkillRegistry's P1/P2
+/// Stages skeletal `dartclaw-*` skills directly into the SkillRegistry's P1/P2
 /// scan locations under [searchRoot]. Used by tests that rely on built-in
-/// workflow definitions (which reference `andthen-*` skills) but don't
-/// exercise the SkillProvisioner bootstrap end-to-end. Without these,
-/// [WorkflowDefinitionValidator] excludes the workflows from the registry and
-/// route handlers return DEFINITION_NOT_FOUND.
+/// workflow definitions (which reference runtime-provisioned `dartclaw-*`
+/// skills) but don't exercise the SkillProvisioner bootstrap end-to-end.
+/// Without these, [WorkflowDefinitionValidator] excludes the workflows from
+/// the registry and route handlers return DEFINITION_NOT_FOUND.
 void _stageAndthenSkillStubs(String searchRoot) {
   const skills = [
-    'andthen-prd',
-    'andthen-plan',
-    'andthen-spec',
-    'andthen-exec-spec',
-    'andthen-review',
-    'andthen-remediate-findings',
-    'andthen-quick-review',
-    'andthen-ops',
+    'dartclaw-prd',
+    'dartclaw-plan',
+    'dartclaw-spec',
+    'dartclaw-exec-spec',
+    'dartclaw-review',
+    'dartclaw-remediate-findings',
+    'dartclaw-quick-review',
+    'dartclaw-ops',
   ];
   for (final tier in const ['.claude/skills', '.agents/skills']) {
     for (final name in skills) {
@@ -67,10 +67,11 @@ void _stageAndthenSkillStubs(String searchRoot) {
 
 /// Pre-stages `<dataDir>/andthen-src/` as a real git repo with a fake
 /// `install-skills.sh` script so the SkillProvisioner can run end-to-end with
-/// `andthen.network: disabled` and produce installed `andthen-prd` / DC-native
+/// `andthen.network: disabled` and produce installed `dartclaw-prd` / DC-native
 /// skills under `<dataDir>/.{agents,claude}/skills/`. Required for tests that
-/// rely on built-in workflow definitions (which reference `andthen-*` skills);
-/// without bootstrap, the workflow validator excludes them from the registry.
+/// rely on built-in workflow definitions (which reference the runtime-provisioned
+/// `dartclaw-*` skills); without bootstrap, the workflow validator excludes them
+/// from the registry.
 void _stageFakeAndthenSrc(String dataDir) {
   final srcDir = Directory(p.join(dataDir, 'andthen-src'))..createSync(recursive: true);
   Directory(p.join(srcDir.path, 'scripts')).createSync(recursive: true);
@@ -97,7 +98,7 @@ if [ "\$USER_DEFAULTS" = "1" ]; then
   CLAUDE_AGENTS_DIR="\$HOME/.claude/agents"
 fi
 mkdir -p "\$SKILLS_DIR" "\$CLAUDE_SKILLS_DIR" "\$CLAUDE_AGENTS_DIR"
-for name in andthen-prd andthen-plan andthen-spec andthen-exec-spec andthen-review andthen-remediate-findings andthen-quick-review andthen-ops; do
+for name in dartclaw-prd dartclaw-plan dartclaw-spec dartclaw-exec-spec dartclaw-review dartclaw-remediate-findings dartclaw-quick-review dartclaw-ops; do
   mkdir -p "\$SKILLS_DIR/\$name" "\$CLAUDE_SKILLS_DIR/\$name"
   printf 'fake %s' "\$name" > "\$SKILLS_DIR/\$name/SKILL.md"
   printf 'fake %s' "\$name" > "\$CLAUDE_SKILLS_DIR/\$name/SKILL.md"
@@ -381,12 +382,12 @@ void main() {
     _runGit(projectDir.path, ['commit', '-m', 'initial']);
 
     // Built-in workflow definitions (e.g. spec-and-implement) reference
-    // andthen-* skills. The SkillRegistry scans `<projectDir>/.claude/skills/`
-    // and `<projectDir>/.agents/skills/` (P1/P2). Without those references
-    // resolving, the validator excludes the workflow and the route returns
-    // DEFINITION_NOT_FOUND instead of the ref-validation error under test.
-    // Bootstrap is disabled here to keep the test focused on workflow ref
-    // validation; staging stubs in P1/P2 is sufficient.
+    // runtime-provisioned `dartclaw-*` skills. The SkillRegistry scans
+    // `<projectDir>/.claude/skills/` and `<projectDir>/.agents/skills/` (P1/P2).
+    // Without those references resolving, the validator excludes the workflow
+    // and the route returns DEFINITION_NOT_FOUND instead of the ref-validation
+    // error under test. Bootstrap is disabled here to keep the test focused on
+    // workflow ref validation; staging stubs in P1/P2 is sufficient.
     _stageAndthenSkillStubs(projectDir.path);
 
     final config = DartclawConfig(
@@ -570,8 +571,8 @@ void main() {
     addTearDown(() => _disposeWiringResult(result, logService));
 
     // AndThen-derived skill installed by the fake installer in both data-dir trees.
-    expect(File(p.join(tempDir.path, '.agents', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(tempDir.path, '.claude', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(tempDir.path, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(tempDir.path, '.claude', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
     // DC-native skills copied into both data-dir trees by SkillProvisioner.
     for (final name in const ['dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve']) {
       expect(
@@ -589,8 +590,8 @@ void main() {
     expect(File(p.join(tempDir.path, '.agents', 'skills', '.dartclaw-andthen-sha')).existsSync(), isTrue);
 
     // User-tier leg landed under the fake HOME, never the developer's real home.
-    expect(File(p.join(fakeHome.path, '.agents', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(fakeHome.path, '.claude', 'skills', 'andthen-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(fakeHome.path, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(fakeHome.path, '.claude', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(fakeHome.path, '.agents', 'skills', '.dartclaw-andthen-sha')).existsSync(), isTrue);
   });
 }

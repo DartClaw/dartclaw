@@ -415,11 +415,42 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateStepDefaults(WorkflowDefinition definition) {
+  void _validateProviderAliases(WorkflowDefinition definition, List<ValidationError> errors) {
+    for (final step in definition.steps) {
+      final provider = step.provider;
+      if (provider == null || !provider.startsWith('@') || workflowRoleDefaultAliases.contains(provider)) continue;
+      errors.add(
+        ValidationError(
+          message:
+              'Step "${step.id}": provider "$provider" is not a known role alias. '
+              'Supported aliases: ${workflowRoleDefaultAliases.join(', ')}.',
+          type: ValidationErrorType.invalidReference,
+          stepId: step.id,
+        ),
+      );
+    }
+  }
+
+  void _validateStepDefaults(WorkflowDefinition definition, List<ValidationError> errors) {
     final defaults = definition.stepDefaults;
     if (defaults == null || defaults.isEmpty) return;
     final stepIds = definition.steps.map((s) => s.id).toList();
     for (final d in defaults) {
+      final provider = d.provider;
+      if (provider != null && provider.startsWith('@') && !workflowRoleDefaultAliases.contains(provider)) {
+        final matchingStepIds = stepIds.where((id) => globMatchStepId(d.match, id)).toList();
+        final matchingSteps = matchingStepIds.isEmpty ? 'no current steps' : matchingStepIds.join(', ');
+        errors.add(
+          ValidationError(
+            message:
+                'stepDefaults pattern "${d.match}" uses provider "$provider", '
+                'which is not a known role alias. Supported aliases: ${workflowRoleDefaultAliases.join(', ')}. '
+                'Matching steps: $matchingSteps.',
+            type: ValidationErrorType.invalidReference,
+          ),
+        );
+      }
+
       final matches = stepIds.any((id) => globMatchStepId(d.match, id));
       if (!matches) {
         WorkflowDefinitionValidator._log.warning(

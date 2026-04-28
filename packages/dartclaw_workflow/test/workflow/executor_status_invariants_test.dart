@@ -6,13 +6,7 @@ library;
 import 'dart:async';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        TaskStatus,
-        TaskStatusChangedEvent,
-        WorkflowContext,
-        WorkflowDefinition,
-        WorkflowRunStatus,
-        WorkflowStep;
+    show TaskStatus, TaskStatusChangedEvent, WorkflowContext, WorkflowDefinition, WorkflowRunStatus, WorkflowStep;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -47,7 +41,7 @@ void main() {
   group('foreach/map wrapped story_specs fidelity and recovery', () {
     test('wrapped {items:[...]} story_specs are auto-unwrapped and iterated as individual records', () async {
       // FOREACH-RECOVERY: the foreach/map controller must accept wrapped `{items:[...]}`
-      // shaped records (as emitted by andthen-plan) and dispatch one child task per item.
+      // shaped records (as emitted by dartclaw-plan) and dispatch one child task per item.
       final definition = WorkflowDefinition(
         name: 'foreach-fidelity',
         description: 'foreach fidelity test',

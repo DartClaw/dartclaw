@@ -563,9 +563,9 @@ Key runtime behavior:
 
 #### File-Based Artifact Contract
 
-Artifact-producing skills (`andthen-prd`, `andthen-plan`, `andthen-spec`) always write their artifact to disk at the canonical `artifact_locations.*` path and emit the workspace-relative path under their `outputs:` block — never inline content. Workflow steps downstream read the file via `file_read`. This is the same single-mode contract AndThen uses; it lets sub-agents that create artifacts in parallel see each others' files through the filesystem rather than inline serialization.
+Artifact-producing skills (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`) always write their artifact to disk at the canonical `artifact_locations.*` path and emit the workspace-relative path under their `outputs:` block — never inline content. Workflow steps downstream read the file via `file_read`. This is the same single-mode contract AndThen uses; it lets sub-agents that create artifacts in parallel see each others' files through the filesystem rather than inline serialization.
 
-`andthen-prd` and `andthen-plan` additionally support **read-existing**: when `context.project_index.active_prd` / `active_plan` references a file that exists, the skill reuses it and emits `prd_source` / `plan_source` as `"existing"` instead of re-synthesizing. This unlocks re-running a workflow against committed artifacts without re-spending tokens.
+`dartclaw-prd` and `dartclaw-plan` additionally support **read-existing**: when `context.project_index.active_prd` / `active_plan` references a file that exists, the skill reuses it and emits `prd_source` / `plan_source` as `"existing"` instead of re-synthesizing. This unlocks re-running a workflow against committed artifacts without re-spending tokens.
 
 #### Artifact Auto-Commit
 
@@ -695,10 +695,10 @@ A skill's `SKILL.md` may declare a neutral `workflow:` block in its YAML frontma
 
 ```yaml
 ---
-name: andthen-quick-review
+name: dartclaw-quick-review
 description: Lightweight, ad-hoc review of recent work with a fresh-context sub-agent for adversarial critique.
 workflow:
-  default_prompt: "Use $andthen-quick-review to run a fast fresh-context review of the recent changes."
+  default_prompt: "Use $dartclaw-quick-review to run a fast fresh-context review of the recent changes."
   default_outputs:
     quick_review_summary:
       format: text
@@ -716,7 +716,7 @@ A workflow step can now be as thin as:
 - id: quick-review
   name: Quick Review
   type: analysis
-  skill: andthen-quick-review
+  skill: dartclaw-quick-review
   inputs: [project_index, story_result]
   outputs:
     quick_review_summary:
@@ -793,7 +793,7 @@ Any step — not just loop bodies — can declare an `entryGate`. When the expre
 
 ```yaml
 - id: plan-review
-  skill: andthen-review
+  skill: dartclaw-review
   entryGate: "plan_source == synthesized"   # skip when upstream reused an existing plan
   ...
 ```
@@ -835,7 +835,7 @@ Use this whenever a step behaves differently than the authored YAML suggests: th
 
 ### `spec-and-implement` — Feature Pipeline
 
-Pipeline that starts with `discover-project`, writes or reuses a spec with `andthen-spec`, implements via `andthen-exec-spec` (which is responsible for running analysis/tests/linting and fixing issues before emitting a completed diff), runs an integrated `andthen-review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings.
+Pipeline that starts with `discover-project`, writes or reuses a spec with `dartclaw-spec`, implements via `dartclaw-exec-spec` (which is responsible for running analysis/tests/linting and fixing issues before emitting a completed diff), runs an integrated `dartclaw-review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings.
 
 Notable patterns:
 - **Project discovery first**: every downstream step receives `project_index` instead of hardcoded document paths.
@@ -844,7 +844,7 @@ Notable patterns:
 
 ### `plan-and-implement` — Story Fan-Out
 
-Multi-story pipeline organized around three altitudes: a PRD step (`andthen-prd`), a merged plan step (`andthen-plan`) that produces the story plan and per-story specs in one pass, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> quick-review` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Step sequence: `discover-project -> prd -> plan -> story-pipeline -> plan-review -> remediation-loop -> update-state`.
+Multi-story pipeline organized around three altitudes: a PRD step (`dartclaw-prd`), a merged plan step (`dartclaw-plan`) that produces the story plan and per-story specs in one pass, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> quick-review` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Step sequence: `discover-project -> prd -> plan -> story-pipeline -> plan-review -> remediation-loop -> update-state`.
 
 Notable patterns:
 - **PRD / Plan / Exec altitudes**: `prd` stops at the product layer; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
@@ -875,7 +875,7 @@ Role usage:
 
 ### `code-review` — Review And Remediate Loop
 
-A review workflow that discovers the project, routes the initial review and re-review directly through `andthen-review`, and loops through remediate → re-review up to 3 iterations only when the initial review reports findings. The remediation skill is responsible for running analysis/tests/linting on its edits before emitting a completed remediation result.
+A review workflow that discovers the project, routes the initial review and re-review directly through `dartclaw-review`, and loops through remediate → re-review up to 3 iterations only when the initial review reports findings. The remediation skill is responsible for running analysis/tests/linting on its edits before emitting a completed remediation result.
 
 Notable patterns:
 - **Inputs-only review prompts**: the workflow passes target identifiers and prior outputs; diff discovery and review method stay inside the review skill.
@@ -909,33 +909,24 @@ Configure these in `workflow.defaults` in your config. The `model` fields accept
 
 ### Built-In Skill Library
 
-DartClaw ships two DC-native skills and resolves all other workflow steps through an AndThen installation:
+DartClaw ships three DC-native skills and resolves all other workflow steps through runtime-provisioned AndThen-derived skills installed under DartClaw's namespace:
 
 **DC-native (shipped with DartClaw)**:
 - `dartclaw-discover-project` — workspace-index extraction, multi-framework detection
 - `dartclaw-validate-workflow` — workflow YAML validation helper
+- `dartclaw-merge-resolve` — agent-assisted workflow promotion conflict resolution
 
-**Runtime prerequisite — [AndThen](https://github.com/IT-HUSET/andthen) `>= 0.14.3`**:
+**Runtime provisioning — [AndThen](https://github.com/IT-HUSET/andthen) `>= 0.14.3`**:
 
-The built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review`) resolve all non-discover-project steps against the user's AndThen installation via the `andthen-` prefix. Key skills used:
+At `dartclaw serve` startup, `SkillProvisioner` clones AndThen into `<data_dir>/andthen-src/` and runs `install-skills.sh --prefix dartclaw-`. The built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review`) resolve their AndThen-derived steps through these installed `dartclaw-*` names. Key skills used:
 
-- `andthen-spec`, `andthen-prd`, `andthen-plan` — specification and planning
-- `andthen-exec-spec` — spec execution / implementation driver
-- `andthen-review`, `andthen-quick-review` — code and doc review
-- `andthen-remediate-findings` — remediation loop driver
-- `andthen-ops` — state update (final workflow step)
+- `dartclaw-spec`, `dartclaw-prd`, `dartclaw-plan` — specification and planning
+- `dartclaw-exec-spec` — spec execution / implementation driver
+- `dartclaw-review`, `dartclaw-quick-review` — code and doc review
+- `dartclaw-remediate-findings` — remediation loop driver
+- `dartclaw-ops` — state update (final workflow step)
 
-**Install AndThen**:
-```bash
-# From the AndThen repo checkout:
-<path-to-andthen-repo>/scripts/install-skills.sh
-```
-
-Skills land in `~/.claude/skills/andthen-*/` (Claude) and `~/.agents/skills/andthen-*/` (Codex). If AndThen skills are missing, `dartclaw workflow validate` reports each unresolved skill name; install AndThen and re-run to confirm.
-
-> **Note for Claude Code users**: AndThen also ships as a Claude Code plugin. The plugin install (under `~/.claude/plugins/marketplaces/...`) is *not* a substitute — DartClaw discovers skills from `~/.claude/skills/` and `~/.agents/skills/` only. Run `install-skills.sh` even if you already have the plugin enabled.
-
-DC-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`) are discovered from the built-in skills directory and materialized to the harness directories automatically.
+Configure source, ref, install scope, and network behavior under `andthen:` in `dartclaw.yaml`; see [AndThen Skills](andthen-skills.md). DC-native skills are copied into the same destination trees automatically.
 
 ### Supported SDD Frameworks
 
@@ -1065,13 +1056,13 @@ Provider-specific tool names (Claude's `Edit`, Codex's `apply_patch`, MCP-routed
 
 **Read-only steps should keep the field narrow.** The workflow runtime infers read-only mode from `file_write` non-membership in `allowedTools`: a step with the field set and `file_write` absent is automatically marked read-only and skipped for worktree binding. Review and audit steps are the canonical use case — they inspect the project but do not mutate it. The runtime additionally enforces read-only at the guard layer: mutating shell commands (`git commit`, `mv`, `rm`, redirections, etc.) and `file_write`/`file_edit` are blocked even if `shell` is in the allowlist.
 
-Worked example — a research/discovery step that needs the network and MCP tools but does not write files:
+Worked example — an architecture review step that needs the network and MCP tools but does not write files:
 
 ```yaml
 - id: research
-  name: External Research
+  name: Architecture Review
   type: custom
-  skill: andthen-documentation-lookup
+  skill: dartclaw-architecture
   # read-only: file_write absent → step is auto-marked read-only.
   allowedTools: [shell, file_read, web_fetch, mcp_call]
 ```
@@ -1082,7 +1073,7 @@ Contrast a code-only review step that should never need network access:
 - id: review-code
   name: Review Code
   type: custom
-  skill: andthen-review
+  skill: dartclaw-review
   # read-only review: narrow surface; only inspects the working tree.
   allowedTools: [shell, file_read]
 ```
@@ -1093,7 +1084,7 @@ A coding step that genuinely needs the full default surface (shell, file read/wr
 - id: implement
   name: Implement Feature
   type: custom
-  skill: andthen-exec-spec
+  skill: dartclaw-exec-spec
   # No allowedTools — inherits the harness default surface.
 ```
 

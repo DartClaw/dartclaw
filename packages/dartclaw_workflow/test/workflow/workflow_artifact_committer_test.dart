@@ -58,7 +58,7 @@ void main() {
           const WorkflowDefinition(
             name: 'wf',
             description: 'test',
-            steps: [WorkflowStep(id: 'prd', name: 'PRD', skill: 'andthen-prd')],
+            steps: [WorkflowStep(id: 'prd', name: 'PRD', skill: 'dartclaw-prd')],
           ),
         ),
         isTrue,

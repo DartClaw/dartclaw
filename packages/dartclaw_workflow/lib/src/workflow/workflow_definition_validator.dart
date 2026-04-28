@@ -3,7 +3,7 @@ import 'package:logging/logging.dart';
 
 import 'schema_presets.dart' show schemaPresets;
 import 'skill_registry.dart';
-import 'step_config_resolver.dart' show globMatchStepId;
+import 'step_config_resolver.dart' show globMatchStepId, workflowRoleDefaultAliases;
 import 'workflow_context.dart';
 import 'workflow_template_engine.dart';
 
@@ -81,7 +81,7 @@ class WorkflowDefinitionValidator {
   // exact flat keys before nested map paths.
   static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
 
-  static const _artifactProducingSkills = {'andthen-prd', 'andthen-plan', 'andthen-spec'};
+  static const _artifactProducingSkills = {'dartclaw-prd', 'dartclaw-plan', 'dartclaw-spec'};
   static const _semanticStepTypes = {'coding', 'analysis', 'research', 'writing'};
   final _engine = WorkflowTemplateEngine();
 
@@ -119,6 +119,7 @@ class WorkflowDefinitionValidator {
     _validateUniqueLoopIds(definition, errors);
     _validateNormalizedNodes(definition, errors);
     _validateMapAliases(definition, errors);
+    _validateProviderAliases(definition, errors);
     _validateVariableReferences(definition, errors);
     _validateDeprecationWarnings(definition, warnings);
     _validateContextKeyConsistency(definition, errors);
@@ -128,7 +129,7 @@ class WorkflowDefinitionValidator {
     _validateLoopMaxIterations(definition, errors);
     _validateLoopStepOverlap(definition, errors);
     _validateLoopFinalizers(definition, errors);
-    _validateStepDefaults(definition);
+    _validateStepDefaults(definition, errors);
     _validateGitStrategy(definition, errors, warnings);
     _validateStepDefaultsOrdering(definition, warnings);
     _validateStepEntryGates(definition, errors);

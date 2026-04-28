@@ -39,6 +39,13 @@ class SkillRegistryImpl implements SkillRegistry {
   /// [workspaceDir] — DartClaw workspace directory (for P3).
   /// [dataDir] — DartClaw data directory (for P5).
   /// [pluginDirs] — additional plugin skill directories (for P6).
+  /// [dataDirClaudeSkillsDir] — `<dataDir>/.claude/skills/` populated by
+  /// `SkillProvisioner` under `andthen.install_scope: data_dir` / `both`.
+  /// Scanned with the same tier semantics as the user-tier `~/.claude/skills/`
+  /// source (`nativeHarnesses: {claude}`) but scoped to this DartClaw data
+  /// directory instead of the user's home. Pass `null` to disable.
+  /// [dataDirAgentsSkillsDir] — `<dataDir>/.agents/skills/` counterpart for the
+  /// non-Claude (Codex) tier.
   void discover({
     String? projectDir,
     Iterable<String> projectDirs = const [],
@@ -47,6 +54,8 @@ class SkillRegistryImpl implements SkillRegistry {
     List<String> pluginDirs = const [],
     String? userClaudeSkillsDir,
     String? userAgentsSkillsDir,
+    String? dataDirClaudeSkillsDir,
+    String? dataDirAgentsSkillsDir,
     String? builtInSkillsDir,
   }) {
     final stopwatch = Stopwatch()..start();
@@ -71,6 +80,21 @@ class SkillRegistryImpl implements SkillRegistry {
       ],
       // P3: <workspace>/skills/ -> nativeHarnesses: {} (DartClaw-managed)
       (p.join(workspaceDir, 'skills'), SkillSource.workspace, <String>{}),
+      // P3.5: <dataDir>/.claude/skills/ -> nativeHarnesses: {claude}.
+      // Populated by SkillProvisioner under andthen.install_scope: data_dir / both.
+      // Higher priority than user-tier so a DartClaw-managed install wins over an
+      // unrelated user-tier copy of the same skill name.
+      //
+      // Footgun: these tuples reuse SkillSource.userClaude/userAgents, which
+      // _skipsManagedCopies treats as managed-copy-aware. SkillProvisioner does
+      // NOT currently write per-skill `.dartclaw-managed` markers (only the
+      // parent-dir `.dartclaw-andthen-sha`), so the skip never fires today.
+      // If that ever changes, introduce dedicated SkillSource values for these
+      // data-dir sources rather than letting the user-tier marker policy silently
+      // drop every provisioned skill here.
+      if (dataDirClaudeSkillsDir != null) (dataDirClaudeSkillsDir, SkillSource.userClaude, <String>{'claude'}),
+      // P3.6: <dataDir>/.agents/skills/ -> nativeHarnesses: {codex} counterpart.
+      if (dataDirAgentsSkillsDir != null) (dataDirAgentsSkillsDir, SkillSource.userAgents, <String>{'codex'}),
       // P4: ~/.claude/skills/ -> nativeHarnesses: {claude}
       (userClaudeSkillsDir ?? _userClaudeSkillsDir, SkillSource.userClaude, <String>{'claude'}),
       // P5: ~/.agents/skills/ -> nativeHarnesses: {codex}
@@ -341,10 +365,17 @@ class SkillRegistryImpl implements SkillRegistry {
   @override
   SkillInfo? getByName(String name) => _skills[name];
 
-  // Install hint appended when an andthen-* skill ref is missing.
+  // Recovery hint appended when a DartClaw-managed AndThen-derived skill ref is missing.
+  // Operators land here after `SkillProvisioner` failed to populate the destination
+  // (network unreachable, install_scope mismatch, partial install, marker drift).
+  // Point them at the runtime-provisioning surface they actually own, not at a
+  // manual `install-skills.sh` invocation that would produce `andthen-*` skills
+  // DartClaw will not resolve.
   static const _andthenInstallHint =
-      'Install AndThen skills (>= 0.14.3 required) by running scripts/install-skills.sh '
-      'from an AndThen checkout — see https://github.com/IT-HUSET/andthen.';
+      'AndThen-derived `dartclaw-*` skills are provisioned at `dartclaw serve` startup. '
+      'If they are missing, check the SkillProvisioner logs and your '
+      '`andthen.network` / `andthen.git_url` / `andthen.ref` config, then restart `dartclaw serve`. '
+      'See dartclaw-public/docs/guide/andthen-skills.md.';
 
   @override
   String? validateRef(String skillRef) {
@@ -353,8 +384,8 @@ class SkillRegistryImpl implements SkillRegistry {
     // Build suggestion list from available skills.
     final available = _skills.keys.toList()..sort();
 
-    final isAndthenRef = skillRef.startsWith('andthen-');
-    final installSuffix = isAndthenRef ? ' $_andthenInstallHint' : '';
+    final isDartclawAndthenRef = skillRef.startsWith('dartclaw-');
+    final installSuffix = isDartclawAndthenRef ? ' $_andthenInstallHint' : '';
 
     if (available.isEmpty) {
       return 'Skill "$skillRef" not found. No skills discovered.$installSuffix';

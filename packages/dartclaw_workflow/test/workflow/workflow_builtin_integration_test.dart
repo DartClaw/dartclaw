@@ -70,13 +70,7 @@ String _verdictJson({
 }
 
 String _contextOutput(Map<String, Object?> values) {
-  final enriched = Map<String, Object?>.from(values);
-  for (final entry in values.entries) {
-    if (!entry.key.endsWith('.findings_count') || entry.key.endsWith('.gating_findings_count')) continue;
-    final gatingKey = entry.key.replaceFirst('.findings_count', '.gating_findings_count');
-    enriched.putIfAbsent(gatingKey, () => entry.value);
-  }
-  return '<workflow-context>${jsonEncode(enriched)}</workflow-context>';
+  return '<workflow-context>${jsonEncode(values)}</workflow-context>';
 }
 
 class _StubResponse {
@@ -91,6 +85,7 @@ _StubResponse _architectureReviewStub() => _StubResponse(
     'architecture_review_findings': '/tmp/dartclaw-test-architecture-review.md',
     'findings_count': 0,
     'architecture-review.findings_count': 0,
+    'architecture-review.gating_findings_count': 0,
   }),
 );
 
@@ -528,6 +523,7 @@ void main() {
               'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'integrated review passed')),
               'findings_count': 0,
               'integrated-review.findings_count': 0,
+              'integrated-review.gating_findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -541,6 +537,7 @@ void main() {
               'review_findings': _verdictJson(findingsCount: 0, summary: 'No remaining gaps'),
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(
@@ -581,6 +578,7 @@ void main() {
               'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'review accepted')),
               'findings_count': 0,
               'integrated-review.findings_count': 0,
+              'integrated-review.gating_findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -591,6 +589,7 @@ void main() {
               'review_findings': _verdictJson(findingsCount: 0, summary: 'no gaps'),
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
@@ -635,6 +634,7 @@ void main() {
               'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'review accepted')),
               'findings_count': 0,
               'integrated-review.findings_count': 0,
+              'integrated-review.gating_findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -645,6 +645,7 @@ void main() {
               'review_findings': _verdictJson(findingsCount: 0, summary: 'no gaps'),
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
@@ -693,6 +694,7 @@ void main() {
               'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'review accepted')),
               'findings_count': 0,
               'integrated-review.findings_count': 0,
+              'integrated-review.gating_findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -703,6 +705,7 @@ void main() {
               'review_findings': _verdictJson(findingsCount: 0, summary: 'no gaps'),
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
@@ -751,6 +754,7 @@ void main() {
                 ),
                 'findings_count': 1,
                 'integrated-review.findings_count': 1,
+                'integrated-review.gating_findings_count': 1,
               }),
             ),
             'remediate' => _StubResponse(
@@ -764,6 +768,7 @@ void main() {
                 'review_findings': _verdictJson(findingsCount: 0, summary: 'Re-review is clean'),
                 'findings_count': 0,
                 're-review.findings_count': 0,
+                're-review.gating_findings_count': 0,
               }),
             ),
             'update-state' => _StubResponse(
@@ -876,6 +881,7 @@ void main() {
                 'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'integrated review passed')),
                 'findings_count': 0,
                 'integrated-review.findings_count': 0,
+                'integrated-review.gating_findings_count': 0,
               }),
             ),
             'remediate' => _StubResponse(
@@ -889,6 +895,7 @@ void main() {
                 'review_findings': _verdictJson(findingsCount: 0, summary: 'No remaining gaps'),
                 'findings_count': 0,
                 're-review.findings_count': 0,
+                're-review.gating_findings_count': 0,
               }),
             ),
             'update-state' => _StubResponse(
@@ -1033,6 +1040,7 @@ void main() {
               'needs_remediation': false,
               'findings_count': 0,
               'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -1046,13 +1054,17 @@ void main() {
               'remediation_plan': 'No further batch remediation needed',
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(
             assistantContent: _contextOutput({'state_update_summary': 'Story state updated'}),
           ),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -1159,6 +1171,7 @@ void main() {
               'needs_remediation': false,
               'findings_count': 0,
               'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -1169,11 +1182,15 @@ void main() {
               'remediation_plan': 'No further remediation',
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -1279,6 +1296,7 @@ void main() {
                 'needs_remediation': false,
                 'findings_count': 0,
                 'plan-review.findings_count': 0,
+                'plan-review.gating_findings_count': 0,
               }),
             ),
             'remediate' => _StubResponse(
@@ -1289,11 +1307,15 @@ void main() {
                 'remediation_plan': 'No further remediation',
                 'findings_count': 0,
                 're-review.findings_count': 0,
+                're-review.gating_findings_count': 0,
               }),
             ),
             'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
             'architecture-review' => _StubResponse(
-              assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+              assistantContent: _contextOutput({
+                'architecture-review.findings_count': 0,
+                'architecture-review.gating_findings_count': 0,
+              }),
             ),
             'refactor' => _StubResponse(
               assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
@@ -1384,6 +1406,7 @@ void main() {
               'needs_remediation': false,
               'findings_count': 0,
               'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -1394,11 +1417,15 @@ void main() {
               'remediation_plan': 'No further remediation',
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -1471,6 +1498,7 @@ void main() {
               'needs_remediation': false,
               'findings_count': 0,
               'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -1481,11 +1509,15 @@ void main() {
               'remediation_plan': 'No further remediation',
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -1570,6 +1602,7 @@ void main() {
               'needs_remediation': false,
               'findings_count': 0,
               'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -1580,11 +1613,15 @@ void main() {
               'remediation_plan': 'No further remediation',
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -1646,11 +1683,18 @@ void main() {
             assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
           ),
           'plan-review' => _StubResponse(
-            assistantContent: _contextOutput({'findings_count': 0, 'plan-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
+            }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -1718,11 +1762,18 @@ void main() {
             assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
           ),
           'plan-review' => _StubResponse(
-            assistantContent: _contextOutput({'findings_count': 0, 'plan-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
+            }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -1796,11 +1847,18 @@ void main() {
             assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
           ),
           'plan-review' => _StubResponse(
-            assistantContent: _contextOutput({'findings_count': 0, 'plan-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
+            }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -1865,11 +1923,18 @@ void main() {
             assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
           ),
           'plan-review' => _StubResponse(
-            assistantContent: _contextOutput({'findings_count': 0, 'plan-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
+            }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -1931,11 +1996,18 @@ void main() {
             assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
           ),
           'plan-review' => _StubResponse(
-            assistantContent: _contextOutput({'findings_count': 0, 'plan-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
+            }),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -2058,6 +2130,7 @@ void main() {
                 'needs_remediation': true,
                 'findings_count': 2,
                 'plan-review.findings_count': 2,
+                'plan-review.gating_findings_count': 2,
               }),
             ),
             'remediate' => _StubResponse(
@@ -2071,13 +2144,17 @@ void main() {
                 'remediation_plan': 'No further remediation needed',
                 'findings_count': 0,
                 're-review.findings_count': 0,
+                're-review.gating_findings_count': 0,
               }),
             ),
             'update-state' => _StubResponse(
               assistantContent: _contextOutput({'state_update_summary': 'updated after remediation'}),
             ),
             'architecture-review' => _StubResponse(
-              assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+              assistantContent: _contextOutput({
+                'architecture-review.findings_count': 0,
+                'architecture-review.gating_findings_count': 0,
+              }),
             ),
             'refactor' => _StubResponse(
               assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
@@ -2150,7 +2227,11 @@ void main() {
             }),
           ),
           'plan-review' => _StubResponse(
-            assistantContent: _contextOutput({'findings_count': 1, 'plan-review.findings_count': 1}),
+            assistantContent: _contextOutput({
+              'findings_count': 1,
+              'plan-review.findings_count': 1,
+              'plan-review.gating_findings_count': 1,
+            }),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({
@@ -2159,13 +2240,20 @@ void main() {
             }),
           ),
           're-review' => _StubResponse(
-            assistantContent: _contextOutput({'findings_count': 0, 're-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'findings_count': 0,
+              're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
+            }),
           ),
           'update-state' => _StubResponse(
             assistantContent: _contextOutput({'state_update_summary': 'reused plan execution recorded'}),
           ),
           'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({'architecture-review.findings_count': 0}),
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
           ),
           'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -2207,6 +2295,7 @@ void main() {
               'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
               'findings_count': 0,
               'review-code.findings_count': 0,
+              'review-code.gating_findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -2224,6 +2313,7 @@ void main() {
               'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -2268,6 +2358,7 @@ void main() {
                 'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
                 'findings_count': 0,
                 'review-code.findings_count': 0,
+                'review-code.gating_findings_count': 0,
               }),
             ),
             'remediate' => _StubResponse(
@@ -2285,6 +2376,7 @@ void main() {
                 'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
                 'findings_count': 0,
                 're-review.findings_count': 0,
+                're-review.gating_findings_count': 0,
               }),
             ),
             'architecture-review' => _StubResponse(
@@ -2292,6 +2384,7 @@ void main() {
                 'architecture_review_findings': '/tmp/dartclaw-test-architecture-review.md',
                 'findings_count': 0,
                 'architecture-review.findings_count': 0,
+                'architecture-review.gating_findings_count': 0,
               }),
             ),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -2337,6 +2430,7 @@ void main() {
               'review_summary': _verdictJson(findingsCount: 1, summary: 'Initial review finds one remediation item'),
               'findings_count': 1,
               'review-code.findings_count': 1,
+              'review-code.gating_findings_count': 1,
             }),
           ),
           'remediate' => _StubResponse(
@@ -2354,6 +2448,7 @@ void main() {
               'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
               'findings_count': 0,
               're-review.findings_count': 0,
+              're-review.gating_findings_count': 0,
             }),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -2433,6 +2528,7 @@ void main() {
               ),
               'findings_count': queued.occurrence == 0 ? 1 : 0,
               're-review.findings_count': queued.occurrence == 0 ? 1 : 0,
+              're-review.gating_findings_count': queued.occurrence == 0 ? 1 : 0,
             }),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),

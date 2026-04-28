@@ -10,7 +10,7 @@ import 'workflow_context_resolver.dart';
 /// Parentheses, NOT, and deeper nesting are not supported.
 class GateEvaluator {
   static final _log = Logger('GateEvaluator');
-  static final _conditionPattern = RegExp(r'^(.+?)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
+  static final _conditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
 
   /// Tracks keys that have already produced a "context." prefix warning,
   /// so gates evaluated on every loop iteration don't spam the log.
@@ -20,7 +20,18 @@ class GateEvaluator {
   ///
   /// Malformed expressions and missing context keys return false (fail-safe).
   bool evaluate(String expression, WorkflowContext context) {
-    final orGroups = expression.split('||').map((s) => s.trim());
+    final orGroups = expression.split('||').map((s) => s.trim()).toList();
+    if (orGroups.any((group) => group.isEmpty)) {
+      _log.warning('Invalid gate expression: "$expression"');
+      return false;
+    }
+    for (final group in orGroups) {
+      final conditions = group.split('&&').map((s) => s.trim()).toList();
+      if (conditions.any((condition) => condition.isEmpty || !_conditionPattern.hasMatch(condition))) {
+        _log.warning('Invalid gate expression: "$expression"');
+        return false;
+      }
+    }
     return orGroups.any((group) {
       final conditions = group.split('&&').map((s) => s.trim());
       return conditions.every((cond) => _evaluateCondition(cond, context));

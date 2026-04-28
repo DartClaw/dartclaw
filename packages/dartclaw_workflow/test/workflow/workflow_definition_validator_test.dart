@@ -399,6 +399,32 @@ steps:
         expect(validator.validate(def).errors, isEmpty);
       });
 
+      test('gate expression accepts slash, quoted, and spaced values', () {
+        final def = _buildDef(
+          steps: [
+            _step(id: 's1', outputs: {'branch': OutputConfig(), 'label': OutputConfig(), 'quoted': OutputConfig()}),
+            _step(
+              id: 's2',
+              name: 'S2',
+              prompt: 'p',
+              gate: 's1.branch == feature/foo && s1.quoted == "feature/foo" && s1.label == needs review',
+            ),
+          ],
+        );
+        expect(validator.validate(def).errors, isEmpty);
+      });
+
+      test('gate expression with extra operator syntax produces invalidGate error', () {
+        final def = _buildDef(
+          steps: [
+            _step(id: 's1', outputs: {'score': OutputConfig()}),
+            _step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.score > 0 < 1'),
+          ],
+        );
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.type == ValidationErrorType.invalidGate), true);
+      });
+
       test('gate referencing non-existent step produces invalidReference error', () {
         final def = _buildDef(
           steps: [_step(id: 's1', gate: 'nonexistent.status == done')],

@@ -199,7 +199,13 @@ class ContextExtractor {
           }
       }
 
-      final derivedValue = _deriveFromStructuredOutputs(step, outputs, outputKey);
+      final derivedValue = _deriveFromStructuredOutputs(
+        step,
+        outputs,
+        outputKey,
+        workflowContextPayload: workflowContextPayload,
+        structuredOutputPayload: structuredOutputPayload,
+      );
       if (derivedValue != null) {
         outputs[outputKey] = derivedValue;
         continue;
@@ -444,10 +450,18 @@ class ContextExtractor {
     return null;
   }
 
-  dynamic _deriveFromStructuredOutputs(WorkflowStep step, Map<String, dynamic> outputs, String outputKey) {
+  dynamic _deriveFromStructuredOutputs(
+    WorkflowStep step,
+    Map<String, dynamic> outputs,
+    String outputKey, {
+    required Map<String, dynamic>? workflowContextPayload,
+    required Map<String, dynamic> structuredOutputPayload,
+  }) {
     if (outputs.containsKey(outputKey)) {
       return outputs[outputKey];
     }
+    final reviewCount = _deriveReviewFindingCount(outputKey, outputs, workflowContextPayload, structuredOutputPayload);
+    if (reviewCount != null) return reviewCount;
 
     final lastDot = outputKey.lastIndexOf('.');
     if (lastDot > 0) {
@@ -466,6 +480,111 @@ class ContextExtractor {
       }
     }
     return defaultContextOutput(step, outputs, outputKey);
+  }
+
+  int? _deriveReviewFindingCount(
+    String outputKey,
+    Map<String, dynamic> outputs,
+    Map<String, dynamic>? workflowContextPayload,
+    Map<String, dynamic> structuredOutputPayload,
+  ) {
+    if (!outputKey.endsWith('.findings_count') && !outputKey.endsWith('.gating_findings_count')) {
+      return null;
+    }
+    for (final source in [outputs, workflowContextPayload, structuredOutputPayload]) {
+      final count = _deriveReviewFindingCountFromMap(outputKey, source);
+      if (count != null) return count;
+    }
+    if (outputKey.endsWith('.findings_count')) {
+      for (final source in [outputs, workflowContextPayload, structuredOutputPayload]) {
+        final totalCount = _findIntegerValue(source, 'findings_count');
+        if (totalCount != null) return totalCount;
+      }
+    }
+    if (outputKey.endsWith('.gating_findings_count')) {
+      final totalKey = outputKey.replaceFirst('.gating_findings_count', '.findings_count');
+      for (final source in [workflowContextPayload, structuredOutputPayload]) {
+        final totalCount = _findIntegerValue(source, totalKey);
+        if (totalCount != null) return totalCount;
+      }
+      for (final source in [outputs, workflowContextPayload, structuredOutputPayload]) {
+        final gatingCount = _findIntegerValue(source, 'gating_findings_count');
+        if (gatingCount != null) return gatingCount;
+      }
+      for (final source in [outputs, workflowContextPayload, structuredOutputPayload]) {
+        final totalCount = _findIntegerValue(source, 'findings_count');
+        if (totalCount != null) return totalCount;
+      }
+    }
+    return null;
+  }
+
+  int? _findIntegerValue(Map<String, dynamic>? source, String key) {
+    if (source == null) return null;
+    final directValue = _asInteger(source[key]);
+    if (directValue != null) return directValue;
+    for (final value in source.values) {
+      final map = _asStringKeyedMap(value);
+      final nestedValue = _asInteger(map?[key]);
+      if (nestedValue != null) return nestedValue;
+    }
+    return null;
+  }
+
+  int? _asInteger(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim());
+    return null;
+  }
+
+  int? _deriveReviewFindingCountFromMap(String outputKey, Map<String, dynamic>? source) {
+    if (source == null) return null;
+    final directCount = _deriveReviewFindingCountFromVerdict(outputKey, source);
+    if (directCount != null) return directCount;
+
+    for (final value in source.values) {
+      final verdict = _asVerdictMap(value);
+      if (verdict == null) continue;
+      final count = _deriveReviewFindingCountFromVerdict(outputKey, verdict);
+      if (count != null) return count;
+    }
+    return null;
+  }
+
+  int? _deriveReviewFindingCountFromVerdict(String outputKey, Map<String, dynamic> verdict) {
+    if (!verdict.containsKey('findings')) return null;
+    if (outputKey.endsWith('.findings_count')) {
+      final findingsCount = verdict['findings_count'];
+      if (findingsCount is int) return findingsCount;
+      if (findingsCount is num) return findingsCount.toInt();
+    }
+    if (outputKey.endsWith('.gating_findings_count')) {
+      final findings = verdict['findings'];
+      if (findings is! Iterable) return null;
+      return findings.where(_isGatingFinding).length;
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _asVerdictMap(Object? value) {
+    final map = _asStringKeyedMap(value);
+    if (map != null) return map;
+    if (value is String) {
+      try {
+        final decoded = jsonDecode(value);
+        return _asStringKeyedMap(decoded);
+      } on FormatException {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  bool _isGatingFinding(Object? finding) {
+    final findingMap = _asStringKeyedMap(finding);
+    final severity = findingMap?['severity']?.toString().trim().toLowerCase();
+    return severity == null || severity != 'low';
   }
 
   Future<Map<String, dynamic>> _extractStructuredOutputPayload(Task task) async {

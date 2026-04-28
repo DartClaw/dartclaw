@@ -84,10 +84,30 @@ void main() {
       expect(evaluator.evaluate('not a valid gate', context), isFalse);
     });
 
+    test('malformed expression inside || returns false even when another clause is true', () {
+      final ctx = WorkflowContext(data: {'a': 1});
+      expect(evaluator.evaluate('a > 0 || not a valid gate', ctx), isFalse);
+    });
+
+    test('unsupported extra operator syntax inside || returns false fail-safe', () {
+      final ctx = WorkflowContext(data: {'a': 1, 'b': 1});
+      expect(evaluator.evaluate('a > 0 || b > 0 < 1', ctx), isFalse);
+      expect(evaluator.evaluate('a > 0 || b>0<1', ctx), isFalse);
+    });
+
     test('string comparison fallback when non-numeric values', () {
       final strContext = WorkflowContext(data: {'a': 'apple', 'b': 'banana'});
       expect(evaluator.evaluate('a == apple', strContext), isTrue);
       expect(evaluator.evaluate('a != banana', strContext), isTrue);
+    });
+
+    test('string comparison accepts validator-compatible values', () {
+      final strContext = WorkflowContext(
+        data: {'branch': 'feature/foo', 'quoted': '"feature/foo"', 'label': 'needs review'},
+      );
+      expect(evaluator.evaluate('branch == feature/foo', strContext), isTrue);
+      expect(evaluator.evaluate('quoted == "feature/foo"', strContext), isTrue);
+      expect(evaluator.evaluate('label == needs review', strContext), isTrue);
     });
 
     test('multiple && conditions all true', () {
@@ -115,6 +135,19 @@ void main() {
     test('&& binds tighter than ||', () {
       final ctx = WorkflowContext(data: {'a': 1, 'b': 0, 'c': 0});
       expect(evaluator.evaluate('a > 0 || b > 0 && c > 0', ctx), isTrue);
+    });
+
+    test('empty || branches return false fail-safe', () {
+      final ctx = WorkflowContext(data: {'a': 1});
+      expect(evaluator.evaluate('a > 0 ||', ctx), isFalse);
+      expect(evaluator.evaluate('|| a > 0', ctx), isFalse);
+      expect(evaluator.evaluate('a > 0 || || a > 0', ctx), isFalse);
+    });
+
+    test('empty && branches inside || return false fail-safe', () {
+      final ctx = WorkflowContext(data: {'a': 1, 'b': 1});
+      expect(evaluator.evaluate('a > 0 && || b > 0', ctx), isFalse);
+      expect(evaluator.evaluate('a > 0 || b > 0 &&', ctx), isFalse);
     });
 
     test('remediation loop exits with LOW-only findings', () {

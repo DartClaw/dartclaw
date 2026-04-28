@@ -1209,6 +1209,327 @@ void main() {
     expect(outputs['findings_count'], 2);
   });
 
+  test('review producer outputs preserve distinct total and gating findings counts', () async {
+    const producers = [
+      (
+        name: 'dartclaw-review',
+        stepId: 'review-code',
+        summaryKey: 'review_summary',
+        totalKey: 'review-code.findings_count',
+        gatingKey: 'review-code.gating_findings_count',
+      ),
+      (
+        name: 'dartclaw-quick-review',
+        stepId: 're-review',
+        summaryKey: 'review_findings',
+        totalKey: 're-review.findings_count',
+        gatingKey: 're-review.gating_findings_count',
+      ),
+      (
+        name: 'dartclaw-architecture',
+        stepId: 'architecture-review',
+        summaryKey: null,
+        totalKey: 'architecture-review.findings_count',
+        gatingKey: 'architecture-review.gating_findings_count',
+      ),
+    ];
+
+    for (final producer in producers) {
+      for (final gatingCount in const [0, 1]) {
+        final session = await sessionService.getOrCreateMain();
+        final payload = <String, Object?>{'findings_count': 3, producer.totalKey: 3, producer.gatingKey: gatingCount};
+        final summaryKey = producer.summaryKey;
+        if (summaryKey != null) {
+          payload[summaryKey] = {
+            'pass': gatingCount == 0,
+            'findings_count': 3,
+            'findings': [
+              {
+                'severity': gatingCount == 0 ? 'low' : 'medium',
+                'location': 'lib/workflow.dart:1',
+                'description': 'Representative review finding',
+              },
+            ],
+            'summary': gatingCount == 0 ? 'Only LOW findings remain.' : 'A MEDIUM finding remains.',
+          };
+        }
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+        );
+        final taskId = 'task-${producer.stepId}-$gatingCount';
+        await taskService.create(
+          id: taskId,
+          title: 'Test',
+          description: 'Test',
+          type: TaskType.research,
+          autoStart: true,
+        );
+        await taskService.updateFields(taskId, sessionId: session.id);
+        final task = (await taskService.get(taskId))!;
+        final outputConfigs = <String, OutputConfig>{
+          producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+          producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        };
+        if (summaryKey != null) {
+          outputConfigs[summaryKey] = const OutputConfig(format: OutputFormat.json, schema: 'verdict');
+        }
+        final step = makeStep(id: producer.stepId, outputs: outputConfigs);
+
+        final outputs = await extractor.extract(step, task);
+
+        expect(outputs[producer.totalKey], 3, reason: producer.name);
+        expect(outputs[producer.gatingKey], gatingCount, reason: producer.name);
+      }
+    }
+  });
+
+  test('review producer outputs derive scoped counts from verdict findings when scoped keys are missing', () async {
+    const producers = [
+      (
+        name: 'dartclaw-review',
+        stepId: 'review-code',
+        summaryKey: 'review_summary',
+        totalKey: 'review-code.findings_count',
+        gatingKey: 'review-code.gating_findings_count',
+      ),
+      (
+        name: 'dartclaw-quick-review',
+        stepId: 're-review',
+        summaryKey: 'review_findings',
+        totalKey: 're-review.findings_count',
+        gatingKey: 're-review.gating_findings_count',
+      ),
+    ];
+
+    for (final producer in producers) {
+      for (final testCase in const [(gatingCount: 0, severity: 'low'), (gatingCount: 1, severity: 'medium')]) {
+        final session = await sessionService.getOrCreateMain();
+        final payload = <String, Object?>{
+          producer.summaryKey: {
+            'pass': testCase.gatingCount == 0,
+            'findings_count': 3,
+            'findings': [
+              {
+                'severity': testCase.severity,
+                'location': 'lib/workflow.dart:1',
+                'description': 'Representative review finding',
+              },
+              {'severity': 'low', 'location': 'lib/workflow.dart:2', 'description': 'Low severity review finding'},
+              {
+                'severity': 'low',
+                'location': 'lib/workflow.dart:3',
+                'description': 'Another low severity review finding',
+              },
+            ],
+            'summary': testCase.gatingCount == 0 ? 'Only LOW findings remain.' : 'A MEDIUM finding remains.',
+          },
+        };
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+        );
+        final taskId = 'task-${producer.stepId}-derived-${testCase.gatingCount}';
+        await taskService.create(
+          id: taskId,
+          title: 'Test',
+          description: 'Test',
+          type: TaskType.research,
+          autoStart: true,
+        );
+        await taskService.updateFields(taskId, sessionId: session.id);
+        final task = (await taskService.get(taskId))!;
+        final step = makeStep(
+          id: producer.stepId,
+          outputs: {
+            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.summaryKey: const OutputConfig(format: OutputFormat.json, schema: 'verdict'),
+          },
+        );
+
+        final outputs = await extractor.extract(step, task);
+
+        expect(outputs[producer.totalKey], 3, reason: producer.name);
+        expect(outputs[producer.gatingKey], testCase.gatingCount, reason: producer.name);
+      }
+    }
+  });
+
+  test('file-backed review producers fall back to total count when gating count is missing', () async {
+    const producers = [
+      (
+        name: 'dartclaw-review',
+        stepId: 'plan-review',
+        totalKey: 'plan-review.findings_count',
+        gatingKey: 'plan-review.gating_findings_count',
+      ),
+      (
+        name: 'dartclaw-architecture',
+        stepId: 'architecture-review',
+        totalKey: 'architecture-review.findings_count',
+        gatingKey: 'architecture-review.gating_findings_count',
+      ),
+    ];
+
+    for (final producer in producers) {
+      for (final findingsCount in const [0, 2]) {
+        final session = await sessionService.getOrCreateMain();
+        final payload = <String, Object?>{'review_findings': 'docs/specs/review.md', producer.totalKey: findingsCount};
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+        );
+        final taskId = 'task-${producer.stepId}-file-backed-$findingsCount';
+        await taskService.create(
+          id: taskId,
+          title: 'Test',
+          description: 'Test',
+          type: TaskType.research,
+          autoStart: true,
+        );
+        await taskService.updateFields(taskId, sessionId: session.id);
+        final task = (await taskService.get(taskId))!;
+        final step = makeStep(
+          id: producer.stepId,
+          outputs: {
+            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+          },
+        );
+
+        final outputs = await extractor.extract(step, task);
+
+        expect(outputs[producer.totalKey], findingsCount, reason: producer.name);
+        expect(outputs[producer.gatingKey], findingsCount, reason: producer.name);
+      }
+    }
+  });
+
+  test('file-backed review producers accept unscoped count fallbacks', () async {
+    const producers = [
+      (
+        name: 'dartclaw-review',
+        stepId: 'plan-review',
+        totalKey: 'plan-review.findings_count',
+        gatingKey: 'plan-review.gating_findings_count',
+      ),
+      (
+        name: 'dartclaw-architecture',
+        stepId: 'architecture-review',
+        totalKey: 'architecture-review.findings_count',
+        gatingKey: 'architecture-review.gating_findings_count',
+      ),
+    ];
+
+    for (final producer in producers) {
+      for (final payload in const [
+        {'findings_count': 3, 'gating_findings_count': 1},
+        {'findings_count': 2},
+      ]) {
+        final session = await sessionService.getOrCreateMain();
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+        );
+        final taskId = 'task-${producer.stepId}-unscoped-${payload.length}';
+        await taskService.create(
+          id: taskId,
+          title: 'Test',
+          description: 'Test',
+          type: TaskType.research,
+          autoStart: true,
+        );
+        await taskService.updateFields(taskId, sessionId: session.id);
+        final task = (await taskService.get(taskId))!;
+        final step = makeStep(
+          id: producer.stepId,
+          outputs: {
+            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+          },
+        );
+
+        final outputs = await extractor.extract(step, task);
+
+        expect(outputs[producer.totalKey], payload['findings_count'], reason: producer.name);
+        expect(
+          outputs[producer.gatingKey],
+          payload['gating_findings_count'] ?? payload['findings_count'],
+          reason: producer.name,
+        );
+      }
+    }
+  });
+
+  test('file-backed review producers prefer scoped total over unscoped gating fallback', () async {
+    final session = await sessionService.getOrCreateMain();
+    final payload = <String, Object?>{'plan-review.findings_count': 2, 'gating_findings_count': 0};
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-plan-review-scoped-total-wins',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-plan-review-scoped-total-wins', sessionId: session.id);
+    final task = (await taskService.get('task-plan-review-scoped-total-wins'))!;
+    final step = makeStep(
+      id: 'plan-review',
+      outputs: const {
+        'plan-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'plan-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['plan-review.findings_count'], 2);
+    expect(outputs['plan-review.gating_findings_count'], 2);
+  });
+
+  test('file-backed review producers prefer scoped total over already-extracted unscoped gating fallback', () async {
+    final session = await sessionService.getOrCreateMain();
+    final payload = <String, Object?>{'plan-review.findings_count': 2, 'gating_findings_count': 0};
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-plan-review-extracted-unscoped-gating',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-plan-review-extracted-unscoped-gating', sessionId: session.id);
+    final task = (await taskService.get('task-plan-review-extracted-unscoped-gating'))!;
+    final step = makeStep(
+      id: 'plan-review',
+      outputs: const {
+        'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'plan-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'plan-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['gating_findings_count'], 0);
+    expect(outputs['plan-review.findings_count'], 2);
+    expect(outputs['plan-review.gating_findings_count'], 2);
+  });
+
   group('worktree source outputs', () {
     test('source: worktree.branch extracts branch from task.worktreeJson', () async {
       final task = await taskService.create(

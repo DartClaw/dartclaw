@@ -13,6 +13,11 @@ void main() {
       final production = await _processHarness({'base.txt': 'base'});
       addTearDown(production.dispose);
 
+      final fakePreCommit = await _writeUntracked(fake.port, fake.worktreePath, 'draft.md', 'draft');
+      final productionPreCommit = await _writeUntracked(production.port, production.worktreePath, 'draft.md', 'draft');
+
+      expect(fakePreCommit, productionPreCommit);
+
       final fakeObserved = await _commitArtifact(fake.port, fake.worktreePath);
       final productionObserved = await _commitArtifact(production.port, production.worktreePath);
 
@@ -54,6 +59,15 @@ void main() {
       expect(fakeObserved.cleanAfterAbort, productionObserved.cleanAfterAbort);
     });
   });
+}
+
+Future<List<String>> _writeUntracked(WorkflowGitPort port, String worktreePath, String path, String content) async {
+  if (port is FakeGitGateway) {
+    port.addUntracked(worktreePath, path, content: content);
+  } else {
+    File('$worktreePath/$path').writeAsStringSync(content);
+  }
+  return port.diffNameOnly(worktreePath);
 }
 
 Future<_CommitObservation> _commitArtifact(WorkflowGitPort port, String worktreePath) async {

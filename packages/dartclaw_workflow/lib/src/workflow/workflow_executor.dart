@@ -416,6 +416,34 @@ class WorkflowExecutor {
             await _failRun(run, msg);
             return;
           }
+          for (final result in results) {
+            final task = result.task;
+            if (!result.success || task == null) continue;
+            final artifactCommitResult = await _maybeCommitArtifacts(
+              run: run,
+              definition: definition,
+              step: result.step,
+              context: context,
+              task: task,
+            );
+            if (artifactCommitResult.failed && artifactCommitResult.fatal) {
+              final msg =
+                  artifactCommitResult.failureReason ?? "Artifact commit failed for parallel step '${result.step.id}'";
+              run = run.copyWith(
+                currentStepIndex: groupStartStepIndex,
+                contextJson: {
+                  for (final e in run.contextJson.entries)
+                    if (e.key != '_parallel.current.stepIds' && e.key != '_parallel.failed.stepIds') e.key: e.value,
+                  ...context.toJson(),
+                },
+                updatedAt: DateTime.now(),
+              );
+              await _persistContext(run.id, context);
+              await _repository.update(run);
+              await _failRun(run, msg);
+              return;
+            }
+          }
           run = run.copyWith(
             currentStepIndex: groupStartStepIndex + fullGroup.length,
             contextJson: {

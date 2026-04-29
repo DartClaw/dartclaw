@@ -529,6 +529,31 @@ steps:
       );
     });
 
+    for (final field in const ['project', 'review']) {
+      test('rejects removed per-step $field field on inline loop controllers', () {
+        final yaml =
+            '''
+name: n
+description: d
+steps:
+  - id: lp
+    name: Loop
+    type: loop
+    maxIterations: 2
+    exitGate: never
+    $field: removed
+    steps:
+      - id: child
+        name: Child
+        prompt: p
+''';
+        expect(
+          () => parser.parse(yaml),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('"$field:" was removed'))),
+        );
+      });
+    }
+
     test('parses timeout string to seconds', () {
       final yaml = '''
 name: n

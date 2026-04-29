@@ -61,10 +61,9 @@ steps:
   - id: review-code
     name: Review Code
     skill: dartclaw-review
-    # read-only review: file_write absent preserves step_config_policy's
-    # read-only inference. shell/web_fetch/mcp_call enable `git diff`,
-    # `gh pr diff`, `dart analyze`, doc lookup, and MCP-routed checks.
-    allowedTools: [shell, file_read, web_fetch, mcp_call]
+    # File-backed review: the remediation skill consumes a report path, so
+    # this step writes the review artifact and emits its workspace-relative path.
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     inputs: [project_index]
     workflowVariables: [TARGET, BRANCH, PR_NUMBER, BASE_BRANCH]
     prompt: |
@@ -73,10 +72,9 @@ steps:
       pr={{PR_NUMBER}}
       base={{BASE_BRANCH}}
     outputs:
-      review_summary:
-        format: json
-        schema: verdict
-        description: Structured verdict and findings from the code review.
+      review_findings:
+        format: path
+        description: Workspace-relative path to the code review report file written by dartclaw-review.
       review-code.findings_count:
         format: json
         schema: non-negative-integer
@@ -100,8 +98,8 @@ steps:
       - id: remediate
         name: Remediate Findings
         skill: dartclaw-remediate-findings
-        inputs: [project_index, review_summary]
-        prompt: "--auto {{context.review_summary}}"
+        inputs: [project_index, review_findings]
+        prompt: "--auto {{context.review_findings}}"
         outputs:
           remediation_result:
             format: json
@@ -118,15 +116,14 @@ steps:
       - id: re-review
         name: Re-review
         skill: dartclaw-review
-        # read-only review: matches review-code's surface for the re-review pass.
-        allowedTools: [shell, file_read, web_fetch, mcp_call]
-        inputs: [project_index, review_summary, remediation_summary, diff_summary]
+        # File-backed review: later remediation iterations consume this report path.
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        inputs: [project_index, review_findings, remediation_summary, diff_summary]
         prompt: "--mode code --auto {{context.remediation_summary}}"
         outputs:
-          review_summary:
-            format: json
-            schema: verdict
-            description: Structured verdict and findings from the code review.
+          review_findings:
+            format: path
+            description: Workspace-relative path to the code review report file written by dartclaw-review.
           re-review.findings_count:
             format: json
             schema: non-negative-integer

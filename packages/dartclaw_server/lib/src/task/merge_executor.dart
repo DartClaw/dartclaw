@@ -349,7 +349,11 @@ final class _ProcessRunnerWorkflowGitPort implements WorkflowGitPort {
       args.add(against);
     }
     final result = await _expect(args, worktreePath, 'Failed to list changed paths');
-    return _lines(_stdout(result));
+    final paths = _lines(_stdout(result)).toSet();
+    if (!cached && (diffFilter == null || diffFilter.trim().isEmpty)) {
+      paths.addAll(await untrackedFiles(worktreePath));
+    }
+    return paths.toList()..sort();
   }
 
   @override

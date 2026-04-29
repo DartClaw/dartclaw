@@ -41,7 +41,7 @@ stepDefaults:
   - match: "*review*"
     provider: "@reviewer"
     model: "@reviewer"
-  - match: "remediate"
+  - match: "remediate*"
     provider: "@executor"
     model: "@executor"
   - match: "*"
@@ -131,17 +131,15 @@ steps:
     name: Integrated Review
     skill: dartclaw-review
     parallel: true
-    # read-only review: file_write absent preserves step_config_policy's
-    # read-only inference. shell/web_fetch/mcp_call enable `git diff`,
-    # `dart analyze`, doc lookup, and MCP-routed checks.
-    allowedTools: [shell, file_read, web_fetch, mcp_call]
+    # File-backed review: the remediation skill consumes a report path, so
+    # this step writes the review artifact and emits its workspace-relative path.
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     inputs: [project_index, spec_path, diff_summary]
     prompt: "--mode gap,code --auto {{context.spec_path}}"
     outputs:
       review_findings:
-        format: json
-        schema: verdict
-        description: Summary of all issues identified during the review that require remediation.
+        format: path
+        description: Workspace-relative path to the integrated review report file written by dartclaw-review.
       integrated-review.findings_count:
         format: json
         schema: non-negative-integer
@@ -183,12 +181,14 @@ steps:
     entryGate: "integrated-review.gating_findings_count > 0 || architecture-review.gating_findings_count > 0"
     exitGate: "re-review.gating_findings_count == 0"
     steps:
-      # Apply fixes for the current set of integrated-review findings.
+      # Apply fixes for each current findings report. dartclaw-remediate-findings
+      # accepts exactly one report path or URL per invocation.
       - id: remediate
         name: Remediate Findings
         skill: dartclaw-remediate-findings
-        inputs: [project_index, spec_path, review_findings, architecture_review_findings]
-        prompt: "--auto {{context.review_findings}} {{context.architecture_review_findings}}"
+        entryGate: "integrated-review.gating_findings_count > 0 || re-review.gating_findings_count > 0"
+        inputs: [project_index, spec_path, review_findings]
+        prompt: "--auto {{context.review_findings}}"
         outputs:
           remediation_summary:
             format: text
@@ -197,19 +197,32 @@ steps:
             format: text
             schema: diff-summary
 
+      - id: remediate-architecture
+        name: Remediate Architecture Findings
+        skill: dartclaw-remediate-findings
+        entryGate: "architecture-review.gating_findings_count > 0 && loop.remediation-loop.iteration == 1"
+        inputs: [project_index, spec_path, architecture_review_findings]
+        prompt: "--auto {{context.architecture_review_findings}}"
+        outputs:
+          architecture_remediation_summary:
+            format: text
+            schema: remediation-summary
+          architecture_diff_summary:
+            format: text
+            schema: diff-summary
+
       # Re-check the remediated implementation against the specification baseline.
       - id: re-review
         name: Re-review Gaps
-        skill: dartclaw-quick-review
-        # read-only review: matches integrated-review's surface.
-        allowedTools: [shell, file_read, web_fetch, mcp_call]
-        inputs: [project_index, spec_path, remediation_summary, diff_summary]
-        prompt: "--auto {{context.spec_path}}"
+        skill: dartclaw-review
+        # File-backed review: later remediation iterations consume this report path.
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        inputs: [project_index, spec_path, remediation_summary, diff_summary, architecture_remediation_summary, architecture_diff_summary]
+        prompt: "--mode gap,code --auto {{context.spec_path}}"
         outputs:
           review_findings:
-            format: json
-            schema: verdict
-            description: Summary of all issues identified during the review that require remediation.
+            format: path
+            description: Workspace-relative path to the integrated review report file written by dartclaw-review.
           re-review.findings_count:
             format: json
             schema: non-negative-integer

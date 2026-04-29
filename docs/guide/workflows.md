@@ -71,25 +71,25 @@ steps:
 
 Common split points: research → design → implement → verify, or plan → execute → review.
 
-### Step 3: Add Gates
+### Step 3: Add Conditional Gates
 
-Insert gate expressions where human checkpoints add value — after implementation, before merge.
+Use `entryGate` when a step should skip cleanly on a false condition. Reserve `gate` for human checkpoints where a false condition should pause the run for operator review.
 
 ```yaml
 project: '{{PROJECT}}'
 
   - id: remediate
     name: Remediate Findings
-    gate: "review.status == accepted"   # only runs if review was accepted
+    entryGate: "review.status == accepted"   # skip when review was not accepted
     prompt: |
       Fix the issues identified in this review:
       {{context.review_findings}}
     inputs: [review_findings]
 ```
 
-Gates reference previous step IDs (`stepId.key operator value`). Compound gates use `&&`:
+Gate expressions reference previous step IDs (`stepId.key operator value`). Compound gates use `&&`:
 ```yaml
-gate: "review.status == accepted && review.findings_count <= 3"
+entryGate: "review.status == accepted && review.findings_count <= 3"
 ```
 
 ### Workflow Project Binding
@@ -196,7 +196,7 @@ Templates in `prompt:`, `project:`, and similar fields resolve through three dis
 | `{{context.key}}` | Workflow context — values written by prior steps' `outputs:` keys, plus auto-written metadata | Empty string with a warning log |
 | `{{map.*}}` / `{{<alias>.*}}` | Current iteration inside a `mapOver` / `foreach` controller (see [Iterating Over Items with `mapOver`](#iterating-over-items-with-mapover)) | Raises on shape errors; metadata refs always resolve |
 
-Common trap: `{{review_summary}}` is **not** the same as `{{context.review_summary}}`. Without the `context.` prefix the engine treats it as a variable lookup and throws if `review_summary` isn't a declared variable. **Always use `context.` to read another step's output.**
+Common trap: `{{review_findings}}` is **not** the same as `{{context.review_findings}}`. Without the `context.` prefix the engine treats it as a variable lookup and throws if `review_findings` isn't a declared variable. **Always use `context.` to read another step's output.**
 
 The full reference grammar — indexed lookups, field access on map items, alias forms — lives in [Template References](#template-references) further down.
 
@@ -206,7 +206,7 @@ Step-prefixed context keys come from two mechanisms, consistent everywhere (top-
 
 1. **Auto-injected metadata.** The executor writes `<stepId>.status`, `<stepId>.tokenCount`, `<stepId>.branch`, and `<stepId>.worktree_path` for every step unconditionally (the branch/worktree values are empty when the step has no worktree, so `{{context.X.branch}}` resolves uniformly regardless of step type). You can read these without declaring anything — `{{context.lint.status}}` works for any step whose id is `lint`.
 
-2. **Author-declared aliases.** Declare the step-prefixed key explicitly under `outputs:`, e.g. `outputs: { review_summary: { format: json }, review-code.findings_count: { format: json, schema: non-negative-integer } }`. Under the hood this is just a flat context key that happens to have a dot in its name. Use this pattern to disambiguate when more than one step emits the same generic key — `code-review.yaml` does this for `findings_count`, which is written by both `review-code` and `re-review`.
+2. **Author-declared aliases.** Declare the step-prefixed key explicitly under `outputs:`, e.g. `outputs: { review_findings: { format: path }, review-code.findings_count: { format: json, schema: non-negative-integer } }`. Under the hood this is just a flat context key that happens to have a dot in its name. Use this pattern to disambiguate when more than one step emits the same generic key — `code-review.yaml` does this for `findings_count`, which is written by both `review-code` and `re-review`.
 
 There is **no automatic step-prefix aliasing** in iteration overlays. Inside a `foreach`, sibling child steps read each other's outputs via the declared bare keys (e.g. `{{context.story_result}}`) — the per-iteration overlay isolates iterations from each other, but it does not auto-alias outputs under the writing step's id. If a child step wants to expose its output under a step-prefixed key, declare that key in its own `outputs:` block.
 
@@ -301,11 +301,7 @@ Workflow agent steps default to a one-shot execution path for bounded workflow w
 
 There is no longer a workflow-level or per-step `executionMode` switch. Workflow agent steps always use the one-shot path; interactive chat/tasks still use the long-lived streaming harnesses.
 
-For workflow-authored step types:
-
-- `research`, `writing`, and `analysis` steps now run with `readOnly: true`
-- the read-only check follows the provisioned workflow worktree, so file mutations fail the task even though the step still runs through the coding-task path
-- the original YAML step type is preserved as task metadata for observability and review-mode compatibility
+Workflow agent steps default to `type: agent` when `type:` is omitted. Read-only behavior is now derived from `allowedTools`: if a step declares an allowlist and omits `file_write`, DartClaw marks the task read-only and blocks file mutations. File-backed review steps that must write report artifacts include `file_write`; ordinary inspection-only review steps leave it out.
 
 JSON outputs now support two output modes, with `format: json` + `schema` defaulting to native structured output:
 
@@ -960,7 +956,7 @@ DartClaw workflow steps are the unit of execution, but several step types act as
 
 Rules of thumb:
 
-- **`parallel` is orthogonal to everything else** — a `coding` step can have `parallel: true`, but `foreach` / `loop` / `approval` cannot be `parallel`.
+- **`parallel` is orthogonal to everything else** — an agent step can have `parallel: true`, but `foreach` / `loop` / `approval` cannot be `parallel`.
 - **Don't nest `foreach` inside `foreach`** — the parser rejects it. Flatten or sequence instead.
 - **`loop` repeats; `foreach` iterates.** Use `loop` for "do this until X is satisfied" (remediation loops), `foreach` for "do this once per item in a list".
 - **`bash` and `approval` are zero-task.** They don't consume tokens and don't enter review; they just side-step the agent loop for deterministic work (bash) or a human gate (approval).
@@ -996,13 +992,13 @@ variables:
 |-------|------|---------|-------------|
 | `id` | string | required | Unique step identifier |
 | `name` | string | required | Human-readable step name |
-| `type` | string | `research` | Optional semantic label. Structural values like `bash`, `approval`, `foreach`, and `loop` change execution behavior; semantic values like `coding` or `analysis` are retained mainly for observability. New workflow YAMLs should prefer `custom` (or omit the field entirely) unless the label matters |
+| `type` | string | `agent` | Step execution kind. Omit this for normal agent steps, or set one of the supported structural values: `agent`, `bash`, `approval`, `foreach`, `loop`. Removed values such as `custom`, `coding`, `research`, `analysis`, `writing`, and `automation` fail validation |
 | `prompt` | string or list | required* | Step instruction(s). Agent steps may use a list for multi-prompt turns. `bash` and `approval` steps accept a single prompt string |
 | `provider` | string | default | AI provider: `claude`, `codex` (agent steps only) |
 | `model` | string | default | Model override (provider-specific name, agent steps only) |
 | `effort` | string | none | Provider-specific reasoning effort override |
-| `review` | string | `codingOnly` | Compatibility field. Workflow-owned tasks auto-accept by default; use explicit review or approval steps for human checkpoints |
-| `gate` | string | none | Condition expression — step skipped if false |
+| `gate` | string | none | Condition expression — false pauses/fails the run for operator review |
+| `entryGate` | string | none | Condition expression — false skips the step and continues |
 | `inputs` | list | `[]` | Context keys this step reads |
 | `continueSession` | bool or string | `false` | Reuse the preceding agent step's resolved root session, or target an explicit earlier step ID |
 | `maxTokens` | int | none | Per-step token budget |
@@ -1199,7 +1195,7 @@ The `onError` field controls what happens when a step fails:
 
 - id: next-step
   name: Next Step
-  # gate: lint.status == 'success'  # optional: skip if lint failed
+  # entryGate: lint.status == 'success'  # optional: skip if lint failed
   prompt: "Lint status was {{context.lint.status}}. Continue regardless."
 ```
 

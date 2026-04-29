@@ -316,7 +316,8 @@ class ContextExtractor {
     final git = _workflowGitPort;
 
     if (git == null || worktreePath.isEmpty) {
-      final missingPaths = claimedPaths.where((path) => !_pathResolvesToExistingFile(path, task)).toList();
+      final existingClaims = _existingSafeFileClaims(claimedPaths, task, resolver);
+      final missingPaths = claimedPaths.where((path) => !existingClaims.containsKey(path)).toList();
       if (missingPaths.isNotEmpty) {
         throw MissingArtifactFailure(
           claimedPaths: claimedPaths,
@@ -326,15 +327,22 @@ class ContextExtractor {
           reason: 'path claimed but not present in worktree diff',
         );
       }
-      if (resolver.listMode) return claimedPaths;
-      return claimedPaths.isEmpty ? '' : claimedPaths.single;
+      final safeClaims = existingClaims.values.toList()..sort();
+      if (resolver.listMode) return safeClaims;
+      return safeClaims.isEmpty ? '' : safeClaims.single;
     }
 
     final changedPaths = await git.diffNameOnly(worktreePath);
-    final matches = changedPaths.map(p.normalize).where(resolver.matches).toList()..sort();
-    final existingClaims = claimedPaths.where((path) => _pathResolvesToExistingFile(path, task)).toList();
+    final matches = _safeChangedFileSystemMatches(
+      changedPaths.map(p.normalize).where(resolver.matches),
+      task,
+      resolver,
+    );
+    final existingClaims = _existingSafeFileClaims(claimedPaths, task, resolver);
     final missingClaims = claimedPaths
-        .where((path) => !matches.contains(p.normalize(path)) && !existingClaims.contains(path))
+        .where(
+          (path) => !matches.contains(existingClaims[path] ?? p.normalize(path)) && !existingClaims.containsKey(path),
+        )
         .toList();
     if (missingClaims.isNotEmpty) {
       if (matches.isNotEmpty) {
@@ -359,9 +367,21 @@ class ContextExtractor {
     }
 
     if (claimedPaths.isNotEmpty) {
-      if (resolver.listMode) return claimedPaths.toList()..sort();
-      if (claimedPaths.length == 1) return claimedPaths.single;
-      throw StateError('Multiple filesystem artifacts were explicitly claimed for "$outputKey": $claimedPaths');
+      final matchingClaims = _changedFileSystemOutputClaims(claimedPaths, existingClaims, matches);
+      if (matchingClaims.isNotEmpty && (_prefersChangedFileSystemMatches(outputKey) || !resolver.listMode)) {
+        if (resolver.listMode) return matchingClaims;
+        if (matchingClaims.length == 1) return matchingClaims.single;
+        throw StateError('Multiple filesystem artifacts were explicitly claimed for "$outputKey": $matchingClaims');
+      }
+      if (_prefersChangedFileSystemMatches(outputKey) && matches.isNotEmpty) {
+        if (resolver.listMode) return matches;
+        if (matches.length == 1) return matches.single;
+        throw StateError('Multiple filesystem artifacts matched "$outputKey" in $worktreePath: $matches');
+      }
+      final safeClaims = _safeFileSystemOutputClaims(claimedPaths, existingClaims, matches);
+      if (resolver.listMode) return safeClaims;
+      if (safeClaims.length == 1) return safeClaims.single;
+      throw StateError('Multiple filesystem artifacts were explicitly claimed for "$outputKey": $safeClaims');
     }
     if (resolver.listMode) return matches;
     if (matches.isEmpty) return '';
@@ -406,33 +426,88 @@ class ContextExtractor {
     return const <String>[];
   }
 
-  /// Returns `true` if [value] (possibly relative) resolves to an existing
-  /// file under any plausible root for [task].
-  ///
-  /// Tries, in order: absolute path, task worktree path, project dir under
-  /// dataDir (via `task.projectId`). The check is
-  /// read-only and tolerates missing roots.
-  bool _pathResolvesToExistingFile(String value, Task task) {
-    try {
-      if (p.isAbsolute(value)) {
-        return File(value).existsSync();
-      }
-      final roots = <String>[];
-      final worktreePath = (task.worktreeJson?['path'] as String?)?.trim();
-      if (worktreePath != null && worktreePath.isNotEmpty) roots.add(worktreePath);
-      final projectId = task.projectId?.trim();
-      if (projectId != null && projectId.isNotEmpty && projectId != '_local') {
-        roots.add(p.join(_dataDir, 'projects', projectId));
-      }
-      for (final root in roots) {
-        if (File(p.join(root, value)).existsSync()) return true;
-      }
-      return false;
-    } catch (error, st) {
-      _log.fine('Path-existence probe failed for "$value" on task ${task.id}: $error\n$st');
-      // On any filesystem error, preserve original value (fail-open).
-      return true;
+  bool _prefersChangedFileSystemMatches(String outputKey) {
+    return outputKey == 'review_findings' || outputKey == 'architecture_review_findings';
+  }
+
+  List<String> _changedFileSystemOutputClaims(
+    List<String> claimedPaths,
+    Map<String, String> existingClaims,
+    List<String> changedMatches,
+  ) {
+    return claimedPaths
+        .map((path) => existingClaims[path] ?? p.normalize(path))
+        .where(changedMatches.contains)
+        .toSet()
+        .toList()
+      ..sort();
+  }
+
+  List<String> _safeChangedFileSystemMatches(Iterable<String> values, Task task, FileSystemOutput resolver) {
+    return values
+        .map(
+          (value) => _safeRelativeExistingFileClaim(value, task, resolver, roots: _worktreeFileSystemOutputRoots(task)),
+        )
+        .whereType<String>()
+        .toSet()
+        .toList()
+      ..sort();
+  }
+
+  List<String> _safeFileSystemOutputClaims(
+    List<String> claimedPaths,
+    Map<String, String> existingClaims,
+    List<String> changedMatches,
+  ) {
+    return claimedPaths
+        .map((path) => existingClaims[path] ?? p.normalize(path))
+        .where(changedMatches.contains)
+        .followedBy(existingClaims.values)
+        .toSet()
+        .toList()
+      ..sort();
+  }
+
+  Map<String, String> _existingSafeFileClaims(List<String> values, Task task, FileSystemOutput resolver) {
+    final claims = <String, String>{};
+    for (final value in values) {
+      final safeClaim = _safeRelativeExistingFileClaim(value, task, resolver);
+      if (safeClaim != null) claims[value] = safeClaim;
     }
+    return claims;
+  }
+
+  String? _safeRelativeExistingFileClaim(String value, Task task, FileSystemOutput resolver, {List<String>? roots}) {
+    for (final root in roots ?? _fileSystemOutputRoots(task)) {
+      try {
+        final normalizedRoot = p.normalize(root);
+        if (!Directory(normalizedRoot).existsSync()) continue;
+        final candidate = p.normalize(p.isAbsolute(value) ? value : p.join(normalizedRoot, value));
+        if (!p.isWithin(normalizedRoot, candidate) || !File(candidate).existsSync()) continue;
+        final resolvedRoot = p.normalize(Directory(normalizedRoot).resolveSymbolicLinksSync());
+        final resolvedCandidate = p.normalize(File(candidate).resolveSymbolicLinksSync());
+        if (!p.isWithin(resolvedRoot, resolvedCandidate)) continue;
+        final relative = p.normalize(p.relative(candidate, from: normalizedRoot));
+        if (resolver.matches(relative)) return relative;
+      } catch (error, st) {
+        _log.fine('Path-existence probe failed for "$value" on task ${task.id}: $error\n$st');
+      }
+    }
+    return null;
+  }
+
+  List<String> _fileSystemOutputRoots(Task task) {
+    final roots = _worktreeFileSystemOutputRoots(task);
+    final projectId = task.projectId?.trim();
+    if (projectId != null && projectId.isNotEmpty && projectId != '_local') {
+      roots.add(p.join(_dataDir, 'projects', projectId));
+    }
+    return roots;
+  }
+
+  List<String> _worktreeFileSystemOutputRoots(Task task) {
+    final worktreePath = (task.worktreeJson?['path'] as String?)?.trim();
+    return worktreePath == null || worktreePath.isEmpty ? <String>[] : <String>[worktreePath];
   }
 
   /// Parses the last well-formed `<step-outcome>` payload from [task]'s

@@ -212,6 +212,7 @@ class SkillProvisioner {
           );
         }
         _log.info('andthen.network=disabled — using cached source at $srcDir');
+        await _checkoutCached(srcDir, policy: 'andthen.network=disabled');
         return;
       case AndthenNetworkPolicy.required:
         await _doNetworkClone(srcDir, exists, allowOfflineFallback: false);
@@ -226,6 +227,7 @@ class SkillProvisioner {
             );
           }
           _log.warning('Network clone/pull failed, falling back to cached source: ${e.message}');
+          await _checkoutCached(srcDir, policy: 'andthen.network=auto fallback');
         }
         return;
     }
@@ -249,6 +251,19 @@ class SkillProvisioner {
       throw SkillProvisionException('git fetch failed (exit ${fetch.exitCode}): ${fetch.stderr}');
     }
     await _checkout(srcDir);
+  }
+
+  Future<void> _checkoutCached(String srcDir, {required String policy}) async {
+    try {
+      await _checkout(srcDir);
+    } on SkillProvisionException catch (e) {
+      throw SkillProvisionException(
+        '$policy selected cached AndThen source at $srcDir, but configured '
+        'andthen.ref="${config.ref}" could not be resolved locally. '
+        'Refresh the cache with network access or choose a ref already present in the cache. '
+        '${e.message}',
+      );
+    }
   }
 
   Future<void> _checkout(String srcDir) async {

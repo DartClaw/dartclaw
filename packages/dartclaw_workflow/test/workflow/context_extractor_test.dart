@@ -420,9 +420,13 @@ void main() {
 
   test('uses changed architecture review report file when assistant claims a stale report path', () async {
     final worktree = Directory(p.join(tempDir.path, 'worktree-review-report'))..createSync();
+    final actualPath = 'docs/specs/demo/plan-architecture-codex-2026-04-28.md';
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Architecture Review\n');
     final git = FakeGitGateway()
       ..initWorktree(worktree.path)
-      ..addUntracked(worktree.path, 'docs/specs/demo/plan-architecture-codex-2026-04-28.md')
+      ..addUntracked(worktree.path, actualPath)
       ..addUntracked(worktree.path, 'docs/specs/demo/unrelated.md');
     final localExtractor = ContextExtractor(
       taskService: taskService,
@@ -431,7 +435,6 @@ void main() {
       workflowGitPort: git,
     );
     final claimedPath = 'docs/specs/demo/plan-architecture-codex-codex-2026-04-28.md';
-    final actualPath = 'docs/specs/demo/plan-architecture-codex-2026-04-28.md';
     final session = await sessionService.getOrCreateMain();
     await messageService.insertMessage(
       sessionId: session.id,
@@ -462,9 +465,13 @@ void main() {
 
   test('uses changed review findings file when assistant claims a stale report path', () async {
     final worktree = Directory(p.join(tempDir.path, 'worktree-plan-review-report'))..createSync();
+    final actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Plan Review\n');
     final git = FakeGitGateway()
       ..initWorktree(worktree.path)
-      ..addUntracked(worktree.path, 'docs/specs/demo/plan-review-codex-2026-04-28.md')
+      ..addUntracked(worktree.path, actualPath)
       ..addUntracked(worktree.path, 'docs/specs/demo/architecture-notes.md');
     final localExtractor = ContextExtractor(
       taskService: taskService,
@@ -473,7 +480,6 @@ void main() {
       workflowGitPort: git,
     );
     final claimedPath = 'docs/specs/demo/plan-review-codex-codex-2026-04-28.md';
-    final actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
     final session = await sessionService.getOrCreateMain();
     await messageService.insertMessage(
       sessionId: session.id,
@@ -502,8 +508,269 @@ void main() {
     expect(outputs['review_findings'], actualPath);
   });
 
+  test('normalizes absolute in-worktree review findings claims to relative paths', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-absolute-review-report'))..createSync();
+    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Plan Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, actualPath);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Plan review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': p.join(worktree.path, actualPath)})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-absolute-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields('task-absolute-plan-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-absolute-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('ignores absolute outside-worktree review findings claims in favor of changed report files', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-outside-review-report'))..createSync();
+    final outsideDir = Directory(p.join(tempDir.path, 'outside-worktree'))..createSync();
+    final outsideReport = File(p.join(outsideDir.path, 'plan-review-codex-2026-04-28.md'))
+      ..writeAsStringSync('# Outside Review\n');
+    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Plan Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, actualPath);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Plan review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': outsideReport.path})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-outside-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields('task-outside-plan-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-outside-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('prefers changed review findings files over stale existing claims', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-stale-existing-review-report'))..createSync();
+    const stalePath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-29.md';
+    File(p.join(worktree.path, stalePath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Stale Plan Review\n');
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Plan Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, actualPath);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Plan review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': stalePath})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-stale-existing-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields(
+      'task-stale-existing-plan-review-report-path',
+      worktreeJson: {'path': worktree.path},
+    );
+    final taskWithWorktree = (await taskService.get('task-stale-existing-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('ignores symlinked review findings claims that resolve outside the worktree', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-symlink-review-report'))..createSync();
+    final outsideDir = Directory(p.join(tempDir.path, 'outside-symlink-target'))..createSync();
+    final outsideReport = File(p.join(outsideDir.path, 'plan-review-codex-2026-04-28.md'))
+      ..writeAsStringSync('# Outside Review\n');
+    const symlinkPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-29.md';
+    Link(p.join(worktree.path, symlinkPath))
+      ..parent.createSync(recursive: true)
+      ..createSync(outsideReport.path);
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Plan Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, actualPath);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Plan review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': symlinkPath})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-symlink-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields('task-symlink-plan-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-symlink-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('filters unsafe diff-derived review findings paths', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-unsafe-diff-review-report'))..createSync();
+    final outsideDir = Directory(p.join(tempDir.path, 'outside-diff-target'))..createSync();
+    final outsideReport = File(p.join(outsideDir.path, 'plan-review-codex-2026-04-28.md'))
+      ..writeAsStringSync('# Outside Review\n');
+    const symlinkPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    Link(p.join(worktree.path, symlinkPath))
+      ..parent.createSync(recursive: true)
+      ..createSync(outsideReport.path);
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, symlinkPath)
+      ..addUntracked(worktree.path, outsideReport.path);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+
+    await taskService.create(
+      id: 'task-unsafe-diff-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-unsafe-diff-plan-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-unsafe-diff-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], '');
+  });
+
+  test('does not validate diff-derived review paths against project root fallback', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-project-root-fallback'))..createSync();
+    final projectRoot = Directory(p.join(tempDir.path, 'projects', 'demo-project'))..createSync(recursive: true);
+    const reportPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    File(p.join(projectRoot.path, reportPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Project Root Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, reportPath);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+
+    await taskService.create(
+      id: 'task-diff-project-root-fallback',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      projectId: 'demo-project',
+    );
+    await taskService.updateFields('task-diff-project-root-fallback', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-diff-project-root-fallback'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], '');
+  });
+
   test('resolves list path outputs from workflow git diff', () async {
     final worktree = Directory(p.join(tempDir.path, 'worktree'))..createSync();
+    File(p.join(worktree.path, 'fis', 's01-foo.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Foo\n');
+    File(p.join(worktree.path, 'fis', 's02-bar.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Bar\n');
     final git = FakeGitGateway()
       ..initWorktree(worktree.path)
       ..addUntracked(worktree.path, 'fis/s01-foo.md')
@@ -660,6 +927,9 @@ void main() {
     File(p.join(worktree.path, 'fis', 's01-foo.md'))
       ..createSync(recursive: true)
       ..writeAsStringSync('# Existing Foo\n');
+    File(p.join(worktree.path, 'fis', 's02-bar.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Bar\n');
     final git = FakeGitGateway()
       ..initWorktree(worktree.path)
       ..addUntracked(worktree.path, 'fis/s02-bar.md');
@@ -697,6 +967,12 @@ void main() {
 
   test('throws StateError when singular filesystem output has multiple matches', () async {
     final worktree = Directory(p.join(tempDir.path, 'worktree-ambiguous'))..createSync();
+    File(p.join(worktree.path, 'docs', 'a', 'prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# A\n');
+    File(p.join(worktree.path, 'docs', 'b', 'prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# B\n');
     final git = FakeGitGateway()
       ..initWorktree(worktree.path)
       ..addUntracked(worktree.path, 'docs/a/prd.md')
@@ -766,6 +1042,12 @@ void main() {
 
   test('resolves mixed filesystem and inline narrative outputs', () async {
     final worktree = Directory(p.join(tempDir.path, 'worktree-mixed'))..createSync();
+    File(p.join(worktree.path, 'fis', 's01-foo.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Foo\n');
+    File(p.join(worktree.path, 'fis', 's02-bar.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Bar\n');
     final git = FakeGitGateway()
       ..initWorktree(worktree.path)
       ..addUntracked(worktree.path, 'fis/s01-foo.md')

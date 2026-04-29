@@ -23,6 +23,8 @@ void main() {
 
       final port = WorkflowGitPortProcess();
 
+      expect(await port.diffNameOnly(tempDir.path), ['plan.md']);
+
       await port.add(tempDir.path, ['plan.md']);
       expect(await port.diffNameOnly(tempDir.path, cached: true), ['plan.md']);
 

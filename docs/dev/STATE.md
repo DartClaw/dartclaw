@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-28 18:41 CEST
+Last Updated: 2026-04-28 22:19 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -25,7 +25,6 @@ Last Updated: 2026-04-28 18:41 CEST
 
 ## Active Stories
 
-- S76 — Done: Workflow Release Stabilization. Closed remaining workflow release issues as one story: stale CLI workflow command assertions, typed publish status expectations, file-backed review report path resolution, built-in review write permissions, inline-mode warning cleanup, deterministic branch-only live publish, scoped forced-remediation gating, and live e2e assertion alignment. Verification: `dartclaw_workflow` package tests passed, CLI workflow command tests passed, analyze clean, and live `plan-and-implement` passed with real Codex harness, remediation/re-review, merge-resolve retry, and local branch publish.
 - S72 — Done: Workflow E2E Integration Test Hardening. Tightened `workflow_e2e_integration_test.dart` with helper-level proofs for strict/soft paused status handling, branch cleanup tracking, functional diff verification, fixture seed assertions, and related e2e safeguards; final live proof closed by S75/S76.
 - S73 — Done: Workflow Runtime + Built-in Definition Polish. Removed merge-resolve verification config/env vars in favor of project-convention verification, relaxed stepDefaults ambiguity warnings to runtime semantics, added `GateEvaluator` `||` support, added severity-aware `gating_findings_count` remediation gates, added spec workflow architecture review parity, typed publish status, split branch vs PR artifacts, and added opt-in failed-run remote branch cleanup.
 - S74 — Done: Workflow step semantics rename and deprecation cleanup. Renamed workflow agent steps from `custom` to `agent`, made omitted `type:` resolve to `agent`, removed ADR-024 compatibility shims for semantic step types plus per-step `project:` / `review:`, and swept built-ins, tests, docs, and changelogs to the closed five-value step-type surface.

@@ -91,10 +91,7 @@ void main() {
         // Installer ran exactly once for the data_dir destination.
         final installer = runner.calls.where((c) => c.executable.endsWith('install-skills.sh')).toList();
         expect(installer, hasLength(1));
-        expect(
-          installer.single.arguments,
-          containsAll(['--prefix', 'dartclaw-', '--display-brand', 'DartClaw']),
-        );
+        expect(installer.single.arguments, containsAll(['--prefix', 'dartclaw-', '--display-brand', 'DartClaw']));
         expect(installer.single.arguments, containsAll(['--skills-dir', p.join(dataDir, '.agents', 'skills')]));
         expect(installer.single.arguments, isNot(contains('--claude-user')));
 
@@ -108,6 +105,53 @@ void main() {
           expect(File(p.join(dataDir, '.agents', 'skills', name, 'SKILL.md')).existsSync(), isTrue, reason: name);
           expect(File(p.join(dataDir, '.claude', 'skills', name, 'SKILL.md')).existsSync(), isTrue, reason: name);
         }
+      });
+
+      test('disabled network checks out the configured ref from the cached source', () async {
+        _seedAndthenSrc(p.join(dataDir, 'andthen-src'), sha: 'develop-sha');
+        final runner = _FakeProcessRunner()..remoteTrackingRefs.add('origin/develop');
+        final provisioner = SkillProvisioner(
+          config: const AndthenConfig(ref: 'develop', network: AndthenNetworkPolicy.disabled),
+          dataDir: dataDir,
+          dcNativeSkillsSourceDir: dcNativeSrc,
+          processRunner: runner.run,
+        );
+
+        await provisioner.ensureCacheCurrent();
+
+        final checkoutCalls = runner.calls.where((c) => c.executable == 'git' && c.arguments.contains('checkout'));
+        final resetCalls = runner.calls.where((c) => c.executable == 'git' && c.arguments.contains('reset')).toList();
+        expect(checkoutCalls, isNotEmpty, reason: 'cached source must still enforce andthen.ref');
+        expect(resetCalls, hasLength(1));
+        expect(resetCalls.single.arguments.last, 'origin/develop');
+      });
+
+      test('disabled network fails when the cached source cannot resolve the configured ref', () async {
+        _seedAndthenSrc(p.join(dataDir, 'andthen-src'), sha: 'old-sha');
+        final runner = _FakeProcessRunner()
+          ..gitCheckoutExitCode = 1
+          ..gitCheckoutStderr = 'pathspec ref-not-cached did not match';
+        final provisioner = SkillProvisioner(
+          config: const AndthenConfig(ref: 'ref-not-cached', network: AndthenNetworkPolicy.disabled),
+          dataDir: dataDir,
+          dcNativeSkillsSourceDir: dcNativeSrc,
+          processRunner: runner.run,
+        );
+
+        await expectLater(
+          provisioner.ensureCacheCurrent(),
+          throwsA(
+            isA<SkillProvisionException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('andthen.network=disabled'),
+                contains('andthen.ref="ref-not-cached"'),
+                contains('could not be resolved locally'),
+              ),
+            ),
+          ),
+        );
       });
 
       test('disabled network without pre-staged source throws clear error', () async {
@@ -350,6 +394,16 @@ void main() {
 
         await provisioner.ensureCacheCurrent();
         expect(File(p.join(dataDir, '.agents', 'skills', skillProvisionerMarkerFile)).readAsStringSync(), 'cached-sha');
+        expect(
+          runner.calls.any((c) => c.executable == 'git' && c.arguments.contains('checkout')),
+          isTrue,
+          reason: 'auto fallback must enforce andthen.ref against the cached source',
+        );
+        expect(
+          runner.calls.any((c) => c.executable == 'git' && c.arguments.contains('reset')),
+          isTrue,
+          reason: 'auto fallback must reset the cache to the configured ref when it can resolve locally',
+        );
       });
 
       test('network: auto fails when no cache and network fails', () async {
@@ -472,6 +526,10 @@ class _FakeProcessRunner {
   String gitCloneStderr = '';
   int gitFetchExitCode = 0;
   String gitFetchStderr = '';
+  int gitCheckoutExitCode = 0;
+  String gitCheckoutStderr = '';
+  int gitResetExitCode = 0;
+  String gitResetStderr = '';
 
   /// Refs (in `origin/<name>` form) the fake should treat as remote-tracking.
   /// Used by the `rev-parse --verify --quiet origin/<ref>` probe in
@@ -553,10 +611,10 @@ class _FakeProcessRunner {
         return ProcessResult(0, gitFetchExitCode, '', gitFetchStderr);
       }
       if (arguments.contains('checkout')) {
-        return ProcessResult(0, 0, '', '');
+        return ProcessResult(0, gitCheckoutExitCode, '', gitCheckoutStderr);
       }
       if (arguments.contains('reset')) {
-        return ProcessResult(0, 0, '', '');
+        return ProcessResult(0, gitResetExitCode, '', gitResetStderr);
       }
       if (arguments.contains('rev-parse')) {
         // `rev-parse --verify --quiet origin/<ref>` probes whether a ref is a

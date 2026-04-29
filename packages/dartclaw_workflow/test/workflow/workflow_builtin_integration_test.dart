@@ -55,20 +55,6 @@ String _definitionsDir() {
   }
 }
 
-String _verdictJson({
-  required int findingsCount,
-  required String summary,
-  bool? pass,
-  List<Map<String, String>> findings = const [],
-}) {
-  return jsonEncode({
-    'pass': pass ?? findingsCount == 0,
-    'findings_count': findingsCount,
-    'findings': findings,
-    'summary': summary,
-  });
-}
-
 String _contextOutput(Map<String, Object?> values) {
   return '<workflow-context>${jsonEncode(values)}</workflow-context>';
 }
@@ -80,14 +66,23 @@ class _StubResponse {
   const _StubResponse({required this.assistantContent, this.worktreeJson});
 }
 
-_StubResponse _architectureReviewStub() => _StubResponse(
+_StubResponse _architectureReviewStub({int findingsCount = 0, int? gatingFindingsCount}) => _StubResponse(
   assistantContent: _contextOutput({
-    'architecture_review_findings': '/tmp/dartclaw-test-architecture-review.md',
-    'findings_count': 0,
-    'architecture-review.findings_count': 0,
-    'architecture-review.gating_findings_count': 0,
+    'architecture_review_findings': 'docs/specs/test/architecture-review-codex-2026-04-29.md',
+    'findings_count': findingsCount,
+    'architecture-review.findings_count': findingsCount,
+    'architecture-review.gating_findings_count': gatingFindingsCount ?? findingsCount,
   }),
 );
+
+Map<String, Object?> _reviewReportContext(String stepId, {required int findingsCount, int? gatingFindingsCount}) {
+  return {
+    'review_findings': 'docs/specs/test/$stepId-codex-2026-04-29.md',
+    'findings_count': findingsCount,
+    '$stepId.findings_count': findingsCount,
+    '$stepId.gating_findings_count': gatingFindingsCount ?? findingsCount,
+  };
+}
 
 class _QueuedStep {
   final WorkflowDefinition definition;
@@ -303,6 +298,7 @@ void main() {
     final planPath = (decoded['plan'] as String?) ?? discoveredPlanPath;
     writeRelative(planPath);
     writeRelative(decoded['spec_path'] as String?);
+    writeRelative(decoded['review_findings'] as String?);
     writeRelative(decoded['architecture_review_findings'] as String?);
     final planDir = planPath == null || planPath.trim().isEmpty ? null : p.dirname(planPath.trim());
     final activeStorySpecs = projectIndexMap is Map ? projectIndexMap['active_story_specs'] : null;
@@ -519,12 +515,7 @@ void main() {
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
           'integrated-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'integrated review passed')),
-              'findings_count': 0,
-              'integrated-review.findings_count': 0,
-              'integrated-review.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('integrated-review', findingsCount: 0)),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({
@@ -533,12 +524,7 @@ void main() {
             }),
           ),
           're-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_findings': _verdictJson(findingsCount: 0, summary: 'No remaining gaps'),
-              'findings_count': 0,
-              're-review.findings_count': 0,
-              're-review.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('re-review', findingsCount: 0)),
           ),
           'update-state' => _StubResponse(
             assistantContent: _contextOutput({'state_update_summary': 'State updated cleanly'}),
@@ -574,23 +560,13 @@ void main() {
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
           'integrated-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'review accepted')),
-              'findings_count': 0,
-              'integrated-review.findings_count': 0,
-              'integrated-review.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('integrated-review', findingsCount: 0)),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
           ),
           're-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_findings': _verdictJson(findingsCount: 0, summary: 'no gaps'),
-              'findings_count': 0,
-              're-review.findings_count': 0,
-              're-review.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('re-review', findingsCount: 0)),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _architectureReviewStub(),
@@ -608,10 +584,10 @@ void main() {
     expect(trace.tasksForStep('integrated-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('remediate'), isEmpty);
     expect(trace.tasksForStep('update-state'), isEmpty);
-    expect(trace.tasksForStep('integrated-review').single.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
+    expect(trace.tasksForStep('integrated-review').single.configJson['_workflowNeedsWorktree'], isTrue);
   });
 
-  test('spec-and-implement integration keeps discovery/review read-only and spec writable', () async {
+  test('spec-and-implement integration keeps discovery read-only and file-backed reviews writable', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': 'Read-only policy check', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
@@ -630,23 +606,13 @@ void main() {
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
           'integrated-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'review accepted')),
-              'findings_count': 0,
-              'integrated-review.findings_count': 0,
-              'integrated-review.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('integrated-review', findingsCount: 0)),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
           ),
           're-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_findings': _verdictJson(findingsCount: 0, summary: 'no gaps'),
-              'findings_count': 0,
-              're-review.findings_count': 0,
-              're-review.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('re-review', findingsCount: 0)),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _architectureReviewStub(),
@@ -661,7 +627,8 @@ void main() {
     expect(discover.configJson['readOnly'], isTrue);
     expect(discover.configJson['allowedTools'], ['shell', 'file_read']);
 
-    expect(trace.tasksForStep('integrated-review').single.configJson['readOnly'], isTrue);
+    expect(trace.tasksForStep('integrated-review').single.configJson.containsKey('readOnly'), isFalse);
+    expect(trace.tasksForStep('integrated-review').single.configJson['_workflowNeedsWorktree'], isTrue);
     expect(trace.tasksForStep('re-review'), isEmpty);
 
     expect(trace.tasksForStep('spec').single.configJson.containsKey('readOnly'), isFalse);
@@ -690,23 +657,13 @@ void main() {
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
           'integrated-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'review accepted')),
-              'findings_count': 0,
-              'integrated-review.findings_count': 0,
-              'integrated-review.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('integrated-review', findingsCount: 0)),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
           ),
           're-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_findings': _verdictJson(findingsCount: 0, summary: 'no gaps'),
-              'findings_count': 0,
-              're-review.findings_count': 0,
-              're-review.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('re-review', findingsCount: 0)),
           ),
           'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _architectureReviewStub(),
@@ -748,14 +705,7 @@ void main() {
             ),
             'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'LOOP_DIFF_MARKER'})),
             'integrated-review' => _StubResponse(
-              assistantContent: _contextOutput({
-                'review_findings': jsonDecode(
-                  _verdictJson(findingsCount: 1, summary: 'implementation still needs validation cleanup'),
-                ),
-                'findings_count': 1,
-                'integrated-review.findings_count': 1,
-                'integrated-review.gating_findings_count': 1,
-              }),
+              assistantContent: _contextOutput(_reviewReportContext('integrated-review', findingsCount: 1)),
             ),
             'remediate' => _StubResponse(
               assistantContent: _contextOutput({
@@ -764,12 +714,7 @@ void main() {
               }),
             ),
             're-review' => _StubResponse(
-              assistantContent: _contextOutput({
-                'review_findings': _verdictJson(findingsCount: 0, summary: 'Re-review is clean'),
-                'findings_count': 0,
-                're-review.findings_count': 0,
-                're-review.gating_findings_count': 0,
-              }),
+              assistantContent: _contextOutput(_reviewReportContext('re-review', findingsCount: 0)),
             ),
             'update-state' => _StubResponse(
               assistantContent: _contextOutput({'state_update_summary': 'State updated after remediation'}),
@@ -780,13 +725,76 @@ void main() {
         },
       );
 
-      expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+      expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
       expect(trace.count('remediate'), 1);
       expect(trace.count('re-review'), 1);
-      expect(trace.descriptionsByStep['remediate']!.single, contains('implementation still needs validation cleanup'));
+      expect(
+        trace.descriptionsByStep['remediate']!.single,
+        contains('docs/specs/test/integrated-review-codex-2026-04-29.md'),
+      );
+      expect(trace.descriptionsByStep['remediate']!.single, isNot(contains('architecture-review-codex')));
       expect(trace.descriptionsByStep['re-review']!.single, contains('LOOP_DIFF_MARKER_AFTER_FIX'));
     },
   );
+
+  test('spec-and-implement remediates fresh re-review findings after an architecture-only first pass', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'spec-and-implement.yaml',
+      variables: {'FEATURE': 'Harden remediation loop', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'dart',
+              'project_root': '/repo/demo',
+              'document_locations': {'product': 'PRODUCT.md'},
+              'state_protocol': {'state_file': 'docs/STATE.md'},
+            }),
+          ),
+          'spec' => _StubResponse(
+            assistantContent: _contextOutput({
+              'spec_path': 'docs/specs/test/spec-loop.md',
+              'spec_source': 'synthesized',
+            }),
+          ),
+          'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'ARCH_ONLY_DIFF'})),
+          'integrated-review' => _StubResponse(
+            assistantContent: _contextOutput(_reviewReportContext('integrated-review', findingsCount: 0)),
+          ),
+          'architecture-review' => _architectureReviewStub(findingsCount: 1),
+          'remediate-architecture' => _StubResponse(
+            assistantContent: _contextOutput({
+              'architecture_remediation_summary': 'Fixed the architecture finding',
+              'architecture_diff_summary': 'ARCH_ONLY_DIFF_AFTER_ARCH_FIX',
+            }),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_summary': 'Fixed the re-review finding',
+              'diff_summary': 'ARCH_ONLY_DIFF_AFTER_REREVIEW_FIX',
+            }),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput(
+              _reviewReportContext('re-review', findingsCount: queued.occurrence == 0 ? 1 : 0),
+            ),
+          ),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
+    expect(trace.count('remediate-architecture'), 1);
+    expect(trace.count('remediate'), 1);
+    expect(trace.count('re-review'), 2);
+    expect(
+      trace.descriptionsByStep['remediate-architecture']!.single,
+      contains('docs/specs/test/architecture-review-codex-2026-04-29.md'),
+    );
+    expect(trace.descriptionsByStep['remediate']!.single, contains('docs/specs/test/re-review-codex-2026-04-29.md'));
+    expect(trace.descriptionsByStep['remediate']!.single, isNot(contains('architecture-review-codex')));
+  });
 
   test(
     'spec-and-implement commits generated artifacts to a local-path workflow branch and publishes to origin',
@@ -808,7 +816,10 @@ void main() {
       runGit(['config', 'user.name', 'Workflow Test']);
       runGit(['config', 'user.email', 'workflow-test@example.com']);
       File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# local-path\n');
-      runGit(['add', 'README.md']);
+      File(p.join(repoDir.path, 'docs', 'specs', 'test', 'architecture-review-codex-2026-04-29.md'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('# Architecture Review\n');
+      runGit(['add', 'README.md', 'docs/specs/test/architecture-review-codex-2026-04-29.md']);
       runGit(['commit', '-m', 'initial']);
       runGit(['remote', 'add', 'origin', originDir.path]);
       runGit(['push', '-u', 'origin', 'main']);
@@ -877,12 +888,7 @@ void main() {
             }(),
             'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
             'integrated-review' => _StubResponse(
-              assistantContent: _contextOutput({
-                'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'integrated review passed')),
-                'findings_count': 0,
-                'integrated-review.findings_count': 0,
-                'integrated-review.gating_findings_count': 0,
-              }),
+              assistantContent: _contextOutput(_reviewReportContext('integrated-review', findingsCount: 0)),
             ),
             'remediate' => _StubResponse(
               assistantContent: _contextOutput({
@@ -891,12 +897,7 @@ void main() {
               }),
             ),
             're-review' => _StubResponse(
-              assistantContent: _contextOutput({
-                'review_findings': _verdictJson(findingsCount: 0, summary: 'No remaining gaps'),
-                'findings_count': 0,
-                're-review.findings_count': 0,
-                're-review.gating_findings_count': 0,
-              }),
+              assistantContent: _contextOutput(_reviewReportContext('re-review', findingsCount: 0)),
             ),
             'update-state' => _StubResponse(
               assistantContent: _contextOutput({'state_update_summary': 'State updated cleanly'}),
@@ -907,7 +908,7 @@ void main() {
         },
       );
 
-      expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+      expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
       expect(workflowBranch, isNotNull);
 
       final branchFile = runGit(['show', '${workflowBranch!}:docs/specs/test/spec.md']);
@@ -1072,7 +1073,7 @@ void main() {
       },
     );
 
-    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
     // prd runs once; merged plan emits stories + story_specs once; foreach runs per story.
     expect(trace.count('prd'), 1);
     expect(trace.count('review-prd'), 0);
@@ -1198,7 +1199,7 @@ void main() {
       },
     );
 
-    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
     expect(trace.tasksForStep('prd').single.projectId, 'demo-project');
     expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueSessionId'), isFalse);
@@ -2125,12 +2126,10 @@ void main() {
             ),
             'plan-review' => _StubResponse(
               assistantContent: _contextOutput({
+                ..._reviewReportContext('plan-review', findingsCount: 2),
                 'implementation_summary': 'Batch needs remediation',
                 'remediation_plan': 'Fix the lingering review findings',
                 'needs_remediation': true,
-                'findings_count': 2,
-                'plan-review.findings_count': 2,
-                'plan-review.gating_findings_count': 2,
               }),
             ),
             'remediate' => _StubResponse(
@@ -2227,11 +2226,7 @@ void main() {
             }),
           ),
           'plan-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'findings_count': 1,
-              'plan-review.findings_count': 1,
-              'plan-review.gating_findings_count': 1,
-            }),
+            assistantContent: _contextOutput({..._reviewReportContext('plan-review', findingsCount: 1)}),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({
@@ -2291,12 +2286,7 @@ void main() {
             }),
           ),
           'review-code' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
-              'findings_count': 0,
-              'review-code.findings_count': 0,
-              'review-code.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('review-code', findingsCount: 0)),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({
@@ -2309,12 +2299,7 @@ void main() {
             }),
           ),
           're-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
-              'findings_count': 0,
-              're-review.findings_count': 0,
-              're-review.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('re-review', findingsCount: 0)),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
@@ -2326,83 +2311,71 @@ void main() {
     expect(trace.tasksForStep('review-code').single.projectId, 'demo-project');
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
-    expect(trace.tasksForStep('review-code').single.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
+    expect(trace.tasksForStep('review-code').single.configJson['_workflowNeedsWorktree'], isTrue);
     expect(trace.tasksForStep('remediate'), isEmpty);
     expect(trace.tasksForStep('re-review'), isEmpty);
   });
 
-  test(
-    'code-review integration marks research and review steps read-only while keeping remediation writable',
-    () async {
-      final trace = await executeBuiltInWorkflow(
-        workflowFileName: 'code-review.yaml',
-        variables: {
-          'TARGET': 'Read-only policy check',
-          'BRANCH': 'feature/read-only',
-          'PR_NUMBER': '',
-          'BASE_BRANCH': 'main',
-          'PROJECT': 'demo-project',
-        },
-        responseForStep: (queued) async {
-          return switch (queued.stepKey) {
-            'discover-project' => _StubResponse(
-              assistantContent: jsonEncode({
-                'framework': 'dart',
-                'project_root': '/repo/demo-project',
-                'document_locations': {'product': 'PRODUCT.md'},
-                'state_protocol': {'state_file': 'docs/STATE.md'},
-              }),
-            ),
-            'review-code' => _StubResponse(
-              assistantContent: _contextOutput({
-                'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
-                'findings_count': 0,
-                'review-code.findings_count': 0,
-                'review-code.gating_findings_count': 0,
-              }),
-            ),
-            'remediate' => _StubResponse(
-              assistantContent: _contextOutput({
-                'remediation_result': jsonEncode({
-                  'remediation_summary': 'No remediation needed',
-                  'diff_summary': 'No diff',
-                }),
+  test('code-review integration keeps discovery read-only and file-backed review writable', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'code-review.yaml',
+      variables: {
+        'TARGET': 'Read-only policy check',
+        'BRANCH': 'feature/read-only',
+        'PR_NUMBER': '',
+        'BASE_BRANCH': 'main',
+        'PROJECT': 'demo-project',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'dart',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': 'PRODUCT.md'},
+              'state_protocol': {'state_file': 'docs/STATE.md'},
+            }),
+          ),
+          'review-code' => _StubResponse(
+            assistantContent: _contextOutput(_reviewReportContext('review-code', findingsCount: 0)),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_result': jsonEncode({
                 'remediation_summary': 'No remediation needed',
                 'diff_summary': 'No diff',
               }),
-            ),
-            're-review' => _StubResponse(
-              assistantContent: _contextOutput({
-                'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
-                'findings_count': 0,
-                're-review.findings_count': 0,
-                're-review.gating_findings_count': 0,
-              }),
-            ),
-            'architecture-review' => _StubResponse(
-              assistantContent: _contextOutput({
-                'architecture_review_findings': '/tmp/dartclaw-test-architecture-review.md',
-                'findings_count': 0,
-                'architecture-review.findings_count': 0,
-                'architecture-review.gating_findings_count': 0,
-              }),
-            ),
-            _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-          };
-        },
-      );
+              'remediation_summary': 'No remediation needed',
+              'diff_summary': 'No diff',
+            }),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput(_reviewReportContext('re-review', findingsCount: 0)),
+          ),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'architecture_review_findings': 'docs/specs/test/architecture-review-codex-2026-04-29.md',
+              'findings_count': 0,
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
+          ),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
 
-      expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
 
-      final discover = trace.tasksForStep('discover-project').single;
-      expect(discover.configJson['readOnly'], isTrue);
-      expect(discover.configJson['allowedTools'], ['shell', 'file_read']);
+    final discover = trace.tasksForStep('discover-project').single;
+    expect(discover.configJson['readOnly'], isTrue);
+    expect(discover.configJson['allowedTools'], ['shell', 'file_read']);
 
-      expect(trace.tasksForStep('review-code').single.configJson['readOnly'], isTrue);
-      expect(trace.tasksForStep('re-review'), isEmpty);
-      expect(trace.tasksForStep('remediate'), isEmpty);
-    },
-  );
+    expect(trace.tasksForStep('review-code').single.configJson.containsKey('readOnly'), isFalse);
+    expect(trace.tasksForStep('review-code').single.configJson['_workflowNeedsWorktree'], isTrue);
+    expect(trace.tasksForStep('re-review'), isEmpty);
+    expect(trace.tasksForStep('remediate'), isEmpty);
+  });
 
   test('code-review discovery prompt excludes authored target text', () async {
     const target = 'TARGET_SHOULD_NOT_APPEAR_IN_DISCOVERY_PROMPT';
@@ -2426,12 +2399,7 @@ void main() {
             }),
           ),
           'review-code' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_summary': _verdictJson(findingsCount: 1, summary: 'Initial review finds one remediation item'),
-              'findings_count': 1,
-              'review-code.findings_count': 1,
-              'review-code.gating_findings_count': 1,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('review-code', findingsCount: 1)),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({
@@ -2444,12 +2412,7 @@ void main() {
             }),
           ),
           're-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
-              'findings_count': 0,
-              're-review.findings_count': 0,
-              're-review.gating_findings_count': 0,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('re-review', findingsCount: 0)),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
@@ -2484,21 +2447,7 @@ void main() {
             }),
           ),
           'review-code' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_summary': _verdictJson(
-                findingsCount: 1,
-                summary: 'Initial review found one issue',
-                pass: false,
-                findings: const [
-                  {
-                    'severity': 'high',
-                    'location': 'lib/workflow.dart:42',
-                    'description': 'One issue remains before acceptance',
-                  },
-                ],
-              ),
-              'findings_count': 1,
-            }),
+            assistantContent: _contextOutput(_reviewReportContext('review-code', findingsCount: 1)),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({
@@ -2511,25 +2460,9 @@ void main() {
             }),
           ),
           're-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_summary': _verdictJson(
-                findingsCount: queued.occurrence == 0 ? 1 : 0,
-                summary: queued.occurrence == 0 ? 'One review finding remains' : 'Review is now clean',
-                pass: queued.occurrence != 0,
-                findings: queued.occurrence == 0
-                    ? const [
-                        {
-                          'severity': 'medium',
-                          'location': 'lib/workflow.dart:88',
-                          'description': 'Another pass is still required',
-                        },
-                      ]
-                    : const [],
-              ),
-              'findings_count': queued.occurrence == 0 ? 1 : 0,
-              're-review.findings_count': queued.occurrence == 0 ? 1 : 0,
-              're-review.gating_findings_count': queued.occurrence == 0 ? 1 : 0,
-            }),
+            assistantContent: _contextOutput(
+              _reviewReportContext('re-review', findingsCount: queued.occurrence == 0 ? 1 : 0),
+            ),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };

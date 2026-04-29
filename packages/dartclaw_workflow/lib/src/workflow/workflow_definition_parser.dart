@@ -180,6 +180,7 @@ class WorkflowDefinitionParser {
     }
     _rejectLegacyContextOutputs(raw, id, sourcePath);
     _rejectLegacyContextInputs(raw, id, sourcePath);
+    _rejectRemovedStepFields(raw, id, sourcePath);
 
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {

@@ -1140,6 +1140,7 @@ void main() {
       'quick-review',
       'refactor',
       'remediate',
+      'remediate-architecture',
       're-review',
     ];
     expectStepOrderSubsequence(recorder.stepOrder, coreSteps);
@@ -1170,16 +1171,35 @@ void main() {
     expect(recorder.count('plan-review'), 1, reason: 'plan-review should run exactly once');
     expect(recorder.count('architecture-review'), 1, reason: 'architecture-review should run exactly once');
     expect(recorder.count('remediate'), greaterThanOrEqualTo(1), reason: 'remediate should run at least once');
+    expect(
+      recorder.count('remediate-architecture'),
+      greaterThanOrEqualTo(1),
+      reason: 'architecture remediation should run at least once',
+    );
     expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 're-review should run at least once');
     final remediateInputs = recorder.tracesForStep('remediate').map((trace) => trace.inputs).toList(growable: false);
-    expect(remediateInputs, isNotEmpty, reason: 'remediate should receive review findings inputs');
-    for (final key in const ['review_findings', 'architecture_review_findings']) {
-      expect(
-        remediateInputs.any((inputs) => (inputs[key]?.toString().trim() ?? '').isNotEmpty),
-        isTrue,
-        reason: 'remediate should receive non-empty $key input',
-      );
-    }
+    expect(remediateInputs, isNotEmpty, reason: 'remediate should receive review findings input');
+    expect(
+      remediateInputs.any((inputs) => (inputs['review_findings']?.toString().trim() ?? '').endsWith('.md')),
+      isTrue,
+      reason: 'remediate should receive one markdown review report path',
+    );
+    expect(
+      remediateInputs.any((inputs) => (inputs['architecture_review_findings']?.toString().trim() ?? '').isNotEmpty),
+      isFalse,
+      reason: 'remediate should not receive architecture findings; those use remediate-architecture',
+    );
+    final architectureRemediateInputs = recorder
+        .tracesForStep('remediate-architecture')
+        .map((trace) => trace.inputs)
+        .toList(growable: false);
+    expect(
+      architectureRemediateInputs.any(
+        (inputs) => (inputs['architecture_review_findings']?.toString().trim() ?? '').endsWith('.md'),
+      ),
+      isTrue,
+      reason: 'remediate-architecture should receive one markdown architecture report path',
+    );
 
     // Assert worktrees were recorded for coding steps
     expectWorktreeRecorded(recorder, 'implement');

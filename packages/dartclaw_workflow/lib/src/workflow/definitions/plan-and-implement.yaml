@@ -55,7 +55,7 @@ stepDefaults:
   - match: "*review*"
     provider: "@reviewer"
     model: "@reviewer"
-  - match: "remediate"
+  - match: "remediate*"
     provider: "@executor"
     model: "@executor"
   - match: "refactor"
@@ -305,23 +305,34 @@ steps:
     entryGate: "plan-review.gating_findings_count > 0 || architecture-review.gating_findings_count > 0"
     exitGate: "re-review.gating_findings_count == 0"
     steps:
-      # Single remediation pass that addresses findings from both the
-      # plan/code review and the architecture review. Both findings
-      # report paths are passed; the skill applies minimal fixes across
-      # implementation and document artifacts. The remediate skill
-      # re-validates each finding against the current workspace before
-      # editing, so already-fixed findings on later iterations are
-      # classified `already fixed` and skipped.
+      # Remediate each report independently. dartclaw-remediate-findings
+      # accepts exactly one report path or URL, so each gated pass receives
+      # a single file-backed review artifact.
       - id: remediate
         name: Remediate Findings
         skill: dartclaw-remediate-findings
-        inputs: [project_index, review_findings, architecture_review_findings, story_results]
-        prompt: "--auto {{context.review_findings}} {{context.architecture_review_findings}}"
+        entryGate: "plan-review.gating_findings_count > 0 || re-review.gating_findings_count > 0"
+        inputs: [project_index, review_findings, story_results]
+        prompt: "--auto {{context.review_findings}}"
         outputs:
           remediation_summary:
             format: text
             schema: remediation-summary
           diff_summary:
+            format: text
+            schema: diff-summary
+
+      - id: remediate-architecture
+        name: Remediate Architecture Findings
+        skill: dartclaw-remediate-findings
+        entryGate: "architecture-review.gating_findings_count > 0 && loop.remediation-loop.iteration == 1"
+        inputs: [project_index, architecture_review_findings, story_results]
+        prompt: "--auto {{context.architecture_review_findings}}"
+        outputs:
+          architecture_remediation_summary:
+            format: text
+            schema: remediation-summary
+          architecture_diff_summary:
             format: text
             schema: diff-summary
 
@@ -336,7 +347,7 @@ steps:
         # File-backed review: matches plan-review's surface so the re-review
         # pass can write the next review report artifact.
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-        inputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
+        inputs: [project_index, story_specs, story_results, remediation_summary, diff_summary, architecture_remediation_summary, architecture_diff_summary]
         prompt: "--mode gap,code --auto {{context.plan}}"
         outputs:
           review_findings:

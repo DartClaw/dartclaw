@@ -22,6 +22,8 @@ const _artifactProducingSkills = <String>{
   'dartclaw-prd',
   'dartclaw-plan',
   'dartclaw-spec',
+  'dartclaw-review',
+  'dartclaw-architecture',
   'dartclaw-remediate-findings',
 };
 

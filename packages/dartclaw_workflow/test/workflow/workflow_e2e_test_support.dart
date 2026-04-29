@@ -17,6 +17,8 @@ typedef WorkflowE2eProcessRunner =
 const fixtureSeedRegressionMessage =
     'Fixture upstream regressed; re-seed BUG-001..003 in DartClaw/workflow-test-todo-app docs/PRODUCT-BACKLOG.md';
 
+const _todoAppFixtureReadOnlyUrl = 'https://github.com/DartClaw/workflow-test-todo-app.git';
+
 const bugFileAllowlist = <String, List<String>>{
   'BUG-001': ['src/app/routes/todos.py', 'src/app/templates/partials/todo_deleted_oob.html'],
   'BUG-002': ['src/app/routes/todos.py', 'src/app/templates/app.html'],
@@ -44,23 +46,31 @@ Future<WorkflowE2ePrerequisiteResult> evaluateWorkflowE2ePrerequisites({
     );
   }
 
-  final hasGitHubToken = _hasGitHubTokenEnv(environment);
-  final canCreateGitHubPr = hasGitHubToken || await _runOk(runProcess, 'gh', ['auth', 'status']);
-  final canPushBranches = hasGitHubToken || await _runGitHubSshAuthenticated(runProcess);
-  if (!canPushBranches) {
+  final canCreateGitHubPr = await canCreateGitHubPrForEnv(environment: environment, runProcess: runProcess);
+  if (canCreateGitHubPr) {
+    return WorkflowE2ePrerequisiteResult.run(canCreateGitHubPr: true);
+  }
+
+  final canCloneFixture = await _canReadFixtureRepo(runProcess);
+  if (!canCloneFixture) {
     return const WorkflowE2ePrerequisiteResult.skip(
-      'GitHub git access is required for workflow e2e; export GITHUB_TOKEN or load an SSH key with ssh-add.',
+      'Public HTTPS access to the workflow-test-todo-app fixture repo is required for branch-only workflow e2e; '
+      'check network access or set GITHUB_TOKEN for authenticated HTTPS clone.',
     );
   }
 
-  return WorkflowE2ePrerequisiteResult.run(canCreateGitHubPr: canCreateGitHubPr);
+  return WorkflowE2ePrerequisiteResult.run(canCreateGitHubPr: false);
 }
 
 Future<bool> canCreateGitHubPrForEnv({
   required Map<String, String> environment,
   required WorkflowE2eProcessRunner runProcess,
 }) async {
-  return _hasGitHubTokenEnv(environment) || await _runOk(runProcess, 'gh', ['auth', 'status']);
+  if (_hasGitHubTokenEnv(environment)) {
+    return true;
+  }
+  final canCreatePr = await _runOk(runProcess, 'gh', ['auth', 'status']);
+  return canCreatePr && await _runGitHubSshAuthenticated(runProcess);
 }
 
 void expectWorkflowFinalStatus({
@@ -328,7 +338,6 @@ Map<String, dynamic> forcedReviewRemediationOutputs({
 
   return {
     ...outputs,
-    reviewConfig.findings: remediationPlan,
     'implementation_summary': (outputs['implementation_summary'] as String?)?.trim().isNotEmpty == true
         ? outputs['implementation_summary']
         : implementationSummary,
@@ -342,6 +351,19 @@ Map<String, dynamic> forcedReviewRemediationOutputs({
 Future<bool> _runOk(WorkflowE2eProcessRunner runProcess, String executable, List<String> arguments) async {
   try {
     final result = await runProcess(executable, arguments);
+    return result.exitCode == 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<bool> _canReadFixtureRepo(WorkflowE2eProcessRunner runProcess) async {
+  try {
+    final result = await runProcess(
+      'git',
+      ['ls-remote', '--exit-code', _todoAppFixtureReadOnlyUrl, 'HEAD'],
+      environment: const {'GIT_TERMINAL_PROMPT': '0'},
+    );
     return result.exitCode == 0;
   } catch (_) {
     return false;

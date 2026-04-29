@@ -22,19 +22,63 @@ void main() {
       expect(result.skipReason, allOf(contains('Codex'), contains('install Codex')));
     });
 
-    test('git auth absent skips with actionable message', () async {
+    test('git auth absent runs branch-only when fixture clone is reachable', () async {
       final result = await evaluateWorkflowE2ePrerequisites(
         environment: const {},
         runProcess: _fakeProcessRunner({
           ('codex', '--version'): ProcessResult(1, 0, 'codex 1.0', ''),
           ('gh', 'auth status'): ProcessResult(2, 1, '', 'not logged in'),
+          ('git', 'ls-remote --exit-code https://github.com/DartClaw/workflow-test-todo-app.git HEAD'): ProcessResult(
+            3,
+            0,
+            'ref',
+            '',
+          ),
+        }),
+      );
+
+      expect(result.shouldSkip, isFalse);
+      expect(result.canCreateGitHubPr, isFalse);
+    });
+
+    test('gh auth without branch push auth runs branch-only when fixture clone is reachable', () async {
+      final result = await evaluateWorkflowE2ePrerequisites(
+        environment: const {},
+        runProcess: _fakeProcessRunner({
+          ('codex', '--version'): ProcessResult(1, 0, 'codex 1.0', ''),
+          ('gh', 'auth status'): ProcessResult(2, 0, 'logged in', ''),
           ('ssh', '-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -T git@github.com'):
               ProcessResult(3, 255, '', 'Permission denied'),
+          ('git', 'ls-remote --exit-code https://github.com/DartClaw/workflow-test-todo-app.git HEAD'): ProcessResult(
+            4,
+            0,
+            'ref',
+            '',
+          ),
+        }),
+      );
+
+      expect(result.shouldSkip, isFalse);
+      expect(result.canCreateGitHubPr, isFalse);
+    });
+
+    test('fixture clone unavailable skips with actionable message', () async {
+      final result = await evaluateWorkflowE2ePrerequisites(
+        environment: const {},
+        runProcess: _fakeProcessRunner({
+          ('codex', '--version'): ProcessResult(1, 0, 'codex 1.0', ''),
+          ('gh', 'auth status'): ProcessResult(2, 1, '', 'not logged in'),
+          ('git', 'ls-remote --exit-code https://github.com/DartClaw/workflow-test-todo-app.git HEAD'): ProcessResult(
+            3,
+            128,
+            '',
+            'network unavailable',
+          ),
         }),
       );
 
       expect(result.shouldSkip, isTrue);
-      expect(result.skipReason, allOf(contains('GitHub git access'), contains('GITHUB_TOKEN'), contains('ssh-add')));
+      expect(result.skipReason, allOf(contains('Public HTTPS access'), contains('GITHUB_TOKEN')));
     });
 
     test('logger level env default and FINE install correctly', () async {
@@ -144,11 +188,16 @@ void main() {
       );
     });
 
-    test('remediate prompt contains both review finding blocks', () {
+    test('remediate prompts carry one report source each', () {
       expectStepInputContainsAll(
-        ['<review_findings>gap</review_findings>\n<architecture_review_findings>arch</architecture_review_findings>'],
+        ['<review_findings>docs/specs/review.md</review_findings>'],
         'remediate',
-        ['<review_findings>', '<architecture_review_findings>'],
+        ['<review_findings>'],
+      );
+      expectStepInputContainsAll(
+        ['<architecture_review_findings>docs/specs/architecture-review.md</architecture_review_findings>'],
+        'remediate-architecture',
+        ['<architecture_review_findings>'],
       );
     });
   });

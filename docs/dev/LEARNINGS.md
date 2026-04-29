@@ -131,7 +131,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Foreach unwraps must accept immutable map views.** Wrapped payloads can arrive as `UnmodifiableMapView`, not always `Map<String, dynamic>`.
 - **Merge inside the integration worktree when the integration branch is checked out there.** Reusing the main checkout fails with `branch is already used by worktree` once a shared worktree owns the branch.
 - **e2e artifact capture must snapshot the *terminal* task config**, not the queued snapshot. Otherwise completion-time writes are silently hidden even when the row was updated correctly.
-- **Built-ins that drop semantic `type:` must explicitly author `type: custom`.** Parser keeps legacy omitted-`type` defaults for backward compat; intentional drops otherwise inherit old read-only/project-binding behavior.
+- **Workflow agent steps should omit `type:` or use `type: agent`.** Removed authoring values such as `custom`, `coding`, `research`, `analysis`, `writing`, and `automation` now fail validation; read-only behavior belongs in `allowedTools`, not semantic step names.
 - **Loop exit gates only see exact context keys — step outputs are NOT auto-namespaced.** A gate like `re-validate.findings_count == 0` requires the step to emit that dotted alias explicitly.
 - **Broad `stepDefaults` glob patterns silently drift after step renames.** Re-validate the defaults layer whenever step IDs change.
 - **Loop crash recovery needs a checkpoint after every successful sibling step.** Checkpointing only at iteration boundaries loses outputs the next sibling depends on.

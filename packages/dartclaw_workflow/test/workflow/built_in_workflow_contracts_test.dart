@@ -89,12 +89,12 @@ void main() {
       }
     });
 
-    test('every `custom` step declares a skill', () {
+    test('every agent step declares a skill', () {
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
-          if (step.type != 'custom') continue;
-          expect(step.skill, isNotNull, reason: '$file → step "${step.id}" is type=custom but has no skill:');
+          if (step.type != 'agent') continue;
+          expect(step.skill, isNotNull, reason: '$file → step "${step.id}" is type=agent but has no skill:');
           expect(step.skill, isNotEmpty, reason: '$file → step "${step.id}" skill is empty');
         }
       }
@@ -200,6 +200,65 @@ void main() {
           isNot(contains('file_write')),
           reason: '$file → discover-project must never include file_write',
         );
+      }
+    });
+
+    test('remediation steps pass exactly one report path source', () {
+      final reportKeys = {'review_findings', 'architecture_review_findings'};
+      final referencePattern = RegExp(r'\{\{\s*context\.([A-Za-z0-9_.-]+)\s*\}\}');
+
+      for (final file in _builtInWorkflows) {
+        final def = _load(file);
+        for (final step in _flattenedSteps(def)) {
+          if (step.skill != 'dartclaw-remediate-findings') continue;
+          final references = referencePattern
+              .allMatches(_allPromptText(step))
+              .map((match) => match.group(1)!)
+              .where(reportKeys.contains)
+              .toList();
+          expect(
+            references,
+            hasLength(1),
+            reason: '$file → "${step.id}" must pass one report path to dartclaw-remediate-findings',
+          );
+          expect(
+            step.inputs,
+            contains(references.single),
+            reason: '$file → "${step.id}" must declare its report path input',
+          );
+        }
+      }
+    });
+
+    test('split remediation loops consume fresh re-review reports after the first pass', () {
+      for (final file in ['spec-and-implement.yaml', 'plan-and-implement.yaml']) {
+        final def = _load(file);
+        final remediate = _flattenedSteps(def).firstWhere((s) => s.id == 'remediate');
+        final remediateArchitecture = _flattenedSteps(def).firstWhere((s) => s.id == 'remediate-architecture');
+
+        expect(
+          remediate.entryGate,
+          contains('re-review.gating_findings_count > 0'),
+          reason: '$file → remediate must consume the latest re-review report on later loop iterations',
+        );
+        expect(
+          remediateArchitecture.entryGate,
+          contains('loop.remediation-loop.iteration == 1'),
+          reason: '$file → architecture remediation must not keep consuming the initial architecture report',
+        );
+      }
+    });
+
+    test('all remediation steps resolve to the executor role', () {
+      const resolver = WorkflowDefinitionResolver();
+
+      for (final file in _builtInWorkflows) {
+        final resolved = resolver.resolve(_load(file));
+        for (final step in _flattenedSteps(resolved)) {
+          if (step.skill != 'dartclaw-remediate-findings') continue;
+          expect(step.provider, '@executor', reason: '$file → "${step.id}" should run on @executor');
+          expect(step.model, '@executor', reason: '$file → "${step.id}" should use the @executor model');
+        }
       }
     });
   });

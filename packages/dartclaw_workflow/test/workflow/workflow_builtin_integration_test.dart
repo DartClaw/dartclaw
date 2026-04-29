@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -34,25 +35,15 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-String _definitionsDir() {
-  var current = Directory.current;
-  while (true) {
-    final candidates = [
-      p.join(current.path, 'lib', 'src', 'workflow', 'definitions'),
-      p.join(current.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions'),
-    ];
-    for (final candidate in candidates) {
-      if (Directory(candidate).existsSync()) {
-        return candidate;
-      }
-    }
+late String _definitionsDir;
 
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate workflow definitions dir');
-    }
-    current = parent;
+Future<String> _resolveWorkflowDefinitionsDir() async {
+  final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_workflow/dartclaw_workflow.dart'));
+  if (uri == null) {
+    throw StateError('Could not resolve package:dartclaw_workflow.');
   }
+  final libDir = File.fromUri(uri).parent;
+  return p.join(libDir.path, 'src', 'workflow', 'definitions');
 }
 
 String _contextOutput(Map<String, Object?> values) {
@@ -155,6 +146,10 @@ void main() {
   late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
   late SqliteExecutionRepositoryTransactor executionTransactor;
   late EventBus eventBus;
+
+  setUpAll(() async {
+    _definitionsDir = await _resolveWorkflowDefinitionsDir();
+  });
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_builtin_wf_integration_');
@@ -420,7 +415,7 @@ void main() {
     if (projectId != null && projectId.isNotEmpty) {
       ensureProjectRepo(projectId);
     }
-    final definition = await WorkflowDefinitionParser().parseFile(p.join(_definitionsDir(), workflowFileName));
+    final definition = await WorkflowDefinitionParser().parseFile(p.join(_definitionsDir, workflowFileName));
     final run = WorkflowRun(
       id: '${definition.name}-run',
       definitionName: definition.name,

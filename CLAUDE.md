@@ -4,7 +4,7 @@
 
 **DartClaw** — An experimental, security-conscious AI agent runtime built with Dart. Dart orchestrator (AOT-compiled, zero npm) + multiple agent harnesses (Claude Code, Codex, and potentially more). Lineage: openclaw → nanoclaw → dartclaw.
 
-Architecture: 2-layer model — Dart host (state/API/security) → agent harness binaries via control protocols. The primary harness is the native `claude` binary (JSONL over stdin/stdout), but DartClaw is **multi-harness by design** — the `HarnessFactory` creates provider-specific harness instances, and the `HarnessPool` manages a heterogeneous pool of runners with different providers and security profiles. Each harness type has its own binary, protocol adapter, and native conventions.
+Architecture: 2-layer model — Dart host (state/API/security) → agent harness binaries via control protocols. DartClaw is **multi-harness by design** — Claude Code (JSONL over stdin/stdout) and Codex (JSON-RPC) are both first-class primary harnesses; the `HarnessFactory` creates provider-specific harness instances, and the `HarnessPool` manages a heterogeneous pool of runners with different providers and security profiles. Each harness type has its own binary, protocol adapter, and native conventions.
 
 ### Philosophy
 A ground-up agent runtime leveraging Dart's strengths. Guiding principles: security by design, security in depth, developer ergonomics, pragmatic lightweight architecture. DartClaw should not only be secure and efficient but also a joy to use and build upon.
@@ -13,7 +13,7 @@ A ground-up agent runtime leveraging Dart's strengths. Guiding principles: secur
 
 - **Minimal attack surface** — No Node.js/npm in the chain. Fewer dependencies = fewer supply chain vulnerabilities. Prefer capable standard libraries over third-party packages
 - **Dart as host** — AOT-compiled native binary, complete built-in toolchain (formatter, analyzer, linter, test runner), capable stdlib. No external toolchain dependencies
-- **Direct control protocol** — Dart spawns the native `claude` binary directly, no intermediate runtime. All state/storage/security lives in Dart
+- **Direct control protocol** — Dart spawns harness binaries (`claude`, `codex`) directly, no intermediate runtime. All state/storage/security lives in Dart
 - **Outpost pattern** — purpose-built CLI tools in the best language for the job (Python for ML/NLP, etc.), invoked as subprocesses with structured JSON I/O. No shared runtime, no dependency contamination
 - **Auditable** — codebase fits in a context window; dependencies stay minimal
 

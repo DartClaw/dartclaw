@@ -2,7 +2,32 @@
 
 Open items only. Resolved or obsolete historical entries were removed during backlog cleanup; milestone docs, specs, and CHANGELOG entries are the historical record.
 
+## TD-069 — 0.16.4 advisory DECIDE cluster (deferred to 0.16.5+)
+
+**Severity**: Mixed (one HIGH advisory, two MEDIUM advisories beyond what TD-066 already tracks; none gating 0.16.4)
+**Found**: Workflow E2E test + runtime code review (2026-04-28); booked as DECIDE-not-FIX in `0.16.4-consolidated-review.md` (advisory row).
+**Affects**: `packages/dartclaw_workflow/lib/src/workflow/` runtime + tests, `packages/dartclaw_workflow/lib/src/workflow/definitions/*.yaml` built-ins, `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` fixture handling, `packages/dartclaw_workflow/lib/src/workflow/workflow_definition_validator.dart` `stepDefaults` glob handling.
+
+**Context**: Six advisory findings the 0.16.4 review tagged "DECIDE not FIX" — each is a defensible policy or design choice with a clear alternative the team has not committed to. They were intentionally deferred to keep 0.16.4 focused on tagging the workflow stabilization line. Bundled here so they don't fall off the radar after tag.
+
+1. **H1 — `paused`-as-success policy.** Workflow runs that end in `paused` (deliberate hold for operator input) currently pass the release gate's "succeeded" check. Decide whether `paused` should remain a success outcome, become a distinct neutral outcome, or fail the gate; align test fixtures and operator docs with the chosen policy.
+2. **H2 — functional-bug-fix verification (diff-touches-expected-files vs fixture-grown regression tests).** The e2e test asserts the bug-fix story's diff touches expected files; it does not run a regression test that would have caught the bug pre-fix. Decide whether to grow the fixture with a paired regression test (stronger signal, more fixture maintenance) or keep the diff-touches assertion (cheaper, weaker).
+3. **M6 — `_ensureKnownDefectsBacklogEntries` mutates cloned fixture.** The helper currently writes into the cloned fixture working tree to seed defects. Decide between deleting the mutation step (and fail-fasting if the fixture is missing the entries) versus keeping the mutation as a deliberate test-time setup (and documenting the cloned-tree write contract).
+4. **M11 — token metrics on `task.configJson` with `_workflow*` prefix.** Already tracked as **TD-066**. Cross-referenced here for cluster completeness; do not duplicate the entry.
+5. **M12 — `stepDefaults` validator literal-vs-glob workaround.** The validator currently treats `stepDefaults` keys as literals; the workaround for glob-style patterns lives in caller code. Decide between teaching the validator about globs (cleaner caller code) or formalizing the literal-only contract and removing the workaround (smaller validator surface).
+6. **M13 — hardcoded `dart format/analyze/test` in built-in YAMLs.** Built-in workflow definitions hard-code `dart format`, `dart analyze`, `dart test` invocations. Decide whether to keep them hardcoded (Dart-only project assumption explicit) or route them through `project_index.verification.*` so non-Dart projects can configure equivalents.
+
+**Why deferred**: each item is a policy or scope decision rather than a bug. Bundling them under a 0.16.5+ triage pass is cheaper than spec'ing six independent FIS for what may be a few line changes apiece once decided. M11 already has a dedicated entry (TD-066) because its fix shape is invasive enough to warrant standalone tracking.
+
+**Source review**: `docs/specs/0.16.4/0.16.4-consolidated-review.md` (private repo) advisory DECIDE row; original findings in `docs/specs/0.16.4/workflow-e2e-test-and-runtime-code-review-claude-2026-04-28.md` (private repo) H1, H2, M6, M11, M12, M13.
+
+**Trigger**: 0.16.5 milestone planning; an operator hits the `paused` gate question; a non-Dart workspace tries to use the built-in workflows; the `stepDefaults` glob workaround spreads to a third caller.
+
+---
+
 ## TD-068 — `HarnessPool` is a single shared pool with mixed providers; should be per-provider pools
+
+**Status**: **Promoted to 0.18** (Phase A foundation, story `F01` in `docs/specs/0.18/prd-draft.md` of the private repo). The 0.18 scope (universal `AcpHarness` adding N providers) fires the documented "third built-in provider being added" trigger. Entry retained for trace from the original review (L4) → backlog → milestone; remove on 0.18 completion when the refactor lands.
 
 **Severity**: Low (architectural smell — head-of-line blocking + magic-number floor on shared capacity)
 **Found**: Workflow E2E test + runtime code review (2026-04-28; finding L4) and follow-up

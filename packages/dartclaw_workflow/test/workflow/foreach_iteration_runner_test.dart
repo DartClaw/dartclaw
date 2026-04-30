@@ -7,12 +7,7 @@ library;
 import 'dart:async';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        TaskStatus,
-        TaskStatusChangedEvent,
-        WorkflowContext,
-        WorkflowRunStatus,
-        WorkflowStep;
+    show TaskStatus, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatus, WorkflowStep;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -33,7 +28,9 @@ void main() {
     final context = WorkflowContext()..['items'] = <dynamic>[];
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       await h.completeTask(e.taskId);
@@ -58,7 +55,9 @@ void main() {
     final context = WorkflowContext()..['items'] = ['alpha'];
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       await h.completeTask(e.taskId);
@@ -83,7 +82,9 @@ void main() {
     final context = WorkflowContext()..['items'] = ['a', 'b', 'c'];
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       await h.completeTask(e.taskId);
@@ -108,7 +109,9 @@ void main() {
     final context = WorkflowContext(); // 'missing_key' not set
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       await h.completeTask(e.taskId);
@@ -132,7 +135,9 @@ void main() {
     await h.repository.insert(run);
     final context = WorkflowContext()..['items'] = ['only-item'];
 
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       await h.completeTask(e.taskId, status: TaskStatus.failed);
     });

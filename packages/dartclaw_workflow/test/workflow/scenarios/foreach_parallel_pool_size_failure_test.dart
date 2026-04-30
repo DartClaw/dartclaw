@@ -10,11 +10,7 @@ import '../../fixtures/e2e_fixture.dart';
 void main() {
   test('pool_size 1 constrains availableCount to 1 (regression: always-pool-of-3 bug)', () async {
     final fixture = await E2EFixture()
-        .withProject(
-          'fixture-project',
-          remote: 'https://example.invalid/fixture-project.git',
-          credentials: null,
-        )
+        .withProject('fixture-project', remote: 'https://example.invalid/fixture-project.git', credentials: null)
         .withProvider(value: 'claude', workflowModel: 'claude-opus-4')
         .withPoolSize(1)
         .build();

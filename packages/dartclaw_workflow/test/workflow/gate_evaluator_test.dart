@@ -101,6 +101,12 @@ void main() {
       expect(evaluator.evaluate('a != banana', strContext), isTrue);
     });
 
+    test('numeric operators fail closed for non-numeric values', () {
+      final strContext = WorkflowContext(data: {'findings_count': 'many'});
+      expect(evaluator.evaluate('findings_count > 0', strContext), isFalse);
+      expect(evaluator.evaluate('findings_count <= 0', strContext), isFalse);
+    });
+
     test('string comparison accepts validator-compatible values', () {
       final strContext = WorkflowContext(
         data: {'branch': 'feature/foo', 'quoted': '"feature/foo"', 'label': 'needs review'},

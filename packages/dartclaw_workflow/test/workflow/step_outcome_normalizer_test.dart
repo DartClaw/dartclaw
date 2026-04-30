@@ -78,6 +78,20 @@ void main() {
       expect(handoff.outputs, isEmpty);
     });
 
+    test('rejects story spec paths outside the project root', () {
+      final handoff = normalizeOutputs({
+        'story_specs': {
+          'items': [
+            {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': '../outside.md'},
+          ],
+        },
+      }, StepOutputNormalizationContext(projectRoot: tempDir.path));
+
+      expect(handoff, isA<StepHandoffValidationFailed>());
+      expect(handoff.validationFailure?.reason, contains('escapes project root'));
+      expect(handoff.outputs, isEmpty);
+    });
+
     test('rejects story_specs items missing dependencies', () {
       final handoff = normalizeOutputs({
         'plan': 'docs/plans/foo/plan.md',

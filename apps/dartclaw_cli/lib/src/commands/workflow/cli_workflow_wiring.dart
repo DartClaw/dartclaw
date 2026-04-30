@@ -36,6 +36,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         SkillRegistryImpl,
+        ProcessRunner,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRegistry,
@@ -68,6 +69,7 @@ import 'package:sqlite3/sqlite3.dart' show Database;
 
 import '../workflow_materializer.dart';
 import '../workflow_skill_materializer.dart';
+import 'andthen_skill_bootstrap.dart';
 import 'credential_preflight.dart';
 import 'project_definition_paths.dart';
 import 'workflow_git_support.dart';
@@ -114,6 +116,9 @@ class CliWorkflowWiring {
   final TaskDbFactory _taskDbFactory;
   final AssetResolver assetResolver;
   final WorkflowStepOutputTransformer? workflowStepOutputTransformer;
+  final bool runAndthenSkillsBootstrap;
+  final ProcessRunner? skillProvisionerProcessRunner;
+  final List<String>? skillProvisionerSpawnTargetCwds;
 
   /// Optional hook invoked after a successful standalone publish push to
   /// create a pull request; null by default (production behavior).
@@ -151,6 +156,9 @@ class CliWorkflowWiring {
     TaskDbFactory? taskDbFactory,
     AssetResolver? assetResolver,
     this.workflowStepOutputTransformer,
+    this.runAndthenSkillsBootstrap = true,
+    this.skillProvisionerProcessRunner,
+    this.skillProvisionerSpawnTargetCwds,
     this.prCreator,
   }) : runtimeCwd = runtimeCwd ?? Directory.current.path,
        environment = environment ?? Platform.environment,
@@ -174,26 +182,39 @@ class CliWorkflowWiring {
     }
 
     eventBus = EventBus();
-    final projectDirs = _workflowSkillProjectDirs(config, runtimeCwd: runtimeCwd);
+    final projectDirs = workflowSkillProjectDirs(config, fallbackCwd: runtimeCwd);
     final resolvedAssets = assetResolver.resolve();
     final builtInSkillsSourceDir =
         resolvedAssets?.skillsDir ?? WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
-    await WorkflowSkillMaterializer.materialize(
-      activeHarnessTypes: _activeHarnessTypes(config),
-      homeDir: skillsHomeDir,
-      dataDir: dataDir,
-      sourceDir: builtInSkillsSourceDir,
-    );
+    if (runAndthenSkillsBootstrap) {
+      await bootstrapAndthenSkills(
+        config: config,
+        dataDir: dataDir,
+        builtInSkillsSourceDir: builtInSkillsSourceDir,
+        fallbackCwd: runtimeCwd,
+        environment: environment,
+        processRunner: skillProvisionerProcessRunner,
+        spawnTargetCwds: skillProvisionerSpawnTargetCwds,
+      );
+    } else {
+      await WorkflowSkillMaterializer.materialize(
+        activeHarnessTypes: _activeHarnessTypes(config),
+        homeDir: skillsHomeDir,
+        dataDir: dataDir,
+        sourceDir: builtInSkillsSourceDir,
+      );
+    }
 
     // Skill registry — discovered before the workflow service so the
     // executor can honor skill-declared default_prompt/default_outputs.
+    final dataDirSkillRoots = workflowDataDirSkillRoots(config, dataDir: dataDir);
     skillRegistry = SkillRegistryImpl();
     skillRegistry.discover(
       projectDirs: projectDirs,
       workspaceDir: config.workspaceDir,
       dataDir: dataDir,
-      dataDirClaudeSkillsDir: p.join(dataDir, '.claude', 'skills'),
-      dataDirAgentsSkillsDir: p.join(dataDir, '.agents', 'skills'),
+      dataDirClaudeSkillsDir: dataDirSkillRoots.claudeSkillsDir,
+      dataDirAgentsSkillsDir: dataDirSkillRoots.agentsSkillsDir,
       builtInSkillsDir: builtInSkillsSourceDir,
     );
 
@@ -760,13 +781,6 @@ Set<String> _activeHarnessTypes(DartclawConfig config) {
   }
 
   return harnessTypes;
-}
-
-List<String> _workflowSkillProjectDirs(DartclawConfig config, {required String runtimeCwd}) {
-  if (config.projects.definitions.isEmpty) {
-    return [runtimeCwd];
-  }
-  return configuredProjectDirectories(config);
 }
 
 Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {

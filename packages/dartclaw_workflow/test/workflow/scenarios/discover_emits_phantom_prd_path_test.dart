@@ -41,9 +41,11 @@ void main() {
     await expectLater(
       extractor.extract(step, task),
       throwsA(
-        isA<MissingArtifactFailure>()
-            .having((failure) => failure.claimedPaths, 'claimedPaths', ['docs/prd.md'])
-            .having((failure) => failure.missingPaths, 'missingPaths', ['docs/prd.md']),
+        isA<MissingArtifactFailure>().having((failure) => failure.claimedPaths, 'claimedPaths', ['docs/prd.md']).having(
+          (failure) => failure.missingPaths,
+          'missingPaths',
+          ['docs/prd.md'],
+        ),
       ),
     );
   });

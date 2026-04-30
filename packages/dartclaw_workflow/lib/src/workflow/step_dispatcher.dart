@@ -222,7 +222,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         WorkflowExecutor._log.warning("Workflow '${run.id}': $msg");
         await _failRun(run, msg);
         return null;
-      } on StateError catch (e) {
+      } on _WorkflowRunWaitAbort catch (e) {
         WorkflowExecutor._log.info("Workflow '${run.id}': step '${step.name}' wait aborted: ${e.message}");
         return null;
       } catch (e, st) {

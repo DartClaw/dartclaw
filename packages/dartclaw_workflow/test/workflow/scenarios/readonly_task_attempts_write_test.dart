@@ -15,7 +15,11 @@ void main() {
     harness.writeRelativeOnTurn('notes/leak.md', content: '# leaked\n');
     final project = await harness.createProjectRepo('my-app');
     final executor = harness.buildExecutor(
-      projectService: FakeProjectService(projects: [project], includeLocalProjectInGetAll: false, defaultProjectId: 'my-app'),
+      projectService: FakeProjectService(
+        projects: [project],
+        includeLocalProjectInGetAll: false,
+        defaultProjectId: 'my-app',
+      ),
     );
     addTearDown(executor.stop);
 

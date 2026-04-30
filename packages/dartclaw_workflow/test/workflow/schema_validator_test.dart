@@ -213,7 +213,10 @@ void main() {
         const schema = {
           'type': 'object',
           'properties': {
-            'priority': {'type': 'string', 'enum': ['low', 'medium', 'high']},
+            'priority': {
+              'type': 'string',
+              'enum': ['low', 'medium', 'high'],
+            },
           },
         };
         final warnings = validator.validate({'priority': null}, schema);
@@ -235,7 +238,9 @@ void main() {
         const schema = {
           'type': 'object',
           'properties': {
-            'priority': {'type': ['string', 'null']},
+            'priority': {
+              'type': ['string', 'null'],
+            },
           },
         };
         expect(validator.validate({'priority': null}, schema), isEmpty);
@@ -264,7 +269,9 @@ void main() {
       test('schema without additionalProperties:false allows extra fields', () {
         const lenient = {
           'type': 'object',
-          'properties': {'name': {'type': 'string'}},
+          'properties': {
+            'name': {'type': 'string'},
+          },
         };
         expect(validator.validate({'name': 'Alice', 'extra': 1}, lenient), isEmpty);
       });
@@ -272,22 +279,40 @@ void main() {
 
     group('enum enforcement', () {
       test('string matching enum passes', () {
-        expect(validator.validate('low', {'type': 'string', 'enum': ['low', 'medium', 'high']}), isEmpty);
+        expect(
+          validator.validate('low', {
+            'type': 'string',
+            'enum': ['low', 'medium', 'high'],
+          }),
+          isEmpty,
+        );
       });
 
       test('string not in enum returns warning', () {
-        final warnings = validator.validate('critical', {'type': 'string', 'enum': ['low', 'medium', 'high']});
+        final warnings = validator.validate('critical', {
+          'type': 'string',
+          'enum': ['low', 'medium', 'high'],
+        });
         expect(warnings, hasLength(1));
         expect(warnings.first, contains('"critical"'));
         expect(warnings.first, contains('"low"'));
       });
 
       test('integer matching enum passes', () {
-        expect(validator.validate(1, {'type': 'integer', 'enum': [1, 2, 3]}), isEmpty);
+        expect(
+          validator.validate(1, {
+            'type': 'integer',
+            'enum': [1, 2, 3],
+          }),
+          isEmpty,
+        );
       });
 
       test('integer not in enum returns warning', () {
-        final warnings = validator.validate(5, {'type': 'integer', 'enum': [1, 2, 3]});
+        final warnings = validator.validate(5, {
+          'type': 'integer',
+          'enum': [1, 2, 3],
+        });
         expect(warnings, hasLength(1));
         expect(warnings.first, contains('5'));
       });

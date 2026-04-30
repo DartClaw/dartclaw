@@ -78,10 +78,7 @@ void main() {
       await sub.cancel();
 
       final createdTask = (await h.taskService.list()).single;
-      expect(
-        (await h.workflowStepExecutionRepository.getByTaskId(createdTask.id))?.followUpPrompts,
-        isEmpty,
-      );
+      expect((await h.workflowStepExecutionRepository.getByTaskId(createdTask.id))?.followUpPrompts, isEmpty);
 
       final finalRun = await h.repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
@@ -189,10 +186,7 @@ void main() {
       await sub.cancel();
 
       final createdTask = (await h.taskService.list()).single;
-      expect(
-        (await h.workflowStepExecutionRepository.getByTaskId(createdTask.id))!.structuredSchema,
-        isNull,
-      );
+      expect((await h.workflowStepExecutionRepository.getByTaskId(createdTask.id))!.structuredSchema, isNull);
     });
 
     test('without turn infrastructure, multi-prompt step still completes (graceful degradation)', () async {

@@ -135,7 +135,7 @@ steps:
     # this step writes the review artifact and emits its workspace-relative path.
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     inputs: [project_index, spec_path, diff_summary]
-    prompt: "--mode gap,code --auto {{context.spec_path}}"
+    prompt: "--mode mixed --auto Review implementation of {{context.spec_path}}, i.e. all the changes in the current branch."
     outputs:
       review_findings:
         format: path
@@ -218,7 +218,7 @@ steps:
         # File-backed review: later remediation iterations consume this report path.
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
         inputs: [project_index, spec_path, remediation_summary, diff_summary, architecture_remediation_summary, architecture_diff_summary]
-        prompt: "--mode gap,code --auto {{context.spec_path}}"
+        prompt: "--mode mixed --auto Review implementation of {{context.spec_path}}, i.e. all the changes in the current branch."
         outputs:
           review_findings:
             format: path

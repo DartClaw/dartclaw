@@ -37,7 +37,8 @@ void main() {
         server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
 
-      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))..createSync(recursive: true);
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))
+        ..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'ci-demo.yaml')).writeAsStringSync('''
 name: ci-demo
 description: Demo standalone workflow
@@ -66,6 +67,7 @@ steps:
         stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: _fakeExit,
+        runAndthenSkillsBootstrap: false,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -84,11 +86,7 @@ steps:
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'claude'),
         server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-        credentials: const CredentialsConfig(
-          entries: {
-            'github-main': CredentialEntry.githubToken(token: ''),
-          },
-        ),
+        credentials: const CredentialsConfig(entries: {'github-main': CredentialEntry.githubToken(token: '')}),
         projects: const ProjectConfig(
           definitions: {
             'workflow-testing': ProjectDefinition(
@@ -112,6 +110,7 @@ steps:
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
         exitFn: _fakeExit,
+        runAndthenSkillsBootstrap: false,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -132,7 +131,8 @@ steps:
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 0)}),
         server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
-      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))..createSync(recursive: true);
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))
+        ..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'agent-demo.yaml')).writeAsStringSync('''
 name: agent-demo
 description: Demo standalone agent workflow
@@ -160,6 +160,7 @@ steps:
       final wiring = CliWorkflowWiring(
         config: config,
         dataDir: config.server.dataDir,
+        runAndthenSkillsBootstrap: false,
         harnessFactory: factory,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),

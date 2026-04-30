@@ -9,6 +9,7 @@ import 'package:logging/logging.dart';
 /// for the duration of a single map step — not persisted.
 class MapStepContext {
   static final Logger _log = Logger('MapStepContext');
+
   /// The resolved JSON array being iterated.
   final List<dynamic> collection;
 

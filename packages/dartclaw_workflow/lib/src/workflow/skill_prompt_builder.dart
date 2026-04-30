@@ -217,7 +217,7 @@ class SkillPromptBuilder {
         }
       }
 
-      final raw = resolvedValues[key]?.toString() ?? '';
+      final raw = _escapeAutoFrameClosingTag(resolvedValues[key]?.toString() ?? '', tagName);
       final rendered = raw.isEmpty ? '_(empty)_' : raw;
       buf.write('\n\n<$tagName>\n$rendered\n</$tagName>');
     }
@@ -241,6 +241,13 @@ class SkillPromptBuilder {
   /// Regex matching `{{ name }}` with optional internal whitespace, matching
   /// the workflow template engine's tolerance.
   static RegExp _templateReferenceRegExp(String name) => RegExp('\\{\\{\\s*${RegExp.escape(name)}\\s*\\}\\}');
+
+  static String _escapeAutoFrameClosingTag(String value, String tagName) {
+    // Tolerant of whitespace and case so values cannot smuggle a closing
+    // tag past lenient parsers via `</TAGNAME>`, `</ tagName>`, etc.
+    final pattern = RegExp(r'<\s*/\s*' + RegExp.escape(tagName) + r'\s*>', caseSensitive: false);
+    return value.replaceAllMapped(pattern, (_) => '<\\/$tagName>');
+  }
 
   /// Renders resolved context inputs as markdown sections.
   ///

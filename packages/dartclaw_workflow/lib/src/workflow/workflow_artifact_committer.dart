@@ -136,15 +136,26 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     );
   }
 
-  final resolved = await resolveArtifactCommitProject(
-    definition: definition,
-    step: step,
-    context: policy.context,
-    strategy: artifacts ?? const WorkflowGitArtifactsStrategy(),
-    projectService: policy.projectService,
-    dataDir: policy.dataDir,
-    templateEngine: policy.templateEngine,
-  );
+  final ResolvedArtifactProject? resolved;
+  try {
+    resolved = await resolveArtifactCommitProject(
+      definition: definition,
+      step: step,
+      context: policy.context,
+      strategy: artifacts ?? const WorkflowGitArtifactsStrategy(),
+      projectService: policy.projectService,
+      dataDir: policy.dataDir,
+      templateEngine: policy.templateEngine,
+    );
+  } on FormatException catch (e) {
+    final reason = "artifact-commit: invalid project id for step '${step.id}': ${e.message}";
+    _log.warning(reason);
+    return ArtifactCommitResult.failed(
+      failureReason: reason,
+      skippedPaths: preliminaryArtifacts.requiredPaths,
+      fatal: failureIsFatal,
+    );
+  }
   if (resolved == null) {
     _log.warning(
       "artifact-commit: step '${step.id}' produced paths but no project id "
@@ -176,9 +187,20 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     );
   }
 
-  final producedPaths = resolver
-      .resolve(step: step, outputs: outputValues, planDir: planDir, projectRoot: projectDir)
-      .requiredPaths;
+  final List<String> producedPaths;
+  try {
+    producedPaths = resolver
+        .resolve(step: step, outputs: outputValues, planDir: planDir, projectRoot: projectDir)
+        .requiredPaths;
+  } on FormatException catch (e) {
+    final reason = "artifact-commit: unsafe produced artifact path for step '${step.id}': ${e.message}";
+    _log.warning(reason);
+    return ArtifactCommitResult.failed(
+      failureReason: reason,
+      skippedPaths: preliminaryArtifacts.requiredPaths,
+      fatal: failureIsFatal,
+    );
+  }
   if (producedPaths.isEmpty) return const ArtifactCommitResult.skipped();
 
   final messageTemplate = artifacts?.commitMessage ?? 'chore(workflow): artifacts for run {{runId}}';
@@ -290,11 +312,16 @@ Future<ResolvedArtifactProject?> resolveArtifactCommitProject({
       _resolveArtifactProjectTemplate(strategy.project, context, templateEngine) ??
       _resolveArtifactProjectTemplate(definition.project, context, templateEngine);
   if (projectId == null) return null;
+  if (!_validProjectId.hasMatch(projectId)) {
+    throw FormatException('project id "$projectId" must match [A-Za-z0-9._-]+');
+  }
   final project = await projectService?.get(projectId);
   final localPath = project?.localPath.trim();
   final dir = (localPath != null && localPath.isNotEmpty) ? localPath : p.join(dataDir, 'projects', projectId);
   return ResolvedArtifactProject(projectId: projectId, dir: dir, exists: Directory(dir).existsSync());
 }
+
+final _validProjectId = RegExp(r'^[A-Za-z0-9._-]+$');
 
 String? _resolveArtifactProjectTemplate(
   String? template,

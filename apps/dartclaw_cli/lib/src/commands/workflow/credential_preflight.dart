@@ -1,5 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart'
-    show CredentialEntry, CredentialType, DartclawConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show CredentialEntry, CredentialType, DartclawConfig;
 
 /// Startup-time validation result for project-scoped credentials.
 class CredentialPreflightResult {
@@ -26,12 +25,15 @@ class ProjectCredentialError {
   });
 
   String get message => switch (reason) {
-    'missing_credential_def' => 'Credential preflight failed: project "$projectId" references missing credential '
-        '"$credentialRef"',
-    'empty' when envVar == null => 'Credential preflight failed: project "$projectId" references credential '
-        '"$credentialRef" but its configured secret resolved empty',
-    _ => 'Credential preflight failed: project "$projectId" references credential '
-        '"$credentialRef" but env var ${envVar ?? "<unknown>"} is unset or empty',
+    'missing_credential_def' =>
+      'Credential preflight failed: project "$projectId" references missing credential '
+          '"$credentialRef"',
+    'empty' when envVar == null =>
+      'Credential preflight failed: project "$projectId" references credential '
+          '"$credentialRef" but its configured secret resolved empty',
+    _ =>
+      'Credential preflight failed: project "$projectId" references credential '
+          '"$credentialRef" but env var ${envVar ?? "<unknown>"} is unset or empty',
   };
 }
 
@@ -71,11 +73,7 @@ abstract final class CredentialPreflight {
       final envVars = _envVarsForCredential(credentialRef, entry);
       if (entry == null) {
         hardErrors.add(
-          ProjectCredentialError(
-            projectId: project.id,
-            credentialRef: credentialRef,
-            reason: 'missing_credential_def',
-          ),
+          ProjectCredentialError(projectId: project.id, credentialRef: credentialRef, reason: 'missing_credential_def'),
         );
         continue;
       }

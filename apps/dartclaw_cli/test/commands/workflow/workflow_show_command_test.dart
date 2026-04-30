@@ -5,6 +5,7 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_show_command.dart';
 import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';
@@ -32,7 +33,9 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('workflow_show_test_');
-      config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable));
+      config = DartclawConfig(
+        server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      );
       stdoutBuffer = StringBuffer();
     });
 
@@ -44,10 +47,7 @@ void main() {
       final transport = FakeApiTransport(
         sendResponses: [yamlResponse(200, 'name: spec-and-implement\ndescription: Demo\n')],
       );
-      final apiClient = DartclawApiClient(
-        baseUri: Uri.parse('http://localhost:3333'),
-        transport: transport,
-      );
+      final apiClient = DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport);
 
       final runner = CommandRunner<void>('dartclaw', 'test')
         ..addCommand(
@@ -79,12 +79,7 @@ steps:
 
       final runner = CommandRunner<void>('dartclaw', 'test')
         ..addCommand(
-          WorkflowShowCommand(
-            config: config,
-            write: stdoutBuffer.write,
-            writeLine: (_) {},
-            exitFn: _fakeExit,
-          ),
+          WorkflowShowCommand(config: config, write: stdoutBuffer.write, writeLine: (_) {}, exitFn: _fakeExit),
         );
 
       await runner.run(['show', 'show-demo', '--standalone']);
@@ -93,6 +88,91 @@ steps:
       expect(output, startsWith('name: show-demo'));
       expect(output, contains('description: Demo workflow'));
       expect(output, contains('steps:'));
+    });
+
+    test('standalone resolved mode injects defaults from data-dir skill roots', () async {
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))
+        ..createSync(recursive: true);
+      File(p.join(workflowsDir.path, 'resolved-skill-demo.yaml')).writeAsStringSync('''
+name: resolved-skill-demo
+description: Demo workflow
+steps:
+  - id: demo
+    name: Demo
+    skill: dartclaw-default-demo
+''');
+
+      final skillDir = Directory(p.join(config.server.dataDir, '.agents', 'skills', 'dartclaw-default-demo'))
+        ..createSync(recursive: true);
+      File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('''
+---
+name: dartclaw-default-demo
+description: Default demo
+workflow:
+  default_prompt: default prompt from data-dir skill
+  default_outputs:
+    result:
+      format: text
+      description: Result from default skill.
+---
+
+# Demo
+''');
+
+      final runner = CommandRunner<void>('dartclaw', 'test')
+        ..addCommand(
+          WorkflowShowCommand(config: config, write: stdoutBuffer.write, writeLine: (_) {}, exitFn: _fakeExit),
+        );
+
+      await runner.run(['show', 'resolved-skill-demo', '--standalone', '--resolved']);
+
+      final output = stdoutBuffer.toString();
+      expect(output, contains('prompt: default prompt from data-dir skill'));
+      expect(output, contains('outputs:'));
+      expect(output, contains('result:'));
+      expect(output, contains('description: Result from default skill.'));
+    });
+
+    test('standalone resolved mode uses the current project skill roots when no projects are configured', () async {
+      final originalCurrent = Directory.current;
+      addTearDown(() {
+        Directory.current = originalCurrent;
+      });
+      final projectDir = Directory(p.join(tempDir.path, 'project'))..createSync();
+      Directory.current = projectDir.path;
+
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))
+        ..createSync(recursive: true);
+      File(p.join(workflowsDir.path, 'project-skill-demo.yaml')).writeAsStringSync('''
+name: project-skill-demo
+description: Demo workflow
+steps:
+  - id: demo
+    name: Demo
+    skill: dartclaw-project-default-demo
+''');
+
+      final skillDir = Directory(p.join(projectDir.path, '.agents', 'skills', 'dartclaw-project-default-demo'))
+        ..createSync(recursive: true);
+      File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('''
+---
+name: dartclaw-project-default-demo
+description: Project default demo
+workflow:
+  default_prompt: default prompt from project skill
+---
+
+# Demo
+''');
+
+      final runner = CommandRunner<void>('dartclaw', 'test')
+        ..addCommand(
+          WorkflowShowCommand(config: config, write: stdoutBuffer.write, writeLine: (_) {}, exitFn: _fakeExit),
+        );
+
+      await runner.run(['show', 'project-skill-demo', '--standalone', '--resolved']);
+
+      expect(stdoutBuffer.toString(), contains('prompt: default prompt from project skill'));
     });
   });
 }

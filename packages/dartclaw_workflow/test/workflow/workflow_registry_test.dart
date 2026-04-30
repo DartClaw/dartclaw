@@ -395,6 +395,28 @@ void main() {
       expect(registry.length, equals(1));
       expect(registry.getByName('valid-wf'), isNotNull);
     });
+
+    test('wrong-shaped YAML values are excluded without aborting sibling loading', () async {
+      File(p.join(tempDir.path, 'valid.yaml')).writeAsStringSync(_validCustomYaml('valid-wf'));
+      File(p.join(tempDir.path, 'wrong-shaped.yaml')).writeAsStringSync('''
+name: wrong-shaped
+description: Wrong-shaped workflow
+steps:
+  - id: review
+    name: Review
+    prompt: Review it.
+    extraction:
+      type: [json]
+      pattern: {}
+''');
+
+      final registry = _makeRegistry();
+      await registry.loadFromDirectory(tempDir.path);
+
+      expect(registry.length, equals(1));
+      expect(registry.getByName('valid-wf'), isNotNull);
+      expect(registry.getByName('wrong-shaped'), isNull);
+    });
   });
 
   // ------------------------------------------------------------------

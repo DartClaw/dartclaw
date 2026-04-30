@@ -86,23 +86,23 @@ class GateEvaluator {
     final result = switch (op) {
       '==' => actual == expected,
       '!=' => actual != expected,
-      '<' => _compareNumeric(actual, expected) < 0,
-      '>' => _compareNumeric(actual, expected) > 0,
-      '<=' => _compareNumeric(actual, expected) <= 0,
-      '>=' => _compareNumeric(actual, expected) >= 0,
+      '<' => _evaluateNumericComparison(actual, expected, (comparison) => comparison < 0),
+      '>' => _evaluateNumericComparison(actual, expected, (comparison) => comparison > 0),
+      '<=' => _evaluateNumericComparison(actual, expected, (comparison) => comparison <= 0),
+      '>=' => _evaluateNumericComparison(actual, expected, (comparison) => comparison >= 0),
       _ => false,
     };
     _log.fine('Gate condition: $key $op $expected → actual="$actual", result=$result');
     return result;
   }
 
-  /// Numeric comparison with string fallback.
-  int _compareNumeric(String a, String b) {
+  bool _evaluateNumericComparison(String a, String b, bool Function(int comparison) predicate) {
     final aNum = double.tryParse(a);
     final bNum = double.tryParse(b);
-    if (aNum != null && bNum != null) {
-      return aNum.compareTo(bNum);
+    if (aNum == null || bNum == null) {
+      _log.warning('Invalid numeric gate comparison: "$a" vs "$b"');
+      return false;
     }
-    return a.compareTo(b);
+    return predicate(aNum.compareTo(bNum));
   }
 }

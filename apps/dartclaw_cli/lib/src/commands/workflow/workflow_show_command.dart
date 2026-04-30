@@ -16,7 +16,7 @@ import '../config_loader.dart';
 import '../serve_command.dart' show ExitFn, WriteLine;
 import 'workflow_list_command.dart' show buildWorkflowRegistry;
 import '../workflow_materializer.dart' show WorkflowMaterializer;
-import 'project_definition_paths.dart';
+import 'andthen_skill_bootstrap.dart';
 
 /// Prints a workflow definition. Raw by default; `--resolved` merges
 /// `stepDefaults`, skill defaults (`default_prompt`, `default_outputs`), and
@@ -148,11 +148,14 @@ class WorkflowShowCommand extends Command<void> {
     // skill-declared default_prompt / default_outputs just like the server.
     final resolvedAssets = _assetResolver.resolve();
     final builtInSkillsDir = resolvedAssets?.skillsDir ?? WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
+    final dataDirSkillRoots = workflowDataDirSkillRoots(config, dataDir: config.server.dataDir);
     final skills = SkillRegistryImpl()
       ..discover(
-        projectDirs: configuredProjectDirectories(config),
+        projectDirs: workflowSkillProjectDirs(config, fallbackCwd: Directory.current.path),
         workspaceDir: config.workspaceDir,
         dataDir: config.server.dataDir,
+        dataDirClaudeSkillsDir: dataDirSkillRoots.claudeSkillsDir,
+        dataDirAgentsSkillsDir: dataDirSkillRoots.agentsSkillsDir,
         builtInSkillsDir: builtInSkillsDir,
       );
     final resolver = WorkflowDefinitionResolver(skillRegistry: skills);

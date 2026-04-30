@@ -102,15 +102,14 @@ project: '{{PROJECT}}'
 
 The executor resolves project binding in this order:
 
-1. Step-level `project:` override, if present.
-2. Workflow-level `project:` for eligible steps.
-3. `null` when the step is intentionally project-agnostic.
+1. Workflow-level `project:` for eligible steps.
+2. `null` when the step is intentionally project-agnostic.
 
 In practice:
 
 - Project-discovery and project-mutating steps inherit the workflow project automatically.
-- Review, planning, and other project-agnostic steps stay unbound unless they opt in explicitly.
-- Step-level `project:` is now a compatibility override, not the recommended default.
+- Review, planning, and other project-agnostic steps stay unbound unless the workflow declares a project at the top level.
+- Per-step `project:` is rejected at parse time (S74); workflow-level `project:` is the only declaration. The same applies to per-step `review:`, which was removed in S74 — model human checkpoints with dedicated review or `approval` steps and gate expressions instead.
 
 ### Step 4: Add Structure
 
@@ -319,8 +318,9 @@ steps:
 
 Rules:
 
-- `outputMode: prompt` is the default. It keeps prompt augmentation and heuristic JSON extraction.
-- `outputMode: structured` requires `format: json` and a schema.
+- When `format: json` and `schema` are both present, `outputMode: structured` is the default — provider-enforced schema extraction. `outputMode: prompt` is the explicit opt-out (prompt augmentation + heuristic JSON extraction fallback).
+- When `format: json` has no `schema`, the parser rejects the configuration — `schema` is required for JSON outputs.
+- For non-JSON outputs (`text` / `lines` / `path`), `outputMode` does not apply.
 - Structured extraction applies to `outputs:` map entries. The legacy `<workflow-context>` contract still backs the inline-payload happy path for every declared key.
 - Structured outputs now use an inline-first path: a valid inline `<workflow-context>` payload short-circuits the extra extraction turn; provider-native schema extraction runs only when the inline payload is missing or malformed.
 - Inline schemas used with `outputMode: structured` should set `additionalProperties: false` on every object node for Codex compatibility.
@@ -590,10 +590,6 @@ gitStrategy:
     max_attempts: 2
     token_ceiling: 100000
     escalation: serialize-remaining
-    verification:
-      format: "dart format --set-exit-if-changed ."
-      analyze: "dart analyze"
-      test: "dart test"
 ```
 
 **Configuration fields**
@@ -604,11 +600,8 @@ gitStrategy:
 | `max_attempts` | int | `2` | `1`–`5` | Bounded retry attempts per conflict |
 | `token_ceiling` | int | `100000` | `10000`–`500000` | Per-attempt token budget; enforced by the harness |
 | `escalation` | enum | `serialize-remaining` | `serialize-remaining`, `fail` | Action when `max_attempts` is exhausted |
-| `verification.format` | string | _(absent)_ | Any shell command | Run after each resolution attempt |
-| `verification.analyze` | string | _(absent)_ | Any shell command | Run after each resolution attempt |
-| `verification.test` | string | _(absent)_ | Any shell command | Run after each resolution attempt |
 
-When all three `verification` sub-fields are absent or empty, the skill falls back to conflict-marker scanning and `git diff --check` only, and emits a structured warning on the first attempt of each run.
+The previous `verification:` sub-block (`format` / `analyze` / `test`) was removed in 0.16.4 (S73); a stale YAML carrying it now fails validation as an unknown field under `gitStrategy.merge_resolve`. Verification is resolved by `dartclaw-merge-resolve` from project conventions (`CLAUDE.md`, `AGENTS.md`, contributor docs, `pubspec.yaml`, `pyproject.toml`, `package.json`, etc.) plus unconditional no-conflict-marker and `git diff --check` checks. When the project declares no verification commands, the skill records that limitation in its output surface and falls back to the marker / `git diff --check` checks alone.
 
 **Escalation modes**
 
@@ -784,7 +777,17 @@ Any step — not just loop bodies — can declare an `entryGate`. When the expre
   ...
 ```
 
-Gate syntax accepts both bare-key (`prd_source == synthesized`) and dotted-output (`plan-review.findings_count > 0`) references, chained with `&&`. Null-literal comparisons are supported: missing keys and empty values are considered null, so `active_prd != null` evaluates true only when an actual path string is present.
+Gate syntax accepts both bare-key (`prd_source == synthesized`) and dotted-output (`plan-review.findings_count > 0`) references. The grammar is two-level **OR-of-AND**: split on `||` into OR groups, split each group on `&&`, then evaluate leaf comparisons; `&&` binds tighter than `||`. Parentheses, NOT, and deeper nesting are not supported. Null-literal comparisons are supported: missing keys and empty values are considered null, so `active_prd != null` evaluates true only when an actual path string is present.
+
+Examples:
+
+```yaml
+# AND-only: all conditions must hold
+entryGate: "plan_source == synthesized && plan-review.findings_count == 0"
+
+# OR-of-AND: either group satisfies
+entryGate: "plan_source == synthesized || plan-review.gating_findings_count > 0"
+```
 
 Typical uses: reuse-existing branches (skip a review step when the upstream artifact was reused), conditional remediation (only run when findings > 0), and feature-flagged steps.
 
@@ -812,6 +815,8 @@ dartclaw workflow show plan-and-implement --resolved --step plan-review
 dartclaw workflow show plan-and-implement --resolved --json        # JSON wrapper for scripting
 dartclaw workflow show plan-and-implement --standalone              # bypass the server
 ```
+
+In standalone resolved mode, `show` reads skill defaults from the same configured skill roots as standalone execution, including data-dir scoped roots under the default `andthen.install_scope: data_dir`. It does not run the AndThen provisioning step itself, so use `dartclaw serve` or `dartclaw workflow run --standalone` first when those `dartclaw-*` skills have not been installed yet.
 
 Use this whenever a step behaves differently than the authored YAML suggests: the resolved form is the source of truth for what the engine actually runs after defaults and skill-level injections are applied.
 
@@ -904,7 +909,7 @@ DartClaw ships three DC-native skills and resolves all other workflow steps thro
 
 **Runtime provisioning — [AndThen](https://github.com/IT-HUSET/andthen) `>= 0.14.3`**:
 
-At `dartclaw serve` startup, `SkillProvisioner` clones AndThen into `<data_dir>/andthen-src/` and runs `install-skills.sh --prefix dartclaw-`. The built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review`) resolve their AndThen-derived steps through these installed `dartclaw-*` names. Key skills used:
+At `dartclaw serve` startup, and before `dartclaw workflow run --standalone`, `SkillProvisioner` clones AndThen into `<data_dir>/andthen-src/` and runs `install-skills.sh --prefix dartclaw-`. The built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review`) resolve their AndThen-derived steps through these installed `dartclaw-*` names. Key skills used:
 
 - `dartclaw-spec`, `dartclaw-prd`, `dartclaw-plan` — specification and planning
 - `dartclaw-exec-spec` — spec execution / implementation driver
@@ -1016,7 +1021,7 @@ variables:
 | `steps` | list | none | Inline child steps for `foreach` and inline `loop` containers |
 | `outputs` | map | none | Output format configs (see below) |
 | `onError` | string | `pause` | Failure policy: `pause` (default) or `continue`. Applies to bash and agent steps |
-| `workdir` | string | workspace root | Working directory for `bash` steps. Supports template references |
+| `workdir` | string | workspace root | Working directory for `bash` steps. Supports workflow-variable template references |
 | `finally` | string | none | Finalizer step ID for loop cleanup/handoff |
 
 *`prompt` is recommended for `approval` steps so the pause shows a meaningful request. It is required for `bash` steps and required unless `skill` is present for agent steps. `foreach` and inline `loop` controllers do not carry prompts themselves; their child steps do.
@@ -1099,7 +1104,7 @@ steps:
     name: Run tests
     type: bash
     prompt: dart test packages/dartclaw_core
-    workdir: /path/to/project   # optional; defaults to workspace root
+    workdir: .                  # optional; defaults to workspace root
     timeout: 120                 # optional; defaults to 60
     onError: continue            # optional; defaults to pause
     outputs:
@@ -1109,16 +1114,17 @@ steps:
 
 **Key behaviors:**
 - `{{context.*}}` and `{{VAR}}` substitutions in the command are shell-escaped to prevent injection (consistent escape contract; if you need literal unescaped content, write it directly in the command template)
+- Commands that pipe `{{context.*}}` into a shell re-parser (`eval`, `| sh`, `bash -c`, command substitution, backticks) are rejected before execution
 - stdout is captured and fed to the normal `text`/`json`/`lines` extraction pipeline
 - stdout is truncated at 64 KB with a `[truncated]` marker if exceeded
-- stderr is captured separately without truncation
+- stderr is captured separately and truncated at 64 KB with a `[truncated]` marker if exceeded
 - Step metadata (`<stepId>.status`, `<stepId>.exitCode`, `<stepId>.tokenCount: 0`) is always written to context
 
 **`workdir` resolution order:**
-1. explicit `workdir` field (template references resolved)
+1. explicit `workdir` field (workflow-variable template references resolved; `{{context.*}}` is not allowed)
 2. workspace root (`<dataDir>/workspace`)
 
-Non-existent `workdir` fails the step before the command runs.
+Relative `workdir` values resolve below the workspace root. Explicit workdirs must stay inside the DartClaw data directory and must not resolve through symlinks outside it. Non-existent `workdir` fails the step before the command runs.
 
 ### `continueSession`
 
@@ -1220,7 +1226,7 @@ outputs:
 | `format` | string | `text` | Output format: `text`, `json`, `lines`, `path` |
 | `schema` | string or object | none | Preset name (string) or inline JSON Schema (object) |
 | `source` | string | none | Explicit output source override such as `worktree.branch` or `worktree.path` |
-| `outputMode` | string | `prompt` | `prompt` (default) or `structured` — see [JSON Outputs and Structured Output Mode](#json-outputs-and-structured-output-mode) |
+| `outputMode` | string | depends | `structured` (default when `format: json` + `schema` are both present) or `prompt` (explicit opt-out, or implied for non-JSON outputs) — see [JSON Outputs and Structured Output Mode](#json-outputs-and-structured-output-mode) |
 | `description` | string | none | One-sentence description of the output's semantic meaning, woven into the workflow output contract appended to the step's prompt |
 | `setValue` | any literal | unset | When present (including `null`), the engine writes this literal verbatim to the named context key on step success and skips extraction for that key. Useful inside loops to reset a key per iteration. Fires only on success — not on failure or `entryGate` skip. Distinct from "absent": absence means "extract normally". Snake_case alias `set_value` is also accepted |
 

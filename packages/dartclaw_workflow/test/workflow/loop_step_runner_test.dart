@@ -7,13 +7,7 @@ library;
 import 'dart:async';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        TaskStatus,
-        TaskStatusChangedEvent,
-        WorkflowContext,
-        WorkflowLoop,
-        WorkflowRunStatus,
-        WorkflowStep;
+    show TaskStatus, TaskStatusChangedEvent, WorkflowContext, WorkflowLoop, WorkflowRunStatus, WorkflowStep;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -27,14 +21,20 @@ void main() {
     // A loop with steps that reference non-existent step IDs is not valid,
     // so instead: single step, exits on iteration 1.
     final definition = h.makeDefinition(
-      steps: [const WorkflowStep(id: 's1', name: 'S1', prompts: ['p'])],
-      loops: [const WorkflowLoop(id: 'l1', steps: ['s1'], maxIterations: 1, exitGate: 'loop.l1.iteration == 1')],
+      steps: [
+        const WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+      ],
+      loops: [
+        const WorkflowLoop(id: 'l1', steps: ['s1'], maxIterations: 1, exitGate: 'loop.l1.iteration == 1'),
+      ],
     );
     final run = h.makeRun(definition);
     await h.repository.insert(run);
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       await h.completeTask(e.taskId);
@@ -55,13 +55,17 @@ void main() {
         const WorkflowStep(id: 'ls', name: 'LS', prompts: ['p']),
         const WorkflowStep(id: 'after', name: 'After', prompts: ['p']),
       ],
-      loops: [const WorkflowLoop(id: 'l1', steps: ['ls'], maxIterations: 3, exitGate: 'loop.l1.iteration == 2')],
+      loops: [
+        const WorkflowLoop(id: 'l1', steps: ['ls'], maxIterations: 3, exitGate: 'loop.l1.iteration == 2'),
+      ],
     );
     final run = h.makeRun(definition);
     await h.repository.insert(run);
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       await h.completeTask(e.taskId);
@@ -78,13 +82,19 @@ void main() {
 
   test('maxIterations circuit breaker: fails run when gate never passes', () async {
     final definition = h.makeDefinition(
-      steps: [const WorkflowStep(id: 'ls', name: 'LS', prompts: ['p'])],
-      loops: [const WorkflowLoop(id: 'l1', steps: ['ls'], maxIterations: 2, exitGate: 'never == true')],
+      steps: [
+        const WorkflowStep(id: 'ls', name: 'LS', prompts: ['p']),
+      ],
+      loops: [
+        const WorkflowLoop(id: 'l1', steps: ['ls'], maxIterations: 2, exitGate: 'never == true'),
+      ],
     );
     final run = h.makeRun(definition);
     await h.repository.insert(run);
 
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       await h.completeTask(e.taskId);
     });
@@ -99,13 +109,19 @@ void main() {
 
   test('step failure inside loop fails the run', () async {
     final definition = h.makeDefinition(
-      steps: [const WorkflowStep(id: 'ls', name: 'LS', prompts: ['p'])],
-      loops: [const WorkflowLoop(id: 'l1', steps: ['ls'], maxIterations: 3, exitGate: 'ls.status == accepted')],
+      steps: [
+        const WorkflowStep(id: 'ls', name: 'LS', prompts: ['p']),
+      ],
+      loops: [
+        const WorkflowLoop(id: 'l1', steps: ['ls'], maxIterations: 3, exitGate: 'ls.status == accepted'),
+      ],
     );
     final run = h.makeRun(definition);
     await h.repository.insert(run);
 
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       await h.completeTask(e.taskId, status: TaskStatus.failed);
     });
@@ -119,15 +135,21 @@ void main() {
 
   test('cancellation during loop stops execution early', () async {
     final definition = h.makeDefinition(
-      steps: [const WorkflowStep(id: 'ls', name: 'LS', prompts: ['p'])],
-      loops: [const WorkflowLoop(id: 'l1', steps: ['ls'], maxIterations: 5, exitGate: 'loop.l1.iteration == 5')],
+      steps: [
+        const WorkflowStep(id: 'ls', name: 'LS', prompts: ['p']),
+      ],
+      loops: [
+        const WorkflowLoop(id: 'l1', steps: ['ls'], maxIterations: 5, exitGate: 'loop.l1.iteration == 5'),
+      ],
     );
     final run = h.makeRun(definition);
     await h.repository.insert(run);
 
     var cancelled = false;
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       cancelled = true;
@@ -161,7 +183,9 @@ void main() {
     final context = WorkflowContext()..['findings'] = 0;
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       await h.completeTask(e.taskId);

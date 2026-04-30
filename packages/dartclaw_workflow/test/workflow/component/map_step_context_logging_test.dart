@@ -43,7 +43,8 @@ void main() {
       expect(
         observer.records.where((r) => r.loggerName == 'MapStepContext'),
         hasLength(2),
-        reason: 'Each iteration failure must produce its own WARNING so operators '
+        reason:
+            'Each iteration failure must produce its own WARNING so operators '
             'can correlate per-iteration status.',
       );
     });
@@ -53,10 +54,7 @@ void main() {
 
       ctx.recordFailure(0, 'no task id', null);
 
-      observer.expectRecord(
-        level: Level.WARNING,
-        pattern: RegExp(r'Map iteration \[0\] failed \(task=null\)'),
-      );
+      observer.expectRecord(level: Level.WARNING, pattern: RegExp(r'Map iteration \[0\] failed \(task=null\)'));
     });
 
     test('recordResult does NOT emit a warning — only failures should log', () {
@@ -64,10 +62,7 @@ void main() {
 
       ctx.recordResult(0, {'ok': true});
 
-      expect(
-        observer.records.where((r) => r.loggerName == 'MapStepContext'),
-        isEmpty,
-      );
+      expect(observer.records.where((r) => r.loggerName == 'MapStepContext'), isEmpty);
     });
   });
 }

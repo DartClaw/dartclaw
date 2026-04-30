@@ -6,5 +6,7 @@ String configuredProjectDirectory(DartclawConfig config, ProjectDefinition defin
 }
 
 List<String> configuredProjectDirectories(DartclawConfig config) {
-  return config.projects.definitions.values.map((definition) => configuredProjectDirectory(config, definition)).toList();
+  return config.projects.definitions.values
+      .map((definition) => configuredProjectDirectory(config, definition))
+      .toList();
 }

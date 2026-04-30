@@ -1009,9 +1009,7 @@ void main() {
     final context = WorkflowContext();
 
     final executedTaskIds = <String>[];
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
       await Future<void>.delayed(Duration.zero);
       final task = await taskService.get(e.taskId);
       if (task != null) executedTaskIds.add(e.taskId);

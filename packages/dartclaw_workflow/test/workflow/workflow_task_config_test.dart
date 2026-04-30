@@ -94,11 +94,7 @@ void main() {
       });
       expect(stored.providerSessionId, 'sess-abc');
       expect(stored.structuredOutput, {'answer': 42});
-      expect(stored.stepTokenBreakdown, {
-        'inputTokensNew': 10,
-        'cacheReadTokens': 3,
-        'outputTokens': 7,
-      });
+      expect(stored.stepTokenBreakdown, {'inputTokensNew': 10, 'cacheReadTokens': 3, 'outputTokens': 7});
     });
 
     test('mirrors token breakdown into task config keys for artifact consumers', () {
@@ -127,18 +123,11 @@ void main() {
       // Patch is disjoint from other task-config fields, so
       // `TaskService.mergeConfigJson` can apply it atomically without
       // clobbering concurrent updates to unrelated keys.
-      expect(patch, {
-        '_workflowInputTokensNew': 600,
-        '_workflowCacheReadTokens': 400,
-        '_workflowOutputTokens': 500,
-      });
+      expect(patch, {'_workflowInputTokensNew': 600, '_workflowCacheReadTokens': 400, '_workflowOutputTokens': 500});
     });
 
     test('throws when writing without an existing WSE row', () async {
-      expect(
-        () => WorkflowTaskConfig.writeProviderSessionId(task, repository, 'sess'),
-        throwsA(isA<StateError>()),
-      );
+      expect(() => WorkflowTaskConfig.writeProviderSessionId(task, repository, 'sess'), throwsA(isA<StateError>()));
     });
   });
 }

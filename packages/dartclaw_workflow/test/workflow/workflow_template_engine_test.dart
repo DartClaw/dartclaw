@@ -366,7 +366,12 @@ void main() {
 
       test('{{<alias>.item.field}} resolves against the same iteration as {{map.*}}', () {
         final ctx = _ctx();
-        final mapCtx = aliased(item: {'spec_path': 'docs/s01.md', 'title': 'First'}, index: 0, length: 3, alias: 'story');
+        final mapCtx = aliased(
+          item: {'spec_path': 'docs/s01.md', 'title': 'First'},
+          index: 0,
+          length: 3,
+          alias: 'story',
+        );
         expect(engine.resolveWithMap('{{story.item.spec_path}}', ctx, mapCtx), 'docs/s01.md');
         expect(engine.resolveWithMap('{{map.item.spec_path}}', ctx, mapCtx), 'docs/s01.md');
       });

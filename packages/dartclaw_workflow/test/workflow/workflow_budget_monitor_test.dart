@@ -22,14 +22,18 @@ class _FakeRepo {
 WorkflowDefinition _def({required int maxTokens}) => WorkflowDefinition(
   name: 'test',
   description: 'test',
-  steps: const [WorkflowStep(id: 's1', name: 'S1', prompts: ['p'])],
+  steps: const [
+    WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+  ],
   maxTokens: maxTokens,
 );
 
 WorkflowDefinition _defNoLimit() => WorkflowDefinition(
   name: 'test',
   description: 'test',
-  steps: const [WorkflowStep(id: 's1', name: 'S1', prompts: ['p'])],
+  steps: const [
+    WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+  ],
 );
 
 WorkflowRun _run({required int tokens, Map<String, dynamic> contextJson = const {}}) {

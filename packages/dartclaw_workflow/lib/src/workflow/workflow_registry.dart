@@ -133,6 +133,14 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
         }
       } on FormatException catch (e) {
         _log.warning('$sourceLabel workflow excluded: ${entity.path} — invalid YAML: $e');
+      } on ArgumentError catch (e) {
+        _log.warning('$sourceLabel workflow excluded: ${entity.path} — invalid workflow definition: $e');
+      } on TypeError catch (e, st) {
+        // TypeError out of the parser indicates a hard cast failure inside
+        // WorkflowDefinitionParser (a parser bug), not malformed user input.
+        // Log at severe so it stays visible alongside other internal errors;
+        // the workflow is still excluded so the registry remains usable.
+        _log.severe('$sourceLabel workflow excluded: ${entity.path} — internal parser error: $e', e, st);
       } on FileSystemException catch (e) {
         _log.warning('$sourceLabel workflow excluded: ${entity.path} — file read error: $e');
       }

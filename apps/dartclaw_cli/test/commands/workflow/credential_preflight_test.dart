@@ -6,11 +6,7 @@ void main() {
   group('CredentialPreflight.validate', () {
     test('returns a hard error for a referenced empty GitHub credential', () {
       final config = DartclawConfig(
-        credentials: const CredentialsConfig(
-          entries: {
-            'github-main': CredentialEntry.githubToken(token: ''),
-          },
-        ),
+        credentials: const CredentialsConfig(entries: {'github-main': CredentialEntry.githubToken(token: '')}),
         projects: const ProjectConfig(
           definitions: {
             'workflow-testing': ProjectDefinition(
@@ -32,11 +28,7 @@ void main() {
 
     test('returns no hard errors when the referenced credential is present', () {
       final config = DartclawConfig(
-        credentials: const CredentialsConfig(
-          entries: {
-            'github-main': CredentialEntry.githubToken(token: 'secret'),
-          },
-        ),
+        credentials: const CredentialsConfig(entries: {'github-main': CredentialEntry.githubToken(token: 'secret')}),
         projects: const ProjectConfig(
           definitions: {
             'workflow-testing': ProjectDefinition(
@@ -56,11 +48,7 @@ void main() {
 
     test('returns a warning for an unreferenced empty credential', () {
       final config = DartclawConfig(
-        credentials: const CredentialsConfig(
-          entries: {
-            'openai': CredentialEntry(apiKey: ''),
-          },
-        ),
+        credentials: const CredentialsConfig(entries: {'openai': CredentialEntry(apiKey: '')}),
       );
 
       final result = CredentialPreflight.validate(config, const {});
@@ -88,16 +76,15 @@ void main() {
 
       expect(result.hardErrors, hasLength(1));
       expect(result.hardErrors.single.reason, 'missing_credential_def');
-      expect(result.hardErrors.single.message, 'Credential preflight failed: project "workflow-testing" references missing credential "github-main"');
+      expect(
+        result.hardErrors.single.message,
+        'Credential preflight failed: project "workflow-testing" references missing credential "github-main"',
+      );
     });
 
     test('accepts alternate env fallbacks before warning on unreferenced credentials', () {
       final config = DartclawConfig(
-        credentials: const CredentialsConfig(
-          entries: {
-            'openai': CredentialEntry(apiKey: ''),
-          },
-        ),
+        credentials: const CredentialsConfig(entries: {'openai': CredentialEntry(apiKey: '')}),
       );
 
       final result = CredentialPreflight.validate(config, const {'OPENAI_API_KEY': 'secret'});
@@ -108,11 +95,7 @@ void main() {
 
     test('fails fast on referenced custom-named credentials whose resolved secret is empty', () {
       final config = DartclawConfig(
-        credentials: const CredentialsConfig(
-          entries: {
-            'github-ssh': CredentialEntry(apiKey: ''),
-          },
-        ),
+        credentials: const CredentialsConfig(entries: {'github-ssh': CredentialEntry(apiKey: '')}),
         projects: const ProjectConfig(
           definitions: {
             'workflow-testing': ProjectDefinition(
@@ -127,7 +110,10 @@ void main() {
       final result = CredentialPreflight.validate(config, const {});
 
       expect(result.hardErrors, hasLength(1));
-      expect(result.hardErrors.single.message, 'Credential preflight failed: project "workflow-testing" references credential "github-ssh" but its configured secret resolved empty');
+      expect(
+        result.hardErrors.single.message,
+        'Credential preflight failed: project "workflow-testing" references credential "github-ssh" but its configured secret resolved empty',
+      );
     });
 
     test('reports the actual configured env var for custom-named api-key credentials', () {
@@ -168,11 +154,7 @@ void main() {
         ),
         projects: const ProjectConfig(
           definitions: {
-            'coding': ProjectDefinition(
-              id: 'coding',
-              remote: 'git@example.com:team/repo.git',
-              credentials: 'openai',
-            ),
+            'coding': ProjectDefinition(id: 'coding', remote: 'git@example.com:team/repo.git', credentials: 'openai'),
           },
         ),
       );

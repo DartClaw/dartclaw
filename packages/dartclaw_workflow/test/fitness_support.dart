@@ -27,11 +27,7 @@ final class FitnessBaseline {
   final String regenerationRecipe;
   final Map<String, Map<String, Object?>> allowlist;
 
-  const FitnessBaseline({
-    required this.generatedAt,
-    required this.regenerationRecipe,
-    required this.allowlist,
-  });
+  const FitnessBaseline({required this.generatedAt, required this.regenerationRecipe, required this.allowlist});
 
   factory FitnessBaseline.fromJson(Map<String, dynamic> json) {
     final rawAllowlist = (json['allowlist'] as Map<String, dynamic>? ?? const <String, dynamic>{});
@@ -40,8 +36,9 @@ final class FitnessBaseline {
       regenerationRecipe: json['regeneration_recipe'] as String? ?? '',
       allowlist: {
         for (final entry in rawAllowlist.entries)
-          entry.key: (entry.value as Map<String, dynamic>? ?? const <String, dynamic>{})
-              .map((key, value) => MapEntry(key, value)),
+          entry.key: (entry.value as Map<String, dynamic>? ?? const <String, dynamic>{}).map(
+            (key, value) => MapEntry(key, value),
+          ),
       },
     );
   }
@@ -49,9 +46,7 @@ final class FitnessBaseline {
   Map<String, dynamic> toJson() => {
     'generated_at': generatedAt,
     'regeneration_recipe': regenerationRecipe,
-    'allowlist': {
-      for (final entry in allowlist.entries) entry.key: entry.value,
-    },
+    'allowlist': {for (final entry in allowlist.entries) entry.key: entry.value},
   };
 }
 
@@ -95,18 +90,10 @@ final class FitnessSnapshot {
       generatedAt: generatedAt,
       regenerationRecipe: 'dart run packages/dartclaw_workflow/tool/regenerate_fitness_baseline.dart',
       allowlist: {
-        'F-SIZE-1': {
-          for (final entry in fileLoc.entries) entry.key: entry.value,
-        },
-        'F-CLASS-1': {
-          for (final entry in classMethodCounts.entries) entry.key: entry.value,
-        },
-        'F-CLASS-2': {
-          for (final entry in fileMethodCounts.entries) entry.key: entry.value,
-        },
-        'F-COMPLEX-1': {
-          for (final entry in methodComplexities.entries) entry.key: entry.value,
-        },
+        'F-SIZE-1': {for (final entry in fileLoc.entries) entry.key: entry.value},
+        'F-CLASS-1': {for (final entry in classMethodCounts.entries) entry.key: entry.value},
+        'F-CLASS-2': {for (final entry in fileMethodCounts.entries) entry.key: entry.value},
+        'F-COMPLEX-1': {for (final entry in methodComplexities.entries) entry.key: entry.value},
         'F-CONTRACT-1': {
           for (final entry in contractKeysByFile.entries)
             if (entry.value.isNotEmpty) entry.key: entry.value.toList()..sort(),
@@ -131,7 +118,8 @@ String resolveRepoRoot() {
   }
 }
 
-String baselinePath(String repoRoot) => p.join(repoRoot, 'packages', 'dartclaw_workflow', 'test', 'fitness_baseline.json');
+String baselinePath(String repoRoot) =>
+    p.join(repoRoot, 'packages', 'dartclaw_workflow', 'test', 'fitness_baseline.json');
 
 FitnessBaseline loadBaseline(String repoRoot) {
   final file = File(baselinePath(repoRoot));
@@ -175,11 +163,9 @@ FitnessSnapshot collectFitnessSnapshot(String repoRoot) {
     contractKeysByFile[relative] = _contractKeys(source);
   }
 
-  final scenarioFiles = _listDartFiles(p.join(repoRoot, 'packages', 'dartclaw_workflow', 'test', 'workflow', 'scenarios'))
-      .map((file) => p.relative(file.path, from: repoRoot))
-      .where((file) => file.endsWith('_test.dart'))
-      .toList()
-    ..sort();
+  final scenarioFiles = _listDartFiles(
+    p.join(repoRoot, 'packages', 'dartclaw_workflow', 'test', 'workflow', 'scenarios'),
+  ).map((file) => p.relative(file.path, from: repoRoot)).where((file) => file.endsWith('_test.dart')).toList()..sort();
   final scenarioTypes = <String>{};
   for (final relative in scenarioFiles) {
     final source = File(p.join(repoRoot, relative)).readAsStringSync();
@@ -208,23 +194,16 @@ List<File> _listDartFiles(String dirPath) {
 }
 
 Set<String> _contractKeys(String source) {
-  final matches = RegExp(r'''['"](_workflow(?:\.[^'"]+)?|_dartclaw\.internal(?:\.[^'"]+)*)['"]''')
-      .allMatches(source)
-      .map((match) => match.group(1))
-      .whereType<String>()
-      .toSet();
+  final matches = RegExp(
+    r'''['"](_workflow(?:\.[^'"]+)?|_dartclaw\.internal(?:\.[^'"]+)*)['"]''',
+  ).allMatches(source).map((match) => match.group(1)).whereType<String>().toSet();
   return matches;
 }
 
 Set<String> _scenarioTypes(String source) {
   final match = RegExp(r'^//\s*scenario-types:\s*(.+)$', multiLine: true).firstMatch(source);
   if (match == null) return const <String>{};
-  return match
-      .group(1)!
-      .split(',')
-      .map((value) => value.trim())
-      .where((value) => value.isNotEmpty)
-      .toSet();
+  return match.group(1)!.split(',').map((value) => value.trim()).where((value) => value.isNotEmpty).toSet();
 }
 
 List<MethodMetric> _extractMethodMetrics(String relativePath, String source) {
@@ -238,7 +217,9 @@ List<MethodMetric> _extractMethodMetrics(String relativePath, String source) {
     final line = lines[index];
     final trimmed = line.trim();
 
-    final classMatch = RegExp(r'\b(?:abstract\s+|base\s+|sealed\s+|final\s+|interface\s+)*class\s+(\w+)').firstMatch(line);
+    final classMatch = RegExp(
+      r'\b(?:abstract\s+|base\s+|sealed\s+|final\s+|interface\s+)*class\s+(\w+)',
+    ).firstMatch(line);
     if (classMatch != null && line.contains('{')) {
       classStack.add((name: classMatch.group(1)!, depth: braceDepth + _count(line, '{')));
     }
@@ -321,14 +302,18 @@ int _cyclomaticComplexity(String body) {
 bool _looksLikeMethodStart(String trimmed) {
   if (trimmed.isEmpty) return false;
   if (trimmed.startsWith('//')) return false;
-  if (!trimmed.contains('(') && !trimmed.contains(' get ') && !trimmed.startsWith('get ') && !trimmed.contains(' set ')) {
+  if (!trimmed.contains('(') &&
+      !trimmed.contains(' get ') &&
+      !trimmed.startsWith('get ') &&
+      !trimmed.contains(' set ')) {
     return false;
   }
   final disallowed = ['if ', 'for ', 'while ', 'switch ', 'catch ', 'return ', 'throw ', 'assert('];
   return disallowed.every((prefix) => !trimmed.startsWith(prefix));
 }
 
-bool _signatureComplete(String signature) => signature.contains('=>') || signature.contains('{') || signature.endsWith(';');
+bool _signatureComplete(String signature) =>
+    signature.contains('=>') || signature.contains('{') || signature.endsWith(';');
 
 String? _methodName(String signature) {
   final getterSetter = RegExp(r'\b(get|set)\s+([A-Za-z_]\w*)').firstMatch(signature);
@@ -394,7 +379,8 @@ String _sanitizeDartSource(String source) {
         i++;
         continue;
       }
-      final isTripleClose = tripleQuoted && char == stringDelimiter && next == stringDelimiter && next2 == stringDelimiter;
+      final isTripleClose =
+          tripleQuoted && char == stringDelimiter && next == stringDelimiter && next2 == stringDelimiter;
       if (isTripleClose) {
         buffer.write('   ');
         stringDelimiter = null;

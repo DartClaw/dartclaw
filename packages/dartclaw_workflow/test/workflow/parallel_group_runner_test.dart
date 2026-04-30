@@ -25,13 +25,17 @@ void main() {
 
   test('empty parallel group (single non-parallel step) runs sequentially', () async {
     final definition = h.makeDefinition(
-      steps: [const WorkflowStep(id: 's1', name: 'S1', prompts: ['p'])],
+      steps: [
+        const WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+      ],
     );
     final run = h.makeRun(definition);
     await h.repository.insert(run);
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       await h.completeTask(e.taskId);
@@ -47,13 +51,17 @@ void main() {
 
   test('single parallel-tagged step runs like a group of one', () async {
     final definition = h.makeDefinition(
-      steps: [const WorkflowStep(id: 's1', name: 'S1', prompts: ['p'], parallel: true)],
+      steps: [
+        const WorkflowStep(id: 's1', name: 'S1', prompts: ['p'], parallel: true),
+      ],
     );
     final run = h.makeRun(definition);
     await h.repository.insert(run);
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       await h.completeTask(e.taskId);
@@ -79,7 +87,9 @@ void main() {
     await h.repository.insert(run);
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       await h.completeTask(e.taskId);
@@ -104,7 +114,9 @@ void main() {
     await h.repository.insert(run);
 
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       // First task fails, second succeeds.
@@ -131,7 +143,9 @@ void main() {
     final groupEvents = <ParallelGroupCompletedEvent>[];
     final groupSub = h.eventBus.on<ParallelGroupCompletedEvent>().listen(groupEvents.add);
 
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       await h.completeTask(e.taskId);
     });
@@ -158,7 +172,9 @@ void main() {
 
     var cancelled = false;
     var taskCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       cancelled = true;

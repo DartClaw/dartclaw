@@ -40,6 +40,7 @@ class WorkflowRunCommand extends Command<void> {
   final WriteLine _stderrLine;
   final ExitFn _exitFn;
   final Stream<void> Function() _interrupts;
+  final bool _runAndthenSkillsBootstrap;
 
   WorkflowRunCommand({
     DartclawConfig? config,
@@ -52,6 +53,7 @@ class WorkflowRunCommand extends Command<void> {
     WriteLine? stderrLine,
     ExitFn? exitFn,
     Stream<void> Function()? interrupts,
+    bool runAndthenSkillsBootstrap = true,
   }) : _config = config,
        _searchDbFactory = searchDbFactory,
        _taskDbFactory = taskDbFactory,
@@ -61,7 +63,8 @@ class WorkflowRunCommand extends Command<void> {
        _stdoutLine = stdoutLine ?? stdout.writeln,
        _stderrLine = stderrLine ?? stderr.writeln,
        _exitFn = exitFn ?? exit,
-       _interrupts = interrupts ?? (() => ProcessSignal.sigint.watch().map((_) {})) {
+       _interrupts = interrupts ?? (() => ProcessSignal.sigint.watch().map((_) {})),
+       _runAndthenSkillsBootstrap = runAndthenSkillsBootstrap {
     argParser
       ..addMultiOption('var', abbr: 'v', help: 'Variable (KEY=VALUE)', valueHelp: 'KEY=VALUE', splitCommas: false)
       ..addOption('project', abbr: 'p', help: 'Project ID for project-scoped steps')
@@ -72,7 +75,13 @@ class WorkflowRunCommand extends Command<void> {
       )
       ..addFlag('standalone', negatable: false, help: 'Run the workflow in-process without using the server API')
       ..addFlag('force', negatable: false, help: 'Bypass the standalone safety check')
-      ..addFlag('json', negatable: false, help: 'Output structured JSON events');
+      ..addFlag('json', negatable: false, help: 'Output structured JSON events')
+      ..addFlag(
+        'no-skill-bootstrap',
+        negatable: false,
+        help: 'Skip AndThen skill provisioning in standalone mode. Use when AndThen has been pre-staged or '
+            'when running in an installed/AOT layout that cannot resolve the built-in skill source.',
+      );
   }
 
   @override
@@ -97,9 +106,13 @@ class WorkflowRunCommand extends Command<void> {
     final standalone = argResults!['standalone'] as bool;
     final force = argResults!['force'] as bool;
     final jsonOutput = argResults!['json'] as bool;
+    final skipSkillBootstrap = argResults!['no-skill-bootstrap'] as bool;
 
     if (force && !standalone) {
       throw UsageException('--force can only be used together with --standalone', usage);
+    }
+    if (skipSkillBootstrap && !standalone) {
+      throw UsageException('--no-skill-bootstrap can only be used together with --standalone', usage);
     }
 
     final config = _config ?? loadCliConfig(configPath: _globalOptionString(globalResults, 'config'));
@@ -112,6 +125,7 @@ class WorkflowRunCommand extends Command<void> {
         allowDirtyLocalPath: allowDirtyLocalPath,
         force: force,
         jsonOutput: jsonOutput,
+        runAndthenSkillsBootstrap: _runAndthenSkillsBootstrap && !skipSkillBootstrap,
       );
       return;
     }
@@ -146,6 +160,7 @@ class WorkflowRunCommand extends Command<void> {
     required bool allowDirtyLocalPath,
     required bool force,
     required bool jsonOutput,
+    required bool runAndthenSkillsBootstrap,
   }) async {
     final apiClient =
         _apiClient ??
@@ -175,6 +190,7 @@ class WorkflowRunCommand extends Command<void> {
       harnessFactory: _harnessFactory,
       searchDbFactory: _searchDbFactory,
       taskDbFactory: _taskDbFactory,
+      runAndthenSkillsBootstrap: runAndthenSkillsBootstrap,
     );
     var wired = false;
     try {
@@ -195,7 +211,35 @@ class WorkflowRunCommand extends Command<void> {
         if (available.isNotEmpty) {
           _stderrLine('Available: $available');
         }
+        if (!runAndthenSkillsBootstrap) {
+          // Workflows that reference unresolved skills are silently excluded
+          // by WorkflowRegistry; with --no-skill-bootstrap that almost always
+          // means AndThen skills weren't pre-staged. Surface the hint.
+          _stderrLine(
+            'Note: --no-skill-bootstrap was set. If "$workflowName" uses AndThen-derived skills '
+            '(dartclaw-prd, dartclaw-plan, etc.), pre-stage the AndThen skill bundle under '
+            '~/.claude/skills/ and ~/.agents/skills/ (or the configured data-dir equivalents), '
+            'or omit --no-skill-bootstrap to provision them automatically.',
+          );
+        }
         _exitFn(1);
+      }
+      if (!runAndthenSkillsBootstrap) {
+        final missing = definition.steps
+            .map((step) => step.skill)
+            .whereType<String>()
+            .where((name) => name.startsWith('dartclaw-'))
+            .where((name) => wiring.skillRegistry.getByName(name) == null)
+            .toSet();
+        if (missing.isNotEmpty) {
+          _stderrLine(
+            '--no-skill-bootstrap was set but AndThen-derived skills referenced by "$workflowName" '
+            'are not pre-staged: ${missing.join(", ")}. Pre-stage the AndThen skill bundle under '
+            '~/.claude/skills/ and ~/.agents/skills/ (or the configured data-dir equivalents), '
+            'or omit --no-skill-bootstrap to provision them automatically.',
+          );
+          _exitFn(1);
+        }
       }
       await wiring.ensureTaskRunnersForProviders(_requiredWorkflowProviders(definition, config.agent.provider));
 

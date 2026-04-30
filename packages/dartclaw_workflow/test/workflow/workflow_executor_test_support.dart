@@ -157,11 +157,7 @@ final class WorkflowExecutorHarness {
     );
   }
 
-  WorkflowDefinition makeDefinition({
-    List<WorkflowStep>? steps,
-    int? maxTokens,
-    List<WorkflowLoop> loops = const [],
-  }) {
+  WorkflowDefinition makeDefinition({List<WorkflowStep>? steps, int? maxTokens, List<WorkflowLoop> loops = const []}) {
     return WorkflowDefinition(
       name: 'test-workflow',
       description: 'Test workflow',

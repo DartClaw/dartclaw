@@ -66,6 +66,24 @@ void main() {
 
         expect(command, equals("echo ''"));
       });
+
+      test('rejects context substitutions piped into a shell', () {
+        expect(
+          () => validateBashCommandTemplate('echo {{context.command}} | sh'),
+          throwsA(isA<ArgumentError>().having((e) => e.message, 'message', contains('shell re-parsing'))),
+        );
+      });
+
+      test('rejects context substitutions passed to eval with leading whitespace', () {
+        expect(
+          () => validateBashCommandTemplate('  eval {{context.command}}'),
+          throwsA(isA<ArgumentError>().having((e) => e.message, 'message', contains('shell re-parsing'))),
+        );
+      });
+
+      test('allows context substitutions as ordinary shell arguments', () {
+        expect(() => validateBashCommandTemplate('printf %s {{context.value}}'), returnsNormally);
+      });
     });
 
     test('extracts line outputs from stdout', () {
@@ -270,6 +288,46 @@ void main() {
       expect((context['cwd'] as String?)?.trim(), equals(expected));
     });
 
+    test('bash step rejects workdir templates that reference context values', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['pwd'], workdir: '{{context.dir}}'),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final context = WorkflowContext(data: {'dir': h.tempDir.path});
+
+      await h.executor.execute(run, definition, context);
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(context['bash1.error'], contains('workdir must not reference context values'));
+    });
+
+    test('bash step rejects workdirs outside dataDir', () async {
+      final outside = Directory.systemTemp.createTempSync('dartclaw_bash_outside_');
+      addTearDown(() {
+        if (outside.existsSync()) outside.deleteSync(recursive: true);
+      });
+      final definition = h.makeDefinition(
+        steps: [
+          WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: const ['pwd'], workdir: outside.path),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final context = WorkflowContext();
+
+      await h.executor.execute(run, definition, context);
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(context['bash1.error'], contains('workdir escapes dataDir'));
+    });
+
     test('bash step strips sensitive parent env and keeps allowlisted vars only', () async {
       final isolatedExecutor = h.makeExecutor(
         hostEnvironment: const {
@@ -332,13 +390,7 @@ void main() {
     test('bash step timeout pauses workflow', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(
-            id: 'bash1',
-            name: 'Bash 1',
-            type: 'bash',
-            prompts: ['sleep 10'],
-            timeoutSeconds: 1,
-          ),
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['sleep 10'], timeoutSeconds: 1),
         ],
       );
 
@@ -374,6 +426,31 @@ void main() {
 
       expect(File(outputFile).existsSync(), isFalse);
     }, timeout: const Timeout(Duration(seconds: 10)));
+
+    test('bash stdout is retained only up to the configured byte cap', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: 'bash',
+            prompts: ['yes x | head -c 70000'],
+            outputs: {'out': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final context = WorkflowContext();
+
+      await h.executor.execute(run, definition, context);
+
+      expect(context['bash1.status'], equals('success'));
+      expect(context['bash1.stdoutTruncated'], isTrue);
+      expect((context['out'] as String).length, lessThan(66000));
+      expect(context['out'], endsWith('[truncated]'));
+    });
 
     test('bash step with json output fails on empty stdout', () async {
       final definition = h.makeDefinition(

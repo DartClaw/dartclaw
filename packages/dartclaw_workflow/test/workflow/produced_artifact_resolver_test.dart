@@ -95,5 +95,74 @@ void main() {
 
       expect(artifacts.requiredPaths, ['fis/s01.md', 'fis/s02.md']);
     });
+
+    test('normalizes absolute paths inside the project root to relative paths', () {
+      final absolutePlan = p.join(tempDir.path, 'docs', 'plans', 'p', 'plan.md');
+      final artifacts = const ProducedArtifactResolver().resolve(
+        step: const WorkflowStep(
+          id: 'plan',
+          name: 'Plan',
+          outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+        ),
+        outputs: {'plan': absolutePlan},
+        projectRoot: tempDir.path,
+      );
+
+      expect(artifacts.requiredPaths, ['docs/plans/p/plan.md']);
+    });
+
+    test('rejects traversal outside the project root', () {
+      expect(
+        () => const ProducedArtifactResolver().resolve(
+          step: const WorkflowStep(
+            id: 'plan',
+            name: 'Plan',
+            outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+          ),
+          outputs: {'plan': '../outside.md'},
+          projectRoot: tempDir.path,
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects the project root as a produced artifact path', () {
+      for (final value in ['.', tempDir.path]) {
+        expect(
+          () => const ProducedArtifactResolver().resolve(
+            step: const WorkflowStep(
+              id: 'plan',
+              name: 'Plan',
+              outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+            ),
+            outputs: {'plan': value},
+            projectRoot: tempDir.path,
+          ),
+          throwsFormatException,
+        );
+      }
+    });
+
+    test('rejects paths below symlinks that escape the project root', () {
+      final outside = Directory(p.join(tempDir.parent.path, 'outside_${DateTime.now().microsecondsSinceEpoch}'))
+        ..createSync(recursive: true);
+      addTearDown(() {
+        if (outside.existsSync()) outside.deleteSync(recursive: true);
+      });
+      Link(p.join(tempDir.path, 'linked-out')).createSync(outside.path);
+
+      expect(
+        () => const ProducedArtifactResolver().resolve(
+          step: const WorkflowStep(
+            id: 'plan',
+            name: 'Plan',
+            outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+          ),
+          outputs: {'plan': 'linked-out/secret.md'},
+          projectRoot: tempDir.path,
+        ),
+        throwsFormatException,
+      );
+    });
   });
 }

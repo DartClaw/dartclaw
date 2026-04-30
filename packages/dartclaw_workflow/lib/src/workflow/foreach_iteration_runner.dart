@@ -140,7 +140,34 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     var totalTokens = 0;
     // Drain-failure message is set by the drain path; when non-null, abort loop.
     String? drainFailureMessage;
-    while (pending.isNotEmpty || inFlight.isNotEmpty) {
+    int? pendingSerializeRemainingIteration() {
+      final serializeIter = context['_merge_resolve.${controllerStep.id}.serializing_iter_index'];
+      if (serializeIter is! int ||
+          context['_merge_resolve.${controllerStep.id}.serialize_remaining_phase'] == 'drained') {
+        return null;
+      }
+      return serializeIter;
+    }
+
+    Future<void> enactSerializeRemaining(int serializeIter) async {
+      final drainResult = await _drainAndRequeue(
+        run: run,
+        controllerStep: controllerStep,
+        context: context,
+        mapCtx: mapCtx,
+        pending: pending,
+        inFlight: inFlight,
+        iterTaskIds: iterTaskIds,
+        failingIterIndex: serializeIter,
+        stepIndex: stepIndex,
+        promotedIds: promotedIds,
+      );
+      if (drainResult != null) {
+        drainFailureMessage = drainResult;
+      }
+    }
+
+    while (pending.isNotEmpty || inFlight.isNotEmpty || pendingSerializeRemainingIteration() != null) {
       if (drainFailureMessage != null) break;
       if (mapCtx.budgetExhausted) {
         while (pending.isNotEmpty) {
@@ -203,29 +230,76 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         );
         mapCtx.inFlightCount++;
         inFlight[iterIndex] =
-            _dispatchForeachIteration(
-              run: run,
-              definition: definition,
-              controllerStep: controllerStep,
-              childSteps: childSteps,
-              stepIndex: stepIndex,
-              iterIndex: iterIndex,
-              mapContext: mapContext,
-              mapCtx: mapCtx,
-              context: context,
-              promotionAware: promotionAware,
-              integrationBranch: integrationBranch,
-              promotionStrategy: promotionStrategy,
-              promotedIds: promotedIds,
-              projectId: effectiveProjectId,
-              controllerMaxParallel: maxParallel,
-              iterTaskIds: iterTaskIds,
-            ).then((_) {
+            (() async {
+              try {
+                await _dispatchForeachIteration(
+                  run: run,
+                  definition: definition,
+                  controllerStep: controllerStep,
+                  childSteps: childSteps,
+                  stepIndex: stepIndex,
+                  iterIndex: iterIndex,
+                  mapContext: mapContext,
+                  mapCtx: mapCtx,
+                  context: context,
+                  promotionAware: promotionAware,
+                  integrationBranch: integrationBranch,
+                  promotionStrategy: promotionStrategy,
+                  promotedIds: promotedIds,
+                  projectId: effectiveProjectId,
+                  controllerMaxParallel: maxParallel,
+                  iterTaskIds: iterTaskIds,
+                );
+              } catch (e, st) {
+                WorkflowExecutor._log.severe(
+                  "Workflow '${run.id}': foreach step '${controllerStep.id}' iteration $iterIndex failed unexpectedly: $e",
+                  e,
+                  st,
+                );
+                if (!mapCtx.completedIndices.contains(iterIndex)) {
+                  mapCtx.recordFailure(iterIndex, 'Unexpected iteration error: $e', iterTaskIds[iterIndex]);
+                  await _persistForeachProgress(
+                    run,
+                    controllerStep,
+                    context,
+                    mapCtx,
+                    stepIndex: stepIndex,
+                    promotedIds: promotedIds,
+                  );
+                  _eventBus.fire(
+                    MapIterationCompletedEvent(
+                      runId: run.id,
+                      stepId: controllerStep.id,
+                      iterationIndex: iterIndex,
+                      totalIterations: mapCtx.collection.length,
+                      itemId: mapCtx.itemId(iterIndex),
+                      taskId: iterTaskIds[iterIndex] ?? '',
+                      success: false,
+                      tokenCount: 0,
+                      timestamp: DateTime.now(),
+                    ),
+                  );
+                }
+                // Unexpected exceptions out of `_dispatchForeachIteration` (vs.
+                // ordinary task failures recorded inside it) signal a controller-
+                // level invariant breach — repository corruption, late-init
+                // misuse, or similar. Treat the same as budget exhaustion so the
+                // remaining pending iterations are cancelled rather than silently
+                // re-dispatched against possibly-corrupt state.
+                mapCtx.budgetExhausted = true;
+              }
+            })().whenComplete(() {
               inFlight.remove(iterIndex);
+              mapCtx.inFlightCount = inFlight.length;
               iterTaskIds.remove(iterIndex);
               final itemId = mapCtx.itemId(iterIndex);
               if (itemId != null) completedIds.add(itemId);
             });
+      }
+      final serializeIter = pendingSerializeRemainingIteration();
+      if (serializeIter != null) {
+        await enactSerializeRemaining(serializeIter);
+        continue;
       }
       if (inFlight.isEmpty && pending.isNotEmpty) {
         if (promotionAware && depGraph.hasDependencies && mapCtx.failedIndices.isNotEmpty) {
@@ -260,24 +334,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       await Future.any(inFlight.values);
 
       // S61: if serialize-remaining fired during this tick, perform drain + re-queue.
-      final serializeIter = context['_merge_resolve.${controllerStep.id}.serializing_iter_index'];
-      if (serializeIter is int &&
-          context['_merge_resolve.${controllerStep.id}.serialize_remaining_phase'] != 'drained') {
-        final drainResult = await _drainAndRequeue(
-          run: run,
-          controllerStep: controllerStep,
-          context: context,
-          mapCtx: mapCtx,
-          pending: pending,
-          inFlight: inFlight,
-          iterTaskIds: iterTaskIds,
-          failingIterIndex: serializeIter,
-          stepIndex: stepIndex,
-          promotedIds: promotedIds,
-        );
-        if (drainResult != null) {
-          drainFailureMessage = drainResult;
-        }
+      final completedSerializeIter = pendingSerializeRemainingIteration();
+      if (completedSerializeIter != null) {
+        await enactSerializeRemaining(completedSerializeIter);
+        continue;
       }
 
       final refreshedRun = await _repository.getById(run.id) ?? run;
@@ -285,7 +345,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       if (_workflowBudgetExceeded(run, definition)) {
         mapCtx.budgetExhausted = true;
       }
-      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 1));
     }
     if (drainFailureMessage != null) {
       return MapStepResult(results: const [], totalTokens: 0, success: false, error: drainFailureMessage);

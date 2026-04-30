@@ -57,9 +57,7 @@ void main() {
       File(p.join(tempDir.path, 'leaked.md')).writeAsStringSync('leaked');
       expect(
         () => observer.expectOnly(['plan.md']),
-        throwsA(
-          isA<TestFailure>().having((f) => f.message, 'message', contains('leaked.md')),
-        ),
+        throwsA(isA<TestFailure>().having((f) => f.message, 'message', contains('leaked.md'))),
       );
     });
 
@@ -79,9 +77,7 @@ void main() {
       File(p.join(tempDir.path, 'docs', 'STATE.md')).writeAsStringSync('state');
       expect(
         () => observer.expectNotTouched(['STATE.md']),
-        throwsA(
-          isA<TestFailure>().having((f) => f.message, 'message', contains('STATE.md')),
-        ),
+        throwsA(isA<TestFailure>().having((f) => f.message, 'message', contains('STATE.md'))),
       );
     });
   });
@@ -96,9 +92,7 @@ void main() {
 
       expect(
         observer.expectClean,
-        throwsA(
-          isA<TestFailure>().having((f) => f.message, 'message', contains('requires a worktree')),
-        ),
+        throwsA(isA<TestFailure>().having((f) => f.message, 'message', contains('requires a worktree'))),
       );
     });
 
@@ -157,8 +151,11 @@ void main() {
       expect(
         () => observer.expectRecord(pattern: 'unseen pattern'),
         throwsA(
-          isA<TestFailure>()
-              .having((f) => f.message, 'message', allOf(contains('[WARNING] A: first'), contains('[SEVERE] B: second'))),
+          isA<TestFailure>().having(
+            (f) => f.message,
+            'message',
+            allOf(contains('[WARNING] A: first'), contains('[SEVERE] B: second')),
+          ),
         ),
       );
     });
@@ -170,9 +167,7 @@ void main() {
 
       expect(
         () => observer.expectRecord(pattern: 'anything'),
-        throwsA(
-          isA<TestFailure>().having((f) => f.message, 'message', contains('No records were captured')),
-        ),
+        throwsA(isA<TestFailure>().having((f) => f.message, 'message', contains('No records were captured'))),
       );
     });
 
@@ -203,10 +198,7 @@ void main() {
     });
 
     test('per-step override lifts the ceiling for legitimately heavy steps', () {
-      final observer = TokenCeilingObserver(
-        defaultCeiling: 1000,
-        ceilings: {'plan': 5000},
-      )
+      final observer = TokenCeilingObserver(defaultCeiling: 1000, ceilings: {'plan': 5000})
         ..record('plan', 4500)
         ..record('review', 500);
       observer.expectAllWithinCeilings();

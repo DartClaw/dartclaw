@@ -68,9 +68,7 @@ class DartclawApiClient {
   /// GET request that returns the raw response body as text. Use for
   /// endpoints that emit non-JSON content types (e.g. `application/yaml`).
   Future<String> getText(String path, {Map<String, Object?>? queryParameters}) async {
-    final response = await _transport.send(
-      _buildRequest(method: 'GET', path: path, queryParameters: queryParameters),
-    );
+    final response = await _transport.send(_buildRequest(method: 'GET', path: path, queryParameters: queryParameters));
     final body = await response.readAsString();
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _exceptionForResponse(path, response.statusCode, body);

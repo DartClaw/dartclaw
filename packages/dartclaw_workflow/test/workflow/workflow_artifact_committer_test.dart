@@ -80,6 +80,21 @@ void main() {
       expect(resolved?.dir, equals(p.join(tempDir.path, 'projects', 'proj')));
     });
 
+    test('rejects artifact project ids that would escape the dataDir project path', () async {
+      await expectLater(
+        () => resolveArtifactCommitProject(
+          definition: const WorkflowDefinition(name: 'wf', description: 'test', project: '../etc', steps: []),
+          step: const WorkflowStep(id: 's', name: 'S'),
+          context: WorkflowContext(),
+          strategy: const WorkflowGitArtifactsStrategy(),
+          projectService: null,
+          dataDir: tempDir.path,
+          templateEngine: WorkflowTemplateEngine(),
+        ),
+        throwsFormatException,
+      );
+    });
+
     test('commits path output when artifact commit is enabled', () async {
       final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
       File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');

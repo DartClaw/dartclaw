@@ -1,6 +1,6 @@
 # AndThen Skills
 
-DartClaw's built-in workflows (`spec-and-implement`, `plan-and-implement`, `code-review`) reference AndThen-derived skills through DartClaw's installed namespace (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`, `dartclaw-exec-spec`, `dartclaw-review`, `dartclaw-remediate-findings`, `dartclaw-quick-review`, `dartclaw-ops`). At `dartclaw serve` startup, `SkillProvisioner` clones AndThen from GitHub and runs AndThen's own `install-skills.sh --prefix dartclaw-` so the agents see those names on disk and discover them via their built-in CWD-walk-up plus user-tier resolution.
+DartClaw's built-in workflows (`spec-and-implement`, `plan-and-implement`, `code-review`) reference AndThen-derived skills through DartClaw's installed namespace (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`, `dartclaw-exec-spec`, `dartclaw-review`, `dartclaw-remediate-findings`, `dartclaw-quick-review`, `dartclaw-ops`). At `dartclaw serve` startup, and before `dartclaw workflow run --standalone`, `SkillProvisioner` clones AndThen from GitHub and runs AndThen's own `install-skills.sh --prefix dartclaw-` so the agents see those names on disk and discover them via their built-in CWD-walk-up plus user-tier resolution.
 
 DartClaw-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`) ship with DartClaw and are copied alongside the AndThen install, in the same destination tree, so workflow steps that reference either family resolve out of one location.
 
@@ -69,14 +69,16 @@ andthen:
 
 ## Marker file and re-install gate
 
-Each install destination's `skillsDir` carries a `.dartclaw-andthen-sha` file containing the AndThen commit SHA the destination was last installed from. On each `dartclaw serve` startup `SkillProvisioner` skips the install only when:
+Each install destination's `skillsDir` carries a `.dartclaw-andthen-sha` file containing the AndThen commit SHA the destination was last installed from. On each provisioning run `SkillProvisioner` skips the install only when:
 
 - the marker exists and matches the current `<data_dir>/andthen-src/` HEAD SHA, **and**
 - `dartclaw-prd/SKILL.md` exists in both the Codex (`skillsDir`) and Claude (`claudeSkillsDir`) trees, **and**
 - the Claude agents directory (`claudeAgentsDir`) exists, **and**
 - all three DartClaw-native skills exist in both Codex and Claude trees.
 
-Any miss — including a manually-deleted skill, a half-finished install, or a marker drift — forces the repair path on the next startup. This means you don't need to remember to bump the marker; `dartclaw serve` self-heals.
+Any miss — including a manually-deleted skill, a half-finished install, or a marker drift — forces the repair path on the next provisioning run. This means you don't need to remember to bump the marker; `dartclaw serve` and standalone workflow runs self-heal.
+
+`dartclaw workflow show --resolved --standalone` is read-only: it does not clone or install AndThen by itself. It reads the same configured skill roots, including `<data_dir>/.agents/skills` and `<data_dir>/.claude/skills` when `install_scope` is `data_dir` or `both`, so resolved output includes skill frontmatter defaults after a previous `serve` startup or standalone workflow run has provisioned them.
 
 ## Resetting a managed install
 

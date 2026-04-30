@@ -254,7 +254,7 @@ steps:
     # shell/web_fetch/mcp_call enable `git diff`, `dart analyze`, doc lookup,
     # and MCP-routed checks.
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    prompt: "--mode gap,code --auto {{context.plan}}"
+    prompt: "--mode mixed --auto Review implementation of {{context.plan}}, i.e. all the changes in the current branch."
     outputs:
       review_findings:
         format: path
@@ -348,7 +348,7 @@ steps:
         # pass can write the next review report artifact.
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
         inputs: [project_index, story_specs, story_results, remediation_summary, diff_summary, architecture_remediation_summary, architecture_diff_summary]
-        prompt: "--mode gap,code --auto {{context.plan}}"
+        prompt: "--mode mixed --auto Review implementation of {{context.plan}}, i.e. all the changes in the current branch."
         outputs:
           review_findings:
             format: path

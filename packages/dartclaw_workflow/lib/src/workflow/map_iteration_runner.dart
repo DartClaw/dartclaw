@@ -283,25 +283,57 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
         mapCtx.inFlightCount++;
 
         inFlight[iterIndex] =
-            _dispatchIteration(
-              run: run,
-              definition: definition,
-              step: step,
-              stepIndex: stepIndex,
-              iterIndex: iterIndex,
-              iterPrompt: iterPrompt,
-              iterTitle: iterTitle,
-              taskConfig: taskConfig,
-              projectId: effectiveProjectId,
-              resolved: resolved,
-              mapCtx: mapCtx,
-              context: context,
-              promotionAware: promotionAware,
-              integrationBranch: integrationBranch,
-              promotionStrategy: promotionStrategy,
-              promotedIds: promotedIds,
-            ).then((_) {
+            (() async {
+              try {
+                await _dispatchIteration(
+                  run: run,
+                  definition: definition,
+                  step: step,
+                  stepIndex: stepIndex,
+                  iterIndex: iterIndex,
+                  iterPrompt: iterPrompt,
+                  iterTitle: iterTitle,
+                  taskConfig: taskConfig,
+                  projectId: effectiveProjectId,
+                  resolved: resolved,
+                  mapCtx: mapCtx,
+                  context: context,
+                  promotionAware: promotionAware,
+                  integrationBranch: integrationBranch,
+                  promotionStrategy: promotionStrategy,
+                  promotedIds: promotedIds,
+                );
+              } catch (e, st) {
+                WorkflowExecutor._log.severe(
+                  "Workflow '${run.id}': map step '${step.id}' iteration $iterIndex failed unexpectedly: $e",
+                  e,
+                  st,
+                );
+                if (!mapCtx.completedIndices.contains(iterIndex)) {
+                  mapCtx.recordFailure(iterIndex, 'Unexpected iteration error: $e', null);
+                  await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+                  _eventBus.fire(
+                    MapIterationCompletedEvent(
+                      runId: run.id,
+                      stepId: step.id,
+                      iterationIndex: iterIndex,
+                      totalIterations: mapCtx.collection.length,
+                      itemId: mapCtx.itemId(iterIndex),
+                      taskId: '',
+                      success: false,
+                      tokenCount: 0,
+                      timestamp: DateTime.now(),
+                    ),
+                  );
+                }
+                // Controller-level invariant breach — abort remaining iterations
+                // rather than silently re-dispatching against possibly-corrupt
+                // state. See foreach_iteration_runner for the same rationale.
+                mapCtx.budgetExhausted = true;
+              }
+            })().whenComplete(() {
               inFlight.remove(iterIndex);
+              mapCtx.inFlightCount = inFlight.length;
               final itemId = mapCtx.itemId(iterIndex);
               if (itemId != null) completedIds.add(itemId);
             });
@@ -339,8 +371,8 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
         mapCtx.budgetExhausted = true;
       }
 
-      // Yield to event loop to prevent microtask starvation.
-      await Future<void>.delayed(Duration.zero);
+      // Yield to the timer queue under heavy fan-out.
+      await Future<void>.delayed(const Duration(milliseconds: 1));
     }
 
     // 10. Wait for all remaining in-flight to settle.
@@ -376,9 +408,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
       for (final index in mapCtx.failedIndices) {
         final slot = mapCtx.results[index];
         final message = slot is Map ? slot['message'] : slot;
-        WorkflowExecutor._log.warning(
-          "Map step '${step.id}' iteration [$index] failed: $message",
-        );
+        WorkflowExecutor._log.warning("Map step '${step.id}' iteration [$index] failed: $message");
       }
       final hasPromotionConflict = mapCtx.failedIndices.any((index) {
         final slot = mapCtx.results[index];

@@ -74,6 +74,7 @@ void main() {
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
       skillsHomeDir: skillsHomeDir.path,
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -124,6 +125,7 @@ steps:
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
       skillsHomeDir: p.join(tempDir.path, 'home'),
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -164,6 +166,7 @@ steps:
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
       skillsHomeDir: p.join(tempDir.path, 'home'),
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -200,6 +203,7 @@ steps:
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
       skillsHomeDir: p.join(tempDir.path, 'home'),
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -260,6 +264,7 @@ steps:
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
       skillsHomeDir: p.join(tempDir.path, 'home'),
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -301,6 +306,7 @@ steps:
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
       skillsHomeDir: p.join(tempDir.path, 'home'),
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -367,6 +373,7 @@ steps:
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
       skillsHomeDir: p.join(tempDir.path, 'home'),
       harnessFactory: factory,
       searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -413,6 +420,7 @@ steps:
       wiring = CliWorkflowWiring(
         config: config,
         dataDir: tempDir.path,
+        runAndthenSkillsBootstrap: false,
         skillsHomeDir: p.join(tempDir.path, 'home'),
         harnessFactory: factory,
         searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -467,6 +475,7 @@ steps:
       wiring = CliWorkflowWiring(
         config: config,
         dataDir: tempDir.path,
+        runAndthenSkillsBootstrap: false,
         runtimeCwd: runtimeCwd.path,
         skillsHomeDir: p.join(tempDir.path, 'home'),
         harnessFactory: factory,
@@ -509,6 +518,7 @@ steps:
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
       skillsHomeDir: p.join(tempDir.path, 'sanitized-home'),
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -525,6 +535,42 @@ steps:
       expect(skill.source, SkillSource.userClaude);
       expect(skill.nativeHarnesses, {'claude', 'codex'});
     }
+  });
+
+  test('standalone wiring provisions AndThen skills before registering shipped workflows', () async {
+    _seedAndthenSrc(p.join(tempDir.path, 'andthen-src'), sha: 'standalone-head');
+    final runner = _FakeProvisionerProcessRunner();
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      andthen: const AndthenConfig(network: AndthenNetworkPolicy.disabled),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    );
+
+    final wiring = CliWorkflowWiring(
+      config: config,
+      dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      skillProvisionerProcessRunner: runner.run,
+    );
+    addTearDown(wiring.dispose);
+
+    await wiring.wire();
+
+    expect(File(p.join(tempDir.path, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    for (final name in _shippedDartclawSkillRefs) {
+      expect(wiring.skillRegistry.getByName(name), isNotNull, reason: '$name should resolve after provisioning');
+      expect(wiring.skillRegistry.validateRef(name), isNull, reason: '$name validateRef should pass');
+    }
+
+    final registeredNames = wiring.registry.listAll().map((workflow) => workflow.name).toSet();
+    expect(registeredNames, containsAll(['plan-and-implement', 'spec-and-implement', 'code-review']));
+    expect(runner.calls.where((call) => call.executable.endsWith('install-skills.sh')), hasLength(1));
   });
 
   test('dispose cleans up workflow task worktrees in headless mode', () async {
@@ -565,6 +611,7 @@ steps:
       wiring = CliWorkflowWiring(
         config: config,
         dataDir: tempDir.path,
+        runAndthenSkillsBootstrap: false,
         skillsHomeDir: p.join(tempDir.path, 'home'),
         harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
         searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -634,6 +681,7 @@ steps:
       wiring = CliWorkflowWiring(
         config: config,
         dataDir: tempDir.path,
+        runAndthenSkillsBootstrap: false,
         runtimeCwd: runtimeCwd.path,
         skillsHomeDir: p.join(tempDir.path, 'home'),
         harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
@@ -701,6 +749,7 @@ steps:
       wiring = CliWorkflowWiring(
         config: config,
         dataDir: tempDir.path,
+        runAndthenSkillsBootstrap: false,
         runtimeCwd: runtimeCwd.path,
         skillsHomeDir: p.join(tempDir.path, 'home'),
         harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
@@ -805,6 +854,7 @@ steps:
       wiring = CliWorkflowWiring(
         config: config,
         dataDir: tempDir.path,
+        runAndthenSkillsBootstrap: false,
         skillsHomeDir: p.join(tempDir.path, 'home'),
         harnessFactory: factory,
         searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -880,6 +930,7 @@ steps:
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
       skillsHomeDir: p.join(tempDir.path, 'home'),
       assetResolver: AssetResolver(resolvedExecutable: p.join(prefixDir.path, 'bin', 'dartclaw')),
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
@@ -895,3 +946,73 @@ steps:
     expect(skill!.source, SkillSource.dartclaw);
   });
 }
+
+void _seedAndthenSrc(String srcDir, {required String sha}) {
+  Directory(srcDir).createSync(recursive: true);
+  Directory(p.join(srcDir, '.git')).createSync(recursive: true);
+  final scriptDir = Directory(p.join(srcDir, 'scripts'))..createSync(recursive: true);
+  File(p.join(scriptDir.path, 'install-skills.sh')).writeAsStringSync('#!/bin/sh\nexit 0\n');
+  File(p.join(srcDir, '.git', 'HEAD_SHA')).writeAsStringSync(sha);
+}
+
+class _FakeProvisionerProcessRunner {
+  final List<({String executable, List<String> arguments, String? workingDirectory})> calls = [];
+
+  Future<ProcessResult> run(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+  }) async {
+    calls.add((executable: executable, arguments: arguments, workingDirectory: workingDirectory));
+
+    if (executable == 'git' && arguments.contains('rev-parse')) {
+      final cIndex = arguments.indexOf('-C');
+      final srcDir = cIndex >= 0 && cIndex + 1 < arguments.length ? arguments[cIndex + 1] : null;
+      final shaFile = srcDir == null ? null : File(p.join(srcDir, '.git', 'HEAD_SHA'));
+      return ProcessResult(0, 0, '${shaFile?.readAsStringSync().trim() ?? 'standalone-head'}\n', '');
+    }
+    if (executable == 'git') {
+      return ProcessResult(0, 0, '', '');
+    }
+    if (executable.endsWith('install-skills.sh')) {
+      String? skillsDir;
+      String? claudeSkillsDir;
+      String? claudeAgentsDir;
+      for (var i = 0; i < arguments.length - 1; i++) {
+        switch (arguments[i]) {
+          case '--skills-dir':
+            skillsDir = arguments[i + 1];
+          case '--claude-skills-dir':
+            claudeSkillsDir = arguments[i + 1];
+          case '--claude-agents-dir':
+            claudeAgentsDir = arguments[i + 1];
+        }
+      }
+      for (final dir in [skillsDir, claudeSkillsDir, claudeAgentsDir].whereType<String>()) {
+        Directory(dir).createSync(recursive: true);
+      }
+      for (final dir in [skillsDir, claudeSkillsDir].whereType<String>()) {
+        for (final name in _shippedDartclawSkillRefs) {
+          File(p.join(dir, name, 'SKILL.md'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync('---\nname: $name\ndescription: fake $name\n---\n# $name\n');
+        }
+      }
+      return ProcessResult(0, 0, '', '');
+    }
+    return ProcessResult(0, 0, '', '');
+  }
+}
+
+const _shippedDartclawSkillRefs = <String>[
+  'dartclaw-prd',
+  'dartclaw-spec',
+  'dartclaw-plan',
+  'dartclaw-exec-spec',
+  'dartclaw-architecture',
+  'dartclaw-review',
+  'dartclaw-quick-review',
+  'dartclaw-remediate-findings',
+  'dartclaw-refactor',
+];

@@ -33,14 +33,14 @@ void main() {
     tearDown(() => fixture.dispose());
 
     test('two stories that modify disjoint paths both promote successfully', () async {
-      await fixture.createStoryBranch('S01', committedFiles: {
-        'src/a.dart': 'void a() {}\n',
-        'test/a_test.dart': 'void aTest() {}\n',
-      });
-      await fixture.createStoryBranch('S02', committedFiles: {
-        'src/b.dart': 'void b() {}\n',
-        'test/b_test.dart': 'void bTest() {}\n',
-      });
+      await fixture.createStoryBranch(
+        'S01',
+        committedFiles: {'src/a.dart': 'void a() {}\n', 'test/a_test.dart': 'void aTest() {}\n'},
+      );
+      await fixture.createStoryBranch(
+        'S02',
+        committedFiles: {'src/b.dart': 'void b() {}\n', 'test/b_test.dart': 'void bTest() {}\n'},
+      );
 
       final resultS01 = await promoteWorkflowBranchLocally(
         projectDir: fixture.projectDir,
@@ -63,14 +63,9 @@ void main() {
       expect(resultS02, isA<WorkflowGitPromotionSuccess>());
 
       // Both story deltas landed on integration.
-      final tree = await fixture.rawGit(
-        ['ls-tree', '-r', '--name-only', fixture.integrationBranch],
-      );
+      final tree = await fixture.rawGit(['ls-tree', '-r', '--name-only', fixture.integrationBranch]);
       final files = (tree.stdout as String).split('\n');
-      expect(
-        files,
-        containsAll(['src/a.dart', 'test/a_test.dart', 'src/b.dart', 'test/b_test.dart']),
-      );
+      expect(files, containsAll(['src/a.dart', 'test/a_test.dart', 'src/b.dart', 'test/b_test.dart']));
     });
   });
 
@@ -80,10 +75,7 @@ void main() {
     setUp(() async {
       fixture = await WorkflowGitFixture.create(
         runId: 'run-parallel-conflict',
-        seedFiles: {
-          'docs/STATE.md': '# State\n\n- phase 1: in-progress\n',
-          'docs/LEARNINGS.md': '# Learnings\n\n',
-        },
+        seedFiles: {'docs/STATE.md': '# State\n\n- phase 1: in-progress\n', 'docs/LEARNINGS.md': '# Learnings\n\n'},
       );
     });
 
@@ -96,14 +88,20 @@ void main() {
         // mechanical strategy could arguably handle with merge=union, but
         // which git's default three-way merge treats as a conflict because
         // both sides added content at the same end-of-file anchor.
-        await fixture.createStoryBranch('S01', committedFiles: {
-          'src/a.dart': 'void a() {}\n',
-          'docs/STATE.md': '# State\n\n- phase 1: in-progress\n- s01: added A\n',
-        });
-        await fixture.createStoryBranch('S02', committedFiles: {
-          'src/b.dart': 'void b() {}\n',
-          'docs/STATE.md': '# State\n\n- phase 1: in-progress\n- s02: added B\n',
-        });
+        await fixture.createStoryBranch(
+          'S01',
+          committedFiles: {
+            'src/a.dart': 'void a() {}\n',
+            'docs/STATE.md': '# State\n\n- phase 1: in-progress\n- s01: added A\n',
+          },
+        );
+        await fixture.createStoryBranch(
+          'S02',
+          committedFiles: {
+            'src/b.dart': 'void b() {}\n',
+            'docs/STATE.md': '# State\n\n- phase 1: in-progress\n- s02: added B\n',
+          },
+        );
 
         final resultS01 = await promoteWorkflowBranchLocally(
           projectDir: fixture.projectDir,
@@ -130,94 +128,90 @@ void main() {
       },
     );
 
-    test(
-      'second promotion conflicts when both stories flip the same STATE.md line in incompatible ways',
-      () async {
-        // Both stories modify the same line in STATE.md to different values —
-        // a true semantic conflict that no mechanical strategy can resolve.
-        // Agent-driven merge-resolve could look at the full story context and
-        // decide which outcome is correct.
-        await fixture.createStoryBranch('S01', committedFiles: {
-          'src/a.dart': 'void a() {}\n',
-          'docs/STATE.md': '# State\n\n- phase 1: complete\n',
-        });
-        await fixture.createStoryBranch('S02', committedFiles: {
-          'src/b.dart': 'void b() {}\n',
-          'docs/STATE.md': '# State\n\n- phase 1: blocked\n',
-        });
+    test('second promotion conflicts when both stories flip the same STATE.md line in incompatible ways', () async {
+      // Both stories modify the same line in STATE.md to different values —
+      // a true semantic conflict that no mechanical strategy can resolve.
+      // Agent-driven merge-resolve could look at the full story context and
+      // decide which outcome is correct.
+      await fixture.createStoryBranch(
+        'S01',
+        committedFiles: {'src/a.dart': 'void a() {}\n', 'docs/STATE.md': '# State\n\n- phase 1: complete\n'},
+      );
+      await fixture.createStoryBranch(
+        'S02',
+        committedFiles: {'src/b.dart': 'void b() {}\n', 'docs/STATE.md': '# State\n\n- phase 1: blocked\n'},
+      );
 
-        await promoteWorkflowBranchLocally(
-          projectDir: fixture.projectDir,
-          runId: fixture.runId,
-          branch: fixture.storyBranch('S01'),
-          integrationBranch: fixture.integrationBranch,
-          strategy: 'squash',
-          storyId: 'S01',
-        );
+      await promoteWorkflowBranchLocally(
+        projectDir: fixture.projectDir,
+        runId: fixture.runId,
+        branch: fixture.storyBranch('S01'),
+        integrationBranch: fixture.integrationBranch,
+        strategy: 'squash',
+        storyId: 'S01',
+      );
 
-        final resultS02 = await promoteWorkflowBranchLocally(
-          projectDir: fixture.projectDir,
-          runId: fixture.runId,
-          branch: fixture.storyBranch('S02'),
-          integrationBranch: fixture.integrationBranch,
-          strategy: 'squash',
-          storyId: 'S02',
-        );
+      final resultS02 = await promoteWorkflowBranchLocally(
+        projectDir: fixture.projectDir,
+        runId: fixture.runId,
+        branch: fixture.storyBranch('S02'),
+        integrationBranch: fixture.integrationBranch,
+        strategy: 'squash',
+        storyId: 'S02',
+      );
 
-        expect(resultS02, isA<WorkflowGitPromotionConflict>());
-        final conflict = resultS02 as WorkflowGitPromotionConflict;
-        expect(conflict.conflictingFiles, contains('docs/STATE.md'));
-      },
-    );
+      expect(resultS02, isA<WorkflowGitPromotionConflict>());
+      final conflict = resultS02 as WorkflowGitPromotionConflict;
+      expect(conflict.conflictingFiles, contains('docs/STATE.md'));
+    });
 
-    test(
-      'second promotion conflicts when both stories added tests in the same file',
-      () async {
-        // Every AndThen story typically produces tests. If two stories add
-        // tests to the same file, the mechanical merge conflicts on surrounding
-        // context (e.g. a shared `}` closing brace, import lines at top).
-        // Agent-driven merge-resolve is the only sane fix — union/theirs/ours
-        // strategies all corrupt test code.
-        await fixture.dispose();
-        fixture = await WorkflowGitFixture.create(
-          runId: 'run-parallel-conflict',
-          seedFiles: {
-            'test/shared_test.dart': "import 'package:test/test.dart';\n\nvoid main() {\n}\n",
-          },
-        );
+    test('second promotion conflicts when both stories added tests in the same file', () async {
+      // Every AndThen story typically produces tests. If two stories add
+      // tests to the same file, the mechanical merge conflicts on surrounding
+      // context (e.g. a shared `}` closing brace, import lines at top).
+      // Agent-driven merge-resolve is the only sane fix — union/theirs/ours
+      // strategies all corrupt test code.
+      await fixture.dispose();
+      fixture = await WorkflowGitFixture.create(
+        runId: 'run-parallel-conflict',
+        seedFiles: {'test/shared_test.dart': "import 'package:test/test.dart';\n\nvoid main() {\n}\n"},
+      );
 
-        await fixture.createStoryBranch('S01', committedFiles: {
-          'test/shared_test.dart':
-              "import 'package:test/test.dart';\n\nvoid main() {\n  test('s01', () {});\n}\n",
-        });
-        await fixture.createStoryBranch('S02', committedFiles: {
-          'test/shared_test.dart':
-              "import 'package:test/test.dart';\n\nvoid main() {\n  test('s02', () {});\n}\n",
-        });
+      await fixture.createStoryBranch(
+        'S01',
+        committedFiles: {
+          'test/shared_test.dart': "import 'package:test/test.dart';\n\nvoid main() {\n  test('s01', () {});\n}\n",
+        },
+      );
+      await fixture.createStoryBranch(
+        'S02',
+        committedFiles: {
+          'test/shared_test.dart': "import 'package:test/test.dart';\n\nvoid main() {\n  test('s02', () {});\n}\n",
+        },
+      );
 
-        await promoteWorkflowBranchLocally(
-          projectDir: fixture.projectDir,
-          runId: fixture.runId,
-          branch: fixture.storyBranch('S01'),
-          integrationBranch: fixture.integrationBranch,
-          strategy: 'squash',
-          storyId: 'S01',
-        );
+      await promoteWorkflowBranchLocally(
+        projectDir: fixture.projectDir,
+        runId: fixture.runId,
+        branch: fixture.storyBranch('S01'),
+        integrationBranch: fixture.integrationBranch,
+        strategy: 'squash',
+        storyId: 'S01',
+      );
 
-        final resultS02 = await promoteWorkflowBranchLocally(
-          projectDir: fixture.projectDir,
-          runId: fixture.runId,
-          branch: fixture.storyBranch('S02'),
-          integrationBranch: fixture.integrationBranch,
-          strategy: 'squash',
-          storyId: 'S02',
-        );
+      final resultS02 = await promoteWorkflowBranchLocally(
+        projectDir: fixture.projectDir,
+        runId: fixture.runId,
+        branch: fixture.storyBranch('S02'),
+        integrationBranch: fixture.integrationBranch,
+        strategy: 'squash',
+        storyId: 'S02',
+      );
 
-        expect(resultS02, isA<WorkflowGitPromotionConflict>());
-        final conflict = resultS02 as WorkflowGitPromotionConflict;
-        expect(conflict.conflictingFiles, contains('test/shared_test.dart'));
-      },
-    );
+      expect(resultS02, isA<WorkflowGitPromotionConflict>());
+      final conflict = resultS02 as WorkflowGitPromotionConflict;
+      expect(conflict.conflictingFiles, contains('test/shared_test.dart'));
+    });
   });
 
   group('parallel story promotion — .gitattributes merge=union mitigation (documented, not relied on)', () {
@@ -231,56 +225,53 @@ void main() {
       // attribute DOES accomplish so anyone considering it knows the scope.
       fixture = await WorkflowGitFixture.create(
         runId: 'run-parallel-union',
-        seedFiles: {
-          'docs/LEARNINGS.md': '# Learnings\n\n',
-        },
+        seedFiles: {'docs/LEARNINGS.md': '# Learnings\n\n'},
         gitAttributes: 'docs/LEARNINGS.md merge=union\n',
       );
     });
 
     tearDown(() => fixture.dispose());
 
-    test(
-      'merge=union lets two stories each append their own learning without conflict',
-      () async {
-        await fixture.createStoryBranch('S01', committedFiles: {
-          'src/a.dart': 'void a() {}\n',
-          'docs/LEARNINGS.md': '# Learnings\n\n- S01 learning A\n',
-        });
-        await fixture.createStoryBranch('S02', committedFiles: {
-          'src/b.dart': 'void b() {}\n',
-          'docs/LEARNINGS.md': '# Learnings\n\n- S02 learning B\n',
-        });
+    test('merge=union lets two stories each append their own learning without conflict', () async {
+      await fixture.createStoryBranch(
+        'S01',
+        committedFiles: {'src/a.dart': 'void a() {}\n', 'docs/LEARNINGS.md': '# Learnings\n\n- S01 learning A\n'},
+      );
+      await fixture.createStoryBranch(
+        'S02',
+        committedFiles: {'src/b.dart': 'void b() {}\n', 'docs/LEARNINGS.md': '# Learnings\n\n- S02 learning B\n'},
+      );
 
-        final resultS01 = await promoteWorkflowBranchLocally(
-          projectDir: fixture.projectDir,
-          runId: fixture.runId,
-          branch: fixture.storyBranch('S01'),
-          integrationBranch: fixture.integrationBranch,
-          strategy: 'squash',
-          storyId: 'S01',
-        );
-        expect(resultS01, isA<WorkflowGitPromotionSuccess>());
+      final resultS01 = await promoteWorkflowBranchLocally(
+        projectDir: fixture.projectDir,
+        runId: fixture.runId,
+        branch: fixture.storyBranch('S01'),
+        integrationBranch: fixture.integrationBranch,
+        strategy: 'squash',
+        storyId: 'S01',
+      );
+      expect(resultS01, isA<WorkflowGitPromotionSuccess>());
 
-        final resultS02 = await promoteWorkflowBranchLocally(
-          projectDir: fixture.projectDir,
-          runId: fixture.runId,
-          branch: fixture.storyBranch('S02'),
-          integrationBranch: fixture.integrationBranch,
-          strategy: 'squash',
-          storyId: 'S02',
-        );
+      final resultS02 = await promoteWorkflowBranchLocally(
+        projectDir: fixture.projectDir,
+        runId: fixture.runId,
+        branch: fixture.storyBranch('S02'),
+        integrationBranch: fixture.integrationBranch,
+        strategy: 'squash',
+        storyId: 'S02',
+      );
 
-        expect(resultS02, isA<WorkflowGitPromotionSuccess>(), reason: 'merge=union prevents the conflict for true append-only edits.');
+      expect(
+        resultS02,
+        isA<WorkflowGitPromotionSuccess>(),
+        reason: 'merge=union prevents the conflict for true append-only edits.',
+      );
 
-        // Both learnings survive.
-        final content = await fixture.rawGit(
-          ['show', '${fixture.integrationBranch}:docs/LEARNINGS.md'],
-        );
-        final text = content.stdout as String;
-        expect(text, contains('S01 learning A'));
-        expect(text, contains('S02 learning B'));
-      },
-    );
+      // Both learnings survive.
+      final content = await fixture.rawGit(['show', '${fixture.integrationBranch}:docs/LEARNINGS.md']);
+      final text = content.stdout as String;
+      expect(text, contains('S01 learning A'));
+      expect(text, contains('S02 learning B'));
+    });
   });
 }

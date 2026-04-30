@@ -20,11 +20,7 @@ class WorkflowMaterializer {
   /// The source directory is resolved from the installed asset root when
   /// available. In source checkouts, it falls back to the checked-out
   /// workflow definitions directory.
-  static Future<int> materialize({
-    required String dataDir,
-    AssetResolver? assetResolver,
-    String? sourceDir,
-  }) async {
+  static Future<int> materialize({required String dataDir, AssetResolver? assetResolver, String? sourceDir}) async {
     final targetRoot = Directory(definitionsDir(dataDir))..createSync(recursive: true);
     final resolvedSourceDir = sourceDir ?? resolveBuiltInWorkflowSourceDir(assetResolver: assetResolver);
     if (resolvedSourceDir == null) {

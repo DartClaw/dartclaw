@@ -8,9 +8,6 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
-        SkillProvisionConfigException,
-        SkillProvisionException,
-        SkillProvisioner,
         ProcessRunner,
         SkillRegistryImpl,
         WorkflowDefinitionParser,
@@ -28,8 +25,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowPublishStatus,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
-        WorkflowTurnOutcome,
-        dcNativeSkillNames;
+        WorkflowTurnOutcome;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -38,6 +34,7 @@ import 'serve_command.dart';
 import 'wiring/channel_wiring.dart';
 import 'wiring/harness_wiring.dart';
 import 'workflow_materializer.dart';
+import 'workflow/andthen_skill_bootstrap.dart';
 import 'workflow/project_definition_paths.dart';
 import 'workflow/workflow_git_support.dart';
 import 'workflow/workflow_local_path_preflight.dart';
@@ -191,7 +188,7 @@ class ServiceWiring {
     final project = ProjectWiring(config: config, dataDir: dataDir, eventBus: eventBus);
     await project.wire();
 
-    final projectDirs = _workflowSkillProjectDirs(config);
+    final projectDirs = workflowSkillProjectDirs(config, fallbackCwd: Directory.current.path);
     final resolvedAssets = assetResolver.resolve();
     final builtInSkillsSourceDir =
         resolvedAssets?.skillsDir ?? WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
@@ -200,10 +197,11 @@ class ServiceWiring {
     // skills per ADR-025. Validate spawn targets before any network/filesystem work so
     // misconfiguration surfaces as a fast non-zero `dartclaw serve` exit, not a per-request error.
     if (runAndthenSkillsBootstrap) {
-      await _bootstrapAndthenSkills(
+      await bootstrapAndthenSkills(
         config: config,
         dataDir: dataDir,
         builtInSkillsSourceDir: builtInSkillsSourceDir,
+        fallbackCwd: Directory.current.path,
         environment: skillProvisionerEnvironment,
         processRunner: skillProvisionerProcessRunner,
         spawnTargetCwds: skillProvisionerSpawnTargetCwds,
@@ -220,16 +218,15 @@ class ServiceWiring {
     // populated above. Without these, workflow YAMLs that reference
     // dartclaw-* skills (e.g. spec-and-implement → dartclaw-spec) would be
     // excluded from the registry as unresolved skill refs.
-    final scanDataDirSkills = config.andthen.installScope != config_tools.AndthenInstallScope.user;
-    final dataDirAbs = p.normalize(p.absolute(dataDir));
+    final dataDirSkillRoots = workflowDataDirSkillRoots(config, dataDir: dataDir);
     final skillRegistry = SkillRegistryImpl();
     skillRegistry.discover(
       projectDirs: projectDirs,
       workspaceDir: config.workspaceDir,
       dataDir: dataDir,
       builtInSkillsDir: builtInSkillsSourceDir,
-      dataDirClaudeSkillsDir: scanDataDirSkills ? p.join(dataDirAbs, '.claude', 'skills') : null,
-      dataDirAgentsSkillsDir: scanDataDirSkills ? p.join(dataDirAbs, '.agents', 'skills') : null,
+      dataDirClaudeSkillsDir: dataDirSkillRoots.claudeSkillsDir,
+      dataDirAgentsSkillsDir: dataDirSkillRoots.agentsSkillsDir,
     );
 
     // 1. Storage — databases, sessions, messages, memory, KV, QMD.
@@ -1190,74 +1187,6 @@ const _legacySessionCostFreshInputKey =
     'new_'
     'input_tokens';
 final _serviceWiringLog = Logger('ServiceWiring');
-
-List<String> _workflowSkillProjectDirs(config_tools.DartclawConfig config) {
-  if (config.projects.definitions.isEmpty) {
-    return [Directory.current.path];
-  }
-  return configuredProjectDirectories(config);
-}
-
-/// Spawn-target CWDs used by [SkillProvisioner.validateSpawnTargets].
-///
-/// Includes only registered project `localPath` values plus the
-/// `Directory.current.path` captured at serve startup. Projects without
-/// `localPath` clone under `<dataDir>` and are therefore compatible with
-/// `install_scope: data_dir` by construction.
-List<String> _spawnTargetCwds(config_tools.DartclawConfig config) {
-  final cwds = <String>{Directory.current.path};
-  for (final def in config.projects.definitions.values) {
-    final localPath = def.localPath;
-    if (localPath != null && localPath.isNotEmpty) {
-      cwds.add(localPath);
-    }
-  }
-  return cwds.toList();
-}
-
-Future<void> _bootstrapAndthenSkills({
-  required config_tools.DartclawConfig config,
-  required String dataDir,
-  required String? builtInSkillsSourceDir,
-  Map<String, String>? environment,
-  ProcessRunner? processRunner,
-  List<String>? spawnTargetCwds,
-}) async {
-  if (builtInSkillsSourceDir == null) {
-    throw const SkillProvisionException(
-      'built-in skills source missing or invalid: null. '
-      'Tests that intentionally skip this step set ServiceWiring.runAndthenSkillsBootstrap: false.',
-    );
-  }
-  for (final skillName in dcNativeSkillNames) {
-    if (!Directory(p.join(builtInSkillsSourceDir, skillName)).existsSync()) {
-      throw SkillProvisionException(
-        'built-in skills source missing or invalid: $builtInSkillsSourceDir (missing $skillName). '
-        'Tests that intentionally skip this step set ServiceWiring.runAndthenSkillsBootstrap: false.',
-      );
-    }
-  }
-
-  final provisioner = SkillProvisioner(
-    config: config.andthen,
-    dataDir: dataDir,
-    dcNativeSkillsSourceDir: builtInSkillsSourceDir,
-    environment: environment,
-    processRunner: processRunner,
-  );
-
-  try {
-    provisioner.validateSpawnTargets(spawnTargetCwds ?? _spawnTargetCwds(config));
-  } on SkillProvisionConfigException catch (e) {
-    throw SkillProvisionException(e.message);
-  }
-
-  try {
-    await provisioner.ensureCacheCurrent();
-  } on SkillProvisionException catch (e) {
-    throw SkillProvisionException('AndThen skills provisioning failed: ${e.message}');
-  }
-}
 
 String? _workflowFreshnessRefForProject(Project project, String? branch) {
   if (branch == null || branch.isEmpty) return null;

@@ -380,6 +380,42 @@ void main() {
         );
       });
 
+      test('rejects non-https git URLs before invoking git', () async {
+        final runner = _FakeProcessRunner();
+        final provisioner = SkillProvisioner(
+          config: const AndthenConfig(
+            gitUrl: 'ssh://github.com/IT-HUSET/andthen',
+            network: AndthenNetworkPolicy.required,
+          ),
+          dataDir: dataDir,
+          dcNativeSkillsSourceDir: dcNativeSrc,
+          processRunner: runner.run,
+        );
+
+        await expectLater(
+          provisioner.ensureCacheCurrent(),
+          throwsA(isA<SkillProvisionConfigException>().having((e) => e.message, 'message', contains('https:// URL'))),
+        );
+        expect(runner.calls, isEmpty);
+      });
+
+      test('passes clone URL after option terminator', () async {
+        final runner = _FakeProcessRunner();
+        final provisioner = SkillProvisioner(
+          config: const AndthenConfig(network: AndthenNetworkPolicy.required),
+          dataDir: dataDir,
+          dcNativeSkillsSourceDir: dcNativeSrc,
+          processRunner: runner.run,
+        );
+
+        await provisioner.ensureCacheCurrent();
+
+        final cloneCall = runner.calls.firstWhere(
+          (call) => call.executable == 'git' && call.arguments.first == 'clone',
+        );
+        expect(cloneCall.arguments.take(3).toList(), ['clone', '--', const AndthenConfig().gitUrl]);
+      });
+
       test('network: auto falls back to cache when network fails and cache exists', () async {
         _seedAndthenSrc(p.join(dataDir, 'andthen-src'), sha: 'cached-sha');
         final runner = _FakeProcessRunner()

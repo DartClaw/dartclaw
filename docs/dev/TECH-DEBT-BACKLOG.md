@@ -2,6 +2,142 @@
 
 Open items only. Resolved or obsolete historical entries were removed during backlog cleanup; milestone docs, specs, and CHANGELOG entries are the historical record.
 
+## TD-081 — `_resolveReapWorkingDirectory` orphan-task fallback uses `_defaultProjectDir`
+
+**Severity**: Low (bounded operational risk — orphan reaping for true-orphan tasks)
+**Found**: 2026-04-30 0.16.4 sub-plan inventory (originally documented inline in `phase-22-s37-s39-implementation-notes-2026-04-21.md` §"Open residual gaps")
+**Affects**: orphan-turn detection / reaper paths around `WorktreeManager` / project-dir resolution
+
+**Context**: `_resolveReapWorkingDirectory` falls back to `_defaultProjectDir` when no project binding is recoverable for an orphan task. The full fix encodes `projectId` into the worktree path scheme so the reaper can recover the correct project dir without a fallback. Explicitly out of scope per S37 boundary; documented inline rather than booked.
+
+**Fix shape**: encode `projectId` into the worktree path scheme; teach the reaper to parse it; remove the `_defaultProjectDir` fallback.
+
+**Trigger**: orphan-task reaping observed using the wrong project dir in production; or any worktree-path-scheme refactor.
+
+---
+
+## TD-080 — agent-resolved-merge v2 cluster
+
+**Severity**: Low / planned-feature (none gating)
+**Found**: 2026-04-30 0.16.4 sub-plan inventory (`agent-resolved-merge/prd.md` §"Out of Scope" / "v2")
+**Affects**: workflow merge-resolve runtime, web UI, default-on rollout policy
+
+**Context**: Three v1-deferred items from the 0.16.4 agent-resolved-merge ship: (1) `escalation: pause` mode (operator-controlled wait-for-human escalation); (2) UI surface for conflict review (v1 ships structured artifact only as the forensic interface); (3) flipping default-on rollout once production behaviour is characterised. All three are explicit v2/0.17+ deferrals in the PRD.
+
+**Fix shape**: separate FIS per item; rollout-flip is a config + CHANGELOG change once telemetry shows clean behaviour at scale.
+
+**Trigger**: 0.17+ planning, operator request for pause-on-escalation, sufficient production telemetry to justify default-on.
+
+**References**: `dartclaw-private/docs/specs/0.16.4/agent-resolved-merge/prd.md` §"Out of Scope" / §"Deferred to v2".
+
+---
+
+## TD-079 — Output-contract inference from context output names (auto-framing Level 3)
+
+**Severity**: Low (DX improvement)
+**Found**: 2026-04-30 0.16.4 sub-plan inventory (`workflow-auto-framed-context-inputs-implementation-note.md`)
+**Affects**: workflow skill-prompt builder; `outputs:` map declaration
+
+**Context**: The auto-framing implementation landed Level 1 (context-inputs auto-framing). Level 2 (per-skill default prompt templates in SKILL.md frontmatter) shipped via 0.16.4 S27. Level 3 — inferring an output contract from the context output names declared in `outputs:` — was deferred until Level 1 had lived in main. Still not implemented.
+
+**Fix shape**: derive an output schema (or at least a structural assertion) from `outputs:` keys + types; surface inference results in `workflow show --resolved` so authors can verify before runtime.
+
+**Trigger**: a workflow author requests auto-generated output contracts; structured-output schema mismatches become a recurring source of run failures; or a third workflow change touches the inference surface.
+
+---
+
+## TD-078 — `dartclaw-discover-project` cross-run cache
+
+**Severity**: Low (perf optimization)
+**Found**: 2026-04-30 0.16.4 sub-plan inventory (`workflow-optimization-prd-draft.md` §"Open Questions" Q1)
+**Affects**: `dartclaw-discover-project` skill; workflow startup latency
+
+**Context**: `dartclaw-discover-project` is invoked at the start of most workflows. Its result depends on the workspace state (project files, package layout) and changes rarely. Caching the result across runs — keyed by repo SHA + tracked-file mtime — would shave perceivable latency from workflow startup, but was deferred as an "optimization not yet warranted" decision.
+
+**Fix shape**: SHA + mtime keyed cache in `<dataDir>/.cache/discover-project/`; invalidation on project-file change or explicit flag.
+
+**Trigger**: workflow-startup latency dominated by discover-project in profiling traces; user complaint; or two workflows triggered back-to-back with identical discovery results.
+
+---
+
+## TD-077 — Cross-workflow output-key naming convention (`review_findings` vs `verdict`)
+
+**Severity**: Low (refactor / consistency)
+**Found**: 2026-04-30 0.16.4 sub-plan inventory (`workflow-output-contract-and-presets-implementation-note.md` §"Out of Scope")
+**Affects**: built-in workflow YAMLs (`plan-and-implement`, `spec-and-implement`); chained-workflow consumers
+
+**Context**: Output keys vary across built-in workflows for what is conceptually the same datum: review steps emit `review_findings` in some places, `verdict` in others, and downstream gates branch on either. There is no documented convention; new workflows pick one inconsistently.
+
+**Fix shape**: pick a canonical name per concept (e.g. `review_findings` for findings array, `verdict` for the boolean/enum gate value), document in the public workflow guide, sweep built-ins to align.
+
+**Trigger**: a chained workflow breaks because the consumer expects one key and the producer emits another; UBIQUITOUS_LANGUAGE.md sweep; workflow author confusion.
+
+---
+
+## TD-076 — Gate-expression grammar/parser (replace `_entryGateConditionPattern` regex)
+
+**Severity**: Low (DSL readiness, target 0.17+)
+**Found**: 2026-04-30 0.16.4 sub-plan inventory (`workflow-robustness-and-refactor-fis-input.md` rule 6)
+**Affects**: `packages/dartclaw_workflow/lib/src/workflow/gate_evaluator.dart` and the `_entryGateConditionPattern` regex it uses
+
+**Context**: Gate expressions in workflow YAMLs are validated/parsed via a regex (`_entryGateConditionPattern`). The regex covers current built-in usage but is fragile under expansion (operator precedence, quoting, nested expressions). Marked "out of scope for 0.16.4 stories; flag in Story E as a follow-up... logged for 0.17+" — never filed.
+
+**Fix shape**: write a small recursive-descent parser (or use `package:petitparser` if a dep is acceptable) returning a typed AST; evaluator walks the AST instead of regex-matching strings.
+
+**Trigger**: 0.17+ DSL planning; a user-authored gate that the regex cannot express; expansion of `||` / parenthesised sub-expressions.
+
+---
+
+## TD-075 — Codex token-accounting follow-ups (model-switch tax + auth.json refresh)
+
+**Severity**: Low (test coverage + accounting precision)
+**Found**: 2026-04-30 0.16.4 sub-plan inventory (`final-gap-closure-ledger.md` Part 13 — TOKEN-EFFICIENCY F4 + F5)
+**Affects**: Codex harness token accounting; isolated-profile auth integration tests; cross-ref TD-066
+
+**Context**: Two items routed to TECH-DEBT-BACKLOG by the 0.16.4 S52 closure ledger that were never filed:
+1. **F4** — `continueSession` chains under Codex are not measured against the model-switch tax (Codex re-charges for state when the model changes mid-chain). The numbers are likely small but unmeasured.
+2. **F5** — Codex `auth.json` refresh flow under the isolated-profile symlink configuration is not covered by an integration test. Real-world OAuth refresh in this layout has not been exercised.
+
+**Fix shape**: F4 — add token-tax measurement in the cross-harness consistency suite (cross-ref `s43-token-tracking-cross-harness-consistency.md`). F5 — add an integration test that drives an `auth.json` expiry → refresh cycle inside the isolated-profile layout. Both fit alongside any TD-066 work on the Task model.
+
+**Trigger**: TD-066 schema migration; a user reports unexplained token accounting drift on Codex; or a Codex auth refresh failure under the isolated profile.
+
+**References**: `dartclaw-private/docs/specs/0.16.4/workflow-final-gap-remediation/final-gap-closure-ledger.md` Part 13.
+
+---
+
+## TD-074 — Homebrew/asset/archive revalidation pass
+
+**Severity**: Medium (gates next distribution)
+**Found**: 2026-04-30 0.16.4 sub-plan inventory (`final-gap-closure-ledger.md` Part 12 — S13-ASSETS)
+**Affects**: `tool/build.sh`, asset-bundling path, Homebrew formula, archive packaging
+
+**Context**: Routed to TECH-DEBT-BACKLOG by the 0.16.4 S52 closure ledger but never filed. The S13 asset-distribution path shipped in 0.16.4 but the Homebrew formula + archive layout has not been revalidated against current asset shape. Likely fine, but unverified.
+
+**Fix shape**: dry-run a Homebrew install from a local tap; verify the unpacked archive contains the expected skill source / template / static-asset trees; update the formula if any path drift surfaced.
+
+**Trigger**: next Homebrew distribution release; SDK publish; first user report of a missing asset post-install.
+
+**References**: `dartclaw-private/docs/specs/0.16.4/workflow-final-gap-remediation/final-gap-closure-ledger.md` Part 12.
+
+---
+
+## TD-073 — `externalArtifactMount` silent path-collision overwrite
+
+**Severity**: Medium (data-loss risk)
+**Found**: 2026-04-30 0.16.4 sub-plan inventory (`final-gap-closure-ledger.md` Part 11 — S28-ARTIFACTS, sub-item 3)
+**Affects**: workflow `externalArtifactMount` resolution; artifact-transport runtime
+
+**Context**: Routed to TECH-DEBT-BACKLOG by the 0.16.4 S52 closure ledger but never filed. When two workflow steps configure `externalArtifactMount` paths that resolve to the same destination, the second write silently overwrites the first. No validation, no warning. This is a real data-loss risk for workflows that fan out via map/foreach into a shared artifact directory.
+
+**Fix shape**: validator-time check for path-collision across steps that share an `externalArtifactMount` root; runtime fail-fast if a collision is detected at write time. Optional: timestamp-suffix as recovery rather than overwrite.
+
+**Trigger**: any artifact-transport rework; a user reports lost artifacts after a fan-out workflow; the next time a built-in workflow adopts `externalArtifactMount` with map/foreach.
+
+**References**: `dartclaw-private/docs/specs/0.16.4/workflow-final-gap-remediation/final-gap-closure-ledger.md` Part 11 §S28-ARTIFACTS.
+
+---
+
 ## TD-069 — 0.16.4 advisory DECIDE cluster (deferred to 0.16.5+)
 
 **Severity**: Mixed (one HIGH advisory, two MEDIUM advisories beyond what TD-066 already tracks; none gating 0.16.4)
@@ -293,22 +429,6 @@ The configured `providers.<id>.pool_size` from dartclaw.yaml drives initial spaw
 
 ---
 
-## TD-059 — No `--project-dir` CLI flag or config option
-
-**Severity**: Medium (DX friction when running from source)
-**Found**: Crowd coding setup feedback (2026-03-25)
-**Affects**: `apps/dartclaw_cli/lib/src/commands/serve_command.dart`, `packages/dartclaw_config/lib/src/dartclaw_config.dart`
-
-**Context**: The implicit `_local` project always uses `Directory.current.path`. When running from source, the cwd must be the pub workspace root for package resolution, which conflicts with wanting `_local` to point at a different repo. External projects sidestep this for remote repos, but local-path overrides are not supported.
-
-**Fix**: Add `project_dir` config and or `--project-dir` CLI flag that overrides `Directory.current.path` for `_local`. It needs to propagate to `WorktreeManager`, `ContainerManager` mount paths, and `BehaviorFileService`.
-
-**Trigger**: Next crowd-coding or multi-project setup work.
-
-**Resolution note**: Resolved by 0.16.4 S42, which generalized the need to named config/API projects via `projects.<id>.localPath:` instead of extending `_local` with a one-off `--project-dir` surface.
-
----
-
 ## TD-060 — `dartclawVersion` constant not bumped on release
 
 **Severity**: Low (cosmetic — startup banner shows the wrong version)
@@ -399,3 +519,66 @@ The configured `providers.<id>.pool_size` from dartclaw.yaml drives initial spaw
 **Trigger**: Any of the following — (a) a third execution mode lands (new harness pattern that is neither interactive nor one-shot, e.g. scheduled agent tasks with a fixed prompt set); (b) testing `_executeCore` requires mocking both paths separately and the dual-method shape makes fakes awkward; (c) per-strategy configuration (observability, budget, cancellation policy) diverges enough that method-level branching loses ergonomics.
 
 **References**: ADR-023 (workflow↔task boundary) · 0.16.5 S16 (task_executor decomposition) · S-BOUND-3 proposal in 2026-04-21 conversation.
+
+---
+
+## TD-070 — Workflow architecture and fitness carry-overs from 0.16.4 baseline
+
+**Severity**: Medium (maintainability, fitness tracking)
+**Found**: 0.16.4 final baseline review remediation (2026-04-30 05:20 CEST)
+**Affects**: `packages/dartclaw_workflow/lib/src/workflow/workflow_executor.dart`, `packages/dartclaw_server/lib/src/task/workflow_cli_runner.dart`, workflow-created `task.configJson` keys
+
+**Context**: The 0.16.4 workflow requirements baseline intentionally carries three advisory architecture/fitness items into 0.16.5+: `workflow_executor.dart` remains above the 800-line fitness target, `WorkflowCliRunner` still lives in `dartclaw_server` despite acting as workflow/task boundary infrastructure, and several inter-package workflow task-config keys remain stringly typed (`_workflowFollowUpPrompts`, `_dartclaw.internal.validationFailure`, etc.).
+
+**Current state**: Non-gating for 0.16.4. Fitness tests keep the current file-size baseline visible, and ADR-023 documents the workflow/task boundary direction. The 0.16.5 PRD/plan now fold the carry-overs into existing stabilisation stories: S15 handles the executor extraction, S31 records the `WorkflowCliRunner` ownership/seam decision, and S34 centralises workflow task-config keys (with TD-066 tracking the deeper token-metrics storage migration).
+
+**Fix**: Complete the mapped 0.16.5 stories. If any part slips, update this entry with the specific remaining surface instead of keeping the broad advisory phrasing.
+
+**Trigger**: 0.16.5 workflow architecture planning, any new workflow runner type, or any change that adds another `_workflow*` / `_dartclaw.internal.*` task-config key.
+
+**References**: `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline.md` §"Open Requirement Mismatches In Latest Review Material" · `workflow-requirements-baseline-gap-review-claude-2026-04-29.md` LOW advisory-carry-over finding.
+
+---
+
+## TD-071 — AndThen runtime provisioning source pinning and verification
+
+**Severity**: Low now / High before production distribution (supply-chain security)
+**Found**: 0.16.4 final code-review remediation (2026-04-30 05:38 CEST)
+**Affects**: `packages/dartclaw_workflow/lib/src/skills/skill_provisioner.dart`, `packages/dartclaw_config/lib/src/andthen_config.dart`, `andthen.*` config contract
+
+**Context**: The 0.16.4 remediation hardened `andthen.git_url` parsing and git clone argument handling, but full source authenticity is still a product/config decision. Current config intentionally supports `andthen.ref: latest` and operator-overridden `andthen.git_url`. Because AndThen is first-party and DartClaw may later fork/vendor the needed skill source, signed-tag/SHA enforcement would be premature for 0.16.5 stabilisation.
+
+**Current state**: Acceptable for developer-controlled / first-party use. `SkillProvisioner` rejects empty, option-like, non-HTTPS, userinfo/query/fragment, and localhost URLs, and invokes `git clone -- <url> <dest>`. It still does not require an immutable SHA/tag pin, verify a signature, or prove that a `network=disabled` cache corresponds to an operator-approved source.
+
+**Fix**: Prefer a DartClaw-owned fork/vendor path before production exposure. If live upstream provisioning remains part of the long-term model, then add an explicit source-trust contract: immutable `andthen.ref` pins for production profiles, a configured allowlist/pin field, or signed release verification. Define how `latest` behaves in dev profiles and how offline caches prove provenance.
+
+**Trigger**: production-profile config validation; broad distribution to operators outside the DartClaw/AndThen maintainer trust boundary; choosing to keep live upstream AndThen provisioning instead of vendoring/forking; or any change that lets third-party skill sources run through this provisioning path.
+
+**References**: `dartclaw-private/docs/specs/0.16.4/dartclaw_workflow-code-review-claude-2026-04-29.md` C3.
+
+---
+
+## TD-072 — 0.16.4 final-remediation polish (workflow show standalone bootstrap + glossary residual drift)
+
+**Severity**: Low (operator UX edge case + doc currency)
+**Found**: 0.16.4 final baseline gap-review remediation (2026-04-30 07:09 / 07:12 CEST)
+**Affects**: `apps/dartclaw_cli/lib/src/commands/workflow/workflow_show_command.dart`, `docs/dev/UBIQUITOUS_LANGUAGE.md`
+
+**Context**: Two non-gating leftovers from the 0.16.4 final gap-review pair (`workflow-requirements-baseline-gap-review-claude-2026-04-30-2.md`, `workflow-requirements-baseline-gap-review-codex-2026-04-30-2.md`) and its doc remediation pass:
+
+1. **`dartclaw workflow show --resolved --standalone` does not call `bootstrapAndthenSkills(...)`.** `workflow_show_command.dart:147–160` builds a transient `SkillRegistryImpl` and now scans data-dir scoped skill roots (Codex 04-30 HIGH closure), but unlike `cli_workflow_wiring.dart:190–219` and `service_wiring.dart:196–230`, it does not provision AndThen on first contact. On a freshly-installed instance where neither `dartclaw serve` nor `dartclaw workflow run` has run, `--resolved` output omits SKILL.md frontmatter defaults until any other workflow command provisions AndThen. Recoverable, narrow edge case; baseline §2 line 82 / §3 line 99 do not strictly require `show` to bootstrap.
+
+2. **`UBIQUITOUS_LANGUAGE.md` glossary residual drift co-located with the codex doc remediation but outside its finding scope:**
+   - `UBIQUITOUS_LANGUAGE.md:72` "Task Project ID" still says workflow tasks "derive it from workflow-level or step-level project binding" — same S74 drift the codex fix removed elsewhere; per-step `project:` was rejected in S74.
+   - "Resolution Verification" entry still describes "project format / analyze / test commands when declared", reflecting the pre-S73 verification config block that was removed in 0.16.4.
+   - "Workflow Run Artifact" entry says "8-field record per merge-resolve invocation" but the shipped artifact is 9 fields (per baseline §5).
+
+**Current state**: Acceptable for tag. Item 1 is a fresh-install edge that operators rarely hit before any other workflow command runs; item 2 is internal glossary drift that does not produce invalid YAML or wrong runtime behavior. Both were explicitly flagged as fix-forward in the 04-30 remediation report.
+
+**Fix**:
+1. Route `WorkflowShowCommand._runStandalone(...)` through the same `bootstrapAndthenSkills(...)` helper used by run/serve, gated on a `runAndthenSkillsBootstrap` flag for tests that opt out (mirror the `CliWorkflowWiring` pattern). Add a regression test asserting bootstrap fires on first `show --resolved --standalone` invocation.
+2. Sweep `UBIQUITOUS_LANGUAGE.md`: remove the "or step-level" clause from "Task Project ID"; rewrite "Resolution Verification" to match the S73 project-convention discovery + marker / `git diff --check` fallback contract; correct the "Workflow Run Artifact" field count to 9.
+
+**Trigger**: 0.16.5 stabilisation work; any operator report of empty resolved output on a fresh install; the next pass over `UBIQUITOUS_LANGUAGE.md` (e.g. as part of S03 "Doc Currency Critical Pass" or S19 "Doc + Hygiene Closeout").
+
+**References**: `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline-gap-review-claude-2026-04-30-2.md` (LOW finding) · `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline-gap-review-codex-2026-04-30-2.md` (MEDIUM glossary cluster + co-located surfacing in remediation completion report).

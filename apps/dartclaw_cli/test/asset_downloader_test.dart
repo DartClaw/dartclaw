@@ -160,13 +160,7 @@ void main() {
 
     await expectLater(
       downloader.download(),
-      throwsA(
-        isA<AssetDownloadException>().having(
-          (e) => e.message,
-          'message',
-          contains('outside the staging root'),
-        ),
-      ),
+      throwsA(isA<AssetDownloadException>().having((e) => e.message, 'message', contains('outside the staging root'))),
     );
 
     expect(File(p.join(tempHome.path, '.dartclaw', 'assets', 'traversal.txt')).existsSync(), isFalse);
@@ -204,13 +198,7 @@ void main() {
 
     await expectLater(
       downloader.download(),
-      throwsA(
-        isA<AssetDownloadException>().having(
-          (e) => e.message,
-          'message',
-          contains('outside the staging root'),
-        ),
-      ),
+      throwsA(isA<AssetDownloadException>().having((e) => e.message, 'message', contains('outside the staging root'))),
     );
 
     expect(File(absolutePath).existsSync(), isFalse);

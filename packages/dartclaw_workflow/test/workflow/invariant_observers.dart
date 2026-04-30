@@ -99,8 +99,7 @@ class WorkspaceFileWriteObserver {
     }).toList();
 
     if (unauthorized.isEmpty) return;
-    final message = StringBuffer()
-      ..writeln('Unauthorized workspace file writes detected:');
+    final message = StringBuffer()..writeln('Unauthorized workspace file writes detected:');
     for (final path in unauthorized) {
       message.writeln('  - $path');
     }

@@ -39,10 +39,7 @@ void main() {
   });
 
   test('materializes three workflow yaml files into an empty workspace and skips them on the second run', () async {
-    final copied = await WorkflowMaterializer.materialize(
-      dataDir: tempDir.path,
-      sourceDir: _workflowDefinitionsDir(),
-    );
+    final copied = await WorkflowMaterializer.materialize(dataDir: tempDir.path, sourceDir: _workflowDefinitionsDir());
 
     expect(copied, 3);
 
@@ -70,10 +67,7 @@ void main() {
     final existingFile = File(p.join(targetDir.path, 'code-review.yaml'));
     existingFile.writeAsStringSync('name: code-review\ndescription: local override\n');
 
-    final copied = await WorkflowMaterializer.materialize(
-      dataDir: tempDir.path,
-      sourceDir: _workflowDefinitionsDir(),
-    );
+    final copied = await WorkflowMaterializer.materialize(dataDir: tempDir.path, sourceDir: _workflowDefinitionsDir());
 
     expect(copied, 2);
     expect(existingFile.readAsStringSync(), 'name: code-review\ndescription: local override\n');

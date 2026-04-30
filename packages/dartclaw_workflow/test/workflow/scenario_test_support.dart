@@ -125,9 +125,7 @@ final class ScenarioTaskHarness {
   ///
   /// This is the component-tier equivalent of the per-test "listen for queued
   /// then transition" boilerplate that appears at the top of every scenario.
-  StreamSubscription<TaskStatusChangedEvent> autoAcceptQueuedTasks({
-    FutureOr<void> Function(Task task)? onQueued,
-  }) {
+  StreamSubscription<TaskStatusChangedEvent> autoAcceptQueuedTasks({FutureOr<void> Function(Task task)? onQueued}) {
     return eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((event) async {
       final task = await tasks.get(event.taskId);
       if (task == null) return;

@@ -49,49 +49,48 @@ WorkflowDefinition _load(String fileName) {
   return WorkflowDefinitionParser().parse(yaml);
 }
 
-const _builtIns = [
-  'spec-and-implement.yaml',
-  'plan-and-implement.yaml',
-  'code-review.yaml',
-];
+const _builtIns = ['spec-and-implement.yaml', 'plan-and-implement.yaml', 'code-review.yaml'];
 
 void main() {
   group('declared-key consistency across built-in workflows', () {
     for (final definitionFile in _builtIns) {
       final definition = _load(definitionFile);
 
-      test('$definitionFile — every declared contextOutput appears in the step.outputs map (if present) under the exact declared name', () {
-        for (final step in definition.steps) {
-          final outputs = step.outputs;
-          if (outputs == null || outputs.isEmpty) continue;
-          for (final declaredKey in step.outputKeys) {
-            // A step may declare outputs entries without a matching key
-            // entry — the extractor falls back to convention-based resolution
-            // in that case, which is fine. The invariant we care about is the
-            // reverse: when step.outputs is declared at all, it must either
-            // include the declared contextOutput key or be empty. A mismatch
-            // (outputs has unrelated keys) indicates a typo or stale edit.
-            if (!outputs.containsKey(declaredKey)) {
-              // Not every contextOutput has an explicit outputs-entry — that is
-              // legitimate and signals "use defaults". Only fail when outputs
-              // contains keys that visually look like typos of the declared one
-              // (e.g. `findings_count` vs `integrated-review.findings_count`).
-              final looksLikeDrift = outputs.keys.any((k) {
-                if (k == declaredKey) return false;
-                return k.endsWith('.$declaredKey') || declaredKey.endsWith('.$k');
-              });
-              expect(
-                looksLikeDrift,
-                isFalse,
-                reason: 'Step "${step.id}" declares contextOutput "$declaredKey" but '
-                    'step.outputs has a similar-but-not-equal key '
-                    '(${outputs.keys.join(', ')}). Likely dotted/un-dotted drift.',
-              );
+      test(
+        '$definitionFile — every declared contextOutput appears in the step.outputs map (if present) under the exact declared name',
+        () {
+          for (final step in definition.steps) {
+            final outputs = step.outputs;
+            if (outputs == null || outputs.isEmpty) continue;
+            for (final declaredKey in step.outputKeys) {
+              // A step may declare outputs entries without a matching key
+              // entry — the extractor falls back to convention-based resolution
+              // in that case, which is fine. The invariant we care about is the
+              // reverse: when step.outputs is declared at all, it must either
+              // include the declared contextOutput key or be empty. A mismatch
+              // (outputs has unrelated keys) indicates a typo or stale edit.
+              if (!outputs.containsKey(declaredKey)) {
+                // Not every contextOutput has an explicit outputs-entry — that is
+                // legitimate and signals "use defaults". Only fail when outputs
+                // contains keys that visually look like typos of the declared one
+                // (e.g. `findings_count` vs `integrated-review.findings_count`).
+                final looksLikeDrift = outputs.keys.any((k) {
+                  if (k == declaredKey) return false;
+                  return k.endsWith('.$declaredKey') || declaredKey.endsWith('.$k');
+                });
+                expect(
+                  looksLikeDrift,
+                  isFalse,
+                  reason:
+                      'Step "${step.id}" declares contextOutput "$declaredKey" but '
+                      'step.outputs has a similar-but-not-equal key '
+                      '(${outputs.keys.join(', ')}). Likely dotted/un-dotted drift.',
+                );
+              }
             }
           }
-        }
-      });
-
+        },
+      );
     }
   });
 
@@ -132,7 +131,8 @@ void main() {
             expect(
               declared,
               contains(input),
-              reason: 'Step "${step.id}" in ${entry.key} reads context key '
+              reason:
+                  'Step "${step.id}" in ${entry.key} reads context key '
                   '"$input" but no step declares it as an output. Declared '
                   'keys: $declared',
             );

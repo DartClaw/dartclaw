@@ -47,20 +47,19 @@ final class MergeResolveAttemptArtifact {
 
   String toJsonString() => jsonEncode(toJson());
 
-  factory MergeResolveAttemptArtifact.fromJson(Map<String, dynamic> json) =>
-      MergeResolveAttemptArtifact(
-        iterationIndex: json['iteration_index'] as int,
-        storyId: json['story_id'] as String? ?? '',
-        attemptNumber: json['attempt_number'] as int,
-        outcome: json['outcome'] as String,
-        conflictedFiles: (json['conflicted_files'] as List?)?.cast<String>() ?? const [],
-        resolutionSummary: json['resolution_summary'] as String? ?? '',
-        errorMessage: json['error_message'] as String?,
-        agentSessionId: json['agent_session_id'] as String? ?? '',
-        tokensUsed: json['tokens_used'] as int? ?? 0,
-        startedAt: json['started_at'] != null ? DateTime.tryParse(json['started_at'] as String) : null,
-        elapsedMs: json['elapsed_ms'] as int?,
-      );
+  factory MergeResolveAttemptArtifact.fromJson(Map<String, dynamic> json) => MergeResolveAttemptArtifact(
+    iterationIndex: json['iteration_index'] as int,
+    storyId: json['story_id'] as String? ?? '',
+    attemptNumber: json['attempt_number'] as int,
+    outcome: json['outcome'] as String,
+    conflictedFiles: (json['conflicted_files'] as List?)?.cast<String>() ?? const [],
+    resolutionSummary: json['resolution_summary'] as String? ?? '',
+    errorMessage: json['error_message'] as String?,
+    agentSessionId: json['agent_session_id'] as String? ?? '',
+    tokensUsed: json['tokens_used'] as int? ?? 0,
+    startedAt: json['started_at'] != null ? DateTime.tryParse(json['started_at'] as String) : null,
+    elapsedMs: json['elapsed_ms'] as int?,
+  );
 
   MergeResolveAttemptArtifact copyWith({
     String? outcome,

@@ -44,6 +44,5 @@ void main() {
       expect(decoded.authoritative, isFalse);
       expect((decoded as NarrativeOutput).schemaKey, 'summary');
     });
-
   });
 }

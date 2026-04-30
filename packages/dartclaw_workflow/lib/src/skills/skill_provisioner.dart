@@ -174,6 +174,43 @@ class SkillProvisioner {
     }
   }
 
+  void _validateGitUrl(String rawUrl) {
+    final trimmed = rawUrl.trim();
+    if (trimmed.isEmpty) {
+      throw const SkillProvisionConfigException('andthen.git_url must not be empty.');
+    }
+    if (trimmed.startsWith('-')) {
+      throw SkillProvisionConfigException('andthen.git_url must be a URL, not a git option: "$rawUrl".');
+    }
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || !uri.hasScheme || uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty) {
+      throw SkillProvisionConfigException(
+        'andthen.git_url must be an https:// URL with a hostname. '
+        'Rejecting "$rawUrl".',
+      );
+    }
+    if (uri.hasQuery || uri.hasFragment || uri.userInfo.isNotEmpty) {
+      throw SkillProvisionConfigException(
+        'andthen.git_url must not contain userinfo, query parameters, or fragments. '
+        'Rejecting "$rawUrl".',
+      );
+    }
+
+    final host = uri.host.toLowerCase();
+    if (host == 'localhost' || host.endsWith('.localhost')) {
+      throw SkillProvisionConfigException('andthen.git_url must not target localhost: "$rawUrl".');
+    }
+    // Reject IP-literal hosts (IPv4 / IPv6). The `localhost` check above is
+    // trivially defeated by DNS, so we additionally refuse anything that
+    // parses as a raw IP address — `git_url` is expected to be a hostname.
+    if (InternetAddress.tryParse(host) != null) {
+      throw SkillProvisionConfigException(
+        'andthen.git_url must use a hostname, not an IP literal: "$rawUrl".',
+      );
+    }
+  }
+
   // ── Internals (visible to tests via @visibleForTesting wrappers below) ────
 
   List<_InstallDestination> _resolveDestinations() {
@@ -235,8 +272,9 @@ class SkillProvisioner {
 
   Future<void> _doNetworkClone(String srcDir, bool exists, {required bool allowOfflineFallback}) async {
     if (!exists) {
+      _validateGitUrl(config.gitUrl);
       Directory(p.dirname(srcDir)).createSync(recursive: true);
-      final result = await _runProcess('git', ['clone', config.gitUrl, srcDir]);
+      final result = await _runProcess('git', ['clone', '--', config.gitUrl, srcDir]);
       if (result.exitCode != 0) {
         throw SkillProvisionException(
           'git clone of ${config.gitUrl} failed (exit ${result.exitCode}): ${result.stderr}',

@@ -234,10 +234,12 @@ void main() {
         async.elapse(const Duration(seconds: 2));
         async.flushMicrotasks();
 
-        unawaited(h.repository.getById('run-1').then((r) {
-          cancelledStatus = r?.status;
-          cancelReason = r?.contextJson['gate.approval.cancel_reason'] as String?;
-        }));
+        unawaited(
+          h.repository.getById('run-1').then((r) {
+            cancelledStatus = r?.status;
+            cancelReason = r?.contextJson['gate.approval.cancel_reason'] as String?;
+          }),
+        );
         async.flushMicrotasks();
       });
 

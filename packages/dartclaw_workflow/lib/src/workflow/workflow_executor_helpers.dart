@@ -1,5 +1,14 @@
 part of 'workflow_executor.dart';
 
+class _WorkflowRunWaitAbort implements Exception {
+  const _WorkflowRunWaitAbort(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Shared helper methods used by extracted workflow runners.
 extension WorkflowExecutorHelpers on WorkflowExecutor {
   Map<String, OutputConfig> _inputConfigsFor(WorkflowDefinition definition, List<String> keys) {
@@ -267,13 +276,23 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     // Without this, a step blocked on a task that never completes would hold
     // the executor indefinitely, and pause/cancel would observe no effect.
     StreamSubscription<WorkflowRunStatusChangedEvent>? runSub;
+    final taskCompletion = completer.future;
+    Future<Object> awaitedCompletion = taskCompletion;
+    Completer<_WorkflowRunWaitAbort>? runAbort;
     if (runId != null) {
+      final abort = Completer<_WorkflowRunWaitAbort>();
+      runAbort = abort;
+      void abortWait(String message) {
+        if (!abort.isCompleted) {
+          abort.complete(_WorkflowRunWaitAbort(message));
+        }
+      }
+
+      awaitedCompletion = Future.any<Object>([taskCompletion, abort.future]);
       runSub = _eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((event) {
-        if (event.newStatus != WorkflowRunStatus.running && !completer.isCompleted) {
-          completer.completeError(
-            StateError(
-              'Workflow run "$runId" transitioned to ${event.newStatus.name} while step "${step.name}" awaited task $taskId',
-            ),
+        if (event.newStatus != WorkflowRunStatus.running) {
+          abortWait(
+            'Workflow run "$runId" transitioned to ${event.newStatus.name} while step "${step.name}" awaited task $taskId',
           );
         }
       });
@@ -281,23 +300,40 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
       // stream dropped the event. Re-check current state from the repository
       // and abort if the run is no longer running.
       final currentRun = await _repository.getById(runId);
-      if (currentRun != null && currentRun.status != WorkflowRunStatus.running && !completer.isCompleted) {
-        completer.completeError(
-          StateError(
-            'Workflow run "$runId" is ${currentRun.status.name}; step "${step.name}" wait aborted before task $taskId completed',
-          ),
+      if (currentRun != null && currentRun.status != WorkflowRunStatus.running) {
+        abortWait(
+          'Workflow run "$runId" is ${currentRun.status.name}; step "${step.name}" wait aborted before task $taskId completed',
         );
       }
     }
+    final currentTask = await _taskService.get(taskId);
+    // Skip the early-completion shortcut when the run-abort already fired —
+    // otherwise `Future.any` may resolve to the task (registered first) and
+    // silently drop the abort signal.
+    if (currentTask != null &&
+        currentTask.status.terminal &&
+        !completer.isCompleted &&
+        !(runAbort?.isCompleted ?? false)) {
+      completer.complete(currentTask);
+    }
     try {
+      Future<Task> awaitResult(Future<Object> future) async {
+        final result = await future;
+        if (result is Task) return result;
+        if (result is _WorkflowRunWaitAbort) throw result;
+        throw StateError('Unexpected workflow task wait result: $result');
+      }
+
       if (step.timeoutSeconds != null) {
-        return await completer.future.timeout(
-          Duration(seconds: step.timeoutSeconds!),
-          onTimeout: () =>
-              throw TimeoutException('Step "${step.name}" timed out', Duration(seconds: step.timeoutSeconds!)),
+        return await awaitResult(
+          awaitedCompletion.timeout(
+            Duration(seconds: step.timeoutSeconds!),
+            onTimeout: () =>
+                throw TimeoutException('Step "${step.name}" timed out', Duration(seconds: step.timeoutSeconds!)),
+          ),
         );
       } else {
-        return await completer.future;
+        return await awaitResult(awaitedCompletion);
       }
     } finally {
       await sub.cancel();

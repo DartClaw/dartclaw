@@ -42,13 +42,11 @@ credentials:
     });
 
     test('captures env-var provenance for custom-named api-key credentials', () {
-      final config = _loadYaml(
-        '''
+      final config = _loadYaml('''
 credentials:
   github-ssh:
     api_key: \${MY_CUSTOM_SECRET}
-''',
-      );
+''');
 
       expect(config.credentials['github-ssh']?.envVars, ['MY_CUSTOM_SECRET']);
     });

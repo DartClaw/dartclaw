@@ -1,10 +1,11 @@
 import 'dart:async' show TimeoutException;
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show min;
+import 'dart:typed_data';
 
 import 'package:dartclaw_models/dartclaw_models.dart' show ActionNode, OutputFormat, WorkflowRun, WorkflowStep;
-import 'package:dartclaw_security/dartclaw_security.dart'
-    show EnvPolicy, SafeProcess, kDefaultSensitivePatterns;
+import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafeProcess, kDefaultSensitivePatterns;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -15,6 +16,7 @@ import 'workflow_runner_types.dart';
 import 'workflow_template_engine.dart';
 
 const _bashStdoutMaxBytes = 64 * 1024;
+const _bashStderrMaxBytes = 64 * 1024;
 final _log = Logger('BashStepRunner');
 
 /// Runs a normalized bash action node.
@@ -64,6 +66,7 @@ Future<StepOutcome> executeBashStep({
   final rawCommand = step.prompts?.firstOrNull ?? '';
   final String resolvedCommand;
   try {
+    validateBashCommandTemplate(rawCommand);
     resolvedCommand = resolveBashCommand(rawCommand, context);
   } catch (e) {
     return bashFailure(step, 'command substitution failed: $e');
@@ -87,8 +90,8 @@ Future<StepOutcome> executeBashStep({
     return bashFailure(step, 'process execution failed: $e');
   }
 
-  final stdoutFuture = process.stdout.transform(utf8.decoder).join();
-  final stderrFuture = process.stderr.transform(utf8.decoder).join();
+  final stdoutFuture = _collectBounded(process.stdout, _bashStdoutMaxBytes);
+  final stderrFuture = _collectBounded(process.stderr, _bashStderrMaxBytes);
 
   late int exitCode;
   try {
@@ -102,13 +105,13 @@ Future<StepOutcome> executeBashStep({
       await process.exitCode;
     }
     final stderr = await stderrFuture;
-    return bashFailure(step, 'timed out after ${timeoutSeconds}s', stderr: stderr);
+    return bashFailure(step, 'timed out after ${timeoutSeconds}s', stderr: stderr.text);
   }
 
-  final rawStdout = await stdoutFuture;
-  final truncated = rawStdout.length > _bashStdoutMaxBytes;
-  final stdout = truncated ? '${rawStdout.substring(0, _bashStdoutMaxBytes)}[truncated]' : rawStdout;
-  final stderr = await stderrFuture;
+  final stdoutResult = await stdoutFuture;
+  final stderrResult = await stderrFuture;
+  final stdout = stdoutResult.truncated ? '${stdoutResult.text}[truncated]' : stdoutResult.text;
+  final stderr = stderrResult.truncated ? '${stderrResult.text}[truncated]' : stderrResult.text;
 
   if (exitCode != 0) {
     _log.warning(
@@ -134,7 +137,8 @@ Future<StepOutcome> executeBashStep({
       '${step.id}.tokenCount': 0,
       '${step.id}.workdir': workDir,
       if (stderr.isNotEmpty) '${step.id}.stderr': stderr,
-      if (truncated) '${step.id}.stdoutTruncated': true,
+      if (stdoutResult.truncated) '${step.id}.stdoutTruncated': true,
+      if (stderrResult.truncated) '${step.id}.stderrTruncated': true,
     },
     tokenCount: 0,
     success: true,
@@ -149,15 +153,18 @@ String resolveBashWorkdir({
   required WorkflowTemplateEngine templateEngine,
 }) {
   if (step.workdir != null) {
+    if (step.workdir!.contains(RegExp(r'\{\{\s*context\.'))) {
+      throw ArgumentError('workdir must not reference context values');
+    }
     final resolved = templateEngine.resolve(step.workdir!, context).trim();
     if (resolved.isEmpty) {
       throw ArgumentError('workdir resolved to an empty path');
     }
-    return resolved;
+    return _containedWorkdir(resolved, dataDir: dataDir);
   }
   final workspaceRoot = p.join(dataDir, 'workspace');
   Directory(workspaceRoot).createSync(recursive: true);
-  return workspaceRoot;
+  return p.normalize(p.absolute(workspaceRoot));
 }
 
 /// Resolves template references in a shell command.
@@ -185,6 +192,85 @@ String resolveBashCommand(String command, WorkflowContext context) {
     }
     return shellEscape(value);
   });
+}
+
+/// Heuristically rejects the most common shell-re-parsing patterns that
+/// embed `{{context.*}}` substitutions. The patterns covered are `eval`,
+/// `| sh|bash`, `sh -c {{...}}`/`bash -c {{...}}` immediately followed by a
+/// substitution, command substitution `$(...)`, and backticks. The matcher
+/// is intentionally narrow — it does not catch every quoting/wrapping shape
+/// (e.g. `bash -c "echo {{context.x}}"`, `xargs -I {}`, parameter
+/// expansion). The primary safety guarantee is `shellEscape` in
+/// [resolveBashCommand], which always emits single-quoted output; this
+/// validator is defense-in-depth on top of that escaping.
+void validateBashCommandTemplate(String command) {
+  if (!command.contains(RegExp(r'\{\{\s*context\.'))) return;
+  final riskyPatterns = <RegExp>[
+    RegExp(r'(^|[;&|]\s*)\s*eval\b'),
+    RegExp(r'\|\s*(?:/usr/bin/env\s+)?(?:/bin/)?(?:sh|bash)\b'),
+    RegExp(r'\b(?:sh|bash)\s+-c\s+\{\{\s*context\.'),
+    RegExp(r'`[^`]*\{\{\s*context\.'),
+    RegExp(r'\$\([^)]*\{\{\s*context\.'),
+  ];
+  for (final pattern in riskyPatterns) {
+    if (pattern.hasMatch(command)) {
+      throw ArgumentError(
+        'Bash command uses {{context.*}} inside a shell re-parsing construct. '
+        'Pass context values as ordinary command arguments instead.',
+      );
+    }
+  }
+}
+
+String _containedWorkdir(String resolved, {required String dataDir}) {
+  final dataDirRoot = p.normalize(p.absolute(dataDir));
+  final workspaceRoot = p.join(dataDirRoot, 'workspace');
+  final candidate = p.isAbsolute(resolved)
+      ? p.normalize(p.absolute(resolved))
+      : p.normalize(p.join(workspaceRoot, resolved));
+  if (candidate != dataDirRoot && !p.isWithin(dataDirRoot, candidate)) {
+    throw ArgumentError('workdir escapes dataDir: $resolved');
+  }
+
+  // Materialize the workdir up front so the realpath check has something to
+  // resolve. Skipping the check when the dir is missing leaves a TOCTOU
+  // window: a concurrent step (or the bash command itself via `mkdir -p`)
+  // could plant a symlink at `candidate` between validation and Process.start.
+  final dir = Directory(candidate);
+  if (!dir.existsSync()) {
+    dir.createSync(recursive: true);
+  }
+  final rootReal = Directory(dataDirRoot).resolveSymbolicLinksSync();
+  final candidateReal = Directory(candidate).resolveSymbolicLinksSync();
+  if (candidateReal != rootReal && !p.isWithin(rootReal, candidateReal)) {
+    throw ArgumentError('workdir resolves outside dataDir: $resolved');
+  }
+  return candidate;
+}
+
+Future<_BoundedOutput> _collectBounded(Stream<List<int>> stream, int maxBytes) async {
+  final builder = BytesBuilder(copy: false);
+  var storedBytes = 0;
+  var truncated = false;
+  await for (final chunk in stream) {
+    final remaining = maxBytes - storedBytes;
+    if (remaining > 0) {
+      final take = min(remaining, chunk.length);
+      builder.add(chunk.sublist(0, take));
+      storedBytes += take;
+    }
+    if (chunk.length > remaining) {
+      truncated = true;
+    }
+  }
+  return _BoundedOutput(utf8.decode(builder.takeBytes(), allowMalformed: true), truncated: truncated);
+}
+
+final class _BoundedOutput {
+  final String text;
+  final bool truncated;
+
+  const _BoundedOutput(this.text, {required this.truncated});
 }
 
 /// Extracts declared context outputs from bash stdout.

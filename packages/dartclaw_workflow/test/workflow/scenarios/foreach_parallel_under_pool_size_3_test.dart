@@ -9,11 +9,7 @@ import '../../fixtures/e2e_fixture.dart';
 void main() {
   test('CliWorkflowWiring eagerly spawns three task runners when pool_size is 3', () async {
     final fixture = await E2EFixture()
-        .withProject(
-          'fixture-project',
-          remote: 'https://example.invalid/fixture-project.git',
-          credentials: null,
-        )
+        .withProject('fixture-project', remote: 'https://example.invalid/fixture-project.git', credentials: null)
         .withProvider(value: 'claude', workflowModel: 'claude-opus-4')
         .withPoolSize(3)
         .build();

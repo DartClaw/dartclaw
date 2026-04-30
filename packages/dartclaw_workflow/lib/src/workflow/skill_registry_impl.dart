@@ -372,9 +372,11 @@ class SkillRegistryImpl implements SkillRegistry {
   // manual `install-skills.sh` invocation that would produce `andthen-*` skills
   // DartClaw will not resolve.
   static const _andthenInstallHint =
-      'AndThen-derived `dartclaw-*` skills are provisioned at `dartclaw serve` startup. '
+      'AndThen-derived `dartclaw-*` skills are provisioned at `dartclaw serve` startup '
+      'and before standalone workflow runs. '
       'If they are missing, check the SkillProvisioner logs and your '
-      '`andthen.network` / `andthen.git_url` / `andthen.ref` config, then restart `dartclaw serve`. '
+      '`andthen.network` / `andthen.git_url` / `andthen.ref` config, then restart `dartclaw serve` '
+      'or rerun the standalone workflow. '
       'See dartclaw-public/docs/guide/andthen-skills.md.';
 
   @override

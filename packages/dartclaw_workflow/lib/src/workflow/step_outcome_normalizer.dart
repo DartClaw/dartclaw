@@ -40,7 +40,12 @@ StorySpecOutputValidation validateStorySpecOutputs(
   }
 
   final normalizedOutputs = {...outputs, 'story_specs': contract.storySpecs!};
-  final resolution = resolveStorySpecPaths(normalizedOutputs, planDir: planDir);
+  final StorySpecPathResolution resolution;
+  try {
+    resolution = resolveStorySpecPaths(normalizedOutputs, planDir: planDir, projectRoot: projectRoot);
+  } on FormatException catch (e) {
+    return (outputs: outputs, validationFailure: StepValidationFailure(reason: e.message));
+  }
   final missingSpecPaths = <String>[];
   for (final specPath in resolution.specPaths) {
     if (!_storySpecPathExists(specPath, projectRoot: projectRoot)) {

@@ -177,7 +177,7 @@ Read relevant guidelines before coding, architecture, UX/UI, or review work:
 
 ## Visual Validation Workflow
 
-- `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` — conventions for visual validation (auto-read by `andthen:visual-validation-specialist`)
+- `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` — conventions for visual validation (referenced from the `## Visual Validation Workflow` section above, which `andthen:visual-validation` auto-reads)
 - `dev/testing/UI-SMOKE-TEST.md` — test cases TC-01…TC-31. Run via `bash dev/testing/profiles/smoke-test/run.sh`. Trigger: _"Run the UI smoke test"_
 
 

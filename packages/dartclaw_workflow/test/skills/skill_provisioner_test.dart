@@ -563,7 +563,7 @@ void _seedAndthenSrc(String srcDir, {required String sha}) {
   File(p.join(srcDir, '.git', 'HEAD_SHA')).writeAsStringSync(sha);
 }
 
-const _andThenAgentNames = ['documentation-lookup', 'research-specialist', 'visual-validation-specialist'];
+const _andThenAgentNames = ['documentation-lookup'];
 
 class _FakeProcessRunner {
   final List<({String executable, List<String> arguments, String? workingDirectory})> calls = [];

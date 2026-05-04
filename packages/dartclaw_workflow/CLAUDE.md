@@ -2,6 +2,18 @@
 
 **Role**: Owns the workflow control plane — YAML parsing, validation, registry, executor, and skill provisioning. Concrete entry points: `WorkflowExecutor`, `WorkflowDefinitionParser`, `WorkflowDefinitionValidator`, `WorkflowRegistry`, `SkillRegistry`, `SkillProvisioner`. Built-in workflow YAML lives at `lib/src/workflow/definitions/{spec-and-implement,plan-and-implement,code-review}.yaml`.
 
+## Built-in workflows shipped
+
+Three workflows ship in `lib/src/workflow/definitions/` and load into the registry at startup:
+
+- **`spec-and-implement`** — single-feature pipeline driven by `FEATURE` (free text or FIS path). Discover → spec → `dartclaw-exec-spec` → integrated review.
+- **`plan-and-implement`** — multi-story milestone pipeline driven by `REQUIREMENTS`. Discover → PRD → plan + per-story FIS → parallel implement+quick-review (foreach with `MAX_PARALLEL`) → refactor → parallel plan-review + architecture-review → bounded remediation loop.
+- **`code-review`** — single-methodology review of a `TARGET` (PR/branch/module) + bounded remediation loop.
+
+All three orchestrate skills in the **`dartclaw-*` namespace** (`dartclaw-discover-project`, `dartclaw-prd`, `dartclaw-plan`, `dartclaw-exec-spec`, `dartclaw-quick-review`, `dartclaw-review`, `dartclaw-architecture`, `dartclaw-refactor`, `dartclaw-remediate-findings`) — never `andthen:*` plugin counterparts. The canonical DC-native inventory is `dcNativeSkillNames` in `lib/src/skills/skill_provisioner.dart`; do not wildcard-add or rename these without updating that list.
+
+Authoring steps in `plan-and-implement` are **artefact-aware** via `entryGate`s that read what `dartclaw-discover-project` resolved from `docs/specs/<version>/`: `prd` skips when `project_index.active_prd != null`; `plan` skips when story specs are already present. For maintainer runs against the live public checkout, see root `CLAUDE.md` § Built-in DartClaw Workflows and `dev/tools/dartclaw-workflows/README.md`. Editing any of the three YAML files affects `built_in_workflow_contracts_test.dart` — keep it green.
+
 ## Architecture
 - **Authoring pipeline** — `WorkflowDefinitionParser` (YAML → typed model), `WorkflowDefinitionValidator` (rules under `lib/src/workflow/validation/`: gate, git-strategy, output-schema, reference, step-type, structure), `WorkflowRegistry` (lookup by name).
 - **Executor** — `WorkflowExecutor` (run loop, gate evaluation, per-step persistence, crash recovery, role-alias provider resolution).

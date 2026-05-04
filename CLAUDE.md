@@ -114,12 +114,25 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Ubiquitous language | `dev/state/UBIQUITOUS_LANGUAGE.md` | Domain glossary — use these terms in code, docs, naming |
 | Tech debt backlog | `dev/state/TECH-DEBT-BACKLOG.md` | Known debt requiring requirements input or architecture decision |
 | Spec lifecycle | `dev/state/SPEC-LIFECYCLE.md` | When `dev/specs/` files appear or disappear |
+| Built-in workflows | `dev/tools/dartclaw-workflows/README.md` (+ § below) | Running shipped workflows against this checkout |
 | Dart style | `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` | Before writing Dart |
 | Package boundaries | `dev/guidelines/DART-PACKAGE-GUIDELINES.md` | When touching pubspec or workspace packages |
 | HTMX patterns | `dev/guidelines/HTMX-GUIDELINES.md` | Before writing web UI fragments |
 | Trellis templates | `dev/guidelines/TRELLIS-GUIDELINES.md` | Before writing templates |
 | Testing strategy | `dev/guidelines/TESTING-STRATEGY.md` | Before writing tests |
 | Key dev commands | `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` | Before/after modifying code |
+
+
+---
+
+
+## Built-in DartClaw Workflows
+
+DartClaw ships three end-to-end YAML workflows — `spec-and-implement`, `plan-and-implement`, `code-review` — in `packages/dartclaw_workflow/lib/src/workflow/definitions/`, executed by `WorkflowExecutor`. They are **not** wrappers around `andthen:*` plugin skills: they orchestrate the **`dartclaw-*` skill namespace** (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-exec-spec`, …) — a distinct surface. Never assume `dartclaw-foo` and `andthen:foo` are interchangeable.
+
+`plan-and-implement` short-circuits PRD/plan/FIS synthesis when artefacts already exist under `docs/specs/<version>/` — this is also the cross-repo handoff seam (see `dev/state/SPEC-LIFECYCLE.md`).
+
+To run from this checkout: `dev/tools/dartclaw-workflows/run.sh` — see `dev/tools/dartclaw-workflows/README.md` for the full surface (workflow inventory, injected variables, worktree isolation, AOT host isolation, escape hatches). The profile is intentionally maintainer-permissive (Codex `sandbox: danger-full-access`, `approval: never`, auto-accept) — **not** a hardened operator profile. Engine internals: `packages/dartclaw_workflow/CLAUDE.md`.
 
 
 ---
@@ -173,12 +186,22 @@ Read relevant guidelines before coding, architecture, UX/UI, or review work:
 
 ## Release Preparation
 
-Before tagging: all tests (incl. `-t integration`), `dart analyze` (zero warnings), format check, UI smoke test, `bash dev/tools/check_versions.sh` (must pass).
+Run `bash dev/tools/release_check.sh` before tagging — it runs the automated gates as one command: `dev/specs/` cleanup (must be empty; see `dev/state/SPEC-LIFECYCLE.md`), version pin lockstep (`check_versions.sh`), `dart format --set-exit-if-changed`, `dart analyze --fatal-warnings --fatal-infos`, and `dart test`. Use `--quick` to skip the test suite during iteration. The script's manual gates (still required before tagging) are:
+- `dart test -t integration`
+- UI smoke test: `bash dev/testing/profiles/smoke-test/run.sh` (requires a running dev server)
 
 Then bump in a single commit:
 - `dartclawVersion` in `packages/dartclaw_server/lib/src/version.dart`
 - **every** publishable `packages/*/pubspec.yaml` `version:` field plus `apps/dartclaw_cli/pubspec.yaml` (lockstep — see `dev/guidelines/DART-PACKAGE-GUIDELINES.md` § Workspace-Wide Versioning Policy)
 - CHANGELOG, `dev/state/STATE.md`, `dev/state/ROADMAP.md`, "Current through" markers in docs
+
+### Release sequence (squash-merge pattern)
+
+1. **Scope-frozen** commit on `feat/<version>` — final version pins, CHANGELOG entry, STATE.md says "release-ready, awaiting tag". Run `release_check.sh` here; manual gates pass.
+2. **Squash-merge** to `main` with the release-style message; that commit *is* the release.
+3. **Tag** annotated `v<version>` from the squash commit; push tag.
+4. **Delete remote** feature branch (keep local as archive if useful).
+5. **Branch `feat/<next>`** from the squash commit; first work-in-flight commit there flips STATE.md / ROADMAP.md to mark the previous version as tagged and open the new milestone as Active. No bookkeeping commit is needed on `main` itself — the tag is the source of truth for "released."
 
 
 ---

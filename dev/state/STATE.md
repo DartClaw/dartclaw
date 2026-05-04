@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-05-01 07:51 CEST
+Last Updated: 2026-05-04 20:01 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -21,17 +21,19 @@ Last Updated: 2026-05-01 07:51 CEST
 
 ## Current Phase
 
-**0.16.4** — released. All 81 stories Done (72 in main plan + 9 in agent-resolved-merge sub-plan). Headline scope: connected-by-default CLI workflow execution, operational command groups (`agents`, `config`, `jobs`, `projects`, `tasks`, `traces`, expanded `sessions`), workflow trigger surfaces (web launch forms, `/workflow` chat, GitHub PR webhooks), redesigned `plan-and-implement` built-in (per-story `story-pipeline` + `foreach` sub-pipelines with worktree isolation and publish-step PR creation), file-based artifact transport with auto-commit, AndThen-as-runtime-prerequisite skill provisioning under the `dartclaw-` namespace, agent-resolved-merge bundle (`gitStrategy.merge_resolve` + `dartclaw-merge-resolve` skill), `AgentExecution` primitive decomposition, closed `agent|bash|approval|foreach|loop` step-type vocabulary, the `inputs:`/`outputs:` rename, and engine-managed runtime artifacts at `{{workflow.runtime_artifacts_dir}}`. Live release-gate proofs (S65, S76) passed end-to-end with the real Codex harness.
+**0.16.5** — Stabilisation & Hardening. Consolidation sprint covering the full public codebase and user-facing docs. Closes a safety gap in alert routing, decomposes the top god files (`workflow_executor.dart`, `task_executor.dart`, `config_parser.dart`, `service_wiring.dart`, `server.dart`), formalises barrel-hygiene discipline (`dartclaw_workflow` narrowed), extracts turn/pool/harness interfaces to `dartclaw_core`, wires 7 orphan observability events, installs 10 fitness functions (6 Level-1 + 4 Level-2), refreshes `AGENTS.md` and the user guide. Absorbs the 0.16.4 advisory carry-over (`workflow_executor.dart` LOC trim, `WorkflowCliRunner` placement, typed inter-package `taskConfig` DTOs — see `TECH-DEBT-BACKLOG.md` TD-069). Zero new user-facing features. 21+ stories planned.
 
-**Next**: 0.16.5 — Stabilisation & Hardening (consolidation sprint; zero new user-facing features). See `dev/state/ROADMAP.md`.
+**Previous**: 0.16.4 — CLI Operations, Connected Workflows & Workflow Platform Hardening — tagged `v0.16.4` on 2026-05-04.
+
+**Next**: 0.16.6 — Web UI Stimulus Adoption. See `dev/state/ROADMAP.md`.
 
 ## Active Stories
 
-None — 0.16.4 is shipped. 0.16.5 stories will be enumerated when the milestone enters planning.
+None yet — 0.16.5 stories will be enumerated when the milestone enters planning.
 
 ## Next Planned
 
-0.16.5 — Stabilisation & Hardening → 0.16.6 — Web UI Stimulus Adoption. See `dev/state/ROADMAP.md`.
+0.16.6 — Web UI Stimulus Adoption → 0.17 — Personal AI & Developer Experience. See `dev/state/ROADMAP.md`.
 
 ## Blockers
 
@@ -46,6 +48,7 @@ None — 0.16.4 is shipped. 0.16.5 stories will be enumerated when the milestone
 
 ## Session Continuity Notes
 
+- [2026-05-04] 0.16.4 squash-merged to `main` (`2f45c84`) and tagged `v0.16.4`; remote `feat/0.16.4` deleted (local kept as archive). New work on `feat/0.16.5`. README path conflict resolved in favor of `dev/tools/build.sh` (post-`tool/`→`dev/tools/` reorg).
 - [2026-05-01] 0.16.4 release-prep doc updates landed: CHANGELOG `dartclaw_workflow` version line corrected (0.9.0 → 0.16.0), STATE.md trimmed to released state, ROADMAP.md advanced to 0.16.5 active, architecture markers verified at 0.16.4, `feature-comparison.md` advanced to 0.16.4 with new entries. `dartclawVersion` was already 0.16.4.
 - [2026-04-30] S80 complete — built-in workflows now consume AndThen 0.15.8's `dartclaw-review --output-dir <path>` support by pinning every `dartclaw-review` report to an engine-managed absolute runtime artifacts directory under `<data_dir>/workflows/runs/<runId>/runtime-artifacts/reviews`. Supersedes the unlanded S79 in-worktree `.agent_temp/reviews` convention.
 - [2026-04-28] S65 release-gate recheck complete — two consecutive integration runs of `merge_resolve_integration_test.dart` passed with real Codex.

@@ -1,8 +1,20 @@
 # DartClaw Maintainer Workflows
 
-Run the built-in `spec-and-implement` and `plan-and-implement` workflows directly against this `dartclaw-public` checkout.
+Run the built-in `spec-and-implement`, `plan-and-implement`, and `code-review` workflows directly against this `dartclaw-public` checkout.
 
 This is maintainer tooling, not an end-user example profile. It is for day-to-day DartClaw development when you want DartClaw to implement public-repo specs and plans without launching it from the private testing profile. It registers the current checkout as the `dartclaw-public` project and keeps workflow runtime state under `dev/tools/dartclaw-workflows/.data/`.
+
+## What you can run
+
+Three built-in workflows ship in `packages/dartclaw_workflow/lib/src/workflow/definitions/`:
+
+| Workflow | Required variable | Purpose |
+|----------|-------------------|---------|
+| `spec-and-implement` | `FEATURE` | Single-feature pipeline. `FEATURE` accepts a free-text description **or** a path to an existing FIS file. |
+| `plan-and-implement` | `REQUIREMENTS` | Multi-story milestone pipeline. Authoring steps (`prd`, `plan`) are skipped when `dartclaw-discover-project` resolves pre-existing artefacts under `docs/specs/<version>/` — drop `prd.md` / `plan.md` / `fis/*.md` there to short-circuit synthesis. |
+| `code-review` | `TARGET` | Single-methodology review of a PR / branch / module + bounded remediation loop. |
+
+For the conceptual overview (what these pipelines do, the `dartclaw-*` vs `andthen:*` skill-namespace distinction, and the cross-repo spec lifecycle), see the root `CLAUDE.md` § Built-in DartClaw Workflows.
 
 ## Setup
 
@@ -69,6 +81,12 @@ For `workflow run <name>`, `run.sh` injects:
 - `BRANCH=<current public-repo branch>`, unless you pass your own `-v BRANCH=...`
 
 Workflow start refuses to mutate a dirty local-path checkout by default. Add `--allow-dirty-localpath` only when you intentionally want a run to operate on your current dirty working tree.
+
+### Worktree isolation for parallel stories
+
+`plan-and-implement` runs the per-story pipeline as a `foreach` with `MAX_PARALLEL` (default `2`) and `gitStrategy.worktree: auto`. With `MAX_PARALLEL > 1` that resolves to **per-map-item worktrees** — each story implements in its own checkout rooted at the workflow branch, and the live `dartclaw-public` checkout is not mutated by story implementation. Authoring steps (`prd`, `plan`) and the workflow-level steps (`refactor`, `plan-review`, `architecture-review`, `remediation-loop`) run on the workflow branch itself; the `artifacts.commit: true` setting in the YAML auto-commits PRD / plan / per-story FIS so spawned worktrees inherit them.
+
+Set `-v MAX_PARALLEL=1` to force inline mode (single worktree, sequential stories) when you want determinism over throughput.
 
 ## Host Isolation (AOT Build)
 

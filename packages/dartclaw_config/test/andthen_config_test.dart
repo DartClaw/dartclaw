@@ -77,16 +77,10 @@ andthen:
       );
 
       expect(config.andthen.ref, 'main');
-      expect(
-        config.warnings,
-        anyElement(contains('andthen.install_scope is no longer supported')),
-      );
+      expect(config.warnings, anyElement(contains('andthen.install_scope is no longer supported')));
       // Must not be reported as an unknown key — that would be a regression in
       // the deprecation branch's fall-through guard.
-      expect(
-        config.warnings,
-        isNot(anyElement(contains('Unknown andthen config key: "install_scope"'))),
-      );
+      expect(config.warnings, isNot(anyElement(contains('Unknown andthen config key: "install_scope"'))));
     });
 
     test('unknown andthen key emits a warning but does not error', () {

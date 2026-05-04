@@ -33,12 +33,12 @@ void main() {
 
     test('toJson omits maxTokens when null', () {
       final json = baseTask().toJson();
-      expect(json.containsKey('maxTokens'), isFalse);
+      expect(json.containsKey('agentExecution'), isFalse);
     });
 
     test('toJson includes maxTokens when set', () {
       final json = baseTask(maxTokens: 50000).toJson();
-      expect(json['maxTokens'], 50000);
+      expect((json['agentExecution'] as Map<String, dynamic>)['budgetTokens'], 50000);
     });
 
     test('fromJson round-trips maxTokens', () {

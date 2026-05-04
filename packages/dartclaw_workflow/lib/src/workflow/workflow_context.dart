@@ -6,33 +6,39 @@
 class WorkflowContext {
   final Map<String, dynamic> _data;
   final Map<String, String> _variables;
+  final Map<String, String> _systemVariables;
 
-  WorkflowContext({Map<String, dynamic>? data, Map<String, String>? variables})
+  WorkflowContext({Map<String, dynamic>? data, Map<String, String>? variables, Map<String, String>? systemVariables})
     : _data = Map.of(data ?? {}),
-      _variables = Map.unmodifiable(variables ?? {});
+      _variables = Map.unmodifiable(variables ?? {}),
+      _systemVariables = Map.of(systemVariables ?? const {});
 
-  /// Returns the value for [key], or null if not set.
   dynamic operator [](String key) => _data[key];
 
-  /// Sets a context value.
   void operator []=(String key, dynamic value) => _data[key] = value;
 
-  /// Returns the value of a workflow variable.
   String? variable(String name) => _variables[name];
 
-  /// Returns all variable bindings.
+  String? systemVariable(String name) => _systemVariables[name];
+
   Map<String, String> get variables => _variables;
 
-  /// Returns the full context data as an unmodifiable view.
+  Map<String, String> get systemVariables => Map.unmodifiable(_systemVariables);
+
   Map<String, dynamic> get data => Map.unmodifiable(_data);
+
+  void mergeSystemVariables(Map<String, String> systemVariables) {
+    _systemVariables.addAll(systemVariables);
+  }
 
   /// Merges step outputs into the context.
   void merge(Map<String, dynamic> outputs) => _data.addAll(outputs);
 
-  /// Returns the current loop iteration for [loopId], or null if not in a loop.
+  /// Removes a context value when retry or remediation needs to clear stale state.
+  void remove(String key) => _data.remove(key);
+
   int? loopIteration(String loopId) => _data['loop.$loopId.iteration'] as int?;
 
-  /// Sets the loop iteration counter.
   void setLoopIteration(String loopId, int iteration) {
     _data['loop.$loopId.iteration'] = iteration;
   }

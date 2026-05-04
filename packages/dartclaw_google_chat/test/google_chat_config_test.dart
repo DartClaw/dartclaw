@@ -516,6 +516,7 @@ void main() {
       ensureDartclawGoogleChatRegistered();
 
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''
@@ -564,6 +565,7 @@ channels:
       ensureDartclawGoogleChatRegistered();
 
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''
@@ -595,6 +597,7 @@ channels:
       ensureDartclawGoogleChatRegistered();
 
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''

@@ -23,8 +23,7 @@
           </div>
           <div class="workflow-filter-group">
             <label class="form-label" for="workflow-definition-filter">Workflow</label>
-            <select class="form-input form-input-sm" id="workflow-definition-filter"
-                    onchange="filterByDefinition(this.value)">
+            <select class="form-input form-input-sm" id="workflow-definition-filter">
               <option value="">All workflows</option>
               <option tl:each="def : ${definitionOptions}"
                       tl:attr="value=${def.value},selected=${def.selected} ? 'selected' : null"
@@ -82,6 +81,35 @@
                     tl:attr="title=${v.description}"
                     tl:text="${v.name}">FEATURE</span>
             </div>
+            <details class="workflow-launch-panel">
+              <summary class="btn btn-ghost btn-sm">Run</summary>
+              <form class="workflow-launch-form"
+                    hx-post="/api/workflows/run-form"
+                    tl:attr="hx-target='#' + ${def.errorId}"
+                    hx-swap="innerHTML">
+                <input type="hidden" name="definition" tl:attr="value=${def.name}">
+                <div tl:each="field : ${def.variableInputs}" class="form-group">
+                  <label class="form-label" tl:attr="for=${field.id}" tl:text="${field.label}">Variable</label>
+                  <input class="form-input" type="text"
+                         tl:attr="id=${field.id},name=${field.inputName},placeholder=${field.placeholder},value=${field.defaultValue},required=${field.required} ? 'required' : null">
+                </div>
+                <div tl:if="${hasProjects}" class="form-group">
+                  <label class="form-label" tl:attr="for=${def.projectSelectId}">Project</label>
+                  <select class="form-input" tl:attr="id=${def.projectSelectId},name='project'">
+                    <option value="">Default project</option>
+                    <option tl:each="project : ${projectOptions}"
+                            tl:attr="value=${project.value}"
+                            tl:text="${project.label}">project</option>
+                  </select>
+                </div>
+                <div class="form-error workflow-launch-error" tl:attr="id=${def.errorId}"></div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary btn-sm">Launch</button>
+                  <button type="button" class="btn btn-ghost btn-sm"
+                          onclick="this.closest('details').open = false">Cancel</button>
+                </div>
+              </form>
+            </details>
           </div>
         </div>
       </div>

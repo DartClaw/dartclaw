@@ -108,7 +108,12 @@ String settingsTemplate({
     'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
-  return layoutTemplate(title: 'Settings', body: body, appName: appName);
+  return layoutTemplate(
+    title: 'Settings',
+    body: body,
+    appName: appName,
+    scripts: standardShellScripts(const ['/static/settings.js']),
+  );
 }
 
 /// Extracts the variant suffix from a `status-badge-{variant}` class string.

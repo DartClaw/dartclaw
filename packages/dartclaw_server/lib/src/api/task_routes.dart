@@ -64,8 +64,14 @@ Router taskRoutes(
       if (acceptanceCriteriaFieldError != null) return acceptanceCriteriaFieldError;
       final providerFieldError = _validateStringFieldType(body.value!, 'provider');
       if (providerFieldError != null) return providerFieldError;
+      final modelFieldError = _validateStringFieldType(body.value!, 'model');
+      if (modelFieldError != null) return modelFieldError;
+      final sessionIdFieldError = _validateStringFieldType(body.value!, 'sessionId');
+      if (sessionIdFieldError != null) return sessionIdFieldError;
       final projectIdFieldError = _validateStringFieldType(body.value!, 'projectId');
       if (projectIdFieldError != null) return projectIdFieldError;
+      final maxTokensError = _validateMaxTokens(body.value!);
+      if (maxTokensError != null) return maxTokensError;
 
       final title = trimmedStringOrNull(body.value!['title']);
       final description = trimmedStringOrNull(body.value!['description']);
@@ -75,6 +81,12 @@ Router taskRoutes(
       final goalId = _stringOrNull(body.value!['goalId']);
       final acceptanceCriteria = _stringOrNull(body.value!['acceptanceCriteria']);
       final provider = trimmedStringOrNull(body.value!['provider']);
+      final model = trimmedStringOrNull(body.value!['model']);
+      // sessionId is caller-seeded for the synthesized AgentExecution. There is no
+      // SessionService wired into task routes today, so we don't verify the value
+      // refers to a live session — passes through to the AE row as-is.
+      final sessionId = trimmedStringOrNull(body.value!['sessionId']);
+      final maxTokens = (body.value!['maxTokens'] as num?)?.toInt();
       final projectId = trimmedStringOrNull(body.value!['projectId']);
 
       if (projectId != null && projectService != null) {
@@ -129,6 +141,9 @@ Router taskRoutes(
         acceptanceCriteria: acceptanceCriteria,
         createdBy: createdBy,
         provider: provider,
+        model: model,
+        sessionId: sessionId,
+        maxTokens: maxTokens,
         projectId: projectId,
         configJson: configJson,
         trigger: 'user',
@@ -499,6 +514,22 @@ Response? _validateStringFieldType(Map<String, dynamic> body, String field) {
   final value = body[field];
   if (value == null || value is String) return null;
   return errorResponse(400, 'INVALID_INPUT', '$field must be a string', {'field': field});
+}
+
+Response? _validateMaxTokens(Map<String, dynamic> body) {
+  if (!body.containsKey('maxTokens')) return null;
+  final raw = body['maxTokens'];
+  if (raw == null) return null;
+  if (raw is! num) {
+    return errorResponse(400, 'INVALID_INPUT', 'maxTokens must be a number', {'field': 'maxTokens'});
+  }
+  if (raw is double && raw != raw.truncateToDouble()) {
+    return errorResponse(400, 'INVALID_INPUT', 'maxTokens must be a whole number', {'field': 'maxTokens'});
+  }
+  if (raw.toInt() <= 0) {
+    return errorResponse(400, 'INVALID_INPUT', 'maxTokens must be a positive integer', {'field': 'maxTokens'});
+  }
+  return null;
 }
 
 String _sanitizeReviewFailureMessage(String message) {

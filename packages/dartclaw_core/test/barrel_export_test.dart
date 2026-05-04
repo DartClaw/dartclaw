@@ -95,6 +95,9 @@ void main() {
         createdAt: DateTime.now(),
       );
       expect(task.status, TaskStatus.draft);
+      final execution = AgentExecution(id: 'ae-1', provider: 'claude', budgetTokens: 50000, startedAt: DateTime.now());
+      expect(execution.provider, 'claude');
+      expect(AgentExecutionRepository, isNotNull);
 
       final artifact = TaskArtifact(
         id: 'artifact-1',

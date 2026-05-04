@@ -287,6 +287,7 @@
     </style>
     <nav class="settings-tabs" aria-label="Settings sections">
       <a href="#agent" class="settings-tab">Agent</a>
+      <a href="#workflow" class="settings-tab">Workflows</a>
       <a href="#server" class="settings-tab">Server</a>
       <a href="#sessions" class="settings-tab">Sessions</a>
       <a href="#memory" class="settings-tab">Memory</a>
@@ -304,9 +305,15 @@
           <span class="card-title">Agent Configuration</span>
         </div>
         <form class="settings-form" data-section="agent">
+          <div class="form-group" data-field="agent.provider">
+            <label class="form-label" for="field-agent-provider">Provider</label>
+            <input type="text" class="form-input" id="field-agent-provider" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
           <div class="form-group" data-field="agent.model">
             <label class="form-label" for="field-agent-model">Model</label>
             <input type="text" class="form-input" id="field-agent-model" placeholder="Loading..." disabled>
+            <p class="form-hint">Accepts either a bare model or shorthand like <code>claude/opus</code> or <code>codex/gpt-5.4</code>.</p>
             <div class="form-error"></div>
           </div>
           <div class="form-group" data-field="agent.max_turns">
@@ -327,6 +334,72 @@
           </div>
         </form>
         <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
+      </div>
+
+      <!-- Workflow Configuration (editable, restart-required) -->
+      <div id="workflow" class="card settings-card" data-tab="workflow">
+        <div class="card-header">
+          <span class="card-title">Workflow Defaults</span>
+        </div>
+        <form class="settings-form" data-section="workflow">
+          <div class="form-group" data-field="workflow.workspace_dir">
+            <label class="form-label" for="field-workflow-workspace-dir">Workflow Workspace Dir</label>
+            <input type="text" class="form-input" id="field-workflow-workspace-dir" placeholder="Loading..." disabled>
+            <p class="form-hint">Optional override for the shared workflow workspace directory.</p>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="workflow.defaults.workflow.provider">
+            <label class="form-label" for="field-workflow-default-provider">Default Provider</label>
+            <input type="text" class="form-input" id="field-workflow-default-provider" placeholder="Loading..." disabled>
+            <p class="form-hint">Used by steps that reference <code>@workflow</code>.</p>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="workflow.defaults.workflow.model">
+            <label class="form-label" for="field-workflow-default-model">Default Model</label>
+            <input type="text" class="form-input" id="field-workflow-default-model" placeholder="Loading..." disabled>
+            <p class="form-hint">Accepts either a bare model or shorthand like <code>claude/opus</code>.</p>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="workflow.defaults.planner.provider">
+            <label class="form-label" for="field-workflow-planner-provider">Planner Provider</label>
+            <input type="text" class="form-input" id="field-workflow-planner-provider" placeholder="Loading..." disabled>
+            <p class="form-hint">Blank values inherit from the default workflow provider/model.</p>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="workflow.defaults.planner.model">
+            <label class="form-label" for="field-workflow-planner-model">Planner Model</label>
+            <input type="text" class="form-input" id="field-workflow-planner-model" placeholder="Loading..." disabled>
+            <p class="form-hint">Examples: <code>claude/opusplan</code>, <code>codex/gpt-5.4</code>.</p>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="workflow.defaults.executor.provider">
+            <label class="form-label" for="field-workflow-executor-provider">Executor Provider</label>
+            <input type="text" class="form-input" id="field-workflow-executor-provider" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="workflow.defaults.executor.model">
+            <label class="form-label" for="field-workflow-executor-model">Executor Model</label>
+            <input type="text" class="form-input" id="field-workflow-executor-model" placeholder="Loading..." disabled>
+            <p class="form-hint">Examples: <code>claude/sonnet</code>, <code>codex/gpt-5.4-mini</code>.</p>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="workflow.defaults.reviewer.provider">
+            <label class="form-label" for="field-workflow-reviewer-provider">Reviewer Provider</label>
+            <input type="text" class="form-input" id="field-workflow-reviewer-provider" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="workflow.defaults.reviewer.model">
+            <label class="form-label" for="field-workflow-reviewer-model">Reviewer Model</label>
+            <input type="text" class="form-input" id="field-workflow-reviewer-model" placeholder="Loading..." disabled>
+            <p class="form-hint">Examples: <code>claude/opus</code>, <code>codex/gpt-5-codex</code>.</p>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+          </div>
+        </form>
+        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to workflow defaults require a server restart</p>
       </div>
 
       <!-- Server Configuration (editable, restart-required) -->

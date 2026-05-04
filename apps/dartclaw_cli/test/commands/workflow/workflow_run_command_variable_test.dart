@@ -73,6 +73,13 @@ void main() {
     test('duplicate keys: last wins', () {
       _testParseVariables(['KEY=first', 'KEY=second'], equals({'KEY': 'second'}));
     });
+
+    test('comma-containing values stay in a single --var argument', () {
+      final command = WorkflowRunCommand();
+      final parsed = command.argParser.parse(['-v', 'REQUIREMENTS=Small scope, keep it tight, do not broaden']);
+
+      expect(parsed['var'], equals(['REQUIREMENTS=Small scope, keep it tight, do not broaden']));
+    });
   });
 }
 

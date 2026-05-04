@@ -3,7 +3,7 @@ import 'dart:convert';
 /// Returns HTML for the "New Task" dialog element.
 ///
 /// Rendered as a `<dialog>` that can be opened via `showModal()`.
-/// Form submission is handled by JS in `app.js`.
+/// Form submission is handled by the static task/workflow JS modules.
 ///
 /// When [projectOptions] is non-empty and contains at least one non-local
 /// project, a project selector is shown between the Type and Description fields.
@@ -67,7 +67,7 @@ String newTaskFormDialogHtml({
 
         <div class="form-group">
           <label class="form-label" for="task-type-select">Type</label>
-          <select id="task-type-select" name="type" class="form-select" required>
+          <select id="task-type-select" name="type" class="form-select" data-enhance="custom-select" required>
             <option value="coding">Coding</option>
             <option value="research">Research</option>
             <option value="writing">Writing</option>
@@ -93,7 +93,7 @@ $projectSelectorMarkup
 
         <div class="form-group">
           <label class="form-label" for="task-goal-select">Goal</label>
-          <select id="task-goal-select" name="goalId" class="form-select">
+          <select id="task-goal-select" name="goalId" class="form-select" data-enhance="custom-select">
 $goalSelectMarkup
           </select>
         </div>
@@ -131,7 +131,7 @@ $goalSelectMarkup
             </fieldset>
             <div class="form-group">
               <label class="form-label" for="task-review-mode">Review Mode</label>
-              <select id="task-review-mode" name="reviewMode" class="form-select">
+              <select id="task-review-mode" name="reviewMode" class="form-select" data-enhance="custom-select">
                 <option value="" selected>Default</option>
                 <option value="auto-accept">Auto-accept</option>
                 <option value="mandatory">Mandatory review</option>
@@ -161,7 +161,7 @@ $goalSelectMarkup
           <div id="workflow-vars"></div>
           <div id="workflow-project-select" class="form-group" style="display: none;">
             <label class="form-label" for="workflow-project">Project</label>
-            <select id="workflow-project" class="form-select">
+            <select id="workflow-project" class="form-select" data-enhance="custom-select">
               <option value="">Default project</option>
               $workflowProjectOptionsHtml
             </select>
@@ -206,7 +206,7 @@ String _buildProjectSelectorMarkup(List<Map<String, String>> projectOptions, Htm
   return '''
       <div class="form-group">
         <label class="form-label" for="task-project-select">Project</label>
-        <select id="task-project-select" name="projectId" class="form-select">
+        <select id="task-project-select" name="projectId" class="form-select" data-enhance="custom-select">
       $optionsHtml
         </select>
       </div>

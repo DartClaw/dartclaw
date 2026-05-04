@@ -1,0 +1,53 @@
+# DartClaw — UI Smoke-Test Profile (no channels, seeded data)
+# Usage: bash dev/testing/profiles/smoke-test/run.sh
+# Drives the test cases in dev/testing/UI-SMOKE-TEST.md.
+
+port: 3335
+
+gateway:
+  auth_mode: token
+
+guards:
+  enabled: true
+
+scheduling:
+  heartbeat:
+    enabled: false
+  jobs:
+    - name: daily-summary
+      schedule: 0 9 * * *
+      prompt: Summarize yesterday's key events and tasks.
+      delivery: announce
+    - name: test-job
+      schedule: 0 9 * * *
+      type: prompt
+      delivery: announce
+      prompt: Daily test prompt
+    # Scheduled task entry — flips the sidebar's progressive-disclosure check
+    # so Health, Memory, and Tasks surface in the SYSTEM nav for the smoke test.
+    # Cron is far in the future to avoid runtime side effects during testing.
+    - id: smoke-test-scheduled-task
+      schedule: 0 4 * * *
+      type: task
+      task:
+        title: Smoke-test fixture (does not run)
+        description: Exists only to enable Health/Memory/Tasks UI surfaces.
+        task_type: research
+        auto_start: false
+
+workspace:
+  git_sync:
+    enabled: false
+
+logging:
+  level: FINE
+
+governance:
+  budget:
+    daily_tokens: 500000
+  loop_detection:
+    enabled: true
+
+features:
+  thread_binding:
+    enabled: true

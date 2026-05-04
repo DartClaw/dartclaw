@@ -1,3 +1,4 @@
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
@@ -29,6 +30,7 @@ void registerSystemDashboardPages(
   GuardChain? guardChain,
   ProviderStatusService? providerStatus,
   RuntimeConfig? Function()? runtimeConfigGetter,
+  ConfigWriter? configWriter,
   MemoryStatusService? Function()? memoryStatusServiceGetter,
   ContentGuardDisplayParams contentGuardDisplay = const ContentGuardDisplayParams(),
   HeartbeatDisplayParams heartbeatDisplay = const HeartbeatDisplayParams(),
@@ -76,6 +78,7 @@ void registerSystemDashboardPages(
     registry.register(
       SchedulingPage(
         runtimeConfigGetter: runtimeConfigGetter,
+        configWriter: configWriter,
         heartbeatDisplay: heartbeatDisplay,
         schedulingDisplay: schedulingDisplay,
       ),

@@ -198,13 +198,17 @@ class SecurityWiring implements Reconfigurable {
       ),
       SecurityProfile.restricted,
     ];
+    final localPathProjectMounts = _localPathProjectMounts();
     final proxySocketDir = p.join(_dataDir, 'proxy');
     for (final profile in profiles) {
       _containerManagers[profile.id] = ContainerManager(
         config: config.container,
         containerName: ContainerManager.generateName(_dataDir, profile.id),
         profileId: profile.id,
-        workspaceMounts: profile.workspaceMounts,
+        workspaceMounts: profile.id == 'workspace'
+            ? [...profile.workspaceMounts, ...localPathProjectMounts]
+            : profile.workspaceMounts,
+        localPathAllowlist: config.projects.localPathAllowlist,
         proxySocketDir: proxySocketDir,
         hostClaudeJsonPath: hostClaudeJsonPath,
         buildContextDir: Directory.current.path,
@@ -251,6 +255,23 @@ class SecurityWiring implements Reconfigurable {
     _containerHealthMonitor!.start();
 
     _log.info('Container isolation enabled — ${_containerManagers.length} profiles (image: ${config.container.image})');
+  }
+
+  List<String> _localPathProjectMounts() {
+    final clonesDir = p.normalize(p.absolute(config.projectsClonesDir));
+    final mounts = <String>[];
+    for (final definition in config.projects.definitions.values) {
+      final localPath = definition.localPath?.trim();
+      if (localPath == null || localPath.isEmpty) {
+        continue;
+      }
+      final normalizedLocalPath = p.normalize(p.absolute(localPath));
+      if (p.equals(normalizedLocalPath, clonesDir) || p.isWithin(clonesDir, normalizedLocalPath)) {
+        continue;
+      }
+      mounts.add('$normalizedLocalPath:${p.posix.join('/projects', definition.id)}:ro');
+    }
+    return mounts;
   }
 
   void _wireGuardChain(List<AgentDefinition> agentDefs) {

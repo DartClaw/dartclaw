@@ -78,7 +78,7 @@ gateway:
 
 ## Credential Proxy
 
-In container mode, API keys are never exposed to the agent process. The Dart host runs a `CredentialProxy` on a Unix socket that injects authentication headers into outbound API requests. The container's `network:none` means this proxy is the **sole egress path** — there is no way for agent code to reach the internet directly.
+The credential proxy currently secures the Claude/Anthropic container path. The Dart host runs a `CredentialProxy` on a Unix socket that injects authentication headers into outbound Anthropic API requests. The container's `network:none` means this proxy is the **sole egress path** for that flow — there is no direct internet access from the Claude container.
 
 ### How It Works
 
@@ -105,7 +105,7 @@ Container (network:none)                          Host
 2. **Container** is created with `--network none`. The socket directory is bind-mounted into the container at `/var/run/dartclaw/`.
 3. **socat** runs inside the container, bridging a local TCP port to the Unix socket: `TCP-LISTEN:8080 → UNIX-CLIENT:/var/run/dartclaw/proxy.sock`.
 4. **`ANTHROPIC_BASE_URL`** environment variable points the `claude` binary at the socat listener (`http://localhost:8080`).
-5. When the agent makes an API call, the request flows through the chain. The proxy injects `x-api-key` and `Authorization: Bearer` headers before forwarding to `api.anthropic.com` over HTTPS.
+5. When the Claude agent makes an API call, the request flows through the chain. The proxy injects `x-api-key` and `Authorization: Bearer` headers before forwarding to `api.anthropic.com` over HTTPS.
 
 ### Authentication Modes
 
@@ -115,6 +115,8 @@ Container (network:none)                          Host
 | **OAuth passthrough** | No API key (OAuth or setup token) | Proxy forwards existing auth headers from the `claude` binary unchanged |
 
 In OAuth mode, the host's `~/.claude.json` is mounted read-only into the container so the `claude` binary can authenticate directly. The proxy acts as a transparent relay without adding credentials.
+
+> Codex providers use the Codex CLI's own auth mechanisms today. They do not currently use this Anthropic-specific credential proxy path.
 
 ### Security Properties
 

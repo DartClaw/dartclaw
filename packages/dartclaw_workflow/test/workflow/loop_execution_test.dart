@@ -1,3 +1,6 @@
+@Tags(['component'])
+library;
+
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -6,21 +9,73 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         KvService,
         LoopIterationCompletedEvent,
         MessageService,
+        OutputConfig,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
+        WorkflowDefinitionParser,
         WorkflowLoop,
         WorkflowRun,
         WorkflowRunStatus,
-        WorkflowStep;
+        WorkflowStep,
+        WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ContextExtractor, GateEvaluator, WorkflowExecutor;
+    show ContextExtractor, GateEvaluator, StepExecutionContext, WorkflowExecutor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+const _inlineLoopExecutionYaml = '''
+name: ordered-inline-loop
+description: Inline loop authored in step order
+steps:
+  - id: gap-analysis
+    name: Gap Analysis
+    prompt: Analyze the implementation
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    exitGate: re-review.status == accepted
+    steps:
+      - id: remediate
+        name: Remediate
+        prompt: Apply fixes
+      - id: re-review
+        name: Re-review
+        prompt: Verify the fixes
+  - id: update-state
+    name: Update State
+    prompt: Record the final result
+''';
+
+const _inlineEntryGateLoopYaml = '''
+name: ordered-inline-entry-gate-loop
+description: Inline loop with entry gate
+steps:
+  - id: gap-analysis
+    name: Gap Analysis
+    prompt: Analyze the implementation
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    entryGate: gap-analysis.findings_count > 0
+    exitGate: re-review.status == accepted
+    steps:
+      - id: remediate
+        name: Remediate
+        prompt: Apply fixes
+      - id: re-review
+        name: Re-review
+        prompt: Verify the fixes
+  - id: update-state
+    name: Update State
+    prompt: Record the final result
+''';
 
 void main() {
   late Directory tempDir;
@@ -39,21 +94,37 @@ void main() {
 
     final db = sqlite3.openInMemory();
     eventBus = EventBus();
-    taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    final taskRepository = SqliteTaskRepository(db);
+    final agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
+    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
+    final executionTransactor = SqliteExecutionRepositoryTransactor(db);
+    taskService = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      executionTransactor: executionTransactor,
+      eventBus: eventBus,
+    );
     repository = SqliteWorkflowRunRepository(db);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
     executor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
+      executionContext: StepExecutionContext(
         taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionTransactor,
       ),
       dataDir: tempDir.path,
     );
@@ -194,7 +265,7 @@ void main() {
 
     expect(taskCount, equals(2)); // 2 iterations executed.
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('max iterations'));
     expect(finalRun?.errorMessage, contains('2'));
     expect(finalRun?.errorMessage, contains('loop1'));
@@ -225,7 +296,7 @@ void main() {
     await sub.cancel();
 
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('loop1'));
     expect(finalRun?.errorMessage, contains('LS1'));
   });
@@ -267,7 +338,7 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1'], contextOutputs: ['analysis']),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1'], outputs: {'analysis': OutputConfig()}),
       ],
       loops: [
         const WorkflowLoop(id: 'loop1', steps: ['ls1'], maxIterations: 3, exitGate: 'loop.loop1.iteration == 2'),
@@ -360,7 +431,7 @@ void main() {
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
-  test('sequential steps + loop: linear pass then loop', () async {
+  test('sequential steps + loop: authored-order traversal executes the loop in place', () async {
     final definition = WorkflowDefinition(
       name: 'test',
       description: 'Test',
@@ -456,12 +527,12 @@ void main() {
       await completeTask(e.taskId);
     });
 
-    // Resume from loop index 0, iteration 2 (skips step/linear pass).
+    // Resume from loop index 0, iteration 2 (the executor seeks back to the loop node).
     await executor.execute(
       seededRun,
       definition,
       context,
-      startFromStepIndex: definition.steps.length, // Skip linear pass.
+      startFromStepIndex: definition.steps.length, // Force loop-node resume resolution.
       startFromLoopIndex: 0,
       startFromLoopIteration: 2,
     );
@@ -536,13 +607,13 @@ void main() {
 
     expect(taskCount, equals(0));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('budget'));
   });
 
-  // ── S03: Loop finalizer tests ────────────────────────────────────────────────
+  // Loop finalizer tests ────────────────────────────────────────────────
 
-  test('S03: finalizer runs after gate pass — workflow completes', () async {
+  test('finalizer runs after gate pass — workflow completes', () async {
     final definition = WorkflowDefinition(
       name: 'test',
       description: 'Test',
@@ -581,7 +652,7 @@ void main() {
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
-  test('S03: finalizer runs after maxIterations — workflow pauses', () async {
+  test('finalizer runs after maxIterations — workflow pauses', () async {
     final definition = WorkflowDefinition(
       name: 'test',
       description: 'Test',
@@ -618,11 +689,11 @@ void main() {
     expect(taskCount, equals(3));
     final finalRun = await repository.getById('run-1');
     // Loop pauses (maxIterations exceeded), even though finalizer ran.
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('max iterations'));
   });
 
-  test('S03: finalizer runs after step failure — workflow pauses', () async {
+  test('finalizer runs after step failure — workflow pauses', () async {
     final definition = WorkflowDefinition(
       name: 'test',
       description: 'Test',
@@ -663,10 +734,10 @@ void main() {
     // ls1 failed (1) + cleanup finalizer ran (1) = 2 tasks.
     expect(taskCount, equals(2));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
   });
 
-  test('S03: finalizer failure pauses workflow with finalizer error', () async {
+  test('finalizer failure pauses workflow with finalizer error', () async {
     final definition = WorkflowDefinition(
       name: 'test',
       description: 'Test',
@@ -706,12 +777,12 @@ void main() {
 
     expect(taskCount, equals(2));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('finalizer'));
     expect(finalRun?.errorMessage, contains('Bad Cleanup'));
   });
 
-  test('S03: finalizer accesses loop context (iteration count)', () async {
+  test('finalizer accesses loop context (iteration count)', () async {
     final definition = WorkflowDefinition(
       name: 'test',
       description: 'Test',
@@ -720,7 +791,7 @@ void main() {
           id: 'ls1',
           name: 'LS1',
           prompts: ['Iter {{context.loop.loop1.iteration}}'],
-          contextOutputs: ['result'],
+          outputs: {'result': OutputConfig()},
         ),
         WorkflowStep(
           id: 'finalizer',
@@ -766,7 +837,7 @@ void main() {
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
-  test('S03: loop without finally works unchanged (no regression)', () async {
+  test('loop without finally works unchanged (no regression)', () async {
     final definition = WorkflowDefinition(
       name: 'test',
       description: 'Test',
@@ -793,6 +864,164 @@ void main() {
     await sub.cancel();
 
     expect(taskCount, equals(1));
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('inline loop executes in authored order before following sibling steps', () async {
+    final definition = WorkflowDefinitionParser().parse(_inlineLoopExecutionYaml);
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    final completedStepIds = <String>[];
+    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      await completeTask(e.taskId);
+    });
+    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+      completedStepIds.add(event.stepId);
+    });
+
+    await executor.execute(run, definition, context);
+    await taskSub.cancel();
+    await stepSub.cancel();
+
+    expect(completedStepIds, equals(['gap-analysis', 'remediate', 're-review', 'update-state']));
+
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('inline loop entry gate skips the loop body when findings_count is zero', () async {
+    final definition = WorkflowDefinitionParser().parse(_inlineEntryGateLoopYaml);
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext(data: {'gap-analysis.findings_count': 0});
+
+    final completedStepIds = <String>[];
+    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      await completeTask(e.taskId);
+    });
+    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+      completedStepIds.add(event.stepId);
+    });
+
+    await executor.execute(run, definition, context);
+    await taskSub.cancel();
+    await stepSub.cancel();
+
+    expect(completedStepIds, equals(['gap-analysis', 'update-state']));
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('inline loop entry gate executes the loop body when findings_count is positive', () async {
+    final definition = WorkflowDefinitionParser().parse(_inlineEntryGateLoopYaml);
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext(data: {'gap-analysis.findings_count': 3});
+
+    final completedStepIds = <String>[];
+    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      await completeTask(e.taskId);
+    });
+    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+      completedStepIds.add(event.stepId);
+    });
+
+    await executor.execute(run, definition, context);
+    await taskSub.cancel();
+    await stepSub.cancel();
+
+    expect(completedStepIds, equals(['gap-analysis', 'remediate', 're-review', 'update-state']));
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('legacy loops execute in authored-order model at first loop step without side-table ordering drift', () async {
+    final definition = WorkflowDefinition(
+      name: 'legacy-side-table',
+      description: 'Legacy loops side table compatibility',
+      steps: [
+        const WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup']),
+        const WorkflowStep(id: 'remediate', name: 'Remediate', prompts: ['Fix']),
+        const WorkflowStep(id: 'middle', name: 'Middle', prompts: ['Middle']),
+        const WorkflowStep(id: 're-review', name: 'Re-review', prompts: ['Review']),
+        const WorkflowStep(id: 'after', name: 'After', prompts: ['After']),
+      ],
+      loops: [
+        const WorkflowLoop(
+          id: 'legacy-loop',
+          steps: ['remediate', 're-review'],
+          maxIterations: 2,
+          exitGate: 're-review.status == accepted',
+        ),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    final completedStepIds = <String>[];
+    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      await completeTask(e.taskId);
+    });
+    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+      completedStepIds.add(event.stepId);
+    });
+
+    await executor.execute(run, definition, context);
+    await taskSub.cancel();
+    await stepSub.cancel();
+
+    expect(completedStepIds, equals(['setup', 'remediate', 're-review', 'middle', 'after']));
+  });
+
+  test('executor dispatches loop-owned body steps in authored order (smoke test)', () async {
+    final definition = WorkflowDefinition(
+      name: 'test-workflow',
+      description: 'Test',
+      steps: [
+        const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+        const WorkflowStep(id: 'step2', name: 'Step 2 (loop-owned)', prompts: ['Loop body']),
+        const WorkflowStep(id: 'step3', name: 'Step 3', prompts: ['Do step 3']),
+      ],
+      loops: [
+        const WorkflowLoop(id: 'loop1', steps: ['step2'], maxIterations: 3, exitGate: 'step2.status == accepted'),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    final executedTaskIds = <String>[];
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      final task = await taskService.get(e.taskId);
+      if (task != null) executedTaskIds.add(e.taskId);
+      await completeTask(e.taskId);
+    });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    // Authored order: step1 → loop(step2) → step3. Exit gate passes immediately.
+    expect(executedTaskIds.length, equals(3));
+
     final finalRun = await repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });

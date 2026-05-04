@@ -1,7 +1,7 @@
 /// Returns HTML for the "Add Project" dialog element.
 ///
 /// Rendered as a `<dialog>` that can be opened via `showModal()`.
-/// Form submission is handled by JS in `app.js`.
+/// Form submission is handled by the static task JS module.
 String addProjectDialogHtml() {
   return '''
 <dialog id="add-project-dialog" class="task-dialog">
@@ -33,7 +33,7 @@ String addProjectDialogHtml() {
       <div class="form-group">
         <label class="form-label" for="project-creds-ref">Credentials Reference</label>
         <input type="text" id="project-creds-ref" name="credentialsRef" class="form-input"
-               placeholder="github-ssh">
+               placeholder="github-main">
         <small class="form-hint">Optional. Name of a credential defined in dartclaw.yaml.</small>
       </div>
 

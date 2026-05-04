@@ -21,6 +21,101 @@ void main() {
     _runLockingTests(() => SqliteTaskRepository(db));
   });
 
+  group('InMemoryTaskRepository with AgentExecution persistence', () {
+    late InMemoryTaskRepository repo;
+    late InMemoryAgentExecutionRepository agentExecutions;
+    late TaskService service;
+
+    setUp(() {
+      repo = InMemoryTaskRepository();
+      agentExecutions = InMemoryAgentExecutionRepository();
+      service = TaskService(repo, agentExecutionRepository: agentExecutions);
+    });
+
+    tearDown(() async {
+      await service.dispose();
+    });
+
+    test('failed optimistic-lock transition does not mutate agent execution timing', () async {
+      final created = await service.create(
+        id: 'task-1',
+        title: 'Execution-backed task',
+        description: 'desc',
+        type: TaskType.coding,
+        autoStart: true,
+        provider: 'codex',
+      );
+      final baselineExecution = created.agentExecution!;
+
+      repo.concurrentVersionOnNextTransition = true;
+
+      await expectLater(service.transition('task-1', TaskStatus.running), throwsA(isA<VersionConflictException>()));
+
+      final persistedExecution = await agentExecutions.get(baselineExecution.id);
+      expect(persistedExecution?.startedAt, baselineExecution.startedAt);
+      expect(persistedExecution?.completedAt, baselineExecution.completedAt);
+    });
+  });
+
+  group('InMemoryTaskRepository with AgentExecution persistence and transaction boundary', () {
+    late InMemoryTaskRepository repo;
+    late InMemoryAgentExecutionRepository agentExecutions;
+    late TaskService service;
+
+    setUp(() {
+      repo = InMemoryTaskRepository();
+      agentExecutions = InMemoryAgentExecutionRepository();
+      service = TaskService(
+        repo,
+        agentExecutionRepository: agentExecutions,
+        executionTransactor: const InMemoryExecutionRepositoryTransactor(),
+      );
+    });
+
+    tearDown(() async {
+      await service.dispose();
+    });
+
+    test('failed optimistic-lock transition does not mutate agent execution timing', () async {
+      final created = await service.create(
+        id: 'task-1',
+        title: 'Execution-backed task',
+        description: 'desc',
+        type: TaskType.coding,
+        autoStart: true,
+        provider: 'codex',
+      );
+      final baselineExecution = created.agentExecution!;
+
+      repo.concurrentVersionOnNextTransition = true;
+
+      await expectLater(service.transition('task-1', TaskStatus.running), throwsA(isA<VersionConflictException>()));
+
+      final persistedExecution = await agentExecutions.get(baselineExecution.id);
+      expect(persistedExecution?.startedAt, baselineExecution.startedAt);
+      expect(persistedExecution?.completedAt, baselineExecution.completedAt);
+    });
+
+    test('failed mutable update does not mutate agent execution session id', () async {
+      final created = await service.create(
+        id: 'task-1',
+        title: 'Execution-backed task',
+        description: 'desc',
+        type: TaskType.coding,
+        autoStart: true,
+        provider: 'codex',
+      );
+      final baselineExecution = created.agentExecution!;
+
+      repo.concurrentStatusOnNextMutableUpdate = TaskStatus.running;
+
+      await expectLater(service.updateFields('task-1', sessionId: 'session-2'), throwsA(isA<StateError>()));
+
+      final persistedExecution = await agentExecutions.get(baselineExecution.id);
+      expect(persistedExecution?.sessionId, baselineExecution.sessionId);
+    });
+  });
+
   group('Version model field', () {
     test('Task defaults version to 1', () {
       final task = Task(

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
@@ -13,23 +14,16 @@ import 'package:test/test.dart';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Resolves static dir whether tests run from project root or package root.
-String _staticDir() {
-  final fromPkg = 'packages/dartclaw_server/lib/src/static';
-  if (Directory(fromPkg).existsSync()) return fromPkg;
-  // Running from apps/dartclaw_cli
-  final fromApp = p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'static');
-  if (Directory(fromApp).existsSync()) return fromApp;
-  return fromPkg;
-}
+late String _staticDir;
+late String _templatesDir;
 
-/// Resolves templates dir whether tests run from workspace root or app root.
-String _templatesDir() {
-  const fromWorkspace = 'packages/dartclaw_server/lib/src/templates';
-  if (Directory(fromWorkspace).existsSync()) return fromWorkspace;
-  final fromApp = p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'templates');
-  if (Directory(fromApp).existsSync()) return fromApp;
-  return fromWorkspace;
+Future<String> _resolveDartclawServerAssetDir(String child) async {
+  final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_server/dartclaw_server.dart'));
+  if (uri == null) {
+    throw StateError('Could not resolve package:dartclaw_server.');
+  }
+  final libDir = File.fromUri(uri).parent;
+  return p.join(libDir.path, 'src', child);
 }
 
 // ---------------------------------------------------------------------------
@@ -37,7 +31,11 @@ String _templatesDir() {
 // ---------------------------------------------------------------------------
 
 void main() {
-  setUpAll(() => initTemplates(_templatesDir()));
+  setUpAll(() async {
+    _staticDir = await _resolveDartclawServerAssetDir('static');
+    _templatesDir = await _resolveDartclawServerAssetDir('templates');
+    initTemplates(_templatesDir);
+  });
   tearDownAll(() => resetTemplates());
 
   late Directory tempDir;
@@ -56,7 +54,7 @@ void main() {
               ..sessions = sessions
               ..messages = messages
               ..worker = worker
-              ..staticDir = _staticDir()
+              ..staticDir = _staticDir
               ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'))
             .build();
   });
@@ -199,7 +197,7 @@ void main() {
                 ..sessions = sessions2
                 ..messages = messages2
                 ..worker = worker2
-                ..staticDir = _staticDir()
+                ..staticDir = _staticDir
                 ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
                 ..authEnabled = false
                 ..runtimeConfig = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false))
@@ -231,7 +229,7 @@ void main() {
                 ..sessions = sessions3
                 ..messages = messages3
                 ..worker = worker3
-                ..staticDir = _staticDir()
+                ..staticDir = _staticDir
                 ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
                 ..authEnabled = false)
               .build();

@@ -1,5 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show MemorySearchResult, SearchBackend;
+import 'package:dartclaw_core/dartclaw_core.dart' show MemorySearchResult, SearchBackend;
 import 'package:logging/logging.dart';
 
 import 'qmd_manager.dart';
@@ -19,10 +18,10 @@ enum SearchDepth {
   const SearchDepth(this.value);
 
   static SearchDepth fromString(String s) => switch (s) {
-        'fast' => SearchDepth.fast,
-        'deep' => SearchDepth.deep,
-        _ => SearchDepth.standard,
-      };
+    'fast' => SearchDepth.fast,
+    'deep' => SearchDepth.deep,
+    _ => SearchDepth.standard,
+  };
 }
 
 /// QMD-based search backend with FTS5 fallback.
@@ -36,29 +35,17 @@ class QmdSearchBackend implements SearchBackend {
   final SearchBackend fallback;
   final SearchDepth defaultDepth;
 
-  QmdSearchBackend({
-    required this.manager,
-    required this.fallback,
-    this.defaultDepth = SearchDepth.standard,
-  });
+  QmdSearchBackend({required this.manager, required this.fallback, this.defaultDepth = SearchDepth.standard});
 
   @override
-  Future<List<MemorySearchResult>> search(
-    String query, {
-    int limit = 10,
-    String userId = 'owner',
-  }) async {
+  Future<List<MemorySearchResult>> search(String query, {int limit = 10, String userId = 'owner'}) async {
     if (!manager.isRunning) {
       _log.fine('QMD not running — falling back to FTS5');
       return fallback.search(query, limit: limit, userId: userId);
     }
 
     try {
-      final results = await manager.query(
-        query,
-        depth: defaultDepth.value,
-        limit: limit,
-      );
+      final results = await manager.query(query, depth: defaultDepth.value, limit: limit);
 
       return results.map((r) {
         return MemorySearchResult(

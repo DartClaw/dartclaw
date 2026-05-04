@@ -1,0 +1,71 @@
+# DartClaw - Local Workflow Implementation Profile
+#
+# Template used by run.sh. Placeholders are replaced with absolute paths in
+# .data/dartclaw.runtime.yaml so the checked-in config stays portable.
+
+port: 3334
+data_dir: "__DATA_DIR__"
+dev_mode: true
+
+agent:
+  provider: codex
+  model: gpt-5.4
+
+gateway:
+  auth_mode: token
+
+guards:
+  enabled: true
+
+providers:
+  codex:
+    executable: codex
+    pool_size: 3
+    approval: never
+    sandbox: danger-full-access
+
+workflow:
+  defaults:
+    workflow:
+      model: codex/gpt-5.3-codex
+      effort: medium
+    planner:
+      model: codex/gpt-5.5
+      effort: xhigh
+    executor:
+      model: codex/gpt-5.3-codex
+      effort: medium
+    reviewer:
+      model: codex/gpt-5.5
+      effort: xhigh
+
+projects:
+  localPathAllowlist:
+    - "__REPO_ROOT__"
+  dartclaw-public:
+    localPath: "__REPO_ROOT__"
+    default: true
+    pr:
+      strategy: branch-only
+
+workspace:
+  git_sync:
+    enabled: false
+
+logging:
+  level: FINE
+
+governance:
+  budget:
+    daily_tokens: 10000000
+  loop_detection:
+    enabled: true
+
+tasks:
+  budget:
+    default_max_tokens: 5000000
+  completion_action: accept
+
+features:
+  thread_binding:
+    enabled: true

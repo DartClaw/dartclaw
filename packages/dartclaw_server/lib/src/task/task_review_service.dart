@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
+import 'git_credential_env.dart';
 import 'merge_executor.dart';
 import 'pr_creator.dart';
 import 'remote_push_service.dart';
@@ -22,6 +23,9 @@ import 'worktree_manager.dart';
 /// does not roll back the state transition.
 typedef PushBackFeedbackDelivery =
     Future<void> Function({required String taskId, required String sessionKey, required String feedback});
+
+typedef GitProcessRunner =
+    Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory});
 
 /// Result of a task review action.
 sealed class ReviewResult {
@@ -104,6 +108,7 @@ class TaskReviewService {
   final String _baseRef;
   final PushBackFeedbackDelivery? _pushBackFeedbackDelivery;
   final TaskEventRecorder? _eventRecorder;
+  final GitProcessRunner _runProcess;
   final Map<String, Future<void>> _reviewLocks = <String, Future<void>>{};
 
   TaskReviewService({
@@ -119,6 +124,7 @@ class TaskReviewService {
     String baseRef = 'main',
     PushBackFeedbackDelivery? pushBackFeedbackDelivery,
     TaskEventRecorder? eventRecorder,
+    GitProcessRunner? processRunner,
   }) : _tasks = tasks,
        _worktreeManager = worktreeManager,
        _taskFileGuard = taskFileGuard,
@@ -130,7 +136,19 @@ class TaskReviewService {
        _mergeStrategy = mergeStrategy,
        _baseRef = baseRef,
        _pushBackFeedbackDelivery = pushBackFeedbackDelivery,
-       _eventRecorder = eventRecorder;
+       _eventRecorder = eventRecorder,
+       _runProcess = processRunner ?? _defaultProcessRunner;
+
+  static Future<ProcessResult> _defaultProcessRunner(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) {
+    if (executable == 'git') {
+      return SafeProcess.git(arguments, plan: const GitCredentialPlan.none(), workingDirectory: workingDirectory);
+    }
+    return Process.run(executable, arguments, workingDirectory: workingDirectory);
+  }
 
   /// Builds a channel-facing review handler backed by this service.
   ChannelReviewHandler channelReviewHandler({String trigger = 'channel'}) {
@@ -201,7 +219,7 @@ class TaskReviewService {
         );
       }
 
-      if (targetStatus == TaskStatus.accepted && task.worktreeJson != null) {
+      if (targetStatus == TaskStatus.accepted && task.worktreeJson != null && !task.isWorkflowOwnedGitTask) {
         final isProjectBacked = taskTargetsExternalProject(task);
 
         if (isProjectBacked) {
@@ -270,10 +288,12 @@ class TaskReviewService {
       }
 
       // Project-backed accepts already cleaned up in _handleProjectAccept.
-      final isProjectBackedAccept = targetStatus == TaskStatus.accepted && taskTargetsExternalProject(task);
+      final isProjectBackedAccept =
+          targetStatus == TaskStatus.accepted && taskTargetsExternalProject(task) && !task.isWorkflowOwnedGitTask;
       if (!isProjectBackedAccept &&
           (targetStatus == TaskStatus.accepted || targetStatus == TaskStatus.rejected) &&
-          task.worktreeJson != null) {
+          task.worktreeJson != null &&
+          !(targetStatus == TaskStatus.accepted && task.isWorkflowOwnedGitTask)) {
         final cleanupProject = await _cleanupProjectForTask(task);
         await _cleanupWorktree(taskId, project: cleanupProject);
       }
@@ -319,12 +339,19 @@ class TaskReviewService {
 
     final worktreeInfo = WorktreeInfo.fromJson(task.worktreeJson!);
     final branch = worktreeInfo.branch;
+    final prepareFailure = await _prepareProjectBranchForPush(task, project, worktreeInfo);
+    if (prepareFailure != null) {
+      return prepareFailure;
+    }
 
     final pushResult = await _remotePushService.push(project: project, branch: branch);
 
     switch (pushResult) {
       case PushSuccess():
-        await _handlePostPushArtifact(task.id, project, branch, task);
+        final postPushFailure = await _handlePostPushArtifact(task.id, project, branch, task);
+        if (postPushFailure != null) {
+          return postPushFailure;
+        }
         // Successful push — clean up worktree.
         await _cleanupWorktree(task.id, project: project);
         return null;
@@ -343,8 +370,82 @@ class TaskReviewService {
     }
   }
 
+  Future<ReviewResult?> _prepareProjectBranchForPush(Task task, Project project, WorktreeInfo worktreeInfo) async {
+    final worktreePath = worktreeInfo.path;
+    final statusResult = await _git(worktreePath, [
+      'status',
+      '--porcelain',
+      '--untracked-files=all',
+    ], action: 'inspect worktree changes');
+    if (statusResult.exitCode != 0) {
+      return const ReviewActionFailed('Failed to inspect the task worktree before publish.');
+    }
+
+    final hasWorktreeChanges = _stdout(statusResult).trim().isNotEmpty;
+    if (hasWorktreeChanges) {
+      final addResult = await _git(worktreePath, ['add', '-A'], action: 'stage worktree changes');
+      if (addResult.exitCode != 0) {
+        await _persistPushErrorArtifact(task.id, 'git add failed: ${_stderr(addResult)}');
+        return const ReviewActionFailed('Failed to stage worktree changes before publish.');
+      }
+
+      final commitResult = await _git(worktreePath, [
+        'commit',
+        '-m',
+        'task(${task.id}): ${task.title}',
+      ], action: 'commit worktree changes');
+      if (commitResult.exitCode != 0 && !_isNothingToCommit(commitResult)) {
+        await _persistPushErrorArtifact(task.id, 'git commit failed: ${_stderr(commitResult)}');
+        return const ReviewActionFailed('Failed to commit worktree changes before publish.');
+      }
+    }
+
+    final baseRef = await _resolvePublishBaseRef(worktreePath, project.defaultBranch);
+    final diffResult = await _git(worktreePath, ['diff', '--quiet', '$baseRef...HEAD'], action: 'verify publish diff');
+    if (diffResult.exitCode > 1) {
+      await _persistPushErrorArtifact(task.id, 'git diff verification failed: ${_stderr(diffResult)}');
+      return const ReviewActionFailed('Failed to verify branch changes before publish.');
+    }
+    if (diffResult.exitCode == 0) {
+      await _persistPushErrorArtifact(task.id, 'No committed changes to publish on ${worktreeInfo.branch}.');
+      return const ReviewActionFailed('No committed changes to publish.');
+    }
+
+    return null;
+  }
+
+  Future<String> _resolvePublishBaseRef(String worktreePath, String defaultBranch) async {
+    final originRef = 'origin/$defaultBranch';
+    final originResult = await _git(worktreePath, [
+      'rev-parse',
+      '--verify',
+      originRef,
+    ], action: 'resolve publish base ref');
+    if (originResult.exitCode == 0) {
+      return originRef;
+    }
+    return defaultBranch;
+  }
+
+  Future<ProcessResult> _git(String workingDirectory, List<String> arguments, {required String action}) async {
+    try {
+      return await _runProcess('git', arguments, workingDirectory: workingDirectory);
+    } on ProcessException catch (error, stackTrace) {
+      _log.warning('Failed to $action in $workingDirectory', error, stackTrace);
+      return ProcessResult(0, 128, '', error.message);
+    }
+  }
+
+  bool _isNothingToCommit(ProcessResult result) {
+    final output = '${_stdout(result)}\n${_stderr(result)}'.toLowerCase();
+    return output.contains('nothing to commit') || output.contains('working tree clean');
+  }
+
+  String _stdout(ProcessResult result) => result.stdout as String? ?? '';
+  String _stderr(ProcessResult result) => result.stderr as String? ?? '';
+
   /// Stores a PR URL, branch name, or instruction artifact after a successful push.
-  Future<void> _handlePostPushArtifact(String taskId, Project project, String branch, Task task) async {
+  Future<ReviewResult?> _handlePostPushArtifact(String taskId, Project project, String branch, Task task) async {
     final prCreator = _prCreator;
 
     if (project.pr.strategy == PrStrategy.githubPr && prCreator != null) {
@@ -352,18 +453,21 @@ class TaskReviewService {
       switch (prResult) {
         case PrCreated(:final url):
           await _persistPrArtifact(taskId, 'Pull Request', ArtifactKind.pr, url, isFilePath: false);
+          return null;
 
         case PrGhNotFound(:final instructions):
           await _persistPrArtifact(taskId, 'PR Instructions', ArtifactKind.pr, instructions, isFilePath: true);
+          return null;
 
         case PrCreationFailed(:final error, :final details):
-          // Push succeeded — PR creation is best-effort. Store a warning artifact.
-          final content = 'PR creation warning: $error\n$details';
-          await _persistPrArtifact(taskId, 'PR Creation Warning', ArtifactKind.pr, content, isFilePath: true);
+          final content = 'PR creation failed: $error\n$details';
+          await _persistPrArtifact(taskId, 'PR Creation Error', ArtifactKind.pr, content, isFilePath: true);
+          return ReviewActionFailed('Pull request creation failed: $error');
       }
     } else {
       // branch-only strategy or no prCreator: store branch name.
       await _persistPrArtifact(taskId, 'Branch', ArtifactKind.pr, branch, isFilePath: false);
+      return null;
     }
   }
 

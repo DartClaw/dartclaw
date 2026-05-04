@@ -541,7 +541,7 @@ abstract class _InitImpl extends Command<void> {
         'Codex auth method',
         choices: ['oauth', 'env'],
         defaultValue: _providerArgOrDefault('codex', defaults.authMethods['codex'] ?? 'oauth'),
-        display: (value) => value == 'oauth' ? 'oauth  (use codex login)' : 'env    (read OPENAI_API_KEY)',
+        display: (value) => value == 'oauth' ? 'oauth  (use codex login)' : 'env    (read CODEX_API_KEY)',
       );
       models['codex'] = _logger
           .prompt('Codex model', defaultValue: _providerModelOption('codex') ?? defaults.models['codex'] ?? 'gpt-5')

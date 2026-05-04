@@ -208,9 +208,20 @@ Future<ProcessResult> _successfulProcessResult(
 }
 
 String _exampleConfigPath(String fileName) {
-  final direct = p.join('examples', fileName);
-  if (File(direct).existsSync()) return direct;
-  return p.join('..', '..', '..', 'examples', fileName);
+  // Walk up from cwd until we find <root>/examples/<fileName>. Robust to
+  // running tests from the workspace root or from inside the package dir.
+  // Fails loudly if not found — DartclawConfig.load silently returns defaults
+  // for a missing path, which would mask the real failure.
+  var dir = Directory.current;
+  while (true) {
+    final candidate = File(p.join(dir.path, 'examples', fileName));
+    if (candidate.existsSync()) return candidate.path;
+    final parent = dir.parent;
+    if (parent.path == dir.path) {
+      throw StateError('Could not locate examples/$fileName walking up from ${Directory.current.path}');
+    }
+    dir = parent;
+  }
 }
 
 typedef _ConfiguredServerFixture = ({

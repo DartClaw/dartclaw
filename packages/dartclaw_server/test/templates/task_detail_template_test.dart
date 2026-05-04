@@ -9,12 +9,14 @@ void main() {
   setUpAll(() => initTemplates(resolveTemplatesDir()));
   tearDownAll(() => resetTemplates());
 
-  const emptySidebar = (
+  final emptySidebar = (
     main: null,
     dmChannels: <SidebarSession>[],
     groupChannels: <SidebarSession>[],
     activeEntries: <SidebarSession>[],
     archivedEntries: <SidebarSession>[],
+    activeTasks: <SidebarActiveTask>[],
+    activeWorkflows: <SidebarActiveWorkflow>[],
     showChannels: true,
     tasksEnabled: false,
   );

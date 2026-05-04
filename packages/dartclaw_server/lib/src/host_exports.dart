@@ -1,3 +1,4 @@
+export 'asset_resolver.dart' show AssetResolver, ResolvedAssetPaths;
 export 'concurrency/session_lock_manager.dart' show SessionLockManager;
 export 'emergency/emergency_stop_handler.dart' show EmergencyStopHandler, EmergencyStopResult;
 export 'harness_pool.dart' show HarnessPool;

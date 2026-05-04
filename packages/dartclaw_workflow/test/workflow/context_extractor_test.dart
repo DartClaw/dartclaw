@@ -1,3 +1,6 @@
+@Tags(['component'])
+library;
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,8 +10,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         ExtractionConfig,
         ExtractionType,
         MessageService,
+        MissingArtifactFailure,
         OutputConfig,
         OutputFormat,
+        OutputMode,
         SessionService,
         Task,
         TaskType,
@@ -16,15 +21,19 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show ContextExtractor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, InMemoryWorkflowStepExecutionRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show AgentExecution, WorkflowStepExecution;
 
 void main() {
   late Directory tempDir;
   late String sessionsDir;
   late TaskService taskService;
+  late SqliteAgentExecutionRepository agentExecutions;
+  late InMemoryWorkflowStepExecutionRepository workflowStepExecutions;
   late MessageService messageService;
   late SessionService sessionService;
   late ContextExtractor extractor;
@@ -34,10 +43,22 @@ void main() {
     sessionsDir = p.join(tempDir.path, 'sessions');
     Directory(sessionsDir).createSync(recursive: true);
 
-    taskService = TaskService(SqliteTaskRepository(sqlite3.openInMemory()));
+    final db = sqlite3.openInMemory();
+    agentExecutions = SqliteAgentExecutionRepository(db);
+    taskService = TaskService(
+      SqliteTaskRepository(db),
+      agentExecutionRepository: agentExecutions,
+      executionTransactor: SqliteExecutionRepositoryTransactor(db),
+    );
+    workflowStepExecutions = InMemoryWorkflowStepExecutionRepository();
     sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
-    extractor = ContextExtractor(taskService: taskService, messageService: messageService, dataDir: tempDir.path);
+    extractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowStepExecutionRepository: workflowStepExecutions,
+    );
   });
 
   tearDown(() async {
@@ -56,31 +77,20 @@ void main() {
     );
   }
 
-  WorkflowStep makeStep({
-    List<String> contextOutputs = const [],
-    ExtractionConfig? extraction,
-    Map<String, OutputConfig>? outputs,
-  }) {
-    return WorkflowStep(
-      id: 'step1',
-      name: 'Step 1',
-      prompts: ['Do something'],
-      contextOutputs: contextOutputs,
-      extraction: extraction,
-      outputs: outputs,
-    );
+  WorkflowStep makeStep({String id = 'step1', ExtractionConfig? extraction, Map<String, OutputConfig>? outputs}) {
+    return WorkflowStep(id: id, name: 'Step 1', prompts: ['Do something'], extraction: extraction, outputs: outputs);
   }
 
-  test('returns empty map when step has no contextOutputs', () async {
+  test('returns empty map when step has no outputs', () async {
     final task = await createTask();
-    final step = makeStep(contextOutputs: []);
+    final step = makeStep(outputs: {});
     final outputs = await extractor.extract(step, task);
     expect(outputs, isEmpty);
   });
 
   test('falls back to empty string with no artifacts or session', () async {
     final task = await createTask();
-    final step = makeStep(contextOutputs: ['research_notes']);
+    final step = makeStep(outputs: {'research_notes': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     expect(outputs['research_notes'], equals(''));
   });
@@ -100,19 +110,19 @@ void main() {
       path: p.join(artifactsDir.path, 'output.md'),
     );
 
-    final step = makeStep(contextOutputs: ['research_notes']);
+    final step = makeStep(outputs: {'research_notes': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     expect(outputs['research_notes'], contains('Research Notes'));
   });
 
-  test('extracts from agent ## Context Output convention (key: value)', () async {
+  test('extracts from workflow-context XML tag', () async {
     final session = await sessionService.getOrCreateMain();
     await messageService.insertMessage(sessionId: session.id, role: 'user', content: 'Do some research');
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
       content:
-          'Here is my response.\n\n## Context Output\nresearch_notes: Found important findings about X.\nsummary: Brief summary here.',
+          'Here is my response.\n\n<workflow-context>{"research_notes":"Found important findings about X.","summary":"Brief summary here."}</workflow-context>',
     );
 
     // Task needs a sessionId — create it via updateFields after autoStart.
@@ -126,18 +136,18 @@ void main() {
     await taskService.updateFields('task-session-1', sessionId: session.id);
     final taskWithSession = (await taskService.get('task-session-1'))!;
 
-    final step = makeStep(contextOutputs: ['research_notes']);
+    final step = makeStep(outputs: {'research_notes': OutputConfig()});
     final outputs = await extractor.extract(step, taskWithSession);
     expect(outputs['research_notes'], equals('Found important findings about X.'));
   });
 
-  test('extracts from ## Context Output JSON fenced code block', () async {
+  test('extracts structured JSON values from workflow-context XML tag', () async {
     final session = await sessionService.getOrCreateMain();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
       content:
-          'Done.\n\n## Context Output\n```json\n{"research_notes": "JSON extracted value", "summary": "JSON summary"}\n```',
+          'Done.\n\n<workflow-context>{"research_notes":"JSON extracted value","summary":"JSON summary"}</workflow-context>',
     );
 
     await taskService.create(
@@ -150,10 +160,1653 @@ void main() {
     await taskService.updateFields('task-json-1', sessionId: session.id);
     final taskWithSession = (await taskService.get('task-json-1'))!;
 
-    final step = makeStep(contextOutputs: ['research_notes']);
+    final step = makeStep(outputs: {'research_notes': OutputConfig()});
     final outputs = await extractor.extract(step, taskWithSession);
     expect(outputs['research_notes'], equals('JSON extracted value'));
   });
+
+  test('defaults missing source outputs to synthesized', () async {
+    final task = await createTask();
+    final step = makeStep(outputs: {'plan_source': OutputConfig()});
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['plan_source'], 'synthesized');
+  });
+
+  test('discover-project defaults source to existing when paired artifact path is present', () async {
+    final prdPath = p.join(tempDir.path, 'docs', 'specs', 'demo', 'prd.md');
+    File(prdPath)
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# PRD\n');
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>${jsonEncode({
+            'project_index': {'active_prd': p.relative(prdPath, from: tempDir.path)},
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-source-default-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-source-default-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-source-default-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'prd': OutputConfig(format: OutputFormat.path),
+        'prd_source': OutputConfig(),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['prd'], 'docs/specs/demo/prd.md');
+    expect(outputs['prd_source'], 'existing');
+  });
+
+  test('discover-project prunes non-canonical document location keys before schema validation', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>${jsonEncode({
+            'project_index': {
+              'framework': 'andthen',
+              'project_root': tempDir.path,
+              'document_locations': {'product': null, 'backlog': 'docs/PRODUCT-BACKLOG.md', 'roadmap': 'docs/ROADMAP.md', 'prd': null, 'plan': null, 'spec': 'docs/specs', 'state': 'docs/STATE.md', 'readme': 'README.md', 'agent_rules': 'AGENTS.md', 'architecture': 'CLAUDE.md', 'guide': 'docs/guidelines', 'learnings': 'docs/LEARNINGS.md'},
+              'state_protocol': {
+                'type': 'andthen-state',
+                'state_file': 'docs/STATE.md',
+                'format': 'markdown',
+                'operations': ['append notes'],
+              },
+            },
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-project-index-prune-doc-locations',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-project-index-prune-doc-locations', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-project-index-prune-doc-locations'))!;
+    final step = makeStep(
+      id: 'discover-project',
+      outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    final projectIndex = outputs['project_index'] as Map<String, dynamic>;
+    final documentLocations = projectIndex['document_locations'] as Map<String, dynamic>;
+    final stateProtocol = projectIndex['state_protocol'] as Map<String, dynamic>;
+    expect(documentLocations, isNot(contains('learnings')));
+    expect(documentLocations['spec'], 'docs/specs');
+    expect(stateProtocol, isNot(contains('operations')));
+    expect(stateProtocol['type'], 'andthen-state');
+  });
+
+  test('discover-project derives flat prd and plan outputs from project_index active artifacts', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {
+              'active_prd': 'docs/specs/demo/prd.md',
+              'active_plan': 'docs/specs/demo/plan.md',
+              'active_story_specs': {
+                'items': [
+                  {'id': 'S01', 'title': 'Existing Story', 'spec_path': 'docs/specs/demo/fis/s01-existing-story.md', 'dependencies': <String>[]},
+                ],
+              },
+            },
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-active-artifacts-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-active-artifacts-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-active-artifacts-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'prd': OutputConfig(format: OutputFormat.path),
+        'plan': OutputConfig(format: OutputFormat.path),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['prd'], 'docs/specs/demo/prd.md');
+    expect(outputs['plan'], 'docs/specs/demo/plan.md');
+  });
+
+  test('discover-project drops claimed spec_path when spec_source is not existing', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {'project_root': tempDir.path},
+            'spec_path': 'docs/specs/bug-001/s01-future-fix.md',
+            'spec_source': 'synthesized',
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-future-spec-path-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-future-spec-path-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-future-spec-path-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'spec_path': OutputConfig(format: OutputFormat.path),
+        'spec_source': OutputConfig(),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['spec_path'], isEmpty);
+    expect(outputs['spec_source'], 'synthesized');
+  });
+
+  test('discover-project downgrades existing spec_source when no spec path exists', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {
+              'project_root': tempDir.path,
+              'artifact_locations': {'fis_dir': 'docs/specs/future'},
+            },
+            'spec_path': 'docs/specs/future/s01-future-fix.md',
+            'spec_source': 'existing',
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-stale-existing-spec-source-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-stale-existing-spec-source-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-stale-existing-spec-source-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'spec_path': OutputConfig(format: OutputFormat.path),
+        'spec_source': OutputConfig(),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['spec_path'], isEmpty);
+    expect(outputs['spec_source'], 'synthesized');
+  });
+
+  test('discover-project ignores claimed future artifact paths when no active artifacts exist', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {
+              'project_root': tempDir.path,
+              'active_prd': null,
+              'active_plan': null,
+              'active_story_specs': null,
+              'artifact_locations': {'prd': 'docs/specs/future/prd.md', 'plan': 'docs/specs/future/plan.md'},
+            },
+            'prd': 'docs/specs/future/prd.md',
+            'plan': 'docs/specs/future/plan.md',
+            'story_specs': {'items': <Map<String, dynamic>>[]},
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-future-artifact-paths-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-future-artifact-paths-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-future-artifact-paths-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'prd': OutputConfig(format: OutputFormat.path),
+        'plan': OutputConfig(format: OutputFormat.path),
+        'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    final projectIndex = outputs['project_index'] as Map<String, dynamic>;
+    expect(projectIndex['active_prd'], isNull);
+    expect(projectIndex['active_plan'], isNull);
+    expect(projectIndex['active_story_specs'], isNull);
+    expect(outputs['prd'], isEmpty);
+    expect(outputs['plan'], isEmpty);
+    expect(outputs['story_specs'], {'items': <Map<String, dynamic>>[]});
+  });
+
+  test('discover-project derives story_specs from project_index.active_story_specs', () async {
+    final activeStorySpecs = {
+      'items': [
+        {
+          'id': 'S01',
+          'title': 'Existing Story',
+          'spec_path': 'docs/specs/demo/fis/s01-existing-story.md',
+          'dependencies': <String>[],
+        },
+      ],
+    };
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {'active_plan': 'docs/specs/demo/plan.md', 'active_story_specs': activeStorySpecs},
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-story-spec-default-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-story-spec-default-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-story-spec-default-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['story_specs'], activeStorySpecs);
+  });
+
+  test('discover-project ignores active_story_specs when active_plan is missing', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {
+              'active_plan': null,
+              'active_story_specs': {
+                'items': [
+                  {'id': 'S01', 'title': 'Future Story', 'spec_path': 'docs/specs/future/s01-future-story.md', 'dependencies': <String>[]},
+                ],
+              },
+            },
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-story-spec-no-active-plan-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-story-spec-no-active-plan-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-story-spec-no-active-plan-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['story_specs'], {'items': <Map<String, dynamic>>[]});
+  });
+
+  test('discover-project ignores active artifact paths that do not exist under project_root', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          '<workflow-context>${jsonEncode({
+            'project_index': {
+              'project_root': tempDir.path,
+              'active_prd': 'docs/specs/future/prd.md',
+              'active_plan': 'docs/specs/future/plan.md',
+              'active_story_specs': {
+                'items': [
+                  {'id': 'S01', 'title': 'Future Story', 'spec_path': 'docs/specs/future/s01-future-story.md', 'dependencies': <String>[]},
+                ],
+              },
+            },
+          })}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-missing-active-artifacts-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-missing-active-artifacts-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-missing-active-artifacts-1'))!;
+
+    final step = makeStep(
+      id: 'discover-project',
+      outputs: const {
+        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
+        'prd': OutputConfig(format: OutputFormat.path),
+        'plan': OutputConfig(format: OutputFormat.path),
+        'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['prd'], isEmpty);
+    expect(outputs['plan'], isEmpty);
+    expect(outputs['story_specs'], {'items': <Map<String, dynamic>>[]});
+  });
+
+  test('throws MissingArtifactFailure for missing path outputs', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"prd":"docs/specs/demo/prd.md"}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-path-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-path-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-path-1'))!;
+
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
+
+    await expectLater(
+      extractor.extract(step, taskWithSession),
+      throwsA(
+        isA<MissingArtifactFailure>()
+            .having((failure) => failure.claimedPaths, 'claimedPaths', ['docs/specs/demo/prd.md'])
+            .having((failure) => failure.missingPaths, 'missingPaths', ['docs/specs/demo/prd.md'])
+            .having((failure) => failure.reason, 'reason', 'path claimed but not present in worktree diff'),
+      ),
+    );
+  });
+
+  test('allows missing review report path when scoped review count is explicitly clean', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Re-review completed with no findings.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': '/tmp/dartclaw/runtime-artifacts/reviews/re-review-clean.md', 're-review.findings_count': 0, 're-review.gating_findings_count': 0})}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-clean-review-missing-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-clean-review-missing-path', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-clean-review-missing-path'))!;
+
+    final step = makeStep(
+      id: 're-review',
+      outputs: const {
+        'review_findings': OutputConfig(format: OutputFormat.path),
+        're-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        're-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['review_findings'], isEmpty);
+    expect(outputs['re-review.findings_count'], 0);
+    expect(outputs['re-review.gating_findings_count'], 0);
+  });
+
+  test('rejects missing review report path when scoped review count is nonzero', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Re-review found an issue.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': '/tmp/dartclaw/runtime-artifacts/reviews/re-review-finding.md', 're-review.findings_count': 1, 're-review.gating_findings_count': 1})}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-nonzero-review-missing-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-nonzero-review-missing-path', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-nonzero-review-missing-path'))!;
+
+    final step = makeStep(
+      id: 're-review',
+      outputs: const {
+        'review_findings': OutputConfig(format: OutputFormat.path),
+        're-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        're-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    await expectLater(
+      extractor.extract(step, taskWithSession),
+      throwsA(
+        isA<MissingArtifactFailure>()
+            .having((failure) => failure.fieldName, 'fieldName', 'review_findings')
+            .having((failure) => failure.reason, 'reason', 'path claimed but not present in worktree diff'),
+      ),
+    );
+  });
+
+  test('allows missing clean review report for workflow-defined findings output names', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Custom review completed with no findings.\n\n'
+          '<workflow-context>${jsonEncode({'audit_report': '/tmp/dartclaw/runtime-artifacts/reviews/custom-clean.md', 'custom-review.findings_count': 0, 'custom-review.gating_findings_count': 0})}</workflow-context>',
+    );
+
+    await taskService.create(
+      id: 'task-custom-clean-review-missing-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-custom-clean-review-missing-path', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-custom-clean-review-missing-path'))!;
+
+    final step = makeStep(
+      id: 'custom-review',
+      outputs: const {
+        'audit_report': OutputConfig(format: OutputFormat.path),
+        'custom-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'custom-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['audit_report'], isEmpty);
+    expect(outputs['custom-review.findings_count'], 0);
+    expect(outputs['custom-review.gating_findings_count'], 0);
+  });
+
+  test('uses changed architecture review report file when assistant claims a stale report path', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-review-report'))..createSync();
+    final actualPath = 'docs/specs/demo/plan-architecture-codex-2026-04-28.md';
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Architecture Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, actualPath)
+      ..addUntracked(worktree.path, 'docs/specs/demo/unrelated.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final claimedPath = 'docs/specs/demo/plan-architecture-codex-codex-2026-04-28.md';
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Architecture review completed.\n\n'
+          'No architecture findings of concern.\n\n'
+          '<workflow-context>${jsonEncode({'architecture_review_findings': claimedPath, 'architecture-review.findings_count': 0})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields('task-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-review-report-path'))!;
+    final step = makeStep(outputs: const {'architecture_review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['architecture_review_findings'], actualPath);
+  });
+
+  test('uses changed review findings file when assistant claims a stale report path', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-plan-review-report'))..createSync();
+    final actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Plan Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, actualPath)
+      ..addUntracked(worktree.path, 'docs/specs/demo/architecture-notes.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final claimedPath = 'docs/specs/demo/plan-review-codex-codex-2026-04-28.md';
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Plan review completed.\n\n'
+          'No findings of concern.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': claimedPath, 'plan-review.findings_count': 0})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields('task-plan-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('normalizes absolute in-worktree review findings claims to relative paths', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-absolute-review-report'))..createSync();
+    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Plan Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, actualPath);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Plan review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': p.join(worktree.path, actualPath)})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-absolute-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields('task-absolute-plan-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-absolute-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('normalizes project-basename-prefixed review findings claims to relative paths', () async {
+    final projectRoot = Directory(p.join(tempDir.path, 'projects', 'workflow-test-todo-app'))
+      ..createSync(recursive: true);
+    const actualPath = 'docs/specs/demo/mixed-review-codex-2026-04-30.md';
+    File(p.join(projectRoot.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Mixed Review\n');
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': 'workflow-test-todo-app/$actualPath', 'plan-review.findings_count': 2})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-project-basename-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+      projectId: 'workflow-test-todo-app',
+    );
+    final task = (await taskService.get('task-project-basename-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('normalizes project-prefixed claims inside workflow-owned worktrees', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktrees', 'wf-run-map-0'))..createSync(recursive: true);
+    const actualPath = 'docs/reviews/mixed-review-codex-2026-04-30.md';
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Mixed Review\n');
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': 'workflow-test-todo-app/$actualPath'})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-worktree-project-prefixed-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+      projectId: 'workflow-test-todo-app',
+    );
+    await taskService.updateFields(
+      'task-worktree-project-prefixed-plan-review-report-path',
+      worktreeJson: {'path': worktree.path},
+    );
+    final task = (await taskService.get('task-worktree-project-prefixed-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('keeps absolute review findings under the workflow runtime artifacts dir readable', () async {
+    final reportPath = p.join(
+      tempDir.path,
+      'workflows',
+      'runs',
+      'run-runtime',
+      'runtime-artifacts',
+      'reviews',
+      'integrated-review-codex-2026-04-30.md',
+    );
+    File(reportPath)
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Integrated Review\n');
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': reportPath})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-runtime-artifacts-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+      projectId: 'workflow-test-todo-app',
+      workflowRunId: 'run-runtime',
+    );
+    final task = (await taskService.get('task-runtime-artifacts-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['review_findings'], reportPath);
+  });
+
+  test('materializes diagnostic clean review artifact when runtime report claim is missing', () async {
+    final reportPath = p.join(
+      tempDir.path,
+      'workflows',
+      'runs',
+      'run-runtime-missing-clean',
+      'runtime-artifacts',
+      'reviews',
+      'integrated-review-codex-2026-04-30.md',
+    );
+    Directory(p.dirname(reportPath)).createSync(recursive: true);
+    final claimedReportPath = reportPath.startsWith('/var/') ? '/private$reportPath' : reportPath;
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Review completed with no findings.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': claimedReportPath, 'integrated-review.findings_count': 0, 'integrated-review.gating_findings_count': 0})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-runtime-artifacts-missing-clean-review-report',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+      projectId: 'workflow-test-todo-app',
+      workflowRunId: 'run-runtime-missing-clean',
+    );
+    final task = (await taskService.get('task-runtime-artifacts-missing-clean-review-report'))!;
+    final step = makeStep(
+      id: 'integrated-review',
+      outputs: const {
+        'review_findings': OutputConfig(format: OutputFormat.path),
+        'integrated-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'integrated-review.gating_findings_count': OutputConfig(
+          format: OutputFormat.json,
+          schema: 'non-negative-integer',
+        ),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['review_findings'], claimedReportPath);
+    expect(File(claimedReportPath).existsSync(), isTrue);
+    expect(File(claimedReportPath).readAsStringSync(), contains('did not leave the claimed markdown report on disk'));
+  });
+
+  test('does not materialize clean review artifact through runtime artifact symlink', () async {
+    const runId = 'run-runtime-symlink';
+    final runtimeArtifactsDir = Directory(p.join(tempDir.path, 'workflows', 'runs', runId, 'runtime-artifacts'))
+      ..createSync(recursive: true);
+    final outsideDir = Directory(p.join(tempDir.path, 'outside-reviews'))..createSync(recursive: true);
+    final reviewsLink = Link(p.join(runtimeArtifactsDir.path, 'reviews'));
+    try {
+      reviewsLink.createSync(outsideDir.path);
+    } on FileSystemException {
+      markTestSkipped('Symlinks are not available on this filesystem');
+    }
+
+    final claimedReportPath = p.join(reviewsLink.path, 'integrated-review-codex-2026-04-30.md');
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Review completed with no findings.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': claimedReportPath, 'integrated-review.findings_count': 0, 'integrated-review.gating_findings_count': 0})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-runtime-artifacts-symlink-clean-review-report',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+      projectId: 'workflow-test-todo-app',
+      workflowRunId: runId,
+    );
+    final task = (await taskService.get('task-runtime-artifacts-symlink-clean-review-report'))!;
+    final step = makeStep(
+      id: 'integrated-review',
+      outputs: const {
+        'review_findings': OutputConfig(format: OutputFormat.path),
+        'integrated-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'integrated-review.gating_findings_count': OutputConfig(
+          format: OutputFormat.json,
+          schema: 'non-negative-integer',
+        ),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['review_findings'], isEmpty);
+    expect(File(claimedReportPath).existsSync(), isFalse);
+    expect(File(p.join(outsideDir.path, p.basename(claimedReportPath))).existsSync(), isFalse);
+  });
+
+  test('keeps absolute review findings readable when data dir is relative', () async {
+    final relativeDataDir = '.dartclaw-dev-test-${DateTime.now().microsecondsSinceEpoch}';
+    try {
+      const runId = 'run-runtime-relative-datadir';
+      final reportPath = p.normalize(
+        p.absolute(
+          relativeDataDir,
+          'workflows',
+          'runs',
+          runId,
+          'runtime-artifacts',
+          'reviews',
+          'integrated-review-codex-2026-04-30.md',
+        ),
+      );
+      File(reportPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('# Integrated Review\n');
+      final localExtractor = ContextExtractor(
+        taskService: taskService,
+        messageService: messageService,
+        dataDir: relativeDataDir,
+      );
+      final session = await sessionService.getOrCreateMain();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content:
+            'Review completed.\n\n'
+            '<workflow-context>${jsonEncode({'review_findings': reportPath})}</workflow-context>\n'
+            '<step-outcome>{"status":"passed"}</step-outcome>',
+      );
+
+      await taskService.create(
+        id: 'task-runtime-artifacts-relative-datadir-review-report-path',
+        title: 'Review',
+        description: 'Review',
+        type: TaskType.research,
+        autoStart: true,
+        sessionId: session.id,
+        projectId: 'workflow-test-todo-app',
+        workflowRunId: runId,
+      );
+      final task = (await taskService.get('task-runtime-artifacts-relative-datadir-review-report-path'))!;
+      final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+      final outputs = await localExtractor.extract(step, task);
+
+      expect(p.isRelative(relativeDataDir), isTrue);
+      expect(p.basename(relativeDataDir), startsWith('.dartclaw-dev'));
+      expect(outputs['review_findings'], reportPath);
+    } finally {
+      final dataDir = Directory(relativeDataDir);
+      if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
+    }
+  });
+
+  test('keeps runtime-root-relative review findings readable as absolute paths', () async {
+    final reportPath = p.join(
+      tempDir.path,
+      'workflows',
+      'runs',
+      'run-runtime-relative',
+      'runtime-artifacts',
+      'reviews',
+      'integrated-review-codex-2026-04-30.md',
+    );
+    File(reportPath)
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Integrated Review\n');
+    final worktree = Directory(p.join(tempDir.path, 'worktree-runtime-relative-review-report'))..createSync();
+    final git = FakeGitGateway()..initWorktree(worktree.path);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': 'reviews/integrated-review-codex-2026-04-30.md'})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-runtime-artifacts-relative-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+      projectId: 'workflow-test-todo-app',
+      workflowRunId: 'run-runtime-relative',
+    );
+    await taskService.updateFields(
+      'task-runtime-artifacts-relative-review-report-path',
+      worktreeJson: {'path': worktree.path},
+    );
+    final task = (await taskService.get('task-runtime-artifacts-relative-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, task);
+
+    expect(outputs['review_findings'], reportPath);
+  });
+
+  test('prefers explicit runtime artifacts review findings over changed worktree review files', () async {
+    final runtimeReportPath = p.join(
+      tempDir.path,
+      'workflows',
+      'runs',
+      'run-runtime-precedence',
+      'runtime-artifacts',
+      'reviews',
+      'integrated-review-codex-2026-04-30.md',
+    );
+    File(runtimeReportPath)
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Integrated Review\n');
+    final worktree = Directory(p.join(tempDir.path, 'worktree-runtime-precedence-review-report'))..createSync();
+    const staleWorktreeReport = 'docs/specs/demo/plan-review-codex-2026-04-29.md';
+    File(p.join(worktree.path, staleWorktreeReport))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Stale Worktree Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, staleWorktreeReport);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': runtimeReportPath})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-runtime-artifacts-review-report-precedence',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+      projectId: 'workflow-test-todo-app',
+      workflowRunId: 'run-runtime-precedence',
+    );
+    await taskService.updateFields(
+      'task-runtime-artifacts-review-report-precedence',
+      worktreeJson: {'path': worktree.path},
+    );
+    final task = (await taskService.get('task-runtime-artifacts-review-report-precedence'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, task);
+
+    expect(outputs['review_findings'], runtimeReportPath);
+  });
+
+  test('ignores absolute outside-worktree review findings claims in favor of changed report files', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-outside-review-report'))..createSync();
+    final outsideDir = Directory(p.join(tempDir.path, 'outside-worktree'))..createSync();
+    final outsideReport = File(p.join(outsideDir.path, 'plan-review-codex-2026-04-28.md'))
+      ..writeAsStringSync('# Outside Review\n');
+    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Plan Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, actualPath);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Plan review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': outsideReport.path})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-outside-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields('task-outside-plan-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-outside-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('prefers changed review findings files over stale existing claims', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-stale-existing-review-report'))..createSync();
+    const stalePath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-29.md';
+    File(p.join(worktree.path, stalePath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Stale Plan Review\n');
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Plan Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, actualPath);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Plan review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': stalePath})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-stale-existing-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields(
+      'task-stale-existing-plan-review-report-path',
+      worktreeJson: {'path': worktree.path},
+    );
+    final taskWithWorktree = (await taskService.get('task-stale-existing-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('ignores symlinked review findings claims that resolve outside the worktree', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-symlink-review-report'))..createSync();
+    final outsideDir = Directory(p.join(tempDir.path, 'outside-symlink-target'))..createSync();
+    final outsideReport = File(p.join(outsideDir.path, 'plan-review-codex-2026-04-28.md'))
+      ..writeAsStringSync('# Outside Review\n');
+    const symlinkPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    const actualPath = 'docs/specs/demo/plan-review-codex-2026-04-29.md';
+    Link(p.join(worktree.path, symlinkPath))
+      ..parent.createSync(recursive: true)
+      ..createSync(outsideReport.path);
+    File(p.join(worktree.path, actualPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Plan Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, actualPath);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Plan review completed.\n\n'
+          '<workflow-context>${jsonEncode({'review_findings': symlinkPath})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-symlink-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+    );
+    await taskService.updateFields('task-symlink-plan-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-symlink-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], actualPath);
+  });
+
+  test('filters unsafe diff-derived review findings paths', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-unsafe-diff-review-report'))..createSync();
+    final outsideDir = Directory(p.join(tempDir.path, 'outside-diff-target'))..createSync();
+    final outsideReport = File(p.join(outsideDir.path, 'plan-review-codex-2026-04-28.md'))
+      ..writeAsStringSync('# Outside Review\n');
+    const symlinkPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    Link(p.join(worktree.path, symlinkPath))
+      ..parent.createSync(recursive: true)
+      ..createSync(outsideReport.path);
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, symlinkPath)
+      ..addUntracked(worktree.path, outsideReport.path);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+
+    await taskService.create(
+      id: 'task-unsafe-diff-plan-review-report-path',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-unsafe-diff-plan-review-report-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-unsafe-diff-plan-review-report-path'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], '');
+  });
+
+  test('does not validate diff-derived review paths against project root fallback', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-project-root-fallback'))..createSync();
+    final projectRoot = Directory(p.join(tempDir.path, 'projects', 'demo-project'))..createSync(recursive: true);
+    const reportPath = 'docs/specs/demo/plan-review-codex-2026-04-28.md';
+    File(p.join(projectRoot.path, reportPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Project Root Review\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, reportPath);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+
+    await taskService.create(
+      id: 'task-diff-project-root-fallback',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      projectId: 'demo-project',
+    );
+    await taskService.updateFields('task-diff-project-root-fallback', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-diff-project-root-fallback'))!;
+    final step = makeStep(outputs: const {'review_findings': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['review_findings'], '');
+  });
+
+  test('resolves list path outputs from workflow git diff', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree'))..createSync();
+    File(p.join(worktree.path, 'fis', 's01-foo.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Foo\n');
+    File(p.join(worktree.path, 'fis', 's02-bar.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Bar\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'fis/s01-foo.md')
+      ..addUntracked(worktree.path, 'fis/s02-bar.md')
+      ..addUntracked(worktree.path, 'docs/unrelated.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>${jsonEncode({
+            'fis_paths': ['fis/s01-foo.md', 'fis/s02-bar.md'],
+          })}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-fis-paths',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-fis-paths', sessionId: session.id, worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-fis-paths'))!;
+
+    final step = makeStep(outputs: const {'fis_paths': OutputConfig(format: OutputFormat.lines)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['fis_paths'], ['fis/s01-foo.md', 'fis/s02-bar.md']);
+    expect(git.events, contains('diff --name-only'));
+  });
+
+  test('rejects phantom path claims against workflow git diff', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-phantom'))..createSync();
+    final git = FakeGitGateway()..initWorktree(worktree.path);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"prd":"docs/prd.md"}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-phantom-path',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-phantom-path', sessionId: session.id, worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-phantom-path'))!;
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
+
+    await expectLater(
+      localExtractor.extract(step, taskWithWorktree),
+      throwsA(
+        isA<MissingArtifactFailure>()
+            .having((failure) => failure.claimedPaths, 'claimedPaths', ['docs/prd.md'])
+            .having((failure) => failure.missingPaths, 'missingPaths', ['docs/prd.md'])
+            .having((failure) => failure.worktreePath, 'worktreePath', worktree.path)
+            .having((failure) => failure.fieldName, 'fieldName', 'prd')
+            .having((failure) => failure.reason, 'reason', 'path claimed but not present in worktree diff'),
+      ),
+    );
+  });
+
+  test('accepts claimed existing path outputs even when they are unchanged in the worktree diff', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-existing-claim'))..createSync();
+    File(p.join(worktree.path, 'docs', 'prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Existing PRD\n');
+    final git = FakeGitGateway()..initWorktree(worktree.path);
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"prd":"docs/prd.md"}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-existing-path',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-existing-path', sessionId: session.id, worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-existing-path'))!;
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['prd'], 'docs/prd.md');
+  });
+
+  test('prefers an explicitly claimed path over unrelated diff matches for singular outputs', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-explicit-singular'))..createSync();
+    File(p.join(worktree.path, 'docs', 'prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Existing PRD\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'other/prd.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"prd":"docs/prd.md"}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-explicit-singular',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields(
+      'task-explicit-singular',
+      sessionId: session.id,
+      worktreeJson: {'path': worktree.path},
+    );
+    final taskWithWorktree = (await taskService.get('task-explicit-singular'))!;
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['prd'], 'docs/prd.md');
+  });
+
+  test('preserves unchanged claimed files in list outputs alongside changed ones', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-explicit-list'))..createSync();
+    File(p.join(worktree.path, 'fis', 's01-foo.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Existing Foo\n');
+    File(p.join(worktree.path, 'fis', 's02-bar.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Bar\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'fis/s02-bar.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>${jsonEncode({
+            'fis_paths': ['fis/s01-foo.md', 'fis/s02-bar.md'],
+          })}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-explicit-list',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-explicit-list', sessionId: session.id, worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-explicit-list'))!;
+
+    final step = makeStep(outputs: const {'fis_paths': OutputConfig(format: OutputFormat.lines)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['fis_paths'], ['fis/s01-foo.md', 'fis/s02-bar.md']);
+  });
+
+  test('throws StateError when singular filesystem output has multiple matches', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-ambiguous'))..createSync();
+    File(p.join(worktree.path, 'docs', 'a', 'prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# A\n');
+    File(p.join(worktree.path, 'docs', 'b', 'prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# B\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'docs/a/prd.md')
+      ..addUntracked(worktree.path, 'docs/b/prd.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    await taskService.create(
+      id: 'task-ambiguous-path',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-ambiguous-path', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-ambiguous-path'))!;
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
+
+    await expectLater(
+      localExtractor.extract(step, taskWithWorktree),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Multiple filesystem artifacts'))),
+    );
+  });
+
+  test('uses inline values for narrative-only outputs', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"summary":"Inline summary","confidence":8}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-narrative-inline',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-narrative-inline', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-narrative-inline'))!;
+    final fallbackCalls = <String>[];
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      structuredOutputFallbackRecorder:
+          (_, {required stepId, required outputKey, required failureReason, String? providerSubtype}) {
+            fallbackCalls.add(outputKey);
+          },
+    );
+    final step = makeStep(
+      outputs: const {
+        'summary': OutputConfig(format: OutputFormat.text),
+        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await localExtractor.extract(step, taskWithSession);
+
+    expect(outputs['summary'], 'Inline summary');
+    expect(outputs['confidence'], 8);
+    expect(fallbackCalls, isEmpty);
+  });
+
+  test('resolves mixed filesystem and inline narrative outputs', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-mixed'))..createSync();
+    File(p.join(worktree.path, 'fis', 's01-foo.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Foo\n');
+    File(p.join(worktree.path, 'fis', 's02-bar.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Bar\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'fis/s01-foo.md')
+      ..addUntracked(worktree.path, 'fis/s02-bar.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>${jsonEncode({
+            'fis_paths': ['fis/s02-bar.md', 'fis/s01-foo.md'],
+            'summary': 'Inline summary',
+            'confidence': 9,
+          })}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-mixed-output',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-mixed-output', sessionId: session.id, worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-mixed-output'))!;
+    final step = makeStep(
+      outputs: const {
+        'fis_paths': OutputConfig(format: OutputFormat.lines),
+        'summary': OutputConfig(format: OutputFormat.text),
+        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['fis_paths'], ['fis/s01-foo.md', 'fis/s02-bar.md']);
+    expect(outputs['summary'], 'Inline summary');
+    expect(outputs['confidence'], 9);
+  });
+
+  test(
+    'uses the most recent assistant message containing workflow-context, not only the last assistant message',
+    () async {
+      final session = await sessionService.getOrCreateMain();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: 'Done.\n\n<workflow-context>{"prd":"PRD text","stories":{"items":[{"id":"S01"}]}}</workflow-context>',
+      );
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: '{"stories":{"items":[{"id":"S01"}]}}',
+      );
+
+      await taskService.create(
+        id: 'task-workflow-context-history',
+        title: 'Test',
+        description: 'Test',
+        type: TaskType.research,
+        autoStart: true,
+      );
+      await taskService.updateFields('task-workflow-context-history', sessionId: session.id);
+      final taskWithSession = (await taskService.get('task-workflow-context-history'))!;
+
+      final step = makeStep(
+        outputs: const {
+          'prd': OutputConfig(format: OutputFormat.text),
+          'stories': OutputConfig(format: OutputFormat.json, schema: 'story-plan'),
+        },
+      );
+      final outputs = await extractor.extract(step, taskWithSession);
+
+      expect(outputs['prd'], equals('PRD text'));
+      expect(outputs['stories'], isA<Map<Object?, Object?>>());
+      expect(((outputs['stories'] as Map<Object?, Object?>)['items'] as List<Object?>), hasLength(1));
+    },
+  );
 
   test('format-aware json output stores parsed list from last assistant message', () async {
     final session = await sessionService.getOrCreateMain();
@@ -173,10 +1826,7 @@ void main() {
     await taskService.updateFields('task-json-list-1', sessionId: session.id);
     final taskWithSession = (await taskService.get('task-json-list-1'))!;
 
-    final step = makeStep(
-      contextOutputs: ['result'],
-      outputs: {'result': const OutputConfig(format: OutputFormat.json)},
-    );
+    final step = makeStep(outputs: {'result': const OutputConfig(format: OutputFormat.json)});
 
     final outputs = await extractor.extract(step, taskWithSession);
     final result = outputs['result'] as List<Object?>;
@@ -200,10 +1850,7 @@ void main() {
     await taskService.updateFields('task-lines-1', sessionId: session.id);
     final taskWithSession = (await taskService.get('task-lines-1'))!;
 
-    final step = makeStep(
-      contextOutputs: ['result'],
-      outputs: {'result': const OutputConfig(format: OutputFormat.lines)},
-    );
+    final step = makeStep(outputs: {'result': const OutputConfig(format: OutputFormat.lines)});
 
     final outputs = await extractor.extract(step, taskWithSession);
     expect(outputs['result'], equals(['alpha', 'beta', 'gamma']));
@@ -233,7 +1880,6 @@ void main() {
     final taskWithSession = (await taskService.get('task-schema-1'))!;
 
     final step = makeStep(
-      contextOutputs: ['result'],
       outputs: {'result': const OutputConfig(format: OutputFormat.json, schema: 'verdict')},
     );
 
@@ -267,7 +1913,7 @@ void main() {
       path: p.join(artifactsDir.path, 'diff.json'),
     );
 
-    final step = makeStep(contextOutputs: ['diff_summary']);
+    final step = makeStep(outputs: {'diff_summary': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     expect(outputs['diff_summary'], contains('3 files changed'));
     expect(outputs['diff_summary'], contains('+45'));
@@ -290,7 +1936,7 @@ void main() {
     );
 
     final step = makeStep(
-      contextOutputs: ['report'],
+      outputs: {'report': OutputConfig()},
       extraction: const ExtractionConfig(type: ExtractionType.artifact, pattern: 'special-report'),
     );
     final outputs = await extractor.extract(step, task);
@@ -300,7 +1946,7 @@ void main() {
   test('ExtractionConfig with regex type logs warning and falls back', () async {
     final task = await createTask();
     final step = makeStep(
-      contextOutputs: ['result'],
+      outputs: {'result': OutputConfig()},
       extraction: const ExtractionConfig(type: ExtractionType.regex, pattern: r'\d+'),
     );
     // Should not throw — falls back to empty string.
@@ -324,7 +1970,7 @@ void main() {
       path: mdFile.path,
     );
 
-    final step = makeStep(contextOutputs: ['large_output']);
+    final step = makeStep(outputs: {'large_output': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     // Content should not be truncated — only a warning is logged.
     expect(outputs['large_output'], equals(largeContent));
@@ -346,13 +1992,542 @@ void main() {
       path: diffFile.path,
     );
 
-    final step = makeStep(contextOutputs: ['notes', 'diff_changes']);
+    final step = makeStep(outputs: {'notes': OutputConfig(), 'diff_changes': OutputConfig()});
     final outputs = await extractor.extract(step, task);
     expect(outputs['notes'], equals(''));
     expect(outputs['diff_changes'], contains('1 files changed'));
   });
 
-  group('S04 (0.16.1): worktree source outputs', () {
+  test('structured output mode reads provider payload from task config', () async {
+    await agentExecutions.create(const AgentExecution(id: 'ae-task-structured-config'));
+    await taskService.create(
+      id: 'task-structured-config',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+      agentExecutionId: 'ae-task-structured-config',
+      workflowRunId: 'wf-structured-config',
+    );
+    await workflowStepExecutions.create(
+      const WorkflowStepExecution(
+        taskId: 'task-structured-config',
+        agentExecutionId: 'ae-task-structured-config',
+        workflowRunId: 'wf-structured-config',
+        stepIndex: 0,
+        stepId: 'step1',
+        structuredOutputJson: '{"verdict":{"pass":true,"findings_count":0,"findings":[],"summary":"Clean"}}',
+      ),
+    );
+    final task = (await taskService.get('task-structured-config'))!;
+
+    final step = makeStep(
+      outputs: const {
+        'verdict': OutputConfig(format: OutputFormat.json, outputMode: OutputMode.structured, schema: 'verdict'),
+      },
+    );
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['verdict'], isA<Map<Object?, Object?>>());
+    expect((outputs['verdict'] as Map<Object?, Object?>)['pass'], isTrue);
+  });
+
+  test('structured output mode rejects provider payload that violates schema', () async {
+    await agentExecutions.create(const AgentExecution(id: 'ae-task-structured-invalid'));
+    await taskService.create(
+      id: 'task-structured-invalid',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+      agentExecutionId: 'ae-task-structured-invalid',
+      workflowRunId: 'wf-structured-invalid',
+    );
+    await workflowStepExecutions.create(
+      const WorkflowStepExecution(
+        taskId: 'task-structured-invalid',
+        agentExecutionId: 'ae-task-structured-invalid',
+        workflowRunId: 'wf-structured-invalid',
+        stepIndex: 0,
+        stepId: 'step1',
+        structuredOutputJson: '{"count":-1}',
+      ),
+    );
+    final task = (await taskService.get('task-structured-invalid'))!;
+
+    final step = makeStep(
+      outputs: const {
+        'count': OutputConfig(
+          format: OutputFormat.json,
+          outputMode: OutputMode.structured,
+          schema: 'non-negative-integer',
+        ),
+      },
+    );
+
+    await expectLater(
+      extractor.extract(step, task),
+      throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('failed schema validation'))),
+    );
+  });
+
+  test('inline payload wins for narrative fields before structured fallback payload', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'Done.\n\n<workflow-context>{"summary":"Inline summary"}</workflow-context>',
+    );
+    await agentExecutions.create(const AgentExecution(id: 'ae-narrative-precedence'));
+    await taskService.create(
+      id: 'task-narrative-precedence',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+      agentExecutionId: 'ae-narrative-precedence',
+      workflowRunId: 'wf-narrative-precedence',
+    );
+    await workflowStepExecutions.create(
+      const WorkflowStepExecution(
+        taskId: 'task-narrative-precedence',
+        agentExecutionId: 'ae-narrative-precedence',
+        workflowRunId: 'wf-narrative-precedence',
+        stepIndex: 0,
+        stepId: 'step1',
+        structuredOutputJson: '{"summary":"Structured summary","confidence":7}',
+      ),
+    );
+    await taskService.updateFields('task-narrative-precedence', sessionId: session.id);
+    final task = (await taskService.get('task-narrative-precedence'))!;
+    final step = makeStep(
+      outputs: const {
+        'summary': OutputConfig(format: OutputFormat.text),
+        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['summary'], 'Inline summary');
+    expect(outputs['confidence'], 7);
+  });
+
+  test('structured output mode records fallback and uses heuristic json when payload is missing', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: '{"verdict":{"pass":true,"findings_count":0,"findings":[],"summary":"Clean"}}',
+    );
+
+    await taskService.create(
+      id: 'task-structured-fallback',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-structured-fallback', sessionId: session.id);
+    final task = (await taskService.get('task-structured-fallback'))!;
+
+    final fallbackCalls = <Map<String, Object?>>[];
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      structuredOutputFallbackRecorder:
+          (taskId, {required stepId, required outputKey, required failureReason, String? providerSubtype}) {
+            fallbackCalls.add({
+              'taskId': taskId,
+              'stepId': stepId,
+              'outputKey': outputKey,
+              'failureReason': failureReason,
+              'providerSubtype': providerSubtype,
+            });
+          },
+    );
+
+    final step = makeStep(
+      outputs: const {
+        'verdict': OutputConfig(format: OutputFormat.json, outputMode: OutputMode.structured, schema: 'verdict'),
+      },
+    );
+    final outputs = await localExtractor.extract(step, task);
+
+    expect(outputs['verdict'], isA<Map<Object?, Object?>>());
+    expect((outputs['verdict'] as Map<Object?, Object?>)['pass'], isTrue);
+    expect(fallbackCalls, [
+      {
+        'taskId': 'task-structured-fallback',
+        'stepId': 'step1',
+        'outputKey': 'verdict',
+        'failureReason': 'missing_payload',
+        'providerSubtype': null,
+      },
+    ]);
+  });
+
+  test('derived outputs reuse fields from an earlier parsed JSON output', () async {
+    final session = await sessionService.getOrCreateMain();
+    await taskService.create(
+      id: 'task-session-json',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-session-json', sessionId: session.id);
+    final task = (await taskService.get('task-session-json'))!;
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: jsonEncode({
+        'pass': false,
+        'findings_count': 2,
+        'findings': [
+          {'severity': 'high', 'location': 'lib/a.dart:10', 'description': 'Issue A'},
+          {'severity': 'low', 'location': 'lib/b.dart:12', 'description': 'Issue B'},
+        ],
+        'summary': 'Two findings remain.',
+      }),
+    );
+
+    final step = makeStep(
+      outputs: const {
+        'review_summary': OutputConfig(format: OutputFormat.json, schema: 'verdict'),
+        'findings_count': OutputConfig(format: OutputFormat.text),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+    expect(outputs['review_summary'], isA<Map<String, dynamic>>());
+    expect((outputs['review_summary'] as Map<String, dynamic>)['findings_count'], 2);
+    expect(outputs['findings_count'], 2);
+  });
+
+  test('review producer outputs preserve distinct total and gating findings counts', () async {
+    const producers = [
+      (
+        name: 'dartclaw-review',
+        stepId: 'review-code',
+        summaryKey: 'review_summary',
+        totalKey: 'review-code.findings_count',
+        gatingKey: 'review-code.gating_findings_count',
+      ),
+      (
+        name: 'dartclaw-quick-review',
+        stepId: 're-review',
+        summaryKey: 'review_findings',
+        totalKey: 're-review.findings_count',
+        gatingKey: 're-review.gating_findings_count',
+      ),
+      (
+        name: 'dartclaw-architecture',
+        stepId: 'architecture-review',
+        summaryKey: null,
+        totalKey: 'architecture-review.findings_count',
+        gatingKey: 'architecture-review.gating_findings_count',
+      ),
+    ];
+
+    for (final producer in producers) {
+      for (final gatingCount in const [0, 1]) {
+        final session = await sessionService.getOrCreateMain();
+        final payload = <String, Object?>{'findings_count': 3, producer.totalKey: 3, producer.gatingKey: gatingCount};
+        final summaryKey = producer.summaryKey;
+        if (summaryKey != null) {
+          payload[summaryKey] = {
+            'pass': gatingCount == 0,
+            'findings_count': 3,
+            'findings': [
+              {
+                'severity': gatingCount == 0 ? 'low' : 'medium',
+                'location': 'lib/workflow.dart:1',
+                'description': 'Representative review finding',
+              },
+            ],
+            'summary': gatingCount == 0 ? 'Only LOW findings remain.' : 'A MEDIUM finding remains.',
+          };
+        }
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+        );
+        final taskId = 'task-${producer.stepId}-$gatingCount';
+        await taskService.create(
+          id: taskId,
+          title: 'Test',
+          description: 'Test',
+          type: TaskType.research,
+          autoStart: true,
+        );
+        await taskService.updateFields(taskId, sessionId: session.id);
+        final task = (await taskService.get(taskId))!;
+        final outputConfigs = <String, OutputConfig>{
+          producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+          producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        };
+        if (summaryKey != null) {
+          outputConfigs[summaryKey] = const OutputConfig(format: OutputFormat.json, schema: 'verdict');
+        }
+        final step = makeStep(id: producer.stepId, outputs: outputConfigs);
+
+        final outputs = await extractor.extract(step, task);
+
+        expect(outputs[producer.totalKey], 3, reason: producer.name);
+        expect(outputs[producer.gatingKey], gatingCount, reason: producer.name);
+      }
+    }
+  });
+
+  test('review producer outputs derive scoped counts from verdict findings when scoped keys are missing', () async {
+    const producers = [
+      (
+        name: 'dartclaw-review',
+        stepId: 'review-code',
+        summaryKey: 'review_summary',
+        totalKey: 'review-code.findings_count',
+        gatingKey: 'review-code.gating_findings_count',
+      ),
+      (
+        name: 'dartclaw-quick-review',
+        stepId: 're-review',
+        summaryKey: 'review_findings',
+        totalKey: 're-review.findings_count',
+        gatingKey: 're-review.gating_findings_count',
+      ),
+    ];
+
+    for (final producer in producers) {
+      for (final testCase in const [(gatingCount: 0, severity: 'low'), (gatingCount: 1, severity: 'medium')]) {
+        final session = await sessionService.getOrCreateMain();
+        final payload = <String, Object?>{
+          producer.summaryKey: {
+            'pass': testCase.gatingCount == 0,
+            'findings_count': 3,
+            'findings': [
+              {
+                'severity': testCase.severity,
+                'location': 'lib/workflow.dart:1',
+                'description': 'Representative review finding',
+              },
+              {'severity': 'low', 'location': 'lib/workflow.dart:2', 'description': 'Low severity review finding'},
+              {
+                'severity': 'low',
+                'location': 'lib/workflow.dart:3',
+                'description': 'Another low severity review finding',
+              },
+            ],
+            'summary': testCase.gatingCount == 0 ? 'Only LOW findings remain.' : 'A MEDIUM finding remains.',
+          },
+        };
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+        );
+        final taskId = 'task-${producer.stepId}-derived-${testCase.gatingCount}';
+        await taskService.create(
+          id: taskId,
+          title: 'Test',
+          description: 'Test',
+          type: TaskType.research,
+          autoStart: true,
+        );
+        await taskService.updateFields(taskId, sessionId: session.id);
+        final task = (await taskService.get(taskId))!;
+        final step = makeStep(
+          id: producer.stepId,
+          outputs: {
+            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.summaryKey: const OutputConfig(format: OutputFormat.json, schema: 'verdict'),
+          },
+        );
+
+        final outputs = await extractor.extract(step, task);
+
+        expect(outputs[producer.totalKey], 3, reason: producer.name);
+        expect(outputs[producer.gatingKey], testCase.gatingCount, reason: producer.name);
+      }
+    }
+  });
+
+  test('file-backed review producers fall back to total count when gating count is missing', () async {
+    const producers = [
+      (
+        name: 'dartclaw-review',
+        stepId: 'plan-review',
+        totalKey: 'plan-review.findings_count',
+        gatingKey: 'plan-review.gating_findings_count',
+      ),
+      (
+        name: 'dartclaw-architecture',
+        stepId: 'architecture-review',
+        totalKey: 'architecture-review.findings_count',
+        gatingKey: 'architecture-review.gating_findings_count',
+      ),
+    ];
+
+    for (final producer in producers) {
+      for (final findingsCount in const [0, 2]) {
+        final session = await sessionService.getOrCreateMain();
+        final payload = <String, Object?>{'review_findings': 'docs/specs/review.md', producer.totalKey: findingsCount};
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+        );
+        final taskId = 'task-${producer.stepId}-file-backed-$findingsCount';
+        await taskService.create(
+          id: taskId,
+          title: 'Test',
+          description: 'Test',
+          type: TaskType.research,
+          autoStart: true,
+        );
+        await taskService.updateFields(taskId, sessionId: session.id);
+        final task = (await taskService.get(taskId))!;
+        final step = makeStep(
+          id: producer.stepId,
+          outputs: {
+            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+          },
+        );
+
+        final outputs = await extractor.extract(step, task);
+
+        expect(outputs[producer.totalKey], findingsCount, reason: producer.name);
+        expect(outputs[producer.gatingKey], findingsCount, reason: producer.name);
+      }
+    }
+  });
+
+  test('file-backed review producers accept unscoped count fallbacks', () async {
+    const producers = [
+      (
+        name: 'dartclaw-review',
+        stepId: 'plan-review',
+        totalKey: 'plan-review.findings_count',
+        gatingKey: 'plan-review.gating_findings_count',
+      ),
+      (
+        name: 'dartclaw-architecture',
+        stepId: 'architecture-review',
+        totalKey: 'architecture-review.findings_count',
+        gatingKey: 'architecture-review.gating_findings_count',
+      ),
+    ];
+
+    for (final producer in producers) {
+      for (final payload in const [
+        {'findings_count': 3, 'gating_findings_count': 1},
+        {'findings_count': 2},
+      ]) {
+        final session = await sessionService.getOrCreateMain();
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+        );
+        final taskId = 'task-${producer.stepId}-unscoped-${payload.length}';
+        await taskService.create(
+          id: taskId,
+          title: 'Test',
+          description: 'Test',
+          type: TaskType.research,
+          autoStart: true,
+        );
+        await taskService.updateFields(taskId, sessionId: session.id);
+        final task = (await taskService.get(taskId))!;
+        final step = makeStep(
+          id: producer.stepId,
+          outputs: {
+            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+          },
+        );
+
+        final outputs = await extractor.extract(step, task);
+
+        expect(outputs[producer.totalKey], payload['findings_count'], reason: producer.name);
+        expect(
+          outputs[producer.gatingKey],
+          payload['gating_findings_count'] ?? payload['findings_count'],
+          reason: producer.name,
+        );
+      }
+    }
+  });
+
+  test('file-backed review producers prefer scoped total over unscoped gating fallback', () async {
+    final session = await sessionService.getOrCreateMain();
+    final payload = <String, Object?>{'plan-review.findings_count': 2, 'gating_findings_count': 0};
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-plan-review-scoped-total-wins',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-plan-review-scoped-total-wins', sessionId: session.id);
+    final task = (await taskService.get('task-plan-review-scoped-total-wins'))!;
+    final step = makeStep(
+      id: 'plan-review',
+      outputs: const {
+        'plan-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'plan-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['plan-review.findings_count'], 2);
+    expect(outputs['plan-review.gating_findings_count'], 2);
+  });
+
+  test('file-backed review producers prefer scoped total over already-extracted unscoped gating fallback', () async {
+    final session = await sessionService.getOrCreateMain();
+    final payload = <String, Object?>{'plan-review.findings_count': 2, 'gating_findings_count': 0};
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
+    );
+    await taskService.create(
+      id: 'task-plan-review-extracted-unscoped-gating',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-plan-review-extracted-unscoped-gating', sessionId: session.id);
+    final task = (await taskService.get('task-plan-review-extracted-unscoped-gating'))!;
+    final step = makeStep(
+      id: 'plan-review',
+      outputs: const {
+        'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'plan-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'plan-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['gating_findings_count'], 0);
+    expect(outputs['plan-review.findings_count'], 2);
+    expect(outputs['plan-review.gating_findings_count'], 2);
+  });
+
+  group('worktree source outputs', () {
     test('source: worktree.branch extracts branch from task.worktreeJson', () async {
       final task = await taskService.create(
         id: 'task-wt1',
@@ -376,7 +2551,6 @@ void main() {
         name: 'Fix',
         type: 'coding',
         prompts: const ['Fix the bug'],
-        contextOutputs: const ['branch'],
         outputs: const {'branch': OutputConfig(source: 'worktree.branch')},
       );
 
@@ -407,7 +2581,6 @@ void main() {
         name: 'Fix',
         type: 'coding',
         prompts: const ['Fix the bug'],
-        contextOutputs: const ['worktree_path'],
         outputs: const {'worktree_path': OutputConfig(source: 'worktree.path')},
       );
 
@@ -429,12 +2602,238 @@ void main() {
         name: 'Fix',
         type: 'coding',
         prompts: const ['Fix the bug'],
-        contextOutputs: const ['branch'],
         outputs: const {'branch': OutputConfig(source: 'worktree.branch')},
       );
 
       final outputs = await extractor.extract(step, task);
       expect(outputs['branch'], equals(''));
+    });
+  });
+
+  group('project-index path sanitization', () {
+    test('clears document locations that escape project_root via relative segments', () async {
+      final session = await sessionService.getOrCreateMain();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content:
+            '<workflow-context>{"project_index":{"framework":"none","project_root":"/repo/public","document_locations":{"product":null,"backlog":null,"roadmap":"../../private/docs/ROADMAP.md","prd":"docs/prd.md","plan":"/repo/public/docs/plan.md","spec":null,"state":"../STATE.md","readme":"README.md","agent_rules":"AGENTS.md","architecture":"docs/architecture","guide":"docs/guide/README.md"},"state_protocol":{"type":"none","state_file":"../../private/STATE.md","format":null}}}</workflow-context>',
+      );
+
+      await taskService.create(
+        id: 'task-project-index-1',
+        title: 'Test',
+        description: 'Test',
+        type: TaskType.research,
+        autoStart: true,
+      );
+      await taskService.updateFields('task-project-index-1', sessionId: session.id);
+      final taskWithSession = (await taskService.get('task-project-index-1'))!;
+
+      final step = makeStep(
+        outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
+      );
+
+      final outputs = await extractor.extract(step, taskWithSession);
+      final projectIndex = outputs['project_index'] as Map<String, dynamic>;
+      final documentLocations = projectIndex['document_locations'] as Map<String, dynamic>;
+
+      expect(documentLocations['roadmap'], isNull);
+      expect(documentLocations['state'], isNull);
+      expect(documentLocations['prd'], equals('docs/prd.md'));
+      expect(documentLocations['plan'], equals('docs/plan.md'));
+      expect(documentLocations['readme'], equals('README.md'));
+      final stateProtocol = projectIndex['state_protocol'] as Map<String, dynamic>;
+      expect(stateProtocol['state_file'], isNull);
+    });
+
+    test('sanitizes active_story_specs spec paths against project_root', () async {
+      final session = await sessionService.getOrCreateMain();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content:
+            '<workflow-context>{"project_index":{"framework":"none","project_root":"/repo/public","active_story_specs":{"items":[{"id":"S01","title":"Safe","spec_path":"/repo/public/docs/specs/demo/fis/s01.md","dependencies":[]},{"id":"S02","title":"Escape","spec_path":"../../private/fis/s02.md","dependencies":[]}]}}}</workflow-context>',
+      );
+
+      await taskService.create(
+        id: 'task-project-index-2',
+        title: 'Test',
+        description: 'Test',
+        type: TaskType.research,
+        autoStart: true,
+      );
+      await taskService.updateFields('task-project-index-2', sessionId: session.id);
+      final taskWithSession = (await taskService.get('task-project-index-2'))!;
+
+      final step = makeStep(
+        outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
+      );
+
+      final outputs = await extractor.extract(step, taskWithSession);
+      final projectIndex = outputs['project_index'] as Map<String, dynamic>;
+      final activeStorySpecs = projectIndex['active_story_specs'] as Map<String, dynamic>;
+      final items = activeStorySpecs['items'] as List<dynamic>;
+
+      expect((items[0] as Map<String, dynamic>)['spec_path'], equals('docs/specs/demo/fis/s01.md'));
+      expect((items[1] as Map<String, dynamic>)['spec_path'], isNull);
+    });
+
+    test('repairs agent_rules to an existing root instruction file', () async {
+      final root = Directory(p.join(tempDir.path, 'project'))..createSync(recursive: true);
+      File(p.join(root.path, 'CLAUDE.md')).writeAsStringSync('# Agent Rules\n');
+
+      final session = await sessionService.getOrCreateMain();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content:
+            '<workflow-context>${jsonEncode({
+              'project_index': {
+                'framework': 'andthen',
+                'project_root': root.path,
+                'document_locations': {'product': null, 'backlog': 'docs/PRODUCT-BACKLOG.md', 'roadmap': 'docs/ROADMAP.md', 'prd': null, 'plan': null, 'spec': null, 'state': 'docs/STATE.md', 'readme': 'README.md', 'agent_rules': 'AGENTS.md', 'architecture': 'CLAUDE.md', 'guide': 'docs/guidelines'},
+                'state_protocol': {'type': 'andthen-state', 'state_file': 'docs/STATE.md', 'format': 'markdown'},
+              },
+            })}</workflow-context>',
+      );
+
+      await taskService.create(
+        id: 'task-project-index-agent-rules',
+        title: 'Test',
+        description: 'Test',
+        type: TaskType.research,
+        autoStart: true,
+      );
+      await taskService.updateFields('task-project-index-agent-rules', sessionId: session.id);
+      final taskWithSession = (await taskService.get('task-project-index-agent-rules'))!;
+
+      final step = makeStep(
+        outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
+      );
+
+      final outputs = await extractor.extract(step, taskWithSession);
+      final projectIndex = outputs['project_index'] as Map<String, dynamic>;
+      final documentLocations = projectIndex['document_locations'] as Map<String, dynamic>;
+
+      expect(documentLocations['agent_rules'], equals('CLAUDE.md'));
+    });
+
+    test('coerces state_protocol scalars: trims strings, drops empty/non-string', () async {
+      final session = await sessionService.getOrCreateMain();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content:
+            '<workflow-context>${jsonEncode({
+              'project_index': {
+                'framework': 'andthen',
+                'project_root': '/repo/public',
+                'state_protocol': {
+                  'type': '  andthen-state  ',
+                  'state_file': 'docs/STATE.md',
+                  'format': {'unexpected': 'map-not-string'},
+                },
+              },
+            })}</workflow-context>',
+      );
+
+      await taskService.create(
+        id: 'task-state-protocol-coercion',
+        title: 'Test',
+        description: 'Test',
+        type: TaskType.research,
+        autoStart: true,
+      );
+      await taskService.updateFields('task-state-protocol-coercion', sessionId: session.id);
+      final taskWithSession = (await taskService.get('task-state-protocol-coercion'))!;
+
+      final step = makeStep(
+        outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
+      );
+
+      final outputs = await extractor.extract(step, taskWithSession);
+      final projectIndex = outputs['project_index'] as Map<String, dynamic>;
+      final stateProtocol = projectIndex['state_protocol'] as Map<String, dynamic>;
+
+      expect(stateProtocol['type'], equals('andthen-state'), reason: 'string scalars are trimmed');
+      expect(stateProtocol['format'], isNull, reason: 'non-string scalars are dropped');
+    });
+  });
+
+  group('setValue', () {
+    test('writes explicit null literal to context, overriding extraction', () async {
+      final task = await createTask();
+      // Plant an .md artifact that would normally win for `k`.
+      final artifactsDir = Directory(p.join(tempDir.path, 'tasks', 'task-1', 'artifacts'));
+      artifactsDir.createSync(recursive: true);
+      final mdFile = File(p.join(artifactsDir.path, 'output.md'));
+      mdFile.writeAsStringSync('extracted content');
+      await taskService.addArtifact(
+        id: 'art-setvalue-null',
+        taskId: 'task-1',
+        name: 'output.md',
+        kind: ArtifactKind.document,
+        path: mdFile.path,
+      );
+
+      final step = makeStep(outputs: const {'k': OutputConfig(setValue: null)});
+
+      final outputs = await extractor.extract(step, task);
+      expect(outputs.containsKey('k'), isTrue);
+      expect(outputs['k'], isNull);
+    });
+
+    test('writes non-null literal to context', () async {
+      final task = await createTask();
+      final step = makeStep(outputs: const {'k': OutputConfig(setValue: 'literal')});
+      final outputs = await extractor.extract(step, task);
+      expect(outputs['k'], 'literal');
+    });
+
+    test('without setValue the key extracts normally', () async {
+      final task = await createTask();
+      final artifactsDir = Directory(p.join(tempDir.path, 'tasks', 'task-1', 'artifacts'));
+      artifactsDir.createSync(recursive: true);
+      final mdFile = File(p.join(artifactsDir.path, 'output.md'));
+      mdFile.writeAsStringSync('extracted content');
+      await taskService.addArtifact(
+        id: 'art-no-setvalue',
+        taskId: 'task-1',
+        name: 'output.md',
+        kind: ArtifactKind.document,
+        path: mdFile.path,
+      );
+
+      final step = makeStep(outputs: {'k': OutputConfig()});
+      final outputs = await extractor.extract(step, task);
+      expect(outputs['k'], 'extracted content');
+    });
+
+    test('setValue wins over extraction at first-key position', () async {
+      // Reproduces the precedence guard against the legacy ExtractionConfig
+      // priority branch in extract() — without the guard, extraction would
+      // silently beat setValue for the first output key only.
+      final task = await createTask();
+      final artifactsDir = Directory(p.join(tempDir.path, 'tasks', 'task-1', 'artifacts'));
+      artifactsDir.createSync(recursive: true);
+      final reportFile = File(p.join(artifactsDir.path, 'special-report.md'));
+      reportFile.writeAsStringSync('Special report content here.');
+      await taskService.addArtifact(
+        id: 'art-precedence',
+        taskId: 'task-1',
+        name: 'special-report.md',
+        kind: ArtifactKind.document,
+        path: reportFile.path,
+      );
+
+      final step = makeStep(
+        extraction: const ExtractionConfig(type: ExtractionType.artifact, pattern: 'special-report'),
+        outputs: const {'k': OutputConfig(setValue: 'wins')},
+      );
+
+      final outputs = await extractor.extract(step, task);
+      expect(outputs['k'], 'wins');
     });
   });
 }

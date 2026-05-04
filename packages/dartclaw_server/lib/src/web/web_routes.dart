@@ -29,6 +29,7 @@ import '../templates/session_info.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
 import '../runtime_config.dart';
+import '../sidebar_live_state.dart';
 import '../task/agent_observer.dart';
 import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
@@ -151,6 +152,8 @@ Router webRoutes(
       defaultProvider: defaultProvider,
       showChannels: visibility.showChannels,
       tasksEnabled: taskService != null && eventBus != null,
+      taskService: taskService,
+      workflowService: workflowService,
     ),
     restartBannerHtml: () => restartBannerHtml(appDisplay.dataDir),
     buildNavItems: ({required String activePage}) => registry.navItems(activePage: activePage),
@@ -221,6 +224,8 @@ Router webRoutes(
       defaultProvider: defaultProvider,
       showChannels: visibility.showChannels,
       tasksEnabled: taskService != null && eventBus != null,
+      taskService: taskService,
+      workflowService: workflowService,
     );
     final sidebar = sidebarTemplate(
       mainSession: sidebarData.main,
@@ -228,6 +233,8 @@ Router webRoutes(
       groupChannels: sidebarData.groupChannels,
       activeEntries: sidebarData.activeEntries,
       archivedEntries: sidebarData.archivedEntries,
+      activeTasks: sidebarData.activeTasks,
+      activeWorkflows: sidebarData.activeWorkflows,
       showChannels: sidebarData.showChannels,
       tasksEnabled: sidebarData.tasksEnabled,
       navItems: systemNav,
@@ -236,7 +243,12 @@ Router webRoutes(
     final topbar = topbarTemplate(appName: appDisplay.name);
     final main = emptyAppStateTemplate(appName: appDisplay.name);
     final bodyHtml = '<div class="shell">$sidebar$topbar$main</div>';
-    final page = layoutTemplate(title: appDisplay.name, body: bodyHtml, appName: appDisplay.name);
+    final page = layoutTemplate(
+      title: appDisplay.name,
+      body: bodyHtml,
+      appName: appDisplay.name,
+      scripts: standardShellScripts(),
+    );
 
     return Response.ok(page, headers: htmlHeaders);
   });
@@ -253,6 +265,8 @@ Router webRoutes(
         defaultProvider: defaultProvider,
         showChannels: visibility.showChannels,
         tasksEnabled: taskService != null && eventBus != null,
+        taskService: taskService,
+        workflowService: workflowService,
       );
       final msgs = await messages.getMessagesTail(id);
       final messageList = msgs
@@ -267,6 +281,8 @@ Router webRoutes(
         groupChannels: sidebarData.groupChannels,
         activeEntries: sidebarData.activeEntries,
         archivedEntries: sidebarData.archivedEntries,
+        activeTasks: sidebarData.activeTasks,
+        activeWorkflows: sidebarData.activeWorkflows,
         showChannels: sidebarData.showChannels,
         tasksEnabled: sidebarData.tasksEnabled,
         activeSessionId: id,
@@ -311,7 +327,12 @@ Router webRoutes(
       }
 
       final bodyHtml = '<div class="shell">$sidebar$topbar$chat</div>';
-      final page = layoutTemplate(title: session.title ?? 'New Chat', body: bodyHtml, appName: appDisplay.name);
+      final page = layoutTemplate(
+        title: session.title ?? 'New Chat',
+        body: bodyHtml,
+        appName: appDisplay.name,
+        scripts: standardShellScripts(),
+      );
       return Response.ok(page, headers: htmlHeaders);
     } catch (e) {
       return _htmlError('Failed to load session: $e');
@@ -386,6 +407,8 @@ Router webRoutes(
           defaultProvider: defaultProvider,
           showChannels: visibility.showChannels,
           tasksEnabled: taskService != null && eventBus != null,
+          taskService: taskService,
+          workflowService: workflowService,
         ),
         navItems: systemNav,
         createdAt: session.createdAt.toIso8601String(),
@@ -393,6 +416,7 @@ Router webRoutes(
         provider: usage.provider,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
+        effectiveTokens: usage.effectiveTokens,
         estimatedCostUsd: usage.estimatedCostUsd,
         cachedInputTokens: usage.cachedInputTokens,
         bannerHtml: restartBannerHtml(appDisplay.dataDir),
@@ -438,99 +462,104 @@ Router webRoutes(
         defaultProvider: defaultProvider,
         showChannels: visibility.showChannels,
         tasksEnabled: taskService != null && eventBus != null,
+        taskService: taskService,
+        workflowService: workflowService,
       );
 
       if (type == 'whatsapp') {
         final channel = whatsAppChannel;
-        if (channel == null) {
-          return _htmlNotFound('WhatsApp channel is not configured');
-        }
-        final status = await whatsAppChannelStatus(channel);
+        final status = channel != null ? await whatsAppChannelStatus(channel) : null;
         final page = channelDetailTemplate(
           channelType: 'whatsapp',
           channelLabel: 'WhatsApp',
-          statusLabel: status.label,
-          statusClass: status.badgeClass,
-          phone: jidToPhone(channel.gowa.pairedJid),
-          dmAccessMode: channel.dmAccess.mode.name,
+          statusLabel: status?.label ?? 'Not configured',
+          statusClass: status?.badgeClass ?? 'warn',
+          phone: channel != null ? jidToPhone(channel.gowa.pairedJid) : null,
+          dmAccessMode: channel?.dmAccess.mode.name ?? 'disabled',
           dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
-          dmAllowlist: channel.dmAccess.allowlist.toList(),
-          groupAccessMode: channel.config.groupAccess.name,
+          dmAllowlist: channel?.dmAccess.allowlist.toList() ?? const [],
+          groupAccessMode: channel?.config.groupAccess.name ?? 'disabled',
           groupAccessModes: ['open', 'disabled', 'allowlist'],
-          groupAllowlist: channel.config.groupIds,
-          requireMention: channel.config.requireMention,
-          taskTriggerEnabled: channel.config.taskTrigger.enabled,
-          taskTriggerPrefix: channel.config.taskTrigger.prefix,
-          taskTriggerDefaultType: channel.config.taskTrigger.defaultType,
-          taskTriggerAutoStart: channel.config.taskTrigger.autoStart,
+          groupAllowlist: channel?.config.groupIds ?? const [],
+          requireMention: channel?.config.requireMention ?? false,
+          taskTriggerEnabled: channel?.config.taskTrigger.enabled ?? false,
+          taskTriggerPrefix: channel?.config.taskTrigger.prefix ?? 'task:',
+          taskTriggerDefaultType: channel?.config.taskTrigger.defaultType ?? 'research',
+          taskTriggerAutoStart: channel?.config.taskTrigger.autoStart ?? true,
           entryPlaceholder: '15551234567@s.whatsapp.net',
           groupPlaceholder: '12345678@g.us',
           sidebarData: sidebarData,
           navItems: registry.navItems(activePage: 'Settings'),
-          pendingPairings: pendingPairingsData(channel.dmAccess),
+          pendingPairings: channel != null ? pendingPairingsData(channel.dmAccess) : const [],
           bannerHtml: restartBannerHtml(appDisplay.dataDir),
           appName: appDisplay.name,
         );
         return Response.ok(page, headers: htmlHeaders);
       } else if (type == 'signal') {
         final channel = signalChannel;
-        if (channel == null) {
-          return _htmlNotFound('Signal channel is not configured');
-        }
-        final status = await signalChannelStatus(channel);
+        final status = channel != null ? await signalChannelStatus(channel) : null;
         final page = channelDetailTemplate(
           channelType: 'signal',
           channelLabel: 'Signal',
-          statusLabel: status.label,
-          statusClass: status.badgeClass,
-          phone: channel.sidecar.registeredPhone,
-          dmAccessMode: channel.dmAccess.mode.name,
+          statusLabel: status?.label ?? 'Not configured',
+          statusClass: status?.badgeClass ?? 'warn',
+          phone: channel?.sidecar.registeredPhone,
+          dmAccessMode: channel?.dmAccess.mode.name ?? 'disabled',
           dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
-          dmAllowlist: channel.dmAccess.allowlist.toList(),
-          groupAccessMode: channel.config.groupAccess.name,
+          dmAllowlist: channel?.dmAccess.allowlist.toList() ?? const [],
+          groupAccessMode: channel?.config.groupAccess.name ?? 'disabled',
           groupAccessModes: ['open', 'disabled', 'allowlist'],
-          groupAllowlist: channel.config.groupIds,
-          requireMention: channel.config.requireMention,
-          taskTriggerEnabled: channel.config.taskTrigger.enabled,
-          taskTriggerPrefix: channel.config.taskTrigger.prefix,
-          taskTriggerDefaultType: channel.config.taskTrigger.defaultType,
-          taskTriggerAutoStart: channel.config.taskTrigger.autoStart,
+          groupAllowlist: channel?.config.groupIds ?? const [],
+          requireMention: channel?.config.requireMention ?? false,
+          taskTriggerEnabled: channel?.config.taskTrigger.enabled ?? false,
+          taskTriggerPrefix: channel?.config.taskTrigger.prefix ?? 'task:',
+          taskTriggerDefaultType: channel?.config.taskTrigger.defaultType ?? 'research',
+          taskTriggerAutoStart: channel?.config.taskTrigger.autoStart ?? true,
           entryPlaceholder: '+15551234567 or UUID',
           groupPlaceholder: 'base64-group-id',
           sidebarData: sidebarData,
           navItems: registry.navItems(activePage: 'Settings'),
-          pendingPairings: pendingPairingsData(channel.dmAccess),
+          pendingPairings: channel != null ? pendingPairingsData(channel.dmAccess) : const [],
           bannerHtml: restartBannerHtml(appDisplay.dataDir),
           appName: appDisplay.name,
         );
         return Response.ok(page, headers: htmlHeaders);
       } else {
         final channel = googleChatChannel;
+        final dmAccess = channel?.dmAccess;
+        final String statusLabel;
+        final String statusClass;
         if (channel == null) {
-          return _htmlNotFound('Google Chat channel is not configured');
+          statusLabel = 'Not configured';
+          statusClass = 'warn';
+        } else if (channel.config.enabled) {
+          statusLabel = 'Connected';
+          statusClass = 'ok';
+        } else {
+          statusLabel = 'Disconnected';
+          statusClass = 'warn';
         }
-        final dmAccess = channel.dmAccess;
         final page = channelDetailTemplate(
           channelType: 'google_chat',
           channelLabel: 'Google Chat',
-          statusLabel: channel.config.enabled ? 'Connected' : 'Disconnected',
-          statusClass: channel.config.enabled ? 'ok' : 'warn',
-          dmAccessMode: dmAccess?.mode.name ?? 'pairing',
+          statusLabel: statusLabel,
+          statusClass: statusClass,
+          dmAccessMode: dmAccess?.mode.name ?? 'disabled',
           dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
-          dmAllowlist: dmAccess?.allowlist.toList() ?? [],
-          groupAccessMode: channel.config.groupAccess.name,
+          dmAllowlist: dmAccess?.allowlist.toList() ?? const [],
+          groupAccessMode: channel?.config.groupAccess.name ?? 'disabled',
           groupAccessModes: ['open', 'disabled', 'allowlist'],
-          groupAllowlist: channel.config.groupIds,
-          requireMention: channel.config.requireMention,
-          taskTriggerEnabled: channel.config.taskTrigger.enabled,
-          taskTriggerPrefix: channel.config.taskTrigger.prefix,
-          taskTriggerDefaultType: channel.config.taskTrigger.defaultType,
-          taskTriggerAutoStart: channel.config.taskTrigger.autoStart,
+          groupAllowlist: channel?.config.groupIds ?? const [],
+          requireMention: channel?.config.requireMention ?? false,
+          taskTriggerEnabled: channel?.config.taskTrigger.enabled ?? false,
+          taskTriggerPrefix: channel?.config.taskTrigger.prefix ?? 'task:',
+          taskTriggerDefaultType: channel?.config.taskTrigger.defaultType ?? 'research',
+          taskTriggerAutoStart: channel?.config.taskTrigger.autoStart ?? true,
           entryPlaceholder: 'users/123456789',
           groupPlaceholder: 'spaces/AAAA',
           sidebarData: sidebarData,
           navItems: registry.navItems(activePage: 'Settings'),
-          pendingPairings: dmAccess != null ? pendingPairingsData(dmAccess) : [],
+          pendingPairings: dmAccess != null ? pendingPairingsData(dmAccess) : const [],
           bannerHtml: restartBannerHtml(appDisplay.dataDir),
           appName: appDisplay.name,
         );
@@ -601,13 +630,23 @@ Router webRoutes(
   return router;
 }
 
-Future<({int? inputTokens, int? outputTokens, int? cachedInputTokens, double? estimatedCostUsd, String provider})>
+Future<
+  ({
+    int? inputTokens,
+    int? outputTokens,
+    int? cachedInputTokens,
+    int? effectiveTokens,
+    double? estimatedCostUsd,
+    String provider,
+  })
+>
 _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvider = 'claude'}) async {
   if (kvService == null) {
     return (
       inputTokens: null,
       outputTokens: null,
       cachedInputTokens: null,
+      effectiveTokens: null,
       estimatedCostUsd: null,
       provider: defaultProvider,
     );
@@ -619,6 +658,7 @@ _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvide
       inputTokens: null,
       outputTokens: null,
       cachedInputTokens: null,
+      effectiveTokens: null,
       estimatedCostUsd: null,
       provider: defaultProvider,
     );
@@ -631,6 +671,7 @@ _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvide
         inputTokens: null,
         outputTokens: null,
         cachedInputTokens: null,
+        effectiveTokens: null,
         estimatedCostUsd: null,
         provider: defaultProvider,
       );
@@ -645,6 +686,7 @@ _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvide
       inputTokens: (decoded['input_tokens'] as num?)?.toInt(),
       outputTokens: (decoded['output_tokens'] as num?)?.toInt(),
       cachedInputTokens: cacheReadTokens,
+      effectiveTokens: (decoded['effective_tokens'] as num?)?.toInt(),
       estimatedCostUsd: (decoded['estimated_cost_usd'] as num?)?.toDouble(),
       provider: switch (decoded['provider']) {
         final String value when value.trim().isNotEmpty => value,
@@ -656,6 +698,7 @@ _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvide
       inputTokens: null,
       outputTokens: null,
       cachedInputTokens: null,
+      effectiveTokens: null,
       estimatedCostUsd: null,
       provider: defaultProvider,
     );
@@ -681,6 +724,8 @@ Future<SidebarData> buildSidebarData(
   String defaultProvider = 'claude',
   bool showChannels = true,
   bool tasksEnabled = false,
+  TaskService? taskService,
+  WorkflowService? workflowService,
 }) async {
   final all = await sessions.listSessions();
   SidebarSession? main;
@@ -712,12 +757,21 @@ Future<SidebarData> buildSidebarData(
     }
   }
 
+  final List<SidebarActiveTask> activeTasks = tasksEnabled && taskService != null
+      ? await buildActiveSidebarTasks(taskService)
+      : const [];
+  final List<SidebarActiveWorkflow> activeWorkflows = tasksEnabled && taskService != null && workflowService != null
+      ? await buildActiveSidebarWorkflows(workflowService, taskService)
+      : const [];
+
   return (
     main: main,
     dmChannels: dmChannels,
     groupChannels: groupChannels,
     activeEntries: activeEntries,
     archivedEntries: archivedEntries,
+    activeTasks: activeTasks,
+    activeWorkflows: activeWorkflows,
     showChannels: showChannels,
     tasksEnabled: tasksEnabled,
   );

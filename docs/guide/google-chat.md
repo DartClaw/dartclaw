@@ -318,13 +318,13 @@ channels:
 Run the one-time consent flow from a machine with a browser:
 
 ```bash
-dart run dartclaw_cli:dartclaw google-auth
+dartclaw google-auth
 ```
 
 Or pass the client credentials path explicitly:
 
 ```bash
-dart run dartclaw_cli:dartclaw google-auth \
+dartclaw google-auth \
   --client-credentials /path/to/oauth-client-credentials.json
 ```
 

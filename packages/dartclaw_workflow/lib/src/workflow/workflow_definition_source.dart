@@ -1,5 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowDefinition, WorkflowVariable;
 
+import 'workflow_definition_resolver.dart';
+
 /// Summary projection of a workflow definition — enough for browsing and
 /// selection without loading full prompt bodies.
 typedef WorkflowSummary = ({
@@ -22,6 +24,12 @@ abstract interface class WorkflowDefinitionSource {
   /// Use for workflow execution and detail display. Includes all step prompts.
   WorkflowDefinition? getByName(String name);
 
+  /// Returns the authored YAML for [name] when available.
+  ///
+  /// Implementations backed only by in-memory definitions may synthesize an
+  /// equivalent YAML representation.
+  String? authoredYaml(String name);
+
   /// Returns summary metadata for all available definitions.
   ///
   /// Summaries are safe for listing and picker surfaces — they contain
@@ -34,12 +42,20 @@ abstract interface class WorkflowDefinitionSource {
 /// Populated at construction time. Immutable after creation.
 class InMemoryDefinitionSource implements WorkflowDefinitionSource {
   final Map<String, WorkflowDefinition> _definitions;
+  static const _resolver = WorkflowDefinitionResolver();
 
   InMemoryDefinitionSource(List<WorkflowDefinition> definitions)
     : _definitions = {for (final d in definitions) d.name: d};
 
   @override
   WorkflowDefinition? getByName(String name) => _definitions[name];
+
+  @override
+  String? authoredYaml(String name) {
+    final definition = _definitions[name];
+    if (definition == null) return null;
+    return _resolver.emitYaml(definition);
+  }
 
   @override
   List<WorkflowSummary> listSummaries() => _definitions.values

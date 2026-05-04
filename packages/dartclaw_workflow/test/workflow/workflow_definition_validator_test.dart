@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 /// Minimal fake SkillRegistry for validator tests.
@@ -28,16 +30,6 @@ class _FakeSkillRegistry implements SkillRegistry {
     if (skill == null) return false;
     return skill.nativeHarnesses.contains(harnessType);
   }
-}
-
-Map<String, Map<String, String>> _snapshotEmbeddedSkills() => {
-  for (final entry in embeddedSkills.entries) entry.key: Map<String, String>.from(entry.value),
-};
-
-void _restoreEmbeddedSkills(Map<String, Map<String, String>> snapshot) {
-  embeddedSkills
-    ..clear()
-    ..addAll({for (final entry in snapshot.entries) entry.key: Map<String, String>.from(entry.value)});
 }
 
 _FakeSkillRegistry _makeRegistry({
@@ -82,6 +74,7 @@ WorkflowDefinition _buildDef({
   Map<String, WorkflowVariable> variables = const {},
   List<WorkflowStep> steps = const [],
   List<WorkflowLoop> loops = const [],
+  List<WorkflowNode>? nodes,
 }) {
   return WorkflowDefinition(
     name: name,
@@ -93,6 +86,7 @@ WorkflowDefinition _buildDef({
           ]
         : steps,
     loops: loops,
+    nodes: nodes,
   );
 }
 
@@ -100,15 +94,15 @@ WorkflowStep _step({
   String id = 's1',
   String name = 'Step',
   String prompt = 'Do it',
-  List<String> contextInputs = const [],
-  List<String> contextOutputs = const [],
+  List<String> inputs = const [],
+  Map<String, OutputConfig>? outputs,
   String? gate,
 }) => WorkflowStep(
   id: id,
   name: name,
   prompts: [prompt],
-  contextInputs: contextInputs,
-  contextOutputs: contextOutputs,
+  inputs: inputs,
+  outputs: outputs == null || outputs.isEmpty ? null : outputs,
   gate: gate,
 );
 
@@ -145,6 +139,45 @@ void main() {
         final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.missingField), true);
       });
+
+      test('workflow-level project references must be declared', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          project: '{{PROJECT}}',
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
+        );
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.message.contains('Workflow project field references undeclared variable')), isTrue);
+      });
+    });
+
+    group('removed fields', () {
+      group('contextOutputs removal', () {
+        test('parser throws on contextOutputs: with migration message', () {
+          const yaml = '''
+name: wf
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    contextOutputs: [foo]
+''';
+          expect(
+            () => WorkflowDefinitionParser().parse(yaml),
+            throwsA(
+              isA<FormatException>().having(
+                (e) => e.message,
+                'message',
+                allOf(contains('contextOutputs: is removed'), contains('outputs:')),
+              ),
+            ),
+          );
+        });
+      });
     });
 
     group('duplicate IDs', () {
@@ -175,6 +208,62 @@ void main() {
       });
     });
 
+    group('normalized nodes', () {
+      test('malformed normalized graph is rejected', () {
+        final def = _buildDef(
+          steps: [
+            _step(id: 'setup'),
+            const WorkflowStep(
+              id: 'map-step',
+              name: 'Map',
+              prompts: ['p'],
+              mapOver: 'items',
+              inputs: ['items'],
+              outputs: {'mapped': OutputConfig()},
+            ),
+          ],
+          nodes: const [
+            ActionNode(stepId: 'setup'),
+            ActionNode(stepId: 'map-step'),
+          ],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(
+          errors,
+          contains(
+            isA<ValidationError>().having(
+              (error) => error.message,
+              'message',
+              contains('map-backed but was normalized as an action node'),
+            ),
+          ),
+        );
+      });
+
+      test('every authored step must appear exactly once in the normalized graph', () {
+        final def = _buildDef(
+          steps: [
+            _step(id: 'a'),
+            _step(id: 'b', name: 'B', prompt: 'p'),
+          ],
+          nodes: const [ActionNode(stepId: 'a')],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(
+          errors,
+          contains(
+            isA<ValidationError>().having(
+              (error) => error.message,
+              'message',
+              contains('is not represented in the normalized execution graph'),
+            ),
+          ),
+        );
+      });
+    });
+
     group('variable references', () {
       test('undeclared variable reference in prompt produces invalidReference error', () {
         final def = _buildDef(steps: [_step(prompt: 'Do {{UNDECLARED}}')]);
@@ -196,14 +285,24 @@ void main() {
         expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), false);
       });
 
-      test('undeclared variable in project field produces invalidReference error', () {
+      test('workflowVariables entry missing from variables block produces invalidReference error', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(id: 's1', name: 'S', prompts: ['p'], project: '{{UNDECLARED}}'),
+            const WorkflowStep(id: 's1', name: 'S', prompts: ['p'], workflowVariables: ['UNDECLARED']),
           ],
         );
         final errors = validator.validate(def).errors;
-        expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), true);
+        expect(errors.any((e) => e.type == ValidationErrorType.invalidReference && e.stepId == 's1'), true);
+      });
+
+      test('workflowVariables entry declared in variables block produces no error', () {
+        final def = _buildDef(
+          variables: {'REQUIREMENTS': const WorkflowVariable(description: 'r')},
+          steps: [
+            const WorkflowStep(id: 's1', name: 'S', prompts: ['p'], workflowVariables: ['REQUIREMENTS']),
+          ],
+        );
+        expect(validator.validate(def).errors, isEmpty);
       });
     });
 
@@ -211,7 +310,7 @@ void main() {
       test('context input referencing key not in preceding step outputs produces contextInconsistency', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextInputs: ['key_a'], contextOutputs: []),
+            _step(id: 's1', inputs: ['key_a'], outputs: {}),
           ],
         );
         final errors = validator.validate(def).errors;
@@ -221,8 +320,8 @@ void main() {
       test('context input valid when preceding step declares the output', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextOutputs: ['result']),
-            _step(id: 's2', name: 'S2', prompt: 'p', contextInputs: ['result']),
+            _step(id: 's1', outputs: {'result': OutputConfig()}),
+            _step(id: 's2', name: 'S2', prompt: 'p', inputs: ['result']),
           ],
         );
         expect(validator.validate(def).errors, isEmpty);
@@ -231,8 +330,8 @@ void main() {
       test('context input valid within same loop', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextInputs: ['loop_key'], contextOutputs: ['loop_key']),
-            _step(id: 's2', name: 'S2', prompt: 'p', contextOutputs: []),
+            _step(id: 's1', inputs: ['loop_key'], outputs: {'loop_key': OutputConfig()}),
+            _step(id: 's2', name: 'S2', prompt: 'p', outputs: {}),
           ],
           loops: [
             const WorkflowLoop(id: 'lp', steps: ['s1'], maxIterations: 3, exitGate: ''),
@@ -242,15 +341,88 @@ void main() {
       });
     });
 
+    test('warns when duplicate output names use different descriptions', () {
+      final def = _buildDef(
+        steps: [
+          WorkflowStep(
+            id: 'a',
+            name: 'A',
+            prompts: const ['p'],
+            outputs: const {'x': OutputConfig(format: OutputFormat.text, description: 'from A')},
+          ),
+          WorkflowStep(
+            id: 'b',
+            name: 'B',
+            prompts: const ['p'],
+            outputs: const {'x': OutputConfig(format: OutputFormat.text, description: 'from B')},
+          ),
+        ],
+      );
+
+      final report = validator.validate(def);
+      expect(report.warnings, isNotEmpty);
+      expect(report.warnings.single.message, contains('"x"'));
+      expect(report.warnings.single.message, contains('a'));
+      expect(report.warnings.single.message, contains('b'));
+    });
+
+    test('does not warn when duplicate output descriptions are absent', () {
+      final def = _buildDef(
+        steps: [
+          WorkflowStep(
+            id: 'a',
+            name: 'A',
+            prompts: const ['p'],
+            outputs: const {'x': OutputConfig(format: OutputFormat.text)},
+          ),
+          WorkflowStep(
+            id: 'b',
+            name: 'B',
+            prompts: const ['p'],
+            outputs: const {'x': OutputConfig(format: OutputFormat.text)},
+          ),
+        ],
+      );
+
+      final report = validator.validate(def);
+      expect(report.warnings, isEmpty);
+    });
+
     group('gate expressions', () {
       test('valid gate expression produces no error', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextOutputs: ['status']),
+            _step(id: 's1', outputs: {'status': OutputConfig()}),
             _step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.status == done'),
           ],
         );
         expect(validator.validate(def).errors, isEmpty);
+      });
+
+      test('gate expression accepts slash, quoted, and spaced values', () {
+        final def = _buildDef(
+          steps: [
+            _step(id: 's1', outputs: {'branch': OutputConfig(), 'label': OutputConfig(), 'quoted': OutputConfig()}),
+            _step(
+              id: 's2',
+              name: 'S2',
+              prompt: 'p',
+              gate: 's1.branch == feature/foo && s1.quoted == "feature/foo" && s1.label == needs review',
+            ),
+          ],
+        );
+        expect(validator.validate(def).errors, isEmpty);
+      });
+
+      test('gate expression with extra operator syntax produces invalidGate error', () {
+        final def = _buildDef(
+          steps: [
+            _step(id: 's1', outputs: {'score': OutputConfig()}),
+            _step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.score > 0 < 1'),
+          ],
+        );
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.type == ValidationErrorType.invalidGate), true);
       });
 
       test('gate referencing non-existent step produces invalidReference error', () {
@@ -275,11 +447,49 @@ void main() {
       test('compound gate with && is parsed correctly', () {
         final def = _buildDef(
           steps: [
-            _step(id: 's1', contextOutputs: ['status', 'score']),
+            _step(id: 's1', outputs: {'status': OutputConfig(), 'score': OutputConfig()}),
             _step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.status == done && s1.score >= 90'),
           ],
         );
         expect(validator.validate(def).errors, isEmpty);
+      });
+
+      test('loop entryGate is validated alongside exitGate', () {
+        final def = _buildDef(
+          steps: [
+            _step(id: 's1'),
+            _step(id: 's2', name: 'S2', prompt: 'p'),
+          ],
+          loops: [
+            const WorkflowLoop(
+              id: 'lp',
+              steps: ['s1'],
+              maxIterations: 3,
+              entryGate: 's2.findings_count > 0',
+              exitGate: 's1.status == done',
+            ),
+          ],
+        );
+
+        expect(validator.validate(def).errors, isEmpty);
+      });
+
+      test('invalid loop entryGate produces invalidGate error', () {
+        final def = _buildDef(
+          steps: [_step(id: 's1')],
+          loops: [
+            const WorkflowLoop(
+              id: 'lp',
+              steps: ['s1'],
+              maxIterations: 3,
+              entryGate: 's1.status INVALID done',
+              exitGate: 's1.status == done',
+            ),
+          ],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.type == ValidationErrorType.invalidGate && e.loopId == 'lp'), isTrue);
       });
     });
 
@@ -337,10 +547,10 @@ void main() {
       test('multi-prompt step with non-continuity provider produces unsupportedProviderCapability error', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'codex'),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'gemini'),
           ],
         );
-        final errors = validator.validate(def, continuityProviders: {'claude'}).errors;
+        final errors = validator.validate(def, continuityProviders: {'claude', 'codex'}).errors;
         expect(
           errors.any((e) => e.type == ValidationErrorType.unsupportedProviderCapability && e.stepId == 's1'),
           true,
@@ -353,16 +563,39 @@ void main() {
             WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'claude'),
           ],
         );
-        expect(validator.validate(def, continuityProviders: {'claude'}).errors, isEmpty);
+        expect(validator.validate(def, continuityProviders: {'claude', 'codex'}).errors, isEmpty);
+      });
+
+      test('multi-prompt step with codex provider produces no error', () {
+        final def = _buildDef(
+          steps: [
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'codex'),
+          ],
+        );
+        expect(validator.validate(def, continuityProviders: {'claude', 'codex'}).errors, isEmpty);
       });
 
       test('single-prompt step with non-continuity provider produces no error', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(id: 's1', name: 'S', prompts: const ['Only one prompt'], provider: 'codex'),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['Only one prompt'], provider: 'gemini'),
           ],
         );
-        expect(validator.validate(def, continuityProviders: {'claude'}).errors, isEmpty);
+        expect(validator.validate(def, continuityProviders: {'claude', 'codex'}).errors, isEmpty);
+      });
+
+      test('single-prompt step with unknown @-prefixed provider produces invalidReference error', () {
+        final def = _buildDef(
+          steps: [
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['Only one prompt'], provider: '@executer'),
+          ],
+        );
+        final errors = validator.validate(def, continuityProviders: {'claude', 'codex'}).errors;
+        expect(errors, hasLength(1));
+        expect(errors.first.type, ValidationErrorType.invalidReference);
+        expect(errors.first.stepId, 's1');
+        expect(errors.first.message, contains('@executer'));
+        expect(errors.first.message, contains('@executor'));
       });
 
       test('multi-prompt step with no explicit provider produces no error', () {
@@ -371,19 +604,53 @@ void main() {
             WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second']),
           ],
         );
-        expect(validator.validate(def, continuityProviders: {'claude'}).errors, isEmpty);
+        expect(validator.validate(def, continuityProviders: {'claude', 'codex'}).errors, isEmpty);
       });
 
       test('multi-prompt validation skipped when continuityProviders not provided', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'codex'),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'gemini'),
           ],
         );
         // No continuityProviders arg — validation skipped entirely.
         expect(
           validator.validate(def).errors.any((e) => e.type == ValidationErrorType.unsupportedProviderCapability),
           false,
+        );
+      });
+
+      test('multi-prompt step with @-prefixed alias provider validates clean', () {
+        final def = _buildDef(
+          steps: [
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: '@executor'),
+          ],
+        );
+        expect(
+          validator
+              .validate(def, continuityProviders: {'claude', 'codex'})
+              .errors
+              .any((e) => e.type == ValidationErrorType.unsupportedProviderCapability),
+          isFalse,
+        );
+      });
+
+      test('multi-prompt step with unknown @-prefixed provider produces invalidReference error', () {
+        final def = _buildDef(
+          steps: [
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: '@executer'),
+          ],
+        );
+        final errors = validator.validate(def, continuityProviders: {'claude', 'codex'}).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.type == ValidationErrorType.invalidReference &&
+                e.stepId == 's1' &&
+                e.message.contains('@executer') &&
+                e.message.contains('@executor'),
+          ),
+          isTrue,
         );
       });
     });
@@ -395,7 +662,7 @@ void main() {
     });
   });
 
-  group('S03: loop finalizer validation', () {
+  group('loop finalizer validation', () {
     test('valid finalizer: step exists and not in loop steps -> no error', () {
       final def = WorkflowDefinition(
         name: 'wf',
@@ -484,7 +751,7 @@ void main() {
     });
   });
 
-  group('S03: stepDefaults validation', () {
+  group('stepDefaults validation', () {
     test('stepDefaults pattern matching steps -> no warning emitted', () {
       // We verify no errors are produced; logging is tested separately.
       final def = WorkflowDefinition(
@@ -527,6 +794,23 @@ void main() {
       expect(errors, isEmpty);
     });
 
+    test('stepDefaults with unknown role-alias provider produces invalidReference error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'review', name: 'Review', prompts: ['p']),
+        ],
+        stepDefaults: const [StepConfigDefault(match: '*', provider: '@executer')],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors, hasLength(1));
+      expect(errors.first.type, ValidationErrorType.invalidReference);
+      expect(errors.first.message, contains('@executer'));
+      expect(errors.first.message, contains('@executor'));
+      expect(errors.first.message, contains('review'));
+    });
+
     test('null stepDefaults -> valid (backward compat)', () {
       final def = WorkflowDefinition(
         name: 'wf',
@@ -537,6 +821,76 @@ void main() {
       );
       final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
+    });
+  });
+
+  group('S16b: gitStrategy validation', () {
+    test('valid gitStrategy passes validation', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+        gitStrategy: const WorkflowGitStrategy(
+          bootstrap: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
+          promotion: 'merge',
+          publish: WorkflowGitPublishStrategy(enabled: true),
+        ),
+      );
+      expect(validator.validate(def).errors, isEmpty);
+    });
+
+    test('bootstrap workflows warn when BRANCH defaults to main', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        variables: const {'BRANCH': WorkflowVariable(required: false, description: 'Base ref', defaultValue: 'main')},
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+        gitStrategy: const WorkflowGitStrategy(bootstrap: true),
+      );
+
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
+      expect(report.warnings, hasLength(1));
+      expect(report.warnings.single.message, contains('variables.BRANCH.default: "main"'));
+      expect(report.warnings.single.message, contains('gitStrategy.bootstrap: true'));
+    });
+
+    test('invalid gitStrategy enum-like values produce validation errors', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: WorkflowGitWorktreeStrategy(mode: 'invalid-worktree'),
+          promotion: 'invalid-promotion',
+        ),
+      );
+
+      final errors = validator.validate(def).errors;
+      expect(errors, hasLength(2));
+      expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.worktree'));
+      expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.promotion'));
+    });
+
+    test('auto and inline worktree values are accepted', () {
+      for (final worktreeMode in ['auto', 'inline']) {
+        final def = WorkflowDefinition(
+          name: 'wf-$worktreeMode',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
+          gitStrategy: WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: worktreeMode)),
+        );
+        expect(validator.validate(def).errors, isEmpty, reason: 'worktree mode "$worktreeMode" should validate');
+      }
     });
   });
 
@@ -570,6 +924,23 @@ void main() {
       expect(errors.first.message, contains('nonexistent-skill'));
     });
 
+    test('missing skill reference with unknown role-alias provider collects both errors', () {
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final def = makeSkillDef(
+        const WorkflowStep(id: 's', name: 'S', skill: 'nonexistent-skill', provider: '@executer', prompts: ['p']),
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors, hasLength(2));
+      expect(
+        errors.any((e) => e.type == ValidationErrorType.invalidReference && e.message.contains('@executer')),
+        isTrue,
+      );
+      expect(
+        errors.any((e) => e.type == ValidationErrorType.invalidReference && e.message.contains('nonexistent-skill')),
+        isTrue,
+      );
+    });
+
     test('skill with explicit provider that is native -> no error', () {
       final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
       final def = makeSkillDef(
@@ -597,6 +968,47 @@ void main() {
       expect(errors.first.message, contains('claude'));
     });
 
+    test('skill with unknown role-alias provider -> validation error', () {
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final def = makeSkillDef(
+        const WorkflowStep(id: 's', name: 'S', skill: 'review-code', provider: '@executer', prompts: ['p']),
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors, hasLength(1));
+      expect(errors.first.type, ValidationErrorType.invalidReference);
+      expect(errors.first.message, contains('@executer'));
+      expect(errors.first.message, contains('@executor'));
+    });
+
+    test('skill with valid role-alias provider keeps single-harness warning', () async {
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final def = makeSkillDef(
+        const WorkflowStep(id: 's', name: 'S', skill: 'review-code', provider: '@executor', prompts: ['p']),
+      );
+      final previousLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final records = <LogRecord>[];
+      final sub = Logger('WorkflowDefinitionValidator').onRecord.listen(records.add);
+      addTearDown(() async {
+        await sub.cancel();
+        Logger.root.level = previousLevel;
+      });
+
+      final errors = validator.validate(def).errors;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(errors, isEmpty);
+      expect(
+        records.any(
+          (record) =>
+              record.level == Level.WARNING &&
+              record.message.contains('review-code') &&
+              record.message.contains('found only in claude harness'),
+        ),
+        isTrue,
+      );
+    });
+
     test('skill with both harnesses + explicit provider -> no error', () {
       final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(bothSkills: {'shared-skill'});
       final def = makeSkillDef(
@@ -606,38 +1018,33 @@ void main() {
       expect(errors, isEmpty);
     });
 
-    test('embedded built-in skills keep explicit provider validation working', () {
-      final snapshot = _snapshotEmbeddedSkills();
-      addTearDown(() => _restoreEmbeddedSkills(snapshot));
-
-      embeddedSkills
-        ..clear()
-        ..addAll({
-          'dartclaw-review-code': {
-            'SKILL.md': '---\nname: dartclaw-review-code\ndescription: Embedded review skill\n---\n\n# review',
-            'agents/openai.yaml': 'provider: openai\n',
-          },
-        });
-
-      final workspaceDir = Directory.systemTemp.createTempSync('workflow_validator_embedded_ws_');
-      final dataDir = Directory.systemTemp.createTempSync('workflow_validator_embedded_data_');
+    test('filesystem skill copies keep explicit provider validation working', () {
+      final workspaceDir = Directory.systemTemp.createTempSync('workflow_validator_fs_ws_');
+      final dataDir = Directory.systemTemp.createTempSync('workflow_validator_fs_data_');
+      final userClaudeSkillsDir = Directory.systemTemp.createTempSync('workflow_validator_fs_user_claude_');
       addTearDown(() {
         if (workspaceDir.existsSync()) workspaceDir.deleteSync(recursive: true);
         if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
+        if (userClaudeSkillsDir.existsSync()) userClaudeSkillsDir.deleteSync(recursive: true);
       });
+
+      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'dartclaw-review'))..createSync(recursive: true);
+      File(
+        p.join(skillDir.path, 'SKILL.md'),
+      ).writeAsStringSync('---\nname: dartclaw-review\ndescription: Filesystem review skill\n---\n\n# review');
 
       final registry = SkillRegistryImpl();
       registry.discover(
         workspaceDir: workspaceDir.path,
         dataDir: dataDir.path,
-        userClaudeSkillsDir: '/nonexistent',
+        userClaudeSkillsDir: userClaudeSkillsDir.path,
         userAgentsSkillsDir: '/nonexistent',
-        builtInSkillsDir: null,
+        builtInSkillsDir: '/nonexistent',
       );
 
       final validator = WorkflowDefinitionValidator()..skillRegistry = registry;
       final def = makeSkillDef(
-        const WorkflowStep(id: 's', name: 'S', skill: 'dartclaw-review-code', provider: 'claude', prompts: ['p']),
+        const WorkflowStep(id: 's', name: 'S', skill: 'dartclaw-review', provider: 'claude', prompts: ['p']),
       );
 
       expect(validator.validate(def).errors, isEmpty);
@@ -681,13 +1088,13 @@ void main() {
     });
   });
 
-  group('S06: mapOver validation', () {
+  group('mapOver validation', () {
     test('mapOver referencing a prior contextOutput is valid', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'collect', name: 'Collect', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'collect', name: 'Collect', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(id: 'process', name: 'Process', prompts: ['p'], mapOver: 'items'),
         ],
       );
@@ -715,7 +1122,13 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'self_output', contextOutputs: ['self_output']),
+          WorkflowStep(
+            id: 's',
+            name: 'S',
+            prompts: ['p'],
+            mapOver: 'self_output',
+            outputs: {'self_output': OutputConfig()},
+          ),
         ],
       );
       final errors = validator.validate(def).errors;
@@ -739,8 +1152,19 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['list1', 'list2']),
-          WorkflowStep(id: 'map1', name: 'Map1', prompts: ['p'], mapOver: 'list1', contextOutputs: ['mapped1']),
+          WorkflowStep(
+            id: 'produce',
+            name: 'Produce',
+            prompts: ['p'],
+            outputs: {'list1': OutputConfig(), 'list2': OutputConfig()},
+          ),
+          WorkflowStep(
+            id: 'map1',
+            name: 'Map1',
+            prompts: ['p'],
+            mapOver: 'list1',
+            outputs: {'mapped1': OutputConfig()},
+          ),
           WorkflowStep(id: 'map2', name: 'Map2', prompts: ['p'], mapOver: 'list2'),
         ],
       );
@@ -749,20 +1173,20 @@ void main() {
     });
   });
 
-  group('S07: map step constraint validation', () {
+  group('map step constraint validation', () {
     test('map step with parallel:true produces contextInconsistency error', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'mapstep',
             name: 'Map',
             prompts: ['p'],
             mapOver: 'items',
             parallel: true,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -783,17 +1207,100 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
-          WorkflowStep(id: 'mapstep', name: 'Map', prompts: ['p'], mapOver: 'items', contextOutputs: ['results']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'mapstep',
+            name: 'Map',
+            prompts: ['p'],
+            mapOver: 'items',
+            outputs: {'results': OutputConfig()},
+          ),
         ],
       );
       final errors = validator.validate(def).errors;
       expect(errors.where((e) => e.stepId == 'mapstep'), isEmpty);
     });
+
+    test('map step with multiple outputs produces contextInconsistency error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'mapstep',
+            name: 'Map',
+            prompts: ['p'],
+            mapOver: 'items',
+            outputs: {'results': OutputConfig(), 'summaries': OutputConfig()},
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((e) => e.type, 'type', ValidationErrorType.contextInconsistency)
+              .having((e) => e.stepId, 'stepId', 'mapstep')
+              .having((e) => e.message, 'message', contains('exactly one aggregate list value')),
+        ),
+      );
+    });
+
+    test('foreach controller with multiple outputs produces contextInconsistency error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], outputs: {'story_result': OutputConfig()}),
+          WorkflowStep(
+            id: 'pipeline',
+            name: 'Pipeline',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['implement'],
+            outputs: {'story_results': OutputConfig(), 'implementation_results': OutputConfig()},
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((e) => e.type, 'type', ValidationErrorType.contextInconsistency)
+              .having((e) => e.stepId, 'stepId', 'pipeline')
+              .having((e) => e.message, 'message', contains('exactly one aggregate list value')),
+        ),
+      );
+    });
+
+    test('foreach controller with a single outputs key is valid', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], outputs: {'story_result': OutputConfig()}),
+          WorkflowStep(
+            id: 'pipeline',
+            name: 'Pipeline',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['implement'],
+            outputs: {'story_results': OutputConfig()},
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors.where((e) => e.stepId == 'pipeline'), isEmpty);
+    });
   });
 
-  group('S01 (0.16.1): hybrid step validation rules', () {
-    test('unknown step type produces a warning, not an error', () {
+  group('hybrid step validation rules', () {
+    test('unknown step type produces an error', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
@@ -802,16 +1309,20 @@ void main() {
         ],
       );
       final report = validator.validate(def);
-      expect(report.errors, isEmpty);
       expect(
-        report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint && w.stepId == 's'),
+        report.errors.any(
+          (e) =>
+              e.type == ValidationErrorType.hybridStepConstraint &&
+              e.stepId == 's' &&
+              e.message.contains('uses removed step type "unknown-future-type"'),
+        ),
         isTrue,
-        reason: 'Unknown type should produce a warning',
+        reason: 'Unknown type should produce an error',
       );
     });
 
-    test('known types produce no hybrid warning', () {
-      for (final type in ['research', 'analysis', 'writing', 'coding', 'automation', 'custom', 'bash', 'approval']) {
+    test('known types produce no hybrid type error', () {
+      for (final type in ['agent', 'bash', 'approval', 'foreach', 'loop']) {
         final def = WorkflowDefinition(
           name: 'wf',
           description: 'd',
@@ -821,10 +1332,30 @@ void main() {
         );
         final report = validator.validate(def);
         expect(
-          report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint),
+          report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint),
           isFalse,
-          reason: 'Known type "$type" should not produce a hybrid type warning',
+          reason: 'Known type "$type" should not produce a hybrid type error',
         );
+      }
+    });
+
+    test('legacy semantic and custom types produce hard errors', () {
+      for (final type in ['coding', 'analysis', 'research', 'writing', 'automation', 'custom']) {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: [
+            WorkflowStep(id: 's-$type', name: 'S', type: type, prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.stepId == 's-$type' && e.message.contains('uses removed step type "$type"')),
+          isTrue,
+        );
+        if (type == 'custom') {
+          expect(report.errors.single.message, contains('renamed to "agent"'));
+        }
       }
     });
 
@@ -885,6 +1416,176 @@ void main() {
         isTrue,
         reason: 'Parallel approval step should produce an error',
       );
+    });
+
+    test('structured output requires json format and schema', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            prompts: ['Review'],
+            outputs: {'verdict': OutputConfig(format: OutputFormat.text, outputMode: OutputMode.structured)},
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.length, greaterThanOrEqualTo(2));
+      expect(report.errors.any((e) => e.message.contains('format: json')), isTrue);
+      expect(report.errors.any((e) => e.message.contains('has no schema')), isTrue);
+    });
+
+    test('structured inline schema requires additionalProperties false on object nodes', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            prompts: ['Review'],
+            outputs: {
+              'verdict': OutputConfig(
+                format: OutputFormat.json,
+                outputMode: OutputMode.structured,
+                schema: {
+                  'type': 'object',
+                  'properties': {
+                    'summary': {'type': 'string'},
+                  },
+                },
+              ),
+            },
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.any((e) => e.message.contains('additionalProperties: false')), isTrue);
+    });
+
+    WorkflowDefinition defWithOutput(OutputConfig outputConfig) => WorkflowDefinition(
+      name: 'wf',
+      description: 'd',
+      steps: [
+        WorkflowStep(
+          id: 'implement',
+          name: 'Implement',
+          prompts: const ['Implement'],
+          outputs: {'diff_summary': outputConfig},
+        ),
+      ],
+    );
+
+    test('inline description colliding with text-preset description emits exactly one warning', () {
+      // `diff-summary` is a text preset with a canonical description. Setting
+      // an inline description as well silently overrides it — should warn.
+      final report = validator.validate(
+        defWithOutput(
+          const OutputConfig(
+            format: OutputFormat.text,
+            schema: 'diff-summary',
+            description: 'Custom inline description overrides the preset.',
+          ),
+        ),
+      );
+      expect(report.errors, isEmpty);
+      expect(report.warnings, hasLength(1));
+      expect(report.warnings.single.message, contains('diff_summary'));
+      expect(report.warnings.single.message, contains('inline description overrides the preset'));
+    });
+
+    test('preset reference without inline description does not warn', () {
+      final report = validator.validate(
+        defWithOutput(const OutputConfig(format: OutputFormat.text, schema: 'diff-summary')),
+      );
+      expect(report.errors, isEmpty);
+      expect(report.warnings, isEmpty);
+    });
+
+    test('inline description with no preset at all does not warn', () {
+      final report = validator.validate(
+        defWithOutput(const OutputConfig(format: OutputFormat.text, description: 'Freeform description, no preset.')),
+      );
+      expect(report.errors, isEmpty);
+      expect(report.warnings, isEmpty);
+    });
+
+    test('inline description with a preset that has no description does not warn', () {
+      // `non-negative-integer` is a JSON preset with no `description` — can
+      // only be paired with `format: json`. An inline description here is
+      // an authoring choice, not a collision.
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            prompts: ['Review'],
+            outputs: {
+              'findings_count': OutputConfig(
+                format: OutputFormat.json,
+                schema: 'non-negative-integer',
+                description: 'How many things we found.',
+              ),
+            },
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
+      expect(report.warnings, isEmpty);
+    });
+
+    test('whitespace-only inline description is a hard error', () {
+      final report = validator.validate(
+        defWithOutput(const OutputConfig(format: OutputFormat.text, schema: 'diff-summary', description: '   ')),
+      );
+      expect(
+        report.errors.any((e) => e.message.contains('diff_summary') && e.message.contains('blank "description"')),
+        isTrue,
+      );
+    });
+
+    test('json output without schema is a hard error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'research',
+            name: 'Research',
+            type: 'research',
+            prompts: ['Research'],
+            outputs: {'verdict': OutputConfig(format: OutputFormat.json)},
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.any((e) => e.message.contains('format: json requires a schema')), isTrue);
+    });
+
+    test('foreach controller json aggregate does not require a schema', () {
+      const def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], outputs: {'story_result': OutputConfig()}),
+          WorkflowStep(
+            id: 'pipeline',
+            name: 'Pipeline',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['implement'],
+            outputs: {'story_results': OutputConfig(format: OutputFormat.json)},
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
     });
 
     test('bash step with multi-prompt list is a hard error', () {
@@ -991,12 +1692,121 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p'], provider: 'claude'),
           WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous', provider: 'claude'),
         ],
       );
       final report = validator.validate(def, continuityProviders: {'claude'});
       expect(report.errors.any((e) => e.stepId == 's2'), isFalse);
+    });
+
+    test('continueSession provider matches previous step provider', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], provider: 'codex'),
+          WorkflowStep(
+            id: 'quick-review',
+            name: 'Quick Review',
+            prompts: ['p'],
+            continueSession: '@previous',
+            provider: 'codex',
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.any((e) => e.message.contains('requires the same provider')), isFalse);
+    });
+
+    test('continueSession provider mismatch fails and names both providers', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], provider: 'codex'),
+          WorkflowStep(
+            id: 'quick-review',
+            name: 'Quick Review',
+            prompts: ['p'],
+            continueSession: '@previous',
+            provider: 'claude',
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      final error = report.errors.singleWhere((e) => e.message.contains('requires the same provider'));
+      expect(error.message, contains('implement'));
+      expect(error.message, contains('quick-review'));
+      expect(error.message, contains('codex'));
+      expect(error.message, contains('claude'));
+    });
+
+    test('continueSession provider comparison resolves role aliases', () {
+      final validator = WorkflowDefinitionValidator(
+        roleDefaults: const WorkflowRoleDefaults(
+          workflow: WorkflowRoleDefault(provider: 'claude'),
+          executor: WorkflowRoleDefault(provider: 'codex'),
+        ),
+      );
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], provider: 'codex'),
+          WorkflowStep(
+            id: 'quick-review',
+            name: 'Quick Review',
+            prompts: ['p'],
+            continueSession: '@previous',
+            provider: '@executor',
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.any((e) => e.message.contains('requires the same provider')), isFalse);
+    });
+
+    test('continueSession with @-prefixed alias provider validates clean', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous', provider: '@executor'),
+        ],
+      );
+      // Concrete continuity providers do not include @executor; the alias
+      // skip ensures the validator does not false-positive on it. The runtime
+      // alias-mismatch warning at WorkflowExecutor._resolveContinueSessionProvider
+      // remains the safety net.
+      final report = validator.validate(def, continuityProviders: {'claude'});
+      expect(
+        report.errors.any((e) => e.type == ValidationErrorType.unsupportedProviderCapability && e.stepId == 's2'),
+        isFalse,
+      );
+    });
+
+    test('continueSession with unknown @-prefixed provider produces invalidReference error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous', provider: '@executer'),
+        ],
+      );
+      final report = validator.validate(def, continuityProviders: {'claude'});
+      expect(
+        report.errors.any(
+          (e) =>
+              e.type == ValidationErrorType.invalidReference &&
+              e.stepId == 's2' &&
+              e.message.contains('@executer') &&
+              e.message.contains('@executor'),
+        ),
+        isTrue,
+      );
     });
 
     test('parallel continueSession step is a hard error', () {
@@ -1043,8 +1853,9 @@ void main() {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
-        steps: const [
-          WorkflowStep(id: 's', name: 'S', type: 'future-type', prompts: ['p']),
+        steps: const [WorkflowStep(id: 's', name: 'S', type: 'approval')],
+        loops: [
+          WorkflowLoop(id: 'loop', steps: ['s'], maxIterations: 1, exitGate: 's.done == true'),
         ],
       );
       final report = validator.validate(def);
@@ -1053,7 +1864,7 @@ void main() {
       expect(report.isEmpty, isFalse);
     });
 
-    group('S04 (0.16.1): continueSession illegal-target validation', () {
+    group('continueSession illegal-target validation', () {
       test('continueSession on bash step is a hard error', () {
         final def = WorkflowDefinition(
           name: 'wf',
@@ -1202,6 +2013,635 @@ void main() {
           reason: 'valid linear continueSession chain should produce no errors',
         );
       });
+    });
+  });
+
+  group('foreach node validation', () {
+    test('valid foreach controller with children passes validation', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['c1', 'c2'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'c1', name: 'C1', prompts: ['p']),
+          WorkflowStep(id: 'c2', name: 'C2', prompts: ['p']),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors, isEmpty);
+    });
+
+    test('foreach controller referencing unknown child step produces invalidReference error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['c1', 'nonexistent'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'c1', name: 'C1', prompts: ['p']),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors.any((e) => e.type == ValidationErrorType.invalidReference && e.stepId == 'nonexistent'), isTrue);
+    });
+
+    test('foreach node with empty childStepIds produces missingField error', () {
+      // Construct definition with a step that claims to be foreach but has empty foreachSteps.
+      // This bypasses the parser (which rejects empty steps) and tests the validator directly.
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(id: 'fe', name: 'FE', type: 'foreach', mapOver: 'items', foreachSteps: []),
+        ],
+      );
+      // With empty foreachSteps, isForeachController is false, so normalization
+      // produces a MapNode instead. Validator checks differ per node type.
+      // This verifies the definition is constructable but not treated as foreach.
+      expect(def.steps[1].isForeachController, isFalse);
+    });
+
+    test('foreach type registered as known type (no unknown-type warning)', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['c1'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'c1', name: 'C1', prompts: ['p']),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(
+        report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint && w.stepId == 'fe'),
+        isFalse,
+        reason: 'foreach is a known type and should not trigger unknown-type warning',
+      );
+    });
+
+    group('step entryGate validation', () {
+      test('accepts bare-key and stepId.key forms', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(
+              id: 'prd',
+              name: 'PRD',
+              prompts: ['p'],
+              outputs: {'prd': OutputConfig(), 'prd_source': OutputConfig()},
+            ),
+            WorkflowStep(
+              id: 'review-prd',
+              name: 'Review',
+              prompts: ['r'],
+              entryGate: 'prd_source == synthesized',
+              inputs: ['prd'],
+            ),
+            WorkflowStep(
+              id: 'plan',
+              name: 'Plan',
+              prompts: ['p'],
+              entryGate: 'review-prd.findings_count > 0',
+              inputs: ['prd'],
+            ),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.type == ValidationErrorType.invalidGate), isFalse);
+      });
+
+      test('rejects malformed entryGate expression', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+            WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], entryGate: 'not a valid gate'),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.type == ValidationErrorType.invalidGate && e.stepId == 's2'), isTrue);
+      });
+    });
+
+    group('gitStrategy.artifacts validation', () {
+      test('per-map-item + artifact producer + commit: false raises error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+            artifacts: WorkflowGitArtifactsStrategy(commit: false),
+          ),
+          steps: const [
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('artifacts.commit: false is incompatible')), isTrue);
+      });
+
+      test('auto + map step maxParallel > 1 + artifact producer + commit: false raises error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(mode: 'auto'),
+            artifacts: WorkflowGitArtifactsStrategy(commit: false),
+          ),
+          steps: const [
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 2),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('artifacts.commit: false is incompatible')), isTrue);
+      });
+
+      test('auto + map step maxParallel 1 + artifact producer + commit: false does not raise per-map-item error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(mode: 'auto'),
+            artifacts: WorkflowGitArtifactsStrategy(commit: false),
+          ),
+          steps: const [
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 1),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('artifacts.commit: false is incompatible')), isFalse);
+      });
+
+      test('shared + artifact producer + commit: false issues warning not error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
+            artifacts: WorkflowGitArtifactsStrategy(commit: false),
+          ),
+          steps: const [
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('artifacts.commit')), isFalse);
+        expect(report.warnings.any((w) => w.message.contains('worktree: shared')), isTrue);
+      });
+
+      test('no artifact producer + per-map-item accepted', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item')),
+          steps: const [
+            WorkflowStep(id: 'only', name: 'Only', prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('artifacts.commit')), isFalse);
+      });
+
+      test('externalArtifactMount per-story-copy without source raises error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(
+              mode: 'per-map-item',
+              externalArtifactMount: WorkflowGitExternalArtifactMount(mode: 'per-story-copy', fromProject: 'DOC'),
+            ),
+          ),
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('externalArtifactMount.source')), isTrue);
+      });
+
+      test('externalArtifactMount bind-mount without fromPath raises error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(
+              mode: 'per-map-item',
+              externalArtifactMount: WorkflowGitExternalArtifactMount(mode: 'bind-mount', fromProject: 'DOC'),
+            ),
+          ),
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('externalArtifactMount.fromPath')), isTrue);
+      });
+
+      test('flat-level externalArtifactMount emits migration error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(
+              mode: 'per-map-item',
+              externalArtifactMount: WorkflowGitExternalArtifactMount(
+                mode: 'per-story-copy',
+                fromProject: 'DOC',
+                source: '{{map.item.spec_path}}',
+              ),
+            ),
+            legacyExternalArtifactMountLocation: true,
+          ),
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('gitStrategy.worktree.externalArtifactMount')), isTrue);
+      });
+
+      test('stepDefaults ordering note is not emitted for non-overlapping literal and glob', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          stepDefaults: const [
+            StepConfigDefault(match: 'revise*', provider: '@reviewer'),
+            StepConfigDefault(match: 'spec', provider: '@planner'),
+            StepConfigDefault(match: '*', provider: '@workflow'),
+          ],
+          steps: const [
+            WorkflowStep(id: 'spec', name: 'Spec', prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.warnings.any((w) => w.message.contains('stepDefaults ordering is load-bearing')), isFalse);
+      });
+
+      test('stepDefaults ordering note is emitted when literal overlaps with later glob', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          stepDefaults: const [
+            StepConfigDefault(match: 'spec-foo', provider: '@planner'),
+            StepConfigDefault(match: 'spec*', provider: '@reviewer'),
+            StepConfigDefault(match: '*', provider: '@workflow'),
+          ],
+          steps: const [
+            WorkflowStep(id: 'spec-foo', name: 'Spec Foo', prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        final warning = report.warnings.singleWhere((w) => w.message.contains('stepDefaults ordering is load-bearing'));
+        expect(warning.message, contains('spec-foo'));
+        expect(warning.message, contains('spec*'));
+      });
+    });
+
+    group('gitStrategy.merge_resolve validation', () {
+      WorkflowDefinition mrDef({required MergeResolveConfig mergeResolve, String? promotion}) => WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        gitStrategy: WorkflowGitStrategy(promotion: promotion, mergeResolve: mergeResolve),
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+      );
+
+      // TI04 — BPC-17 row 1
+      test('enabled:true with promotion:squash emits exact BPC-17 row 1 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: true), promotion: 'squash');
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.enabled requires gitStrategy.promotion: merge',
+          ),
+          isTrue,
+        );
+      });
+
+      test('enabled:true with promotion:none emits exact BPC-17 row 1 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: true), promotion: 'none');
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.enabled requires gitStrategy.promotion: merge',
+          ),
+          isTrue,
+        );
+      });
+
+      test('enabled:true with absent promotion emits BPC-17 row 1 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: true));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.enabled requires gitStrategy.promotion: merge',
+          ),
+          isTrue,
+        );
+      });
+
+      test('enabled:false with promotion:squash produces no merge_resolve error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: false), promotion: 'squash');
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.message.contains('merge_resolve.enabled')), isFalse);
+      });
+
+      test('enabled:true with promotion:merge produces no row-1 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: true), promotion: 'merge');
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.message.contains('merge_resolve.enabled')), isFalse);
+      });
+
+      // TI05 — BPC-17 row 2
+      test('max_attempts:0 emits exact BPC-17 row 2 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(maxAttempts: 0));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message == 'WorkflowDefinitionError: gitStrategy.merge_resolve.max_attempts must be between 1 and 5',
+          ),
+          isTrue,
+        );
+      });
+
+      test('max_attempts:6 emits exact BPC-17 row 2 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(maxAttempts: 6));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message == 'WorkflowDefinitionError: gitStrategy.merge_resolve.max_attempts must be between 1 and 5',
+          ),
+          isTrue,
+        );
+      });
+
+      test('max_attempts:1 is valid', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(maxAttempts: 1));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('max_attempts')), isFalse);
+      });
+
+      test('max_attempts:5 is valid', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(maxAttempts: 5));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('max_attempts')), isFalse);
+      });
+
+      // TI06 — BPC-17 row 3
+      test('token_ceiling:9999 emits exact BPC-17 row 3 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(tokenCeiling: 9999));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.token_ceiling must be between 10000 and 500000',
+          ),
+          isTrue,
+        );
+      });
+
+      test('token_ceiling:500001 emits exact BPC-17 row 3 error', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(tokenCeiling: 500001));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.token_ceiling must be between 10000 and 500000',
+          ),
+          isTrue,
+        );
+      });
+
+      test('token_ceiling:10000 is valid', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(tokenCeiling: 10000));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('token_ceiling')), isFalse);
+      });
+
+      test('token_ceiling:500000 is valid', () {
+        final def = mrDef(mergeResolve: const MergeResolveConfig(tokenCeiling: 500000));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('token_ceiling')), isFalse);
+      });
+
+      // TI07 — BPC-17 row 4
+      test('escalation:pause emits exact BPC-17 row 4 error only', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'escalation': 'pause'}));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                "WorkflowDefinitionError: gitStrategy.merge_resolve.escalation: 'pause' is reserved for a future release",
+          ),
+          isTrue,
+        );
+        expect(
+          errors.any((e) => e.message.contains('must be one of')),
+          isFalse,
+          reason: 'pause must not also trigger the generic enum error',
+        );
+      });
+
+      test('escalation:yolo emits generic enum error (not pause message)', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'escalation': 'yolo'}));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) =>
+                e.message ==
+                'WorkflowDefinitionError: gitStrategy.merge_resolve.escalation must be one of serialize-remaining, fail',
+          ),
+          isTrue,
+        );
+        expect(errors.any((e) => e.message.contains("'pause' is reserved")), isFalse);
+      });
+
+      test('escalation:serialize-remaining is valid', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'escalation': 'serialize-remaining'}));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('escalation')), isFalse);
+      });
+
+      test('escalation:fail is valid', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'escalation': 'fail'}));
+        expect(validator.validate(def).errors.any((e) => e.message.contains('escalation')), isFalse);
+      });
+
+      // TI08 — BPC-17 row 5
+      test('unknown top-level key emits exact BPC-17 row 5 error', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'foo': 'bar'}));
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) => e.message == "WorkflowDefinitionError: unknown field 'foo' under gitStrategy.merge_resolve",
+          ),
+          isTrue,
+        );
+      });
+
+      test('stale verification block emits unknown top-level key error', () {
+        final def = mrDef(
+          mergeResolve: MergeResolveConfig.fromJson({
+            'verification': {'format': 'x'},
+          }),
+        );
+        final errors = validator.validate(def).errors;
+        expect(
+          errors.any(
+            (e) => e.message == "WorkflowDefinitionError: unknown field 'verification' under gitStrategy.merge_resolve",
+          ),
+          isTrue,
+        );
+      });
+
+      test('two unknown top-level keys produce two errors', () {
+        final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'foo': 1, 'bar': 2}));
+        final errors = validator.validate(def).errors;
+        expect(errors.where((e) => e.message.contains('under gitStrategy.merge_resolve')).length, 2);
+      });
+
+      // TI09 — Backward compat: merge_resolve absent
+      test('definition with no merge_resolve produces zero new errors', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(promotion: 'merge'),
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
+        );
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.message.contains('merge_resolve')), isFalse);
+      });
+
+      test('merge_resolve:enabled:false with any promotion passes validation', () {
+        for (final promo in ['squash', 'none', 'merge', null]) {
+          final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: false), promotion: promo);
+          expect(
+            validator.validate(def).errors.any((e) => e.message.contains('merge_resolve')),
+            isFalse,
+            reason: 'promotion=$promo should not trigger merge_resolve errors when disabled',
+          );
+        }
+      });
+    });
+  });
+
+  group('map alias (`as:`) validation', () {
+    test('valid `as:` on a map step produces no errors', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'each',
+            name: 'Each',
+            prompts: ['Process {{thing.item.path}}'],
+            mapOver: 'items',
+            mapAlias: 'thing',
+            outputs: {'results': OutputConfig()},
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors, isEmpty);
+    });
+
+    test('`as:` on a non-map step is an error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['hi'], mapAlias: 'story'),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors.any((e) => e.message.contains('only valid on map/foreach controllers')), isTrue);
+    });
+
+    test('`as:` colliding with a workflow variable is an error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        variables: const {'PROJECT': WorkflowVariable(required: false, defaultValue: 'x')},
+        steps: const [
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'each',
+            name: 'Each',
+            prompts: ['p'],
+            mapOver: 'items',
+            mapAlias: 'PROJECT',
+            outputs: {'results': OutputConfig()},
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors.any((e) => e.message.contains('collides with a declared workflow variable')), isTrue);
+    });
+
+    test('alias references in substep prompts are not flagged as undeclared variables', () {
+      // `{{story.item.spec_path}}` in the child prompt would be mistaken for an
+      // undeclared variable without alias-aware extraction.
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'pipeline',
+            name: 'Pipeline',
+            prompts: null,
+            mapOver: 'items',
+            mapAlias: 'story',
+            foreachSteps: ['implement'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{story.item.spec_path}}']),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(
+        errors.any((e) => e.message.contains('undeclared variable')),
+        isFalse,
+        reason: 'Alias-aware extraction should skip {{story.*}} in child prompts',
+      );
     });
   });
 }

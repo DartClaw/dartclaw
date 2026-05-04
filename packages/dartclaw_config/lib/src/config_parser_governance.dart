@@ -107,7 +107,6 @@ GovernanceConfig _parseGovernance(Map<String, dynamic> yaml, GovernanceConfig de
     final effortRaw = crowdCodingRaw['effort'];
     if (effortRaw is String) {
       effort = effortRaw;
-      _warnIfUnrecognizedEffort(warns, 'governance.crowd_coding.effort', effort);
     } else if (effortRaw != null) {
       warns.add('Invalid type for governance.crowd_coding.effort: "${effortRaw.runtimeType}" — using default');
     }

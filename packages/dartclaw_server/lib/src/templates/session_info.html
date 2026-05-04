@@ -14,7 +14,7 @@
         <h2 class="section-label">Token Usage</h2>
         <div class="token-grid">
           <div class="token-stat">
-            <div class="token-stat-label">Input</div>
+            <div class="token-stat-label" tl:attr="title=${inputTooltip}" tl:text="${inputLabel}">Input</div>
             <div class="token-stat-value" tl:text="${inputStr}">0</div>
           </div>
           <div class="token-stat">
@@ -37,6 +37,10 @@
         <div tl:if="${hasCachedTokens}" class="meta-row">
           <span class="meta-label">Cached Input</span>
           <span class="meta-value" tl:text="${cachedTokensDisplay}">0</span>
+        </div>
+        <div tl:if="${hasEffectiveTokens}" class="meta-row">
+          <span class="meta-label" tl:attr="title=${effectiveTokensTooltip}">Effective Tokens</span>
+          <span class="meta-value" tl:text="${effectiveTokensDisplay}">0</span>
         </div>
       </div>
 

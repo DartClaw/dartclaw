@@ -1,5 +1,14 @@
-// settings.js - DartClaw settings page logic
-'use strict';
+(() => {
+  'use strict';
+
+  // settings.js - DartClaw settings page logic
+  const dartclaw = window.dartclaw = window.dartclaw || {};
+  dartclaw.ui = dartclaw.ui || {};
+  dartclaw.pages = dartclaw.pages || {};
+
+  const showToast = dartclaw.ui.showToast;
+  const escapeHtml = dartclaw.ui.escapeHtml;
+  const settingsPage = dartclaw.pages.settings = dartclaw.pages.settings || {};
 
 // === Settings tab navigation (show/hide panels) ===
 
@@ -144,7 +153,12 @@ function populateSettingsForm(config, meta) {
         badge.className = 'restart-required-badge';
         badge.title = 'Requires restart';
         badge.textContent = '↺';
-        group.appendChild(badge);
+        var labelEl = group.querySelector('.form-label');
+        if (labelEl) {
+          labelEl.appendChild(badge);
+        } else {
+          group.appendChild(badge);
+        }
       }
     } else {
       group.removeAttribute('data-needs-restart');
@@ -775,12 +789,6 @@ function showChannelRestartBanner() {
   if (banner) banner.style.display = '';
 }
 
-function escapeHtml(str) {
-  var div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 // === Pairing Approval Flow ===
 
 var pairingPollInterval = null;
@@ -917,3 +925,13 @@ function syncModeCards(page, fieldKey, activeValue) {
     card.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
 }
+
+settingsPage.onLoad = function () {
+  initSettingsForm();
+  initChannelDetail();
+  initPairingPolling();
+};
+
+settingsPage.onAfterSwap = settingsPage.onLoad;
+settingsPage.onHistoryRestore = settingsPage.onLoad;
+})();

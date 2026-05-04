@@ -21,5 +21,5 @@ String canvasAdminPageTemplate({
     'embedUrl': embedUrl,
     'sessionKey': sessionKey,
   });
-  return layoutTemplate(title: 'Canvas', body: body, appName: appName);
+  return layoutTemplate(title: 'Canvas', body: body, appName: appName, scripts: standardShellScripts());
 }

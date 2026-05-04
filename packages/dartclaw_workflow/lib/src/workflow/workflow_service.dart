@@ -4,33 +4,46 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
+        AgentExecutionRepository,
         EventBus,
+        ExecutionRepositoryTransactor,
         KvService,
         MessageService,
+        ProjectService,
+        TaskRepository,
         Task,
         TaskStatus,
+        WorkflowStepExecutionRepository,
+        WorkflowExecutionCursor,
+        WorkflowExecutionCursorNodeType,
         WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
+        WorkflowWorktreeBinding,
         WorkflowTaskService,
         atomicWriteJson;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
 import 'package:logging/logging.dart';
-import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import 'workflow_context.dart';
 import 'context_extractor.dart';
 import 'gate_evaluator.dart';
+import 'skill_registry.dart';
+import 'step_config_resolver.dart';
 import 'workflow_executor.dart';
+import 'workflow_git_port.dart';
+import 'workflow_run_paths.dart';
 import 'workflow_turn_adapter.dart';
 
 /// Public API facade for workflow lifecycle management.
 ///
-/// Owns the [SqliteWorkflowRunRepository] and delegates execution to
-/// [WorkflowExecutor]. Provides start, pause, resume, cancel, get, list.
+/// Owns workflow-run persistence, tracks in-memory execution coordination
+/// (`_cancelFlags`, `_activeExecutors`, approval timers), and delegates the
+/// per-run execution loop to [WorkflowExecutor]. Callers use this service to
+/// start, pause, resume, cancel, and recover runs safely across restarts.
 class WorkflowService {
   static final _log = Logger('WorkflowService');
 
@@ -38,10 +51,25 @@ class WorkflowService {
   final WorkflowTaskService _taskService;
   final MessageService _messageService;
   final WorkflowTurnAdapter? _turnAdapter;
+  final WorkflowGitPort? _workflowGitPort;
   final EventBus _eventBus;
   final KvService _kvService;
   final String _dataDir;
   final Uuid _uuid;
+  final WorkflowRoleDefaults _roleDefaults;
+  final WorkflowStepOutputTransformer? _outputTransformer;
+  final StructuredOutputFallbackRecorder? _structuredOutputFallbackRecorder;
+  final SkillRegistry? _skillRegistry;
+  final TaskRepository? _taskRepository;
+  final AgentExecutionRepository? _agentExecutionRepository;
+  final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
+  final ExecutionRepositoryTransactor? _executionRepositoryTransactor;
+  final ProjectService? _projectService;
+  final FutureOr<void> Function(WorkflowWorktreeBinding binding, {required String workflowRunId})?
+  _hydrateWorkflowWorktreeBinding;
+  final Map<String, String>? _hostEnvironment;
+  final List<String>? _bashStepEnvAllowlist;
+  final List<String>? _bashStepExtraStripPatterns;
 
   // Cancellation tokens per run ID.
   final _cancelFlags = <String, bool>{};
@@ -57,17 +85,46 @@ class WorkflowService {
     required WorkflowTaskService taskService,
     required MessageService messageService,
     WorkflowTurnAdapter? turnAdapter,
+    WorkflowGitPort? workflowGitPort,
     required EventBus eventBus,
     required KvService kvService,
     required String dataDir,
+    WorkflowRoleDefaults? roleDefaults,
+    WorkflowStepOutputTransformer? outputTransformer,
+    StructuredOutputFallbackRecorder? structuredOutputFallbackRecorder,
+    SkillRegistry? skillRegistry,
+    TaskRepository? taskRepository,
+    AgentExecutionRepository? agentExecutionRepository,
+    WorkflowStepExecutionRepository? workflowStepExecutionRepository,
+    ExecutionRepositoryTransactor? executionRepositoryTransactor,
+    ProjectService? projectService,
+    FutureOr<void> Function(WorkflowWorktreeBinding binding, {required String workflowRunId})?
+    hydrateWorkflowWorktreeBinding,
+    Map<String, String>? hostEnvironment,
+    List<String>? bashStepEnvAllowlist,
+    List<String>? bashStepExtraStripPatterns,
     Uuid? uuid,
   }) : _repository = repository,
        _taskService = taskService,
        _messageService = messageService,
        _turnAdapter = turnAdapter,
+       _workflowGitPort = workflowGitPort,
        _eventBus = eventBus,
        _kvService = kvService,
        _dataDir = dataDir,
+       _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
+       _outputTransformer = outputTransformer,
+       _structuredOutputFallbackRecorder = structuredOutputFallbackRecorder,
+       _skillRegistry = skillRegistry,
+       _taskRepository = taskRepository,
+       _agentExecutionRepository = agentExecutionRepository,
+       _workflowStepExecutionRepository = workflowStepExecutionRepository,
+       _executionRepositoryTransactor = executionRepositoryTransactor,
+       _projectService = projectService,
+       _hydrateWorkflowWorktreeBinding = hydrateWorkflowWorktreeBinding,
+       _hostEnvironment = hostEnvironment,
+       _bashStepEnvAllowlist = bashStepEnvAllowlist,
+       _bashStepExtraStripPatterns = bashStepExtraStripPatterns,
        _uuid = uuid ?? const Uuid();
 
   /// Starts a new workflow run from a parsed definition.
@@ -78,6 +135,7 @@ class WorkflowService {
     WorkflowDefinition definition,
     Map<String, String> variables, {
     String? projectId,
+    bool allowDirtyLocalPath = false,
     bool headless = false,
   }) async {
     // Validate required variables.
@@ -93,6 +151,33 @@ class WorkflowService {
         if (entry.value.defaultValue != null) entry.key: entry.value.defaultValue!,
       ...variables,
     };
+    final trimmedProjectId = projectId?.trim();
+    if (trimmedProjectId != null &&
+        trimmedProjectId.isNotEmpty &&
+        definition.variables.containsKey('PROJECT') &&
+        !resolvedVariables.containsKey('PROJECT')) {
+      resolvedVariables['PROJECT'] = trimmedProjectId;
+    }
+
+    final resolver = _turnAdapter?.resolveStartContext;
+    if (resolver != null) {
+      final resolution = await resolver(
+        definition,
+        resolvedVariables,
+        projectId: trimmedProjectId,
+        allowDirtyLocalPath: allowDirtyLocalPath,
+      );
+      final resolvedProjectId = resolution.projectId?.trim();
+      if (resolvedProjectId != null && resolvedProjectId.isNotEmpty) {
+        if (definition.variables.containsKey('PROJECT')) {
+          resolvedVariables['PROJECT'] = resolvedProjectId;
+        }
+      }
+      final resolvedBranch = resolution.branch?.trim();
+      if (resolvedBranch != null && resolvedBranch.isNotEmpty && definition.variables.containsKey('BRANCH')) {
+        resolvedVariables['BRANCH'] = resolvedBranch;
+      }
+    }
 
     final now = DateTime.now();
     final runId = _uuid.v4();
@@ -134,9 +219,7 @@ class WorkflowService {
     return run;
   }
 
-  /// Pauses a running workflow.
-  ///
-  /// Sets the cancellation flag so the executor stops before the next step.
+  /// Pauses a running workflow by setting the cancellation flag.
   Future<WorkflowRun> pause(String runId) async {
     final run = await _requireRun(runId);
     if (run.status != WorkflowRunStatus.running) {
@@ -165,8 +248,11 @@ class WorkflowService {
   /// [WorkflowApprovalResolvedEvent].
   Future<WorkflowRun> resume(String runId) async {
     var run = await _requireRun(runId);
-    if (run.status != WorkflowRunStatus.paused) {
-      throw StateError('Cannot resume workflow in ${run.status.name} state (only paused workflows can be resumed)');
+    if (run.status != WorkflowRunStatus.paused && run.status != WorkflowRunStatus.awaitingApproval) {
+      throw StateError(
+        'Cannot resume workflow in ${run.status.name} state '
+        '(only paused or awaitingApproval workflows can be resumed)',
+      );
     }
 
     // Record approval outcome if this was an approval-paused run.
@@ -207,32 +293,10 @@ class WorkflowService {
     // Load context from disk.
     final context = await _loadContext(runId) ?? WorkflowContext.fromJson(run.contextJson);
 
-    // Determine resume point.
-    final currentLoopId = run.contextJson['_loop.current.id'] as String?;
-    final currentLoopIteration = (run.contextJson['_loop.current.iteration'] as num?)?.toInt();
-    final currentLoopStepId = run.contextJson['_loop.current.stepId'] as String?;
-
-    int? startLoopIndex;
-    int? startLoopIteration;
-    String? startLoopStepId;
-    int resumeStepIndex = run.currentStepIndex;
-
-    if (currentLoopId != null) {
-      // Was mid-loop — resume from that loop and iteration.
-      final loopIndex = definition.loops.indexWhere((l) => l.id == currentLoopId);
-      if (loopIndex >= 0) {
-        _log.info(
-          "Resuming workflow '${run.definitionName}' ($runId): "
-          "loop '$currentLoopId' at iteration ${currentLoopIteration ?? 1}"
-          "${currentLoopStepId != null ? ', step $currentLoopStepId' : ''}",
-        );
-        // Skip the linear pass — it was already completed.
-        resumeStepIndex = definition.steps.length;
-        startLoopIndex = loopIndex;
-        startLoopIteration = currentLoopIteration ?? 1;
-        startLoopStepId = currentLoopStepId;
-      }
-    }
+    final executionCursor = _resumeCursor(run, definition);
+    final resumeStepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
+    _logResumeCursor(run, executionCursor, action: 'Resuming');
+    await _rehydrateWorkflowWorktreeBinding(run);
 
     // Transition to running.
     final running = run.copyWith(status: WorkflowRunStatus.running, errorMessage: null, updatedAt: DateTime.now());
@@ -246,16 +310,59 @@ class WorkflowService {
       newStatus: WorkflowRunStatus.running,
     );
 
-    _spawnExecutor(
-      running,
-      definition,
-      context,
-      startFromStepIndex: resumeStepIndex,
-      startFromLoopIndex: startLoopIndex,
-      startFromLoopIteration: startLoopIteration,
-      startFromLoopStepId: startLoopStepId,
+    _spawnExecutor(running, definition, context, startFromStepIndex: resumeStepIndex, startCursor: executionCursor);
+
+    return running;
+  }
+
+  /// Retries a failed workflow from its persisted resume cursor.
+  Future<WorkflowRun> retry(String runId) async {
+    var run = await _requireRun(runId);
+    if (run.status != WorkflowRunStatus.failed) {
+      throw StateError('Cannot retry workflow in ${run.status.name} state (only failed workflows can be retried)');
+    }
+
+    final definition = WorkflowDefinition.fromJson(run.definitionJson);
+    final context = await _loadContext(runId) ?? WorkflowContext.fromJson(run.contextJson);
+    final executionCursor = _resumeCursor(run, definition);
+    final retryStepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
+    _logResumeCursor(run, executionCursor, action: 'Retrying');
+    await _rehydrateWorkflowWorktreeBinding(run);
+
+    final failingStepId = _stepIdForRetry(run, definition, executionCursor);
+    if (failingStepId != null) {
+      context.remove('$failingStepId.status');
+      context.remove('step.$failingStepId.outcome');
+      context.remove('step.$failingStepId.outcome.reason');
+    }
+    await _persistContext(runId, context);
+
+    final running = run.copyWith(
+      status: WorkflowRunStatus.running,
+      errorMessage: null,
+      completedAt: null,
+      contextJson: _snapshotContextJson(
+        run.contextJson,
+        context,
+        removeFlatKeys: {
+          if (failingStepId != null) '$failingStepId.status',
+          if (failingStepId != null) 'step.$failingStepId.outcome',
+          if (failingStepId != null) 'step.$failingStepId.outcome.reason',
+        },
+      ),
+      updatedAt: DateTime.now(),
+    );
+    await _repository.update(running);
+    _cancelFlags.remove(runId);
+
+    _fireStatusChanged(
+      runId: runId,
+      definitionName: run.definitionName,
+      oldStatus: run.status,
+      newStatus: WorkflowRunStatus.running,
     );
 
+    _spawnExecutor(running, definition, context, startFromStepIndex: retryStepIndex, startCursor: executionCursor);
     return running;
   }
 
@@ -322,10 +429,12 @@ class WorkflowService {
     );
 
     // Cancel all non-terminal child tasks.
-    // Running tasks: transition to cancelled triggers TurnRunner.cancelTurn()
-    // (stdin close + SIGTERM). Immediate — no grace period.
+    // Host-side wiring is responsible for reacting to running->cancelled task
+    // transitions and terminating any active turn bound to the task session.
     final allTasks = await _taskService.list();
-    final workflowTasks = allTasks.where((t) => t.workflowRunId == runId && !t.status.terminal);
+    final workflowTasks = allTasks.where(
+      (t) => t.workflowRunId == runId && (t.status == TaskStatus.queued || t.status == TaskStatus.running),
+    );
     for (final task in workflowTasks) {
       try {
         await _taskService.transition(task.id, TaskStatus.cancelled, trigger: 'workflow-cancel');
@@ -335,12 +444,11 @@ class WorkflowService {
         _log.warning('Failed to cancel workflow task ${task.id}: $e');
       }
     }
+    await _invokeWorkflowGitCleanup(cancelled);
   }
 
-  /// Returns the workflow run with [runId], or null if not found.
   Future<WorkflowRun?> get(String runId) => _repository.getById(runId);
 
-  /// Lists workflow runs with optional filters.
   Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) =>
       _repository.list(status: status, definitionName: definitionName);
 
@@ -361,8 +469,11 @@ class WorkflowService {
       }
     }
 
-    final pausedRuns = await _repository.list(status: WorkflowRunStatus.paused);
-    for (final run in pausedRuns) {
+    final heldRuns = [
+      ...await _repository.list(status: WorkflowRunStatus.paused),
+      ...await _repository.list(status: WorkflowRunStatus.awaitingApproval),
+    ];
+    for (final run in heldRuns) {
       try {
         await _rehydrateApprovalTimeout(run);
       } catch (e, st) {
@@ -371,7 +482,7 @@ class WorkflowService {
     }
   }
 
-  /// Recovers a single incomplete run.
+  /// Recovers a single incomplete run from its persisted definition and context.
   Future<void> _recoverRun(WorkflowRun run) async {
     // Load definition from snapshot.
     WorkflowDefinition definition;
@@ -384,29 +495,20 @@ class WorkflowService {
 
     // Load context from disk (fall back to SQLite snapshot).
     final context = await _loadContext(run.id) ?? WorkflowContext.fromJson(run.contextJson);
+    await _rehydrateWorkflowWorktreeBinding(run);
 
-    // Check if run was mid-loop.
-    final currentLoopId = run.contextJson['_loop.current.id'] as String?;
-    if (currentLoopId != null) {
-      final currentIteration = (run.contextJson['_loop.current.iteration'] as num?)?.toInt() ?? 1;
-      final loopIndex = definition.loops.indexWhere((l) => l.id == currentLoopId);
-      if (loopIndex >= 0) {
-        _log.info(
-          "Recovering workflow '${definition.name}' (${run.id}): "
-          "resuming loop '$currentLoopId' at iteration $currentIteration",
-        );
-        _cancelFlags.remove(run.id);
-        _spawnExecutor(
-          run,
-          definition,
-          context,
-          // Skip linear pass (already done); resume from this loop.
-          startFromStepIndex: definition.steps.length,
-          startFromLoopIndex: loopIndex,
-          startFromLoopIteration: currentIteration,
-        );
-        return;
-      }
+    final executionCursor = _resumeCursor(run, definition);
+    if (executionCursor != null) {
+      _logResumeCursor(run, executionCursor, action: 'Recovering');
+      _cancelFlags.remove(run.id);
+      _spawnExecutor(
+        run,
+        definition,
+        context,
+        startFromStepIndex: executionCursor.stepIndex,
+        startCursor: executionCursor,
+      );
+      return;
     }
 
     // Standard recovery: find the last completed step.
@@ -482,25 +584,96 @@ class WorkflowService {
     _approvalTimeoutTimers.clear();
   }
 
+  WorkflowExecutionCursor? _resumeCursor(WorkflowRun run, WorkflowDefinition definition) {
+    final cursor = run.executionCursor;
+    if (cursor != null) {
+      return cursor;
+    }
+
+    final currentLoopId = run.contextJson['_loop.current.id'] as String?;
+    if (currentLoopId == null) return null;
+    final currentIteration = (run.contextJson['_loop.current.iteration'] as num?)?.toInt() ?? 1;
+    final currentLoopStepId = run.contextJson['_loop.current.stepId'] as String?;
+    final loop = definition.loops.where((candidate) => candidate.id == currentLoopId).firstOrNull;
+    if (loop == null) return null;
+    final fallbackStepId = currentLoopStepId ?? loop.steps.first;
+    final stepIndex = definition.steps.indexWhere((step) => step.id == fallbackStepId);
+    if (stepIndex < 0) return null;
+    return WorkflowExecutionCursor.loop(
+      loopId: currentLoopId,
+      stepIndex: stepIndex,
+      iteration: currentIteration,
+      stepId: currentLoopStepId,
+    );
+  }
+
+  void _logResumeCursor(WorkflowRun run, WorkflowExecutionCursor? cursor, {required String action}) {
+    if (cursor == null) return;
+    switch (cursor.nodeType) {
+      case WorkflowExecutionCursorNodeType.loop:
+        _log.info(
+          "$action workflow '${run.definitionName}' (${run.id}): "
+          "loop '${cursor.nodeId}' at iteration ${cursor.iteration ?? 1}"
+          "${cursor.stepId != null ? ', step ${cursor.stepId}' : ''}",
+        );
+      case WorkflowExecutionCursorNodeType.map:
+        _log.info(
+          "$action workflow '${run.definitionName}' (${run.id}): "
+          "map step '${cursor.nodeId}' with ${cursor.completedIndices.length}/"
+          '${cursor.totalItems ?? cursor.resultSlots.length} settled iteration(s)',
+        );
+      case WorkflowExecutionCursorNodeType.foreach:
+        _log.info(
+          "$action workflow '${run.definitionName}' (${run.id}): "
+          "foreach step '${cursor.nodeId}' with ${cursor.completedIndices.length}/"
+          '${cursor.totalItems ?? cursor.resultSlots.length} completed iteration(s)',
+        );
+    }
+  }
+
   void _spawnExecutor(
     WorkflowRun run,
     WorkflowDefinition definition,
     WorkflowContext context, {
     int startFromStepIndex = 0,
+    WorkflowExecutionCursor? startCursor,
     int? startFromLoopIndex,
     int? startFromLoopIteration,
     String? startFromLoopStepId,
   }) {
     final executor = WorkflowExecutor(
-      taskService: _taskService,
-      eventBus: _eventBus,
-      kvService: _kvService,
-      repository: _repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(taskService: _taskService, messageService: _messageService, dataDir: _dataDir),
-      messageService: _messageService,
-      turnAdapter: _turnAdapter,
+      executionContext: StepExecutionContext(
+        taskService: _taskService,
+        eventBus: _eventBus,
+        kvService: _kvService,
+        repository: _repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: _taskService,
+          messageService: _messageService,
+          dataDir: _dataDir,
+          workflowStepExecutionRepository: _workflowStepExecutionRepository,
+          workflowGitPort: _workflowGitPort,
+          structuredOutputFallbackRecorder: _structuredOutputFallbackRecorder,
+        ),
+        turnAdapter: _turnAdapter,
+        workflowGitPort: _workflowGitPort,
+        outputTransformer: _outputTransformer,
+        skillRegistry: _skillRegistry,
+        taskRepository: _taskRepository,
+        agentExecutionRepository: _agentExecutionRepository,
+        workflowStepExecutionRepository: _workflowStepExecutionRepository,
+        executionTransactor: _executionRepositoryTransactor,
+        projectService: _projectService,
+      ),
+      promptConfiguration: StepPromptConfiguration(),
       dataDir: _dataDir,
+      roleDefaults: _roleDefaults,
+      bashStepPolicy: BashStepPolicy(
+        hostEnvironment: _hostEnvironment,
+        envAllowlist: _bashStepEnvAllowlist ?? BashStepPolicy.defaultEnvAllowlist,
+        extraStripPatterns: _bashStepExtraStripPatterns ?? const <String>[],
+      ),
     );
 
     Future<void> executeFn() async {
@@ -510,13 +683,14 @@ class WorkflowService {
           definition,
           context,
           startFromStepIndex: startFromStepIndex,
+          startCursor: startCursor,
           startFromLoopIndex: startFromLoopIndex,
           startFromLoopIteration: startFromLoopIteration,
           startFromLoopStepId: startFromLoopStepId,
           isCancelled: () => _cancelFlags[run.id] ?? false,
         );
         final current = await _repository.getById(run.id);
-        if (current != null && current.status == WorkflowRunStatus.paused) {
+        if (current != null && current.status == WorkflowRunStatus.awaitingApproval) {
           await _rehydrateApprovalTimeout(current);
         }
       } catch (e, st) {
@@ -532,6 +706,7 @@ class WorkflowService {
               updatedAt: DateTime.now(),
             );
             await _repository.update(failed);
+            await _invokeWorkflowGitCleanup(failed);
             _fireStatusChanged(
               runId: run.id,
               definitionName: run.definitionName,
@@ -559,15 +734,66 @@ class WorkflowService {
     return run;
   }
 
+  Future<void> _rehydrateWorkflowWorktreeBinding(WorkflowRun run) async {
+    final bindings = run.workflowWorktrees.isNotEmpty
+        ? run.workflowWorktrees
+        : await _repository.getWorktreeBindings(run.id);
+    for (final binding in bindings) {
+      if (binding.workflowRunId != run.id) {
+        throw StateError(
+          'Workflow worktree binding run ID mismatch: '
+          'persisted ${binding.workflowRunId}, requested ${run.id}',
+        );
+      }
+    }
+    final hydrate = _hydrateWorkflowWorktreeBinding;
+    if (hydrate == null) return;
+    for (final binding in bindings) {
+      await hydrate(binding, workflowRunId: run.id);
+    }
+  }
+
+  String? _stepIdForRetry(WorkflowRun run, WorkflowDefinition definition, WorkflowExecutionCursor? executionCursor) {
+    if (executionCursor?.stepId case final String stepId?) {
+      return stepId;
+    }
+    final stepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
+    if (stepIndex < 0 || stepIndex >= definition.steps.length) return null;
+    return definition.steps[stepIndex].id;
+  }
+
   Future<void> _persistContext(String runId, WorkflowContext context) async {
-    final dir = Directory(p.join(_dataDir, 'workflows', runId));
-    await dir.create(recursive: true);
-    final file = File(p.join(dir.path, 'context.json'));
+    final file = File(workflowRunContextJson(dataDir: _dataDir, runId: runId));
+    await file.parent.create(recursive: true);
     await atomicWriteJson(file, context.toJson());
   }
 
+  Future<void> _invokeWorkflowGitCleanup(WorkflowRun run) async {
+    final cleanup = _turnAdapter?.cleanupWorkflowGit;
+    if (cleanup == null) return;
+    final projectId = run.variablesJson['PROJECT']?.trim();
+    if (projectId == null || projectId.isEmpty) return;
+    final preserveWorktrees = !_resolveCleanupEnabled(run);
+    try {
+      await cleanup(runId: run.id, projectId: projectId, status: run.status.name, preserveWorktrees: preserveWorktrees);
+    } catch (e, st) {
+      _log.warning("Workflow '${run.id}' cleanup callback failed", e, st);
+    }
+  }
+
+  bool _resolveCleanupEnabled(WorkflowRun run) {
+    try {
+      return WorkflowDefinition.fromJson(run.definitionJson).gitStrategy?.cleanupEnabled ?? true;
+    } catch (e, st) {
+      // Preserve worktrees/branches when we can't read the operator's intent —
+      // destroying potential evidence on a parse failure is the worst default.
+      _log.warning("Workflow '${run.id}': failed to resolve cleanup config; preserving worktrees", e, st);
+      return false;
+    }
+  }
+
   Future<WorkflowContext?> _loadContext(String runId) async {
-    final file = File(p.join(_dataDir, 'workflows', runId, 'context.json'));
+    final file = File(workflowRunContextJson(dataDir: _dataDir, runId: runId));
     if (!file.existsSync()) return null;
     try {
       final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
@@ -644,7 +870,7 @@ class WorkflowService {
   }
 
   Future<void> _expireApprovalTimeout(WorkflowRun run, String stepId) async {
-    if (run.status != WorkflowRunStatus.paused) return;
+    if (run.status != WorkflowRunStatus.awaitingApproval && run.status != WorkflowRunStatus.paused) return;
     if (run.contextJson['_approval.pending.stepId'] != stepId) return;
 
     _clearApprovalTimeoutTimer(run.id, stepId);

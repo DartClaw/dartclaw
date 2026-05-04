@@ -1,6 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show buildLoopInfo, formatContextForDisplay, stepStatusFromTask;
+    show buildLoopInfo, formatContextForDisplay, stepStatusFromTask, workflowStatusBadgeClass, workflowStatusLabel;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
@@ -19,6 +19,20 @@ final _log = Logger('WorkflowsPage');
 /// `/workflows/<runId>/steps/<stepIndex>` (HTMX lazy-load partial).
 /// The workflow run list page is S12's responsibility.
 class WorkflowsPage extends DashboardPage {
+  static String _stepStatusForRunDetail(WorkflowRun run, int index, WorkflowStep step, Task? task) {
+    if (step.type == 'approval') {
+      final approvalStatus = run.contextJson['${step.id}.approval.status'] as String?;
+      return switch (approvalStatus) {
+        'pending' => 'awaiting_approval',
+        'approved' => 'completed',
+        'rejected' => 'rejected',
+        'timed_out' => 'timed_out',
+        _ => 'pending',
+      };
+    }
+    return stepStatusFromTask(run, index, task, stepId: step.id);
+  }
+
   @override
   String get route => '/workflows';
 
@@ -59,6 +73,7 @@ class WorkflowsPage extends DashboardPage {
 
     final taskService = context.taskService;
     final definitionSource = context.definitionSource;
+    final projects = context.projectService == null ? <Project>[] : await context.projectService!.getAll();
 
     // Parse filters from query parameters.
     final params = request.url.queryParameters;
@@ -82,22 +97,28 @@ class WorkflowsPage extends DashboardPage {
         definition = WorkflowDefinition.fromJson(run.definitionJson);
       } catch (_) {}
       final totalSteps = definition?.steps.length ?? 0;
-      final childTasks = allTasks.where((t) => t.workflowRunId == run.id);
-      // Use distinct step indices to avoid overcounting in loop workflows.
-      final completedStepIndices = childTasks
-          .where((t) => t.status == TaskStatus.accepted && t.stepIndex != null)
-          .map((t) => t.stepIndex!)
-          .toSet()
-          .length;
-      final completedSteps = totalSteps > 0 ? completedStepIndices.clamp(0, totalSteps) : 0;
+      final tasksByStepIndex = <int, Task>{
+        for (final task in allTasks.where((t) => t.workflowRunId == run.id))
+          if (task.stepIndex != null) task.stepIndex!: task,
+      };
+      final completedSteps = definition == null
+          ? 0
+          : definition.steps.indexed
+                .where((entry) {
+                  final (index, step) = entry;
+                  final status = _stepStatusForRunDetail(run, index, step, tasksByStepIndex[index]);
+                  return status == 'completed' || status == 'skipped';
+                })
+                .length
+                .clamp(0, totalSteps);
       final progressPercent = totalSteps > 0 ? (completedSteps * 100 ~/ totalSteps) : 0;
 
       runSummaries.add({
         'id': run.id,
         'definitionName': run.definitionName,
         'status': run.status.name,
-        'statusLabel': titleCase(run.status.name),
-        'statusBadgeClass': 'status-badge-${run.status.name}',
+        'statusLabel': workflowStatusLabel(run.status),
+        'statusBadgeClass': workflowStatusBadgeClass(run.status),
         'completedSteps': completedSteps,
         'totalSteps': totalSteps,
         'progressPercent': progressPercent,
@@ -116,9 +137,22 @@ class WorkflowsPage extends DashboardPage {
             'description': s.description,
             'stepCount': s.stepCount,
             'hasLoops': s.hasLoops,
+            'errorId': 'workflow-error-${s.name}',
+            'projectSelectId': 'workflow-project-${s.name}',
             'variableHints': [
               for (final entry in s.variables.entries)
                 {'name': entry.key, 'description': entry.value.description, 'required': entry.value.required},
+            ],
+            'variableInputs': [
+              for (final entry in s.variables.entries)
+                {
+                  'id': 'workflow-var-${s.name}-${entry.key}',
+                  'inputName': 'var_${entry.key}',
+                  'label': titleCase(entry.key),
+                  'placeholder': entry.value.description,
+                  'required': entry.value.required,
+                  'defaultValue': entry.value.defaultValue ?? '',
+                },
             ],
           },
         )
@@ -141,6 +175,9 @@ class WorkflowsPage extends DashboardPage {
       navItems: navItems,
       runs: runSummaries,
       definitions: definitionViewModels,
+      projectOptions: [
+        for (final project in projects) {'value': project.id, 'label': project.name},
+      ],
       filters: filters,
       bannerHtml: bannerHtml,
       appName: context.appDisplay.name,
@@ -197,15 +234,7 @@ class WorkflowsPage extends DashboardPage {
       final task = tasksByStepIndex[i];
       final isApproval = step.type == 'approval';
       final approvalStatus = isApproval ? run.contextJson['${step.id}.approval.status'] as String? : null;
-      final stepStatus = isApproval
-          ? switch (approvalStatus) {
-              'pending' => 'awaiting_approval',
-              'approved' => 'completed',
-              'rejected' => 'rejected',
-              'timed_out' => 'timed_out',
-              _ => 'pending',
-            }
-          : stepStatusFromTask(run, i, task);
+      final stepStatus = _stepStatusForRunDetail(run, i, step, task);
       final stepEntry = <String, dynamic>{
         'index': i,
         'id': step.id,
@@ -252,7 +281,7 @@ class WorkflowsPage extends DashboardPage {
         'completedAt': run.completedAt?.toIso8601String(),
         'totalTokens': run.totalTokens,
         'errorMessage': run.errorMessage,
-        'isApprovalPaused': pendingApprovalStepId != null,
+        'contextJson': run.contextJson,
         'pendingApprovalStepId': pendingApprovalStepId,
       },
       steps: steps,
@@ -279,8 +308,8 @@ class WorkflowsPage extends DashboardPage {
         body: workflowStepDetailFragment(
           messagesHtml: null,
           artifacts: const [],
-          contextInputs: const [],
-          contextOutputs: const [],
+          inputs: const [],
+          outputKeys: const [],
         ),
         headers: htmlHeaders,
       );
@@ -332,8 +361,8 @@ class WorkflowsPage extends DashboardPage {
       definition = WorkflowDefinition.fromJson(run.definitionJson);
     } catch (_) {}
 
-    final contextInputs = <Map<String, dynamic>>[];
-    final contextOutputs = <Map<String, dynamic>>[];
+    final inputs = <Map<String, dynamic>>[];
+    final outputKeys = <Map<String, dynamic>>[];
     if (definition != null && stepIndex < definition.steps.length) {
       final step = definition.steps[stepIndex];
       // Extract context references from the step prompt (keys accessed via {{context.key}}).
@@ -341,13 +370,13 @@ class WorkflowsPage extends DashboardPage {
         final value = run.contextJson[key];
         if (value != null) {
           final str = value.toString();
-          contextInputs.add({'key': key, 'value': str.length > 200 ? '${str.substring(0, 200)}...' : str});
+          inputs.add({'key': key, 'value': str.length > 200 ? '${str.substring(0, 200)}...' : str});
         }
       }
-      // Context outputs: keys written by this step (from step.contextOutputs if available).
-      for (final key in _stepContextOutputKeys(step)) {
+      // Context outputs: keys written by this step (from step.outputKeys).
+      for (final key in step.outputKeys) {
         final value = run.contextJson[key];
-        contextOutputs.add({
+        outputKeys.add({
           'key': key,
           'value': value != null
               ? (value.toString().length > 200 ? '${value.toString().substring(0, 200)}...' : value.toString())
@@ -377,8 +406,8 @@ class WorkflowsPage extends DashboardPage {
     final html = workflowStepDetailFragment(
       messagesHtml: messagesHtml,
       artifacts: artifacts,
-      contextInputs: contextInputs,
-      contextOutputs: contextOutputs,
+      inputs: inputs,
+      outputKeys: outputKeys,
       tokenCount: tokenCount,
       durationDisplay: stepDuration,
     );
@@ -391,6 +420,7 @@ class WorkflowsPage extends DashboardPage {
       ArtifactKind.document => 'Document',
       ArtifactKind.diff => 'Diff',
       ArtifactKind.data => 'Data',
+      ArtifactKind.branch => 'Branch',
       ArtifactKind.pr => 'Pull Request',
     };
   }
@@ -400,6 +430,7 @@ class WorkflowsPage extends DashboardPage {
       ArtifactKind.diff => 'workflow-artifact-badge--diff',
       ArtifactKind.document => 'workflow-artifact-badge--document',
       ArtifactKind.data => 'workflow-artifact-badge--data',
+      ArtifactKind.branch => 'workflow-artifact-badge--data',
       ArtifactKind.pr => 'workflow-artifact-badge--pr',
     };
   }
@@ -408,10 +439,5 @@ class WorkflowsPage extends DashboardPage {
   static List<String> _extractContextKeys(String prompt) {
     final regex = RegExp(r'\{\{context\.([^}]+)\}\}');
     return regex.allMatches(prompt).map((m) => m.group(1)!).toSet().toList();
-  }
-
-  /// Returns context output keys declared by a workflow step.
-  static List<String> _stepContextOutputKeys(WorkflowStep step) {
-    return step.contextOutputs;
   }
 }

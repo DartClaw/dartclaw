@@ -31,6 +31,9 @@ String tasksPageTemplate({
   List<Map<String, String>> projectOptions = const [],
   TaskProgressTracker? progressTracker,
   TaskEventService? taskEventService,
+  bool showWorkflowReviewToggle = false,
+  bool includeWorkflowOwned = false,
+  String workflowReviewToggleHref = '/tasks?status=review&include=workflow',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final topbar = pageTopbarTemplate(title: 'Tasks');
@@ -200,6 +203,9 @@ String tasksPageTemplate({
     'typeOptions': typeOptions,
     'reviewCount': reviewCount,
     'hasReviewBadge': reviewCount > 0,
+    'showWorkflowReviewToggle': showWorkflowReviewToggle,
+    'includeWorkflowOwned': includeWorkflowOwned,
+    'workflowReviewToggleHref': workflowReviewToggleHref,
     'newTaskDialogHtml': newTaskFormDialogHtml(goalOptions: goalOptions, projectOptions: projectOptions),
     'hasAgentPool': hasAgentPool,
     'isSingleRunner': isSingleRunner,
@@ -212,7 +218,7 @@ String tasksPageTemplate({
     'showProjectColumn': showProjectColumn,
   });
 
-  return layoutTemplate(title: 'Tasks', body: body, appName: appName);
+  return layoutTemplate(title: 'Tasks', body: body, appName: appName, scripts: standardShellScripts());
 }
 
 String _classSuffix(String value) {
@@ -320,6 +326,14 @@ Map<String, dynamic> _buildCompactEventViewModel(TaskEvent event) {
       maxLength: 80,
     ),
     ArtifactCreated() => truncate(details['name']?.toString() ?? '(artifact)', 80),
+    StructuredOutputInlineUsed() => truncate(
+      'Structured inline: ${details['outputKey']?.toString() ?? '(output)'}',
+      80,
+    ),
+    StructuredOutputFallbackUsed() => truncate(
+      'Structured fallback: ${details['outputKey']?.toString() ?? '(output)'}',
+      80,
+    ),
     PushBack() => truncate(details['comment']?.toString() ?? 'Push-back', 80),
     TokenUpdate() => () {
       final input = (details['inputTokens'] as num?)?.toInt() ?? 0;

@@ -53,13 +53,18 @@
                 hx-swap="none">
           Resume
         </button>
+        <button tl:if="${canRetry}" type="button" class="btn btn-primary"
+                tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/retry'"
+                hx-swap="none">
+          Retry
+        </button>
         <button tl:if="${canCancel}" type="button" class="btn btn-danger"
                 tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/cancel'"
                 hx-swap="none"
                 hx-confirm="Cancel this workflow? Running tasks will be stopped.">
           Cancel
         </button>
-        <!-- Approval controls: shown instead of generic resume/cancel when paused on an approval gate -->
+        <!-- Approval controls: shown for awaitingApproval holds -->
         <button tl:if="${canApprove}" type="button" class="btn btn-primary"
                 tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/resume'"
                 hx-swap="none">

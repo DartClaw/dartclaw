@@ -2,8 +2,15 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ValidationError, ValidationReport, WorkflowDefinitionParser, WorkflowDefinitionValidator;
+    show
+        ValidationError,
+        ValidationReport,
+        WorkflowDefinitionParser,
+        WorkflowDefinitionValidator,
+        WorkflowRoleDefault,
+        WorkflowRoleDefaults;
 
 import '../config_loader.dart';
 import '../serve_command.dart' show WriteLine;
@@ -47,13 +54,12 @@ class WorkflowValidateCommand extends Command<void> {
 
     final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
 
-    // Derive continuity providers from the configured provider IDs.
-    // Only providers whose IDs are known to support session continuity are included.
-    // Currently only 'claude' supports session continuity.
-    final continuityProviders = config.providers.entries.keys.contains('claude') ? const {'claude'} : <String>{};
+    // Derive continuity providers by probing harness capabilities.
+    final allContinuityProviders = HarnessFactory().probeContinuityProviders();
+    final continuityProviders = config.providers.entries.keys.where(allContinuityProviders.contains).toSet();
 
     final parser = WorkflowDefinitionParser();
-    final validator = WorkflowDefinitionValidator();
+    final validator = WorkflowDefinitionValidator(roleDefaults: _workflowRoleDefaults(config));
 
     // --- Parse phase ---
     exitCode = 0;
@@ -133,3 +139,26 @@ class WorkflowValidateCommand extends Command<void> {
     return location.isEmpty ? e.message : '[$location] ${e.message}';
   }
 }
+
+WorkflowRoleDefaults _workflowRoleDefaults(DartclawConfig config) => WorkflowRoleDefaults(
+  workflow: WorkflowRoleDefault(
+    provider: config.workflow.defaults.workflow.provider,
+    model: config.workflow.defaults.workflow.model,
+    effort: config.workflow.defaults.workflow.effort,
+  ),
+  planner: WorkflowRoleDefault(
+    provider: config.workflow.defaults.planner.provider,
+    model: config.workflow.defaults.planner.model,
+    effort: config.workflow.defaults.planner.effort,
+  ),
+  executor: WorkflowRoleDefault(
+    provider: config.workflow.defaults.executor.provider,
+    model: config.workflow.defaults.executor.model,
+    effort: config.workflow.defaults.executor.effort,
+  ),
+  reviewer: WorkflowRoleDefault(
+    provider: config.workflow.defaults.reviewer.provider,
+    model: config.workflow.defaults.reviewer.model,
+    effort: config.workflow.defaults.reviewer.effort,
+  ),
+);

@@ -338,6 +338,52 @@ void main() {
       expect((await tasks.get('task-config-default'))!.status, TaskStatus.failed);
     });
 
+    test('warns at threshold against global config default when no task or goal budget', () async {
+      // Regression guard for tasks.budget.default_max_tokens — proves the
+      // pre-turn warn path fires when session cost approaches the configured
+      // default cap even when the task itself declares no explicit budget.
+      final eventBus = EventBus();
+      addTearDown(eventBus.dispose);
+      final warningEvents = <BudgetWarningEvent>[];
+      eventBus.on<BudgetWarningEvent>().listen(warningEvents.add);
+
+      final executor = buildExecutor(budgetConfig: const TaskBudgetConfig(defaultMaxTokens: 1000), eventBus: eventBus);
+      addTearDown(executor.stop);
+      worker.responseText = 'Done.';
+
+      final task = await tasks.create(
+        id: 'task-default-warn',
+        title: 'Default warn task',
+        description: 'Triggers warn path using tasks.budget.default_max_tokens.',
+        type: TaskType.custom,
+        autoStart: true,
+      );
+
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      // 85% of 1000 — above default 80% threshold, still under the cap.
+      await seedSessionCost(session.id, totalTokens: 850);
+
+      await executor.pollOnce();
+
+      expect((await tasks.get('task-default-warn'))!.status, TaskStatus.review);
+      expect(warningEvents, hasLength(1));
+      expect(warningEvents[0].taskId, 'task-default-warn');
+      expect(warningEvents[0].consumed, 850);
+      expect(warningEvents[0].limit, 1000);
+      expect(warningEvents[0].consumedPercent, closeTo(0.85, 0.01));
+
+      // Prove the warning system message was injected into the session so the
+      // agent sees it on the same turn that was about to blow the default cap.
+      final msgs = await messages.getMessagesTail(session.id, count: 20);
+      final systemMessages = msgs.where((m) => m.role == 'system').toList();
+      expect(systemMessages, isNotEmpty);
+      expect(
+        systemMessages.any((m) => m.content.contains('token budget')),
+        isTrue,
+        reason: 'Budget warning message must reach the agent for default-budget path',
+      );
+    });
+
     test('legacy configJson tokenBudget used for backward compatibility', () async {
       final executor = buildExecutor();
       addTearDown(executor.stop);
@@ -428,6 +474,9 @@ void main() {
 }
 
 class _FakeBudgetWorker implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
 
   String responseText = '';

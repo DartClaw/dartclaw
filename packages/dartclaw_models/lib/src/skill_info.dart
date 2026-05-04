@@ -1,3 +1,5 @@
+import 'workflow_definition.dart' show OutputConfig;
+
 /// Source location where a skill was discovered.
 enum SkillSource {
   /// `<projectDir>/.claude/skills/` -- project-scoped, Claude Code harness.
@@ -57,12 +59,35 @@ class SkillInfo {
   /// (e.g. `{'claude'}`, `{'claude', 'codex'}`).
   final Set<String> nativeHarnesses;
 
+  /// Default workflow-step prompt declared in the skill's `workflow:` frontmatter block.
+  ///
+  /// Used by `SkillPromptBuilder` as the base prompt when a workflow step references
+  /// this skill and declares no `prompt:` of its own. Null when the frontmatter omits
+  /// the `workflow.default_prompt` key.
+  final String? defaultPrompt;
+
+  /// Default per-output configurations declared in the skill's `workflow:` frontmatter block.
+  ///
+  /// Used by the step-config resolution path to fill in `outputs:` when a workflow step
+  /// references this skill and declares no `outputs:` of its own. Null when the frontmatter
+  /// omits the `workflow.default_outputs` key.
+  final Map<String, OutputConfig>? defaultOutputs;
+
+  /// Whether this skill emits its own `<step-outcome>` marker.
+  ///
+  /// When true the workflow prompt augmenter suppresses the built-in outcome
+  /// protocol instructions and lets the skill produce the marker itself.
+  final bool emitsOwnOutcome;
+
   const SkillInfo({
     required this.name,
     required this.description,
     required this.source,
     required this.path,
     this.nativeHarnesses = const {},
+    this.defaultPrompt,
+    this.defaultOutputs,
+    this.emitsOwnOutcome = false,
   });
 
   /// Creates a copy with merged harness sets (used during deduplication).
@@ -72,6 +97,9 @@ class SkillInfo {
     source: source,
     path: path,
     nativeHarnesses: {...nativeHarnesses, ...additional},
+    defaultPrompt: defaultPrompt,
+    defaultOutputs: defaultOutputs,
+    emitsOwnOutcome: emitsOwnOutcome,
   );
 
   Map<String, dynamic> toJson() => {
@@ -80,6 +108,9 @@ class SkillInfo {
     'source': source.name,
     'path': path,
     'nativeHarnesses': nativeHarnesses.toList()..sort(),
+    if (defaultPrompt != null) 'defaultPrompt': defaultPrompt,
+    if (defaultOutputs != null) 'defaultOutputs': defaultOutputs!.map((k, v) => MapEntry(k, v.toJson())),
+    if (emitsOwnOutcome) 'emitsOwnOutcome': true,
   };
 
   factory SkillInfo.fromJson(Map<String, dynamic> json) => SkillInfo(
@@ -88,5 +119,10 @@ class SkillInfo {
     source: SkillSource.values.byName(json['source'] as String),
     path: json['path'] as String,
     nativeHarnesses: (json['nativeHarnesses'] as List?)?.cast<String>().toSet() ?? const {},
+    defaultPrompt: json['defaultPrompt'] as String?,
+    defaultOutputs: (json['defaultOutputs'] as Map<String, dynamic>?)?.map(
+      (k, v) => MapEntry(k, OutputConfig.fromJson(v as Map<String, dynamic>)),
+    ),
+    emitsOwnOutcome: (json['emitsOwnOutcome'] as bool?) ?? false,
   );
 }

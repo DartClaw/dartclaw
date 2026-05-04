@@ -1,5 +1,4 @@
 export 'templates/helpers.dart' show formatUptime, formatBytes;
-export 'embedded_assets.dart' show embeddedTemplates, embeddedStaticAssets, embeddedStaticMimeTypes;
 export 'templates/loader.dart' show initTemplates, resetTemplates;
 export 'web/dashboard_page.dart' show DashboardPage, PageContext;
 export 'web/page_registry.dart' show PageRegistry;

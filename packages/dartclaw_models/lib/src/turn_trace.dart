@@ -1,5 +1,28 @@
 import 'tool_call_record.dart';
 
+/// Billing-weighted token count using Anthropic 5-minute cache pricing as a
+/// cross-provider normalization basis. Cache writes are ≈1.25× fresh input;
+/// cache reads are ≈0.1×. Integer math (truncating division); small-count
+/// undercounts are acceptable at this resolution. Single source of truth for
+/// the "effective tokens" policy — all consumers must call through this.
+///
+/// **Parameter contract:** [inputTokens] must be *fresh* input only — tokens
+/// actually sent to the model this turn, excluding anything served from cache.
+/// The workspace uses Anthropic's convention (`usage.input_tokens` excludes
+/// cached); Codex output is normalized to match at the harness boundary. Never
+/// pass a cache-inclusive count here or this function will double-weight the
+/// cache-read portion.
+int computeEffectiveTokens({
+  required int inputTokens,
+  required int outputTokens,
+  required int cacheReadTokens,
+  required int cacheWriteTokens,
+}) {
+  final weightedWrites = (cacheWriteTokens * 125) ~/ 100;
+  final weightedReads = (cacheReadTokens * 10) ~/ 100;
+  return inputTokens + outputTokens + weightedWrites + weightedReads;
+}
+
 /// A persisted record of a single agent turn.
 class TurnTrace {
   final String id;
@@ -37,6 +60,22 @@ class TurnTrace {
   });
 
   int get totalTokens => inputTokens + outputTokens;
+
+  /// Billing-weighted token count — see [computeEffectiveTokens]. Prefer this
+  /// over [totalTokens] when comparing cost across runs or harnesses.
+  ///
+  /// Emitted by [toJson] as a read-only convenience for API consumers (e.g.
+  /// `GET /api/traces/<id>`); [TurnTrace.fromJson] ignores the serialized
+  /// value and recomputes from the raw token fields on deserialization, so
+  /// the getter always reflects current [inputTokens]/[outputTokens]/cache
+  /// values rather than any stored snapshot.
+  int get effectiveTokens => computeEffectiveTokens(
+    inputTokens: inputTokens,
+    outputTokens: outputTokens,
+    cacheReadTokens: cacheReadTokens,
+    cacheWriteTokens: cacheWriteTokens,
+  );
+
   int get durationMs => endedAt.difference(startedAt).inMilliseconds;
 
   Map<String, dynamic> toJson() => {
@@ -56,6 +95,7 @@ class TurnTrace {
     if (errorType != null) 'errorType': errorType,
     'toolCalls': toolCalls.map((t) => t.toJson()).toList(),
     'totalTokens': totalTokens,
+    'effectiveTokens': effectiveTokens,
     'durationMs': durationMs,
   };
 

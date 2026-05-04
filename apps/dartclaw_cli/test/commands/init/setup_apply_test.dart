@@ -76,7 +76,7 @@ void main() {
       expect(yaml['providers']['claude']['model'], 'haiku');
       expect(yaml['providers']['codex']['auth_method'], 'env');
       expect(yaml['providers']['codex']['model'], 'gpt-5');
-      expect(raw, contains(r'${OPENAI_API_KEY}'));
+      expect(raw, contains(r'${CODEX_API_KEY}'));
     });
 
     test('writes supported channel keys under channels.*', () async {

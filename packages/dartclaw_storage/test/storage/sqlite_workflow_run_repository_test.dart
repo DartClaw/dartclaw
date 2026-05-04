@@ -1,4 +1,5 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowRun, WorkflowRunStatus;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowRunStatus;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -14,6 +15,7 @@ WorkflowRun _buildRun({
   String? errorMessage,
   String? currentLoopId,
   int? currentLoopIteration,
+  WorkflowExecutionCursor? executionCursor,
 }) {
   final now = DateTime.parse('2026-01-01T10:00:00Z');
   return WorkflowRun(
@@ -29,6 +31,7 @@ WorkflowRun _buildRun({
     definitionJson: definitionJson ?? const {},
     currentLoopId: currentLoopId,
     currentLoopIteration: currentLoopIteration,
+    executionCursor: executionCursor,
   );
 }
 
@@ -118,6 +121,30 @@ void main() {
         expect(loaded.currentLoopId, 'loop-1');
         expect(loaded.currentLoopIteration, 2);
       });
+
+      test('execution cursor round-trips through SQLite storage', () async {
+        final run = _buildRun(
+          executionCursor: WorkflowExecutionCursor.map(
+            stepId: 'map-step',
+            stepIndex: 2,
+            totalItems: 3,
+            completedIndices: const [0, 1],
+            failedIndices: const [1],
+            resultSlots: const [
+              'ok',
+              {'error': true, 'message': 'failed'},
+              null,
+            ],
+          ),
+        );
+        await repository.insert(run);
+
+        final loaded = await repository.getById(run.id);
+        expect(loaded?.executionCursor?.nodeType, WorkflowExecutionCursorNodeType.map);
+        expect(loaded?.executionCursor?.nodeId, 'map-step');
+        expect(loaded?.executionCursor?.completedIndices, [0, 1]);
+        expect(loaded?.executionCursor?.failedIndices, [1]);
+      });
     });
 
     group('list', () {
@@ -172,6 +199,73 @@ void main() {
         await repository.insert(run);
         await repository.delete(run.id);
         expect(await repository.getById(run.id), isNull);
+      });
+    });
+
+    group('S36 legacy paused → awaitingApproval / failed migration', () {
+      // Uses a dedicated in-memory DB per test so the migration ledger is
+      // fresh (the shared setUp already runs the migration on its db).
+      late Database migrationDb;
+
+      setUp(() {
+        migrationDb = sqlite3.openInMemory();
+        // Seed minimal workflow_runs table matching the repository schema.
+        migrationDb.execute('''
+          CREATE TABLE workflow_runs (
+            id TEXT PRIMARY KEY,
+            definition_name TEXT,
+            status TEXT,
+            context_json TEXT,
+            variables_json TEXT,
+            started_at TEXT,
+            updated_at TEXT,
+            completed_at TEXT,
+            error_message TEXT,
+            total_tokens INTEGER DEFAULT 0,
+            current_step_index INTEGER DEFAULT 0,
+            definition_json TEXT,
+            execution_cursor_json TEXT,
+            current_loop_id TEXT,
+            current_loop_iteration INTEGER
+          )
+        ''');
+      });
+
+      tearDown(() {
+        migrationDb.close();
+      });
+
+      test('reclassifies paused rows: with pending approval → awaitingApproval, without → failed', () async {
+        migrationDb.execute('''
+          INSERT INTO workflow_runs (id, definition_name, status, context_json, variables_json,
+            started_at, updated_at, definition_json)
+          VALUES ('run-approval', 'wf', 'paused',
+            '{"_approval.pending.stepId":"gate"}', '{}',
+            '2026-01-01T10:00:00Z', '2026-01-01T10:00:00Z', '{}')
+        ''');
+        migrationDb.execute('''
+          INSERT INTO workflow_runs (id, definition_name, status, context_json, variables_json,
+            started_at, updated_at, definition_json)
+          VALUES ('run-failure', 'wf', 'paused',
+            '{}', '{}',
+            '2026-01-01T10:00:00Z', '2026-01-01T10:00:00Z', '{}')
+        ''');
+
+        final repo = SqliteWorkflowRunRepository(migrationDb);
+
+        expect((await repo.getById('run-approval'))?.status, WorkflowRunStatus.awaitingApproval);
+        expect((await repo.getById('run-failure'))?.status, WorkflowRunStatus.failed);
+      });
+
+      test('migration runs once and does not touch later user-initiated paused rows', () async {
+        // First construction applies the migration (nothing to reclassify).
+        final repo = SqliteWorkflowRunRepository(migrationDb);
+
+        // After migration: a legitimately paused run must not be reclassified on re-open.
+        await repo.insert(_buildRun(id: 'post-migration-paused', status: WorkflowRunStatus.paused));
+
+        final repo2 = SqliteWorkflowRunRepository(migrationDb);
+        expect((await repo2.getById('post-migration-paused'))?.status, WorkflowRunStatus.paused);
       });
     });
   });

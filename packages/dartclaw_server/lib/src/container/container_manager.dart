@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor;
+import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, canonicalizePathWithExistingAncestors;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
@@ -32,6 +32,7 @@ class ContainerManager implements ContainerExecutor {
   @override
   final String profileId;
   final List<String> workspaceMounts;
+  final List<String> localPathAllowlist;
   final String proxySocketDir;
   final String? hostClaudeJsonPath;
   final String buildContextDir;
@@ -45,6 +46,7 @@ class ContainerManager implements ContainerExecutor {
     required this.containerName,
     required this.profileId,
     required this.workspaceMounts,
+    this.localPathAllowlist = const [],
     required this.proxySocketDir,
     this.hostClaudeJsonPath,
     String? buildContextDir,
@@ -108,6 +110,7 @@ class ContainerManager implements ContainerExecutor {
 
     // Remove stale container if exists
     await _run('docker', ['rm', '-f', containerName]);
+    _validateLocalPathProjectMounts();
 
     final args = [
       'create',
@@ -212,6 +215,27 @@ class ContainerManager implements ContainerExecutor {
     ], includeParentEnvironment: true);
   }
 
+  void _validateLocalPathProjectMounts() {
+    if (localPathAllowlist.isEmpty) {
+      return;
+    }
+
+    final normalizedAllowlist = localPathAllowlist.map(canonicalizePathWithExistingAncestors).toList(growable: false);
+    for (final mount in workspaceMounts) {
+      final parts = mount.split(':');
+      if (parts.length < 2) continue;
+      final hostPath = canonicalizePathWithExistingAncestors(parts[0]);
+      final containerPath = parts[1];
+      if (!containerPath.startsWith('/projects/')) {
+        continue;
+      }
+      final allowed = normalizedAllowlist.any((root) => p.equals(hostPath, root) || p.isWithin(root, hostPath));
+      if (!allowed) {
+        throw StateError('Refusing to mount local project path outside allowlist: $hostPath');
+      }
+    }
+  }
+
   /// Check if the container is running.
   Future<bool> isHealthy() async {
     final result = await _run('docker', ['inspect', '--format', '{{.State.Running}}', containerName]);
@@ -239,11 +263,11 @@ class ContainerManager implements ContainerExecutor {
   /// Returns null when the host path is not covered by any configured mount.
   @override
   String? containerPathForHostPath(String hostPath) {
-    final normalizedHostPath = p.normalize(p.absolute(hostPath));
+    final normalizedHostPath = canonicalizePathWithExistingAncestors(hostPath);
     for (final mount in [...workspaceMounts, ...effectiveExtraMounts]) {
       final parts = mount.split(':');
       if (parts.length < 2) continue;
-      final hostRoot = p.normalize(p.absolute(parts[0]));
+      final hostRoot = canonicalizePathWithExistingAncestors(parts[0]);
       final containerRoot = parts[1];
       if (normalizedHostPath == hostRoot) {
         return containerRoot;

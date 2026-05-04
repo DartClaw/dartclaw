@@ -1,0 +1,78 @@
+# Public workflow e2e profile fixture.
+#
+# Used only for golden/profile-shape coverage: `E2EFixture.renderProfileYaml`
+# substitutes the placeholders below so golden tests can pin the rendered YAML
+# against checked-in fixtures. `E2EFixture.build()` constructs `DartclawConfig`
+# programmatically and does not consume this template at runtime — edits here
+# affect golden output, not fixture runtime behavior.
+#
+# Substituted placeholders:
+# - data_dir / workflow.workspace_dir       (absolute paths)
+# - agent.provider / agent.model            (provider + workflow model)
+# - providers.<id> block                    (codex or claude shape)
+# - workflow.defaults.*.model               (per-role <provider>/<model>)
+
+port: 3333
+data_dir: "__DATA_DIR__"
+
+agent:
+  provider: __AGENT_PROVIDER__
+  model: __AGENT_MODEL__
+
+gateway:
+  auth_mode: token
+
+guards:
+  enabled: true
+
+__PROVIDERS_BLOCK__
+
+credentials:
+  __PROVIDER_CREDENTIAL_BLOCK__
+  github-main:
+    type: github-token
+    token: ${GITHUB_TOKEN}
+    repository: DartClaw/workflow-test-todo-app
+
+workflow:
+  workspace_dir: "__WORKFLOW_WORKSPACE_DIR__"
+  defaults:
+    workflow:
+      model: __WORKFLOW_MODEL__
+    planner:
+      model: __PLANNER_MODEL__
+    executor:
+      model: __EXECUTOR_MODEL__
+    reviewer:
+      model: __REVIEWER_MODEL__
+
+projects:
+  workflow-test-todo-app:
+    remote: git@github.com:DartClaw/workflow-test-todo-app.git
+    branch: main
+    credentials: github-main
+    default: true
+    pr:
+      strategy: github-pr
+      draft: true
+      labels: [workflow-test]
+
+workspace:
+  git_sync:
+    enabled: false
+
+logging:
+  level: FINE
+
+governance:
+  budget:
+    daily_tokens: 5000000
+  loop_detection:
+    enabled: true
+
+tasks:
+  completion_action: accept
+
+features:
+  thread_binding:
+    enabled: true

@@ -22,6 +22,7 @@ void main() {
       ensureDartclawSignalRegistered();
 
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''
@@ -70,6 +71,7 @@ channels:
       ensureDartclawSignalRegistered();
 
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''

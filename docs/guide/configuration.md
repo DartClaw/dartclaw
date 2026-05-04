@@ -170,7 +170,7 @@ projects:
   my-app:                              # project ID (any string except _local)
     remote: git@github.com:org/app.git # required: SSH or HTTPS URL
     branch: main                       # default branch (default: main)
-    credentials: github-ssh            # credential store reference (optional)
+    credentials: github-main           # github-token credential reference for GitHub automation
     default: true                      # default project for new tasks (optional)
     clone:
       strategy: shallow               # shallow | full | sparse (default: shallow)
@@ -295,10 +295,10 @@ tasks:
 
 # --- Agent Config ---
 agent:
-  provider: claude               # default provider: claude | codex | codex-exec
+  provider: claude               # default provider: claude | codex
   max_turns: 50
-  model: opus[1m]                # default; supports: haiku, sonnet, opus, opus[1m]
-  effort: high                   # reasoning effort: low, medium, high, max
+  model: opus[1m]                # also accepts shorthand like claude/opus or codex/gpt-5.4
+  effort: high                   # reasoning effort — passed verbatim to provider (Claude: low|medium|high|xhigh|max; Codex: low|medium|high|xhigh)
   disallowed_tools: []
   agents:                        # subagent definitions — see Agents guide for details
     search:                      # built-in default; omit to use defaults
@@ -315,6 +315,45 @@ agent:
     #   tools: [Read]
     #   model: haiku
     #   max_concurrent: 1
+
+# --- Workflow Defaults ---
+workflow:
+  workspace_dir: ~/.dartclaw/workflow-workspace
+  defaults:
+    workflow:
+      model: claude/sonnet       # shorthand sets both provider + model
+    planner:
+      model: claude/opusplan
+    executor:
+      model: codex/gpt-5.4-mini
+    reviewer:
+      model: claude/opus
+
+# Recommended presets for the shipped built-in workflows:
+#
+# Claude-first
+# workflow:
+#   defaults:
+#     workflow: { model: claude/sonnet }
+#     planner:  { model: claude/opusplan }
+#     executor: { model: claude/sonnet }
+#     reviewer: { model: claude/opus }
+#
+# Codex-first
+# workflow:
+#   defaults:
+#     workflow: { model: codex/gpt-5.4 }
+#     planner:  { model: codex/gpt-5.4 }
+#     executor: { model: codex/gpt-5.4-mini }
+#     reviewer: { model: codex/gpt-5-codex }
+#
+# Mixed setup
+# workflow:
+#   defaults:
+#     workflow: { model: claude/sonnet }
+#     planner:  { model: claude/opusplan }
+#     executor: { model: codex/gpt-5.4-mini }
+#     reviewer: { model: claude/opus }
 
 # --- Providers (0.13) ---
 providers:
@@ -338,7 +377,12 @@ credentials:
   anthropic:
     api_key: ${ANTHROPIC_API_KEY}
   # openai:                      # uncomment when using Codex
-  #   api_key: ${OPENAI_API_KEY}
+  #   api_key: ${CODEX_API_KEY}
+  #                              # ${OPENAI_API_KEY} remains accepted as a fallback.
+  # github-main:                 # uncomment for external GitHub project automation
+  #   type: github-token
+  #   token: ${GITHUB_TOKEN}
+  #   repository: org/app        # optional repo-scope guard
 
 # --- Context Management ---
 context:
@@ -406,8 +450,8 @@ automation:
       enabled: true
       task:
         title: Daily maintenance review
+        task_type: "coding"
         description: Review open maintenance items and prepare follow-up work.
-        type: coding
         acceptance_criteria: Tests stay green and the worktree is ready for review.
         auto_start: true
 ```
@@ -426,12 +470,51 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 **Note on `governance` defaults:** All governance features default to disabled/unlimited for backward compatibility. Rate limits, budgets, and loop detection only activate when explicitly configured. Admin senders are exempt from rate limits but not from token budgets.
 
+### Local-path Projects
+
+Projects can now point at an existing on-disk checkout instead of cloning from a remote. Use exactly one of `remote:` or `localPath:` per project definition.
+
+```yaml
+projects:
+  dartclaw-public:
+    remote: https://github.com/DartClaw/dartclaw.git
+    branch: main
+    default: true
+
+  live-checkout:
+    localPath: /Users/alice/repos/dartclaw-public
+```
+
+Rules and behavior:
+
+- `localPath` must be an absolute path. Relative paths and any `..` traversal segments are rejected at config-load time.
+- `branch` is optional for `localPath` projects. When omitted, DartClaw resolves the effective workflow branch from the checkout's current symbolic `HEAD`.
+- `projects.localPathAllowlist` lets you restrict which host paths are valid for `localPath` projects.
+- Non-existent paths and directories that are not yet git repositories are accepted with a warning so operators can pre-seed or mount them later.
+- Local-path projects are treated as local-only runtime projects (`remoteUrl == ''`). DartClaw does not `git clone` or `git fetch` them automatically.
+- Workflow start now performs a safety preflight for named local-path projects: if the working tree is dirty, the run aborts before creating coding tasks. A branch mismatch only aborts when you explicitly configured `branch:` on the local-path project, which lets you use `branch:` as an intentional drift-detection guard instead of mandatory duplicate state. Re-run with `dartclaw workflow run --allow-dirty-localpath ...` only when you explicitly want to operate on a live dirty checkout.
+- When `gitStrategy.publish.enabled: true`, publish auto-resolves the push target from the checkout's existing `origin` remote. If `origin` is missing, workflow start fails before any coding work begins.
+
+API-created local-path projects are opt-in:
+
+```yaml
+projects:
+  allowApiLocalPath: true
+  localPathAllowlist:
+    - /Users/alice/repos
+```
+
+- `projects.allowApiLocalPath` defaults to `false`.
+- `projects.localPathAllowlist` defaults to empty, which means "no allowlist".
+- Even with the API flag enabled, the same absolute-path, traversal, and allowlist checks apply to `POST /api/projects`.
+
 ## Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` | -- | API key for Claude provider |
-| `OPENAI_API_KEY` | -- | API key for Codex provider |
+| `CODEX_API_KEY` | -- | Primary API key env var for the Codex provider |
+| `OPENAI_API_KEY` | -- | Legacy fallback env var accepted by the Codex provider |
 | `DARTCLAW_HOME` | `~/.dartclaw` | Instance directory (points to directory, not config file) |
 | `DARTCLAW_CONFIG` | -- | Explicit config file path (overrides `DARTCLAW_HOME`) |
 | `DARTCLAW_TOKEN` | auto-generated | Gateway auth token |

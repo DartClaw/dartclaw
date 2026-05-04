@@ -6,9 +6,11 @@ void main() {
     final harness = FakeAgentHarness(initialState: WorkerState.idle, promptStrategy: PromptStrategy.append);
     final channel = FakeChannel(type: ChannelType.signal);
     final guard = FakeGuard.block('blocked');
+    final repo = InMemoryAgentExecutionRepository();
 
     expect(harness.state, WorkerState.idle);
     expect(channel.type, ChannelType.signal);
     expect(guard.evaluate, isNotNull);
+    expect(repo, isA<AgentExecutionRepository>());
   });
 }

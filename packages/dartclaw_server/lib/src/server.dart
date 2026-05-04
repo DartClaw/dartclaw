@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -8,12 +9,13 @@ import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner, TaskE
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistry, WorkflowDefinitionSource, WorkflowService;
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
 
-import 'embedded_assets.dart';
 import 'api/agent_routes.dart';
+import 'api/chat_command_handler.dart';
 import 'api/config_api_routes.dart';
 import 'api/skill_routes.dart';
 import 'api/workflow_routes.dart';
@@ -21,6 +23,7 @@ import 'api/config_routes.dart';
 import 'api/google_chat_space_events_wiring.dart';
 import 'api/google_chat_subscription_routes.dart';
 import 'api/google_chat_webhook.dart';
+import 'api/github_webhook.dart';
 import 'api/goal_routes.dart';
 import 'api/memory_routes.dart';
 import 'api/project_routes.dart';
@@ -417,6 +420,7 @@ class DartclawServer {
       guardChain: guardChain,
       providerStatus: providerStatus,
       runtimeConfigGetter: () => server._runtimeConfig,
+      configWriter: configWriter,
       memoryStatusServiceGetter: () => server._memoryStatusService,
       contentGuardDisplay: contentGuardDisplay,
       heartbeatDisplay: heartbeatDisplay,
@@ -430,6 +434,7 @@ class DartclawServer {
       showMemory: visibility.showMemory,
       showScheduling: visibility.showScheduling,
       showTasks: visibility.showTasks,
+      showCanvas: canvasService != null,
       showWorkflows: workflowService != null,
       projectService: projectService,
     );
@@ -637,40 +642,61 @@ class DartclawServer {
   }
 
   void _mountStaticRoutes(Router router) {
-    if (embeddedStaticAssets.isNotEmpty) {
-      router.mount('/static/', _embeddedStaticHandler());
-      return;
-    }
-
-    final staticHandler = createStaticHandler(_staticDir, defaultDocument: null);
-    router.mount('/static/', staticHandler);
+    router.mount('/static/', _filesystemStaticHandler());
   }
 
-  Handler _embeddedStaticHandler() {
-    final assets = Map<String, List<int>>.from(embeddedStaticAssets);
-    final mimeTypes = Map<String, String>.from(embeddedStaticMimeTypes);
+  Handler _filesystemStaticHandler() {
+    final staticHandler = createStaticHandler(_staticDir, defaultDocument: null);
 
-    return (Request request) {
-      final path = request.url.path;
-      final bytes = assets[path];
-      final mimeType = mimeTypes[path];
-      if (bytes == null || mimeType == null) {
-        return Response.notFound('Not Found');
+    return (Request request) async {
+      final response = await staticHandler(request);
+      if (response.statusCode != 200) {
+        return response;
       }
 
-      return Response.ok(bytes, headers: {'Content-Type': mimeType, 'Cache-Control': 'public, max-age=86400'});
+      final headers = Map<String, String>.from(response.headers);
+      headers['Cache-Control'] = 'public, max-age=86400';
+      return response.change(headers: headers);
     };
   }
 
   void _mountWebhookRoutes(Router router) {
+    final githubWebhookHandler = _buildGitHubWebhookHandler();
     final webhookRouter = webhookRoutes(
       whatsApp: _whatsAppChannel,
       webhookSecret: _webhookSecret,
       googleChat: _googleChatWebhookHandler,
+      github: githubWebhookHandler,
       eventBus: _eventBus,
       trustedProxies: _config?.auth.trustedProxies ?? const [],
     );
     router.mount('/', webhookRouter.call);
+  }
+
+  GitHubWebhookHandler? _buildGitHubWebhookHandler() {
+    final config = _config;
+    final workflows = _workflowService;
+    final definitions = _workflowDefinitionSource;
+    if (config == null || workflows == null || definitions == null) {
+      return null;
+    }
+    GitHubWebhookConfig? githubConfig;
+    try {
+      githubConfig = config.extension<GitHubWebhookConfig>('github');
+    } catch (_) {
+      githubConfig = null;
+    }
+    if (githubConfig == null || !githubConfig.enabled) {
+      return null;
+    }
+    return GitHubWebhookHandler(
+      config: githubConfig,
+      workflows: workflows,
+      definitions: definitions,
+      projects: _projectService,
+      eventBus: _eventBus,
+      trustedProxies: config.auth.trustedProxies,
+    );
   }
 
   void _mountWhatsAppPairingRoutes(Router router) {
@@ -776,6 +802,9 @@ class DartclawServer {
     if (ps != null) {
       final projectRouter = projectRoutes(
         ps,
+        projectConfig: _config?.projects ?? const ProjectConfig.defaults(),
+        containerEnabled: _config?.container.enabled ?? false,
+        containerMountRoots: _projectRouteContainerMountRoots(),
         tasks: _taskService,
         worktreeManager: _worktreeManager,
         taskFileGuard: _taskFileGuard,
@@ -783,6 +812,52 @@ class DartclawServer {
       );
       router.mount('/', projectRouter.call);
     }
+  }
+
+  List<String> _projectRouteContainerMountRoots() {
+    final config = _config;
+    if (config == null) {
+      return [p.normalize(p.absolute(Directory.current.path))];
+    }
+
+    final roots = <String>{
+      p.normalize(p.absolute(Directory.current.path)),
+      if (config.workspaceDir.trim().isNotEmpty) p.normalize(p.absolute(config.workspaceDir)),
+      if (config.projectsClonesDir.trim().isNotEmpty) p.normalize(p.absolute(config.projectsClonesDir)),
+      ...config.container.extraMounts
+          .map(_hostRootFromMount)
+          .whereType<String>()
+          .map((root) => p.normalize(p.absolute(root))),
+      ..._configuredLocalPathRoots(config),
+    };
+    return roots.toList(growable: false);
+  }
+
+  Iterable<String> _configuredLocalPathRoots(DartclawConfig config) sync* {
+    final clonesDir = p.normalize(p.absolute(config.projectsClonesDir));
+    for (final definition in config.projects.definitions.values) {
+      final localPath = definition.localPath?.trim();
+      if (localPath == null || localPath.isEmpty) {
+        continue;
+      }
+      final normalizedLocalPath = p.normalize(p.absolute(localPath));
+      if (p.equals(normalizedLocalPath, clonesDir) || p.isWithin(clonesDir, normalizedLocalPath)) {
+        continue;
+      }
+      yield normalizedLocalPath;
+    }
+  }
+
+  String? _hostRootFromMount(String mount) {
+    final parts = mount.split(':');
+    if (parts.length < 2) {
+      return null;
+    }
+    final hostPath = parts.first.trim();
+    if (hostPath.isEmpty || !p.isAbsolute(hostPath)) {
+      return null;
+    }
+    return hostPath;
   }
 
   void _mountTaskRoutes(Router router) {
@@ -824,7 +899,7 @@ class DartclawServer {
     final ts = _taskService;
     final ds = _workflowDefinitionSource;
     if (wf != null && ts != null && ds != null) {
-      final workflowRouter = workflowRoutes(wf, ts, ds, eventBus: _eventBus);
+      final workflowRouter = workflowRoutes(wf, ts, ds, eventBus: _eventBus, skillRegistry: _skillRegistry);
       router.mount('/', workflowRouter.call);
     }
     final skills = _skillRegistry;
@@ -865,6 +940,8 @@ class DartclawServer {
         groupChannels: sidebarData.groupChannels,
         activeEntries: sidebarData.activeEntries,
         archivedEntries: sidebarData.archivedEntries,
+        activeTasks: sidebarData.activeTasks,
+        activeWorkflows: sidebarData.activeWorkflows,
         showChannels: sidebarData.showChannels,
         tasksEnabled: sidebarData.tasksEnabled,
         activeSessionId: activeSessionId,
@@ -880,6 +957,9 @@ class DartclawServer {
       _worker,
       resetService: _resetService,
       redactor: _redactor,
+      chatCommandHandler: _workflowService != null && _workflowDefinitionSource != null
+          ? ChatCommandHandler(workflows: _workflowService, definitions: _workflowDefinitionSource)
+          : null,
       buildSidebarData: () => buildSidebarData(
         _sessions,
         kvService: _kvService,
@@ -955,6 +1035,15 @@ class DartclawServer {
         .addMiddleware(securityHeadersMiddleware(enableHsts: _config?.gateway.hsts ?? false))
         .addMiddleware(_corsMiddleware());
     if (_tokenService != null && _gatewayToken != null) {
+      String? githubPublicPath;
+      try {
+        final githubConfig = _config?.extension<GitHubWebhookConfig>('github');
+        if (githubConfig != null && githubConfig.enabled) {
+          githubPublicPath = githubConfig.webhookPath;
+        }
+      } catch (_) {
+        githubPublicPath = null;
+      }
       pipeline = pipeline.addMiddleware(
         authMiddleware(
           tokenService: _tokenService,
@@ -964,7 +1053,10 @@ class DartclawServer {
           trustedProxies: _config?.auth.trustedProxies ?? const [],
           eventBus: _eventBus,
           rateLimiter: _authRateLimiter,
-          publicPaths: [if (_googleChatWebhookHandler != null) _googleChatWebhookHandler.config.webhookPath],
+          publicPaths: [
+            ...?(_googleChatWebhookHandler == null ? null : [_googleChatWebhookHandler.config.webhookPath]),
+            ...?(githubPublicPath == null ? null : [githubPublicPath]),
+          ],
           publicPrefixes: [if (_canvasService != null) '/canvas/'],
         ),
       );

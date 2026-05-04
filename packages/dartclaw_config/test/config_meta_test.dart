@@ -239,6 +239,7 @@ void main() {
 
       test('agent.max_turns maps to agent.maxTurns', () {
         expect(ConfigMeta.fields['agent.max_turns']!.jsonKey, equals('agent.maxTurns'));
+        expect(ConfigMeta.fields['agent.provider']!.jsonKey, equals('agent.provider'));
       });
 
       test('concurrency.max_parallel_turns maps correctly', () {
@@ -270,6 +271,10 @@ void main() {
         expect(ConfigMeta.fields['templates_dir']!.jsonKey, equals('templatesDir'));
         expect(ConfigMeta.fields['workflow.workspace_dir']!.jsonKey, equals('workflow.workspaceDir'));
         expect(
+          ConfigMeta.fields['workflow.defaults.reviewer.model']!.jsonKey,
+          equals('workflow.defaults.reviewer.model'),
+        );
+        expect(
           ConfigMeta.fields['channels.google_chat.quote_reply']!.jsonKey,
           equals('channels.googleChat.quoteReplyMode'),
         );
@@ -296,7 +301,9 @@ void main() {
         expect(ConfigMeta.isWritable('channels.whatsapp.task_trigger.enabled'), isTrue);
         expect(ConfigMeta.isWritable('channels.signal.task_trigger.prefix'), isTrue);
         expect(ConfigMeta.isWritable('channels.google_chat.task_trigger.default_type'), isTrue);
+        expect(ConfigMeta.isWritable('agent.provider'), isTrue);
         expect(ConfigMeta.isWritable('workflow.workspace_dir'), isTrue);
+        expect(ConfigMeta.isWritable('workflow.defaults.workflow.provider'), isTrue);
         expect(ConfigMeta.isWritable('gateway.auth_mode'), isFalse);
         expect(ConfigMeta.isWritable('nonexistent'), isFalse);
       });

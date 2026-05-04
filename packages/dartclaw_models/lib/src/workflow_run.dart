@@ -1,5 +1,171 @@
 const _sentinel = Object();
 
+/// Persisted binding between a workflow run and its shared worktree.
+class WorkflowWorktreeBinding {
+  /// Resolver key that identifies the shared worktree slot within the run.
+  final String key;
+
+  /// Absolute filesystem path of the shared worktree.
+  final String path;
+
+  /// Branch or ref attached inside the shared worktree.
+  final String branch;
+
+  /// Workflow run that owns the binding.
+  final String workflowRunId;
+
+  const WorkflowWorktreeBinding({
+    required this.key,
+    required this.path,
+    required this.branch,
+    required this.workflowRunId,
+  });
+
+  WorkflowWorktreeBinding copyWith({String? key, String? path, String? branch, String? workflowRunId}) =>
+      WorkflowWorktreeBinding(
+        key: key ?? this.key,
+        path: path ?? this.path,
+        branch: branch ?? this.branch,
+        workflowRunId: workflowRunId ?? this.workflowRunId,
+      );
+
+  Map<String, dynamic> toJson() => {'key': key, 'path': path, 'branch': branch, 'workflowRunId': workflowRunId};
+
+  factory WorkflowWorktreeBinding.fromJson(Map<String, dynamic> json) => WorkflowWorktreeBinding(
+    key: json['key'] as String,
+    path: json['path'] as String,
+    branch: json['branch'] as String,
+    workflowRunId: json['workflowRunId'] as String,
+  );
+}
+
+/// Node kinds that can be resumed via a persisted execution cursor.
+enum WorkflowExecutionCursorNodeType { loop, map, foreach }
+
+/// Persisted cursor for resuming workflow execution without replaying settled work.
+class WorkflowExecutionCursor {
+  /// Active node kind being resumed.
+  final WorkflowExecutionCursorNodeType nodeType;
+
+  /// ID of the active loop or map node.
+  final String nodeId;
+
+  /// Step index that anchors the node within the flattened step list.
+  final int stepIndex;
+
+  /// Active loop step ID when resuming a loop node.
+  final String? stepId;
+
+  /// Active loop iteration when resuming a loop node.
+  final int? iteration;
+
+  /// Total item count when resuming a map node.
+  final int? totalItems;
+
+  /// Settled map iteration indices.
+  final List<int> completedIndices;
+
+  /// Failed map iteration indices.
+  final List<int> failedIndices;
+
+  /// Cancelled map iteration indices.
+  final List<int> cancelledIndices;
+
+  /// Index-ordered map results; pending slots remain null.
+  final List<dynamic> resultSlots;
+
+  const WorkflowExecutionCursor({
+    required this.nodeType,
+    required this.nodeId,
+    required this.stepIndex,
+    this.stepId,
+    this.iteration,
+    this.totalItems,
+    this.completedIndices = const [],
+    this.failedIndices = const [],
+    this.cancelledIndices = const [],
+    this.resultSlots = const [],
+  });
+
+  factory WorkflowExecutionCursor.loop({
+    required String loopId,
+    required int stepIndex,
+    required int iteration,
+    String? stepId,
+  }) => WorkflowExecutionCursor(
+    nodeType: WorkflowExecutionCursorNodeType.loop,
+    nodeId: loopId,
+    stepIndex: stepIndex,
+    stepId: stepId,
+    iteration: iteration,
+  );
+
+  factory WorkflowExecutionCursor.map({
+    required String stepId,
+    required int stepIndex,
+    required int totalItems,
+    List<int> completedIndices = const [],
+    List<int> failedIndices = const [],
+    List<int> cancelledIndices = const [],
+    List<dynamic> resultSlots = const [],
+  }) => WorkflowExecutionCursor(
+    nodeType: WorkflowExecutionCursorNodeType.map,
+    nodeId: stepId,
+    stepIndex: stepIndex,
+    totalItems: totalItems,
+    completedIndices: List<int>.from(completedIndices),
+    failedIndices: List<int>.from(failedIndices),
+    cancelledIndices: List<int>.from(cancelledIndices),
+    resultSlots: List<dynamic>.from(resultSlots),
+  );
+
+  /// Creates a cursor for resuming a foreach/sub-pipeline node.
+  factory WorkflowExecutionCursor.foreach({
+    required String stepId,
+    required int stepIndex,
+    required int totalItems,
+    List<int> completedIndices = const [],
+    List<int> failedIndices = const [],
+    List<int> cancelledIndices = const [],
+    List<dynamic> resultSlots = const [],
+  }) => WorkflowExecutionCursor(
+    nodeType: WorkflowExecutionCursorNodeType.foreach,
+    nodeId: stepId,
+    stepIndex: stepIndex,
+    totalItems: totalItems,
+    completedIndices: List<int>.from(completedIndices),
+    failedIndices: List<int>.from(failedIndices),
+    cancelledIndices: List<int>.from(cancelledIndices),
+    resultSlots: List<dynamic>.from(resultSlots),
+  );
+
+  Map<String, dynamic> toJson() => {
+    'nodeType': nodeType.name,
+    'nodeId': nodeId,
+    'stepIndex': stepIndex,
+    if (stepId != null) 'stepId': stepId,
+    if (iteration != null) 'iteration': iteration,
+    if (totalItems != null) 'totalItems': totalItems,
+    if (completedIndices.isNotEmpty) 'completedIndices': List<int>.from(completedIndices),
+    if (failedIndices.isNotEmpty) 'failedIndices': List<int>.from(failedIndices),
+    if (cancelledIndices.isNotEmpty) 'cancelledIndices': List<int>.from(cancelledIndices),
+    if (resultSlots.isNotEmpty) 'resultSlots': List<dynamic>.from(resultSlots),
+  };
+
+  factory WorkflowExecutionCursor.fromJson(Map<String, dynamic> json) => WorkflowExecutionCursor(
+    nodeType: WorkflowExecutionCursorNodeType.values.byName(json['nodeType'] as String),
+    nodeId: json['nodeId'] as String,
+    stepIndex: (json['stepIndex'] as num?)?.toInt() ?? 0,
+    stepId: json['stepId'] as String?,
+    iteration: (json['iteration'] as num?)?.toInt(),
+    totalItems: (json['totalItems'] as num?)?.toInt(),
+    completedIndices: _toIntList(json['completedIndices']),
+    failedIndices: _toIntList(json['failedIndices']),
+    cancelledIndices: _toIntList(json['cancelledIndices']),
+    resultSlots: _toDynamicList(json['resultSlots']),
+  );
+}
+
 /// Lifecycle states for a workflow execution.
 enum WorkflowRunStatus {
   /// Workflow created but not yet started.
@@ -8,8 +174,11 @@ enum WorkflowRunStatus {
   /// Workflow is actively executing steps.
   running,
 
-  /// Workflow paused due to step failure, gate failure, or user intervention.
+  /// Workflow deliberately paused by an operator.
   paused,
+
+  /// Workflow is waiting for human approval or additional input.
+  awaitingApproval,
 
   /// All steps completed successfully.
   completed,
@@ -53,7 +222,7 @@ class WorkflowRun {
   /// When this run reached a terminal state.
   final DateTime? completedAt;
 
-  /// Error message when status is paused or failed.
+  /// Error or hold message when status is paused, awaitingApproval, or failed.
   final String? errorMessage;
 
   /// Cumulative tokens consumed across all steps.
@@ -71,7 +240,17 @@ class WorkflowRun {
   /// Current loop iteration for crash recovery (S04).
   final int? currentLoopIteration;
 
-  const WorkflowRun({
+  /// Generalized execution cursor for node-oriented crash recovery.
+  final WorkflowExecutionCursor? executionCursor;
+
+  /// Persisted workflow-owned shared worktree bindings for this run.
+  final List<WorkflowWorktreeBinding> workflowWorktrees;
+
+  /// Last persisted workflow-owned shared worktree binding, retained for
+  /// compatibility with single-binding callers.
+  WorkflowWorktreeBinding? get workflowWorktree => workflowWorktrees.isEmpty ? null : workflowWorktrees.last;
+
+  WorkflowRun({
     required this.id,
     required this.definitionName,
     this.status = WorkflowRunStatus.pending,
@@ -86,7 +265,14 @@ class WorkflowRun {
     this.definitionJson = const {},
     this.currentLoopId,
     this.currentLoopIteration,
-  });
+    this.executionCursor,
+    WorkflowWorktreeBinding? workflowWorktree,
+    List<WorkflowWorktreeBinding> workflowWorktrees = const [],
+  }) : workflowWorktrees = List<WorkflowWorktreeBinding>.unmodifiable(
+         workflowWorktrees.isNotEmpty
+             ? workflowWorktrees
+             : (workflowWorktree == null ? const <WorkflowWorktreeBinding>[] : [workflowWorktree]),
+       );
 
   /// Returns a copy with selected fields replaced.
   WorkflowRun copyWith({
@@ -104,6 +290,9 @@ class WorkflowRun {
     Map<String, dynamic>? definitionJson,
     Object? currentLoopId = _sentinel,
     Object? currentLoopIteration = _sentinel,
+    Object? executionCursor = _sentinel,
+    Object? workflowWorktree = _sentinel,
+    Object? workflowWorktrees = _sentinel,
   }) => WorkflowRun(
     id: id ?? this.id,
     definitionName: definitionName ?? this.definitionName,
@@ -121,6 +310,13 @@ class WorkflowRun {
     currentLoopIteration: identical(currentLoopIteration, _sentinel)
         ? this.currentLoopIteration
         : currentLoopIteration as int?,
+    executionCursor: identical(executionCursor, _sentinel)
+        ? this.executionCursor
+        : executionCursor as WorkflowExecutionCursor?,
+    workflowWorktree: identical(workflowWorktree, _sentinel) ? null : workflowWorktree as WorkflowWorktreeBinding?,
+    workflowWorktrees: identical(workflowWorktrees, _sentinel)
+        ? this.workflowWorktrees
+        : workflowWorktrees as List<WorkflowWorktreeBinding>,
   );
 
   Map<String, dynamic> toJson() => {
@@ -138,6 +334,9 @@ class WorkflowRun {
     'definitionJson': Map<String, dynamic>.from(definitionJson),
     if (currentLoopId != null) 'currentLoopId': currentLoopId,
     if (currentLoopIteration != null) 'currentLoopIteration': currentLoopIteration,
+    if (executionCursor != null) 'executionCursor': executionCursor!.toJson(),
+    if (workflowWorktrees.isNotEmpty)
+      'workflowWorktrees': workflowWorktrees.map((binding) => binding.toJson()).toList(),
   };
 
   factory WorkflowRun.fromJson(Map<String, dynamic> json) => WorkflowRun(
@@ -155,6 +354,8 @@ class WorkflowRun {
     definitionJson: _toStringDynamicMap(json['definitionJson']),
     currentLoopId: json['currentLoopId'] as String?,
     currentLoopIteration: json['currentLoopIteration'] as int?,
+    executionCursor: _toExecutionCursor(json['executionCursor']),
+    workflowWorktrees: _toWorkflowWorktreeBindings(json['workflowWorktrees'] ?? json['workflowWorktree']),
   );
 }
 
@@ -163,3 +364,25 @@ Map<String, dynamic> _toStringDynamicMap(Object? value) =>
 
 Map<String, String> _toStringStringMap(Object? value) =>
     value == null ? const {} : Map<String, String>.from(value as Map);
+
+List<int> _toIntList(Object? value) =>
+    value == null ? const [] : (value as List).map((item) => (item as num).toInt()).toList(growable: false);
+
+List<dynamic> _toDynamicList(Object? value) => value == null ? const [] : List<dynamic>.from(value as List);
+
+WorkflowExecutionCursor? _toExecutionCursor(Object? value) =>
+    value == null ? null : WorkflowExecutionCursor.fromJson(Map<String, dynamic>.from(value as Map));
+
+WorkflowWorktreeBinding? _toWorkflowWorktreeBinding(Object? value) =>
+    value == null ? null : WorkflowWorktreeBinding.fromJson(Map<String, dynamic>.from(value as Map));
+
+List<WorkflowWorktreeBinding> _toWorkflowWorktreeBindings(Object? value) {
+  if (value == null) return const [];
+  if (value is List) {
+    return value
+        .map((item) => WorkflowWorktreeBinding.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList(growable: false);
+  }
+  final single = _toWorkflowWorktreeBinding(value);
+  return single == null ? const [] : [single];
+}

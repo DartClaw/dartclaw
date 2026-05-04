@@ -4,6 +4,91 @@
 // Enable View Transitions API for SPA navigation swaps.
 htmx.config.globalViewTransitions = true;
 
+const dartclaw = window.dartclaw = window.dartclaw || {};
+dartclaw.ui = dartclaw.ui || {};
+dartclaw.shell = dartclaw.shell || {};
+dartclaw.pages = dartclaw.pages || {};
+
+const pageScriptLoads = new Map();
+
+function runPageHook(hookName, context) {
+  Object.values(dartclaw.pages).forEach((page) => {
+    if (page && typeof page[hookName] === 'function') {
+      page[hookName](context);
+    }
+  });
+}
+
+function pageScriptsForPath(pathname) {
+  if (pathname === '/settings' || pathname.startsWith('/settings/')) {
+    return ['/static/settings.js'];
+  }
+  if (pathname === '/memory') {
+    return ['/static/memory.js'];
+  }
+  if (pathname === '/scheduling') {
+    return ['/static/scheduling.js'];
+  }
+  if (pathname.startsWith('/whatsapp/')) {
+    return ['/static/whatsapp.js'];
+  }
+  return [];
+}
+
+function loadScript(src) {
+  if (!src) return Promise.resolve();
+  if (pageScriptLoads.has(src)) {
+    return pageScriptLoads.get(src);
+  }
+
+  const existing = document.querySelector('script[src="' + CSS.escape(src) + '"]');
+  if (existing) {
+    const loaded = Promise.resolve();
+    pageScriptLoads.set(src, loaded);
+    return loaded;
+  }
+
+  const promise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.defer = true;
+    script.async = false;
+    script.addEventListener('load', () => resolve(), { once: true });
+    script.addEventListener('error', () => reject(new Error('Failed to load script: ' + src)), { once: true });
+    document.body.appendChild(script);
+  });
+  pageScriptLoads.set(src, promise);
+  return promise;
+}
+
+function requestedPathFromSource(source) {
+  if (!source) return window.location.pathname;
+
+  const rawPath = source.getAttribute && (
+    source.getAttribute('hx-get') ||
+    source.getAttribute('href') ||
+    source.getAttribute('action')
+  );
+  if (!rawPath) return window.location.pathname;
+
+  try {
+    return new URL(rawPath, window.location.origin).pathname;
+  } catch (_) {
+    return window.location.pathname;
+  }
+}
+
+function ensurePageScriptsForPath(pathname) {
+  const scripts = pageScriptsForPath(pathname || window.location.pathname);
+  if (!scripts.length) {
+    return Promise.resolve();
+  }
+  return scripts.reduce(
+    (chain, script) => chain.then(() => loadScript(script)),
+    Promise.resolve(),
+  );
+}
+
 // === Toast notifications ===
 
 const TOAST_DURATION = 4000;
@@ -28,6 +113,163 @@ function escapeHtml(value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
+
+function closeAllCustomSelects(except) {
+  document.querySelectorAll('.custom-select[data-open="true"]').forEach((wrapper) => {
+    if (except && wrapper === except) return;
+    wrapper.dataset.open = 'false';
+    const trigger = wrapper.querySelector('.custom-select-trigger');
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function syncCustomSelect(select) {
+  if (!select || typeof select._customSelectSync !== 'function') return;
+  select._customSelectSync();
+}
+
+function enhanceCustomSelect(select) {
+  if (!select || select.dataset.customSelectInit) return;
+  select.dataset.customSelectInit = '1';
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'custom-select';
+  wrapper.dataset.open = 'false';
+
+  select.parentNode.insertBefore(wrapper, select);
+  wrapper.appendChild(select);
+  select.classList.add('native-select-hidden');
+  select.tabIndex = -1;
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'custom-select-trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+
+  const label = document.createElement('span');
+  label.className = 'custom-select-label';
+
+  const caret = document.createElement('span');
+  caret.className = 'custom-select-caret';
+  caret.setAttribute('aria-hidden', 'true');
+
+  trigger.append(label, caret);
+
+  const menu = document.createElement('div');
+  menu.className = 'custom-select-menu';
+  menu.setAttribute('role', 'listbox');
+
+  wrapper.append(trigger, menu);
+
+  function buildOptions() {
+    menu.innerHTML = '';
+    Array.from(select.options).forEach((option, index) => {
+      const optionButton = document.createElement('button');
+      optionButton.type = 'button';
+      optionButton.className = 'custom-select-option';
+      optionButton.setAttribute('role', 'option');
+      optionButton.dataset.value = option.value;
+      optionButton.dataset.index = String(index);
+      optionButton.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+      optionButton.disabled = option.disabled;
+
+      const check = document.createElement('span');
+      check.className = 'custom-select-check';
+      check.setAttribute('aria-hidden', 'true');
+      check.textContent = '✓';
+
+      const text = document.createElement('span');
+      text.textContent = option.textContent || option.label || '';
+
+      optionButton.append(check, text);
+      optionButton.addEventListener('click', () => {
+        if (option.disabled) return;
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        syncFromSelect();
+        closeAllCustomSelects();
+        trigger.focus();
+      });
+
+      menu.appendChild(optionButton);
+    });
+  }
+
+  function syncFromSelect() {
+    const selectedOption = select.options[select.selectedIndex] || select.options[0];
+    label.textContent = selectedOption ? (selectedOption.textContent || selectedOption.label || '') : '';
+    menu.querySelectorAll('.custom-select-option').forEach((optionButton) => {
+      const isSelected = optionButton.dataset.value === select.value;
+      optionButton.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+    });
+  }
+
+  function openMenu() {
+    closeAllCustomSelects(wrapper);
+    wrapper.dataset.open = 'true';
+    trigger.setAttribute('aria-expanded', 'true');
+  }
+
+  function toggleMenu() {
+    const isOpen = wrapper.dataset.open === 'true';
+    if (isOpen) {
+      closeAllCustomSelects();
+    } else {
+      openMenu();
+    }
+  }
+
+  trigger.addEventListener('click', () => toggleMenu());
+  trigger.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openMenu();
+      const selected = menu.querySelector('.custom-select-option[aria-selected="true"]') || menu.querySelector('.custom-select-option:not([disabled])');
+      if (selected) selected.focus();
+    }
+  });
+
+  menu.addEventListener('keydown', (event) => {
+    const options = Array.from(menu.querySelectorAll('.custom-select-option:not([disabled])'));
+    const currentIndex = options.indexOf(document.activeElement);
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      const next = options[Math.min(currentIndex + 1, options.length - 1)] || options[0];
+      if (next) next.focus();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      const prev = options[Math.max(currentIndex - 1, 0)] || options[options.length - 1];
+      if (prev) prev.focus();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      closeAllCustomSelects();
+      trigger.focus();
+    }
+  });
+
+  select.addEventListener('change', syncFromSelect);
+  select._customSelectSync = syncFromSelect;
+
+  buildOptions();
+  syncFromSelect();
+}
+
+function initCustomSelects(root) {
+  (root || document).querySelectorAll('select[data-enhance="custom-select"]').forEach(enhanceCustomSelect);
+}
+
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.custom-select')) {
+    closeAllCustomSelects();
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeAllCustomSelects();
+  }
+});
 
 function sanitizeClassToken(value, fallback) {
   const token = String(value ?? '')
@@ -317,6 +559,15 @@ function showBanner(type, message) {
   }
 }
 
+dartclaw.ui.escapeHtml = escapeHtml;
+dartclaw.ui.initCustomSelects = initCustomSelects;
+dartclaw.ui.sanitizeClassToken = sanitizeClassToken;
+dartclaw.ui.showBanner = showBanner;
+dartclaw.ui.showToast = showToast;
+dartclaw.ui.syncCustomSelect = syncCustomSelect;
+dartclaw.shell.renderMarkdown = renderMarkdown;
+dartclaw.shell.scrollToBottom = scrollToBottom;
+
 // === Banner dismiss (delegated, for server-rendered banners) ===
 
 document.addEventListener('click', (event) => {
@@ -339,33 +590,62 @@ document.addEventListener('click', (event) => {
   switch (action) {
     // Scheduling
     case 'toggle-job-form':
-      typeof toggleJobForm === 'function' && toggleJobForm();
+      dartclaw.pages.scheduling && dartclaw.pages.scheduling.toggleJobForm && dartclaw.pages.scheduling.toggleJobForm();
       break;
     case 'submit-job-form':
-      typeof submitJobForm === 'function' && submitJobForm(btn.dataset.editName || undefined);
+      dartclaw.pages.scheduling &&
+        dartclaw.pages.scheduling.submitJobForm &&
+        dartclaw.pages.scheduling.submitJobForm(btn.dataset.editName || undefined);
       break;
     case 'edit-job':
-      typeof editJob === 'function' && editJob(btn, btn.dataset.jobName);
+      dartclaw.pages.scheduling && dartclaw.pages.scheduling.editJob && dartclaw.pages.scheduling.editJob(btn, btn.dataset.jobName);
       break;
     case 'confirm-delete-job':
-      typeof confirmDeleteJob === 'function' && confirmDeleteJob(btn, btn.dataset.jobName);
+      dartclaw.pages.scheduling &&
+        dartclaw.pages.scheduling.confirmDeleteJob &&
+        dartclaw.pages.scheduling.confirmDeleteJob(btn, btn.dataset.jobName);
       break;
     case 'execute-delete-job':
-      typeof executeDeleteJob === 'function' && executeDeleteJob(btn.dataset.jobName, btn);
+      dartclaw.pages.scheduling &&
+        dartclaw.pages.scheduling.executeDeleteJob &&
+        dartclaw.pages.scheduling.executeDeleteJob(btn.dataset.jobName, btn);
       break;
     case 'cancel-delete-job':
-      typeof cancelDeleteJob === 'function' && cancelDeleteJob(btn);
+      dartclaw.pages.scheduling && dartclaw.pages.scheduling.cancelDeleteJob && dartclaw.pages.scheduling.cancelDeleteJob(btn);
+      break;
+    case 'toggle-task-form':
+      dartclaw.pages.scheduling && dartclaw.pages.scheduling.toggleTaskForm && dartclaw.pages.scheduling.toggleTaskForm();
+      break;
+    case 'submit-task-form':
+      dartclaw.pages.scheduling && dartclaw.pages.scheduling.submitTaskForm && dartclaw.pages.scheduling.submitTaskForm();
+      break;
+    case 'toggle-scheduled-task':
+      dartclaw.pages.scheduling &&
+        dartclaw.pages.scheduling.toggleScheduledTask &&
+        dartclaw.pages.scheduling.toggleScheduledTask(btn.dataset.taskId);
+      break;
+    case 'edit-scheduled-task':
+      dartclaw.pages.scheduling &&
+        dartclaw.pages.scheduling.editScheduledTask &&
+        dartclaw.pages.scheduling.editScheduledTask(btn.dataset.taskId);
+      break;
+    case 'delete-scheduled-task':
+      if (btn.dataset.taskId && confirm('Delete scheduled task "' + btn.dataset.taskId + '"?')) {
+        dartclaw.pages.scheduling &&
+          dartclaw.pages.scheduling.deleteScheduledTask &&
+          dartclaw.pages.scheduling.deleteScheduledTask(btn.dataset.taskId);
+      }
       break;
 
     // Memory dashboard
     case 'switch-tab':
-      typeof switchMemoryTab === 'function' && switchMemoryTab(btn, btn.dataset.tab);
+      dartclaw.pages.memory && dartclaw.pages.memory.switchTab && dartclaw.pages.memory.switchTab(btn, btn.dataset.tab);
       break;
     case 'toggle-view':
-      typeof toggleMemoryView === 'function' && toggleMemoryView(btn, btn.dataset.mode);
+      dartclaw.pages.memory && dartclaw.pages.memory.toggleView && dartclaw.pages.memory.toggleView(btn, btn.dataset.mode);
       break;
     case 'confirm-prune':
-      typeof confirmPrune === 'function' && confirmPrune(btn);
+      dartclaw.pages.memory && dartclaw.pages.memory.confirmPrune && dartclaw.pages.memory.confirmPrune(btn);
       break;
 
     // Restart banner
@@ -380,7 +660,13 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('input', (event) => {
   if (event.target.id === 'job-schedule') {
-    typeof updateCronPreview === 'function' && updateCronPreview(event.target.value);
+    dartclaw.pages.scheduling &&
+      dartclaw.pages.scheduling.updateCronPreview &&
+      dartclaw.pages.scheduling.updateCronPreview(event.target.value);
+  } else if (event.target.id === 'task-schedule') {
+    dartclaw.pages.scheduling &&
+      dartclaw.pages.scheduling.updateTaskCronPreview &&
+      dartclaw.pages.scheduling.updateTaskCronPreview(event.target.value);
   }
 });
 
@@ -791,8 +1077,6 @@ function initSseLifecycle() {
 
 // === Namespaced globals for HTMX event handlers ===
 
-window.dartclaw = window.dartclaw || {};
-
 dartclaw.handleTurnError = function(event) {
   // Extract error text from the hidden swap target before finalizeTurn clears the DOM.
   const container = document.getElementById('turn-error-target');
@@ -821,28 +1105,19 @@ function initAfterSwapReinit() {
     initKeyboardSubmit();
     initSendButtonState();
     initInlineRename();
-    typeof initSettingsForm === 'function' && initSettingsForm();
-    typeof initChannelDetail === 'function' && initChannelDetail();
-    typeof initPairingPolling === 'function' && initPairingPolling();
-    typeof initQrFallback === 'function' && initQrFallback();
-    typeof initQrCountdown === 'function' && initQrCountdown();
-    typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
-    typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
-    restoreTaskBadge();
-    renderRunningSidebar(cachedActiveTasks);
-    renderWorkflowSidebar(cachedActiveWorkflows);
-    resetWorkflowNotificationIfOnWorkflowsPage();
-    initTaskElapsedTimers();
-    initTaskListControls();
-    initTaskReviewActions();
-    initTaskStartActions();
-    initTaskCancelActions();
-    initTaskDialogTabs();
-    initNewTaskForm();
-    initTaskDetailRefresh();
-    if (target && target.id === 'main-content') {
-      target.focus({ preventScroll: true });
-    }
+    const requestedPath = target && target.id === 'main-content'
+      ? requestedPathFromSource(source)
+      : window.location.pathname;
+    ensurePageScriptsForPath(requestedPath)
+      .catch((error) => {
+        showToast('error', error.message || 'Failed to load page scripts');
+      })
+      .finally(() => {
+        runPageHook('onAfterSwap', { target, source, isLoadEarlier });
+        if (target && target.id === 'main-content') {
+          target.focus({ preventScroll: true });
+        }
+      });
   });
 }
 
@@ -857,35 +1132,23 @@ function initHistoryRestore() {
   document.body.addEventListener('htmx:historyRestore', () => {
     renderMarkdown();
     scrollToBottom();
-    renderRunningSidebar(cachedActiveTasks);
-    renderWorkflowSidebar(cachedActiveWorkflows);
-    resetWorkflowNotificationIfOnWorkflowsPage();
     initThemeToggle();
     initSidebar();
     initTextareaResize();
     initKeyboardSubmit();
     initSendButtonState();
     initInlineRename();
-    typeof initSettingsForm === 'function' && initSettingsForm();
-    typeof initChannelDetail === 'function' && initChannelDetail();
-    typeof initPairingPolling === 'function' && initPairingPolling();
-    typeof initQrFallback === 'function' && initQrFallback();
-    typeof initQrCountdown === 'function' && initQrCountdown();
-    typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
-    typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
-    restoreTaskBadge();
-    initTaskElapsedTimers();
-    initTaskListControls();
-    initTaskReviewActions();
-    initTaskStartActions();
-    initTaskCancelActions();
-    initTaskDialogTabs();
-    initNewTaskForm();
-    initTaskDetailRefresh();
-    const mainContent = document.getElementById('main-content');
-    if (mainContent) {
-      mainContent.focus({ preventScroll: true });
-    }
+    ensurePageScriptsForPath(window.location.pathname)
+      .catch((error) => {
+        showToast('error', error.message || 'Failed to load page scripts');
+      })
+      .finally(() => {
+        runPageHook('onHistoryRestore');
+        const mainContent = document.getElementById('main-content');
+        if (mainContent) {
+          mainContent.focus({ preventScroll: true });
+        }
+      });
   });
 }
 
@@ -1058,42 +1321,6 @@ function initRestartBanner() {
   connectGlobalEvents();
 }
 
-// === SCHEDULING PAGE: JOB + TASK CRUD ===
-
-function initSchedulingPage() {
-  // Delegated click handler for all scheduling data-action buttons
-  document.addEventListener('click', function(e) {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    const action = btn.getAttribute('data-action');
-
-    // --- Scheduled task form ---
-    if (action === 'toggle-task-form') {
-      const form = document.getElementById('task-form');
-      if (form) {
-        const visible = form.style.display !== 'none';
-        form.style.display = visible ? 'none' : '';
-        if (!visible) resetTaskForm();
-      }
-    }
-    if (action === 'submit-task-form') {
-      submitTaskForm();
-    }
-    if (action === 'toggle-scheduled-task') {
-      const taskId = btn.getAttribute('data-task-id');
-      if (taskId) toggleScheduledTask(taskId);
-    }
-    if (action === 'edit-scheduled-task') {
-      const taskId = btn.getAttribute('data-task-id');
-      if (taskId) editScheduledTask(taskId);
-    }
-    if (action === 'delete-scheduled-task') {
-      const taskId = btn.getAttribute('data-task-id');
-      if (taskId && confirm('Delete scheduled task "' + taskId + '"?')) deleteScheduledTask(taskId);
-    }
-  });
-}
-
 function getApiToken() {
   return new URLSearchParams(window.location.search).get('token');
 }
@@ -1103,227 +1330,22 @@ function apiQs() {
   return token ? '?token=' + encodeURIComponent(token) : '';
 }
 
-// --- Job CRUD ---
+dartclaw.shell.apiQs = apiQs;
+dartclaw.shell.getApiToken = getApiToken;
 
-async function submitJobForm() {
-  const name = document.getElementById('job-name')?.value?.trim();
-  const schedule = document.getElementById('job-schedule')?.value?.trim();
-  const prompt = document.getElementById('job-prompt')?.value?.trim();
-  const deliveryEl = document.querySelector('input[name="delivery"]:checked');
-  const delivery = deliveryEl ? deliveryEl.value : 'none';
+// === TIMELINE AUTO-SCROLL ===
 
-  if (!name || !schedule || !prompt) {
-    showToast('error', 'Name, schedule, and prompt are required');
-    return;
-  }
-
-  try {
-    const resp = await fetch('/api/scheduling/jobs' + apiQs(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, schedule, prompt, delivery }),
-    });
-    if (resp.ok || resp.status === 201) {
-      showToast('success', 'Job created — restart required');
-      setTimeout(() => window.location.reload(), 1000);
-    } else {
-      const data = await resp.json().catch(() => ({}));
-      showToast('error', data.error?.message || 'Failed to create job');
-    }
-  } catch (_) {
-    showToast('error', 'Failed to reach server');
-  }
+function scrollTimelineToBottom(container) {
+  if (container) container.scrollTop = container.scrollHeight;
 }
 
-async function editJob(name) {
-  const newSchedule = prompt('New schedule for "' + name + '":');
-  if (!newSchedule) return;
-
-  try {
-    const resp = await fetch('/api/scheduling/jobs/' + encodeURIComponent(name) + apiQs(), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ schedule: newSchedule }),
-    });
-    if (resp.ok) {
-      showToast('success', 'Job updated — restart required');
-      setTimeout(() => window.location.reload(), 1000);
-    } else {
-      const data = await resp.json().catch(() => ({}));
-      showToast('error', data.error?.message || 'Failed to update job');
-    }
-  } catch (_) {
-    showToast('error', 'Failed to reach server');
-  }
+function applyTimelineAutoScroll() {
+  const container = document.querySelector('[data-auto-scroll="true"]');
+  scrollTimelineToBottom(container);
 }
 
-async function deleteJob(name) {
-  try {
-    const resp = await fetch('/api/scheduling/jobs/' + encodeURIComponent(name) + apiQs(), {
-      method: 'DELETE',
-    });
-    if (resp.ok) {
-      showToast('success', 'Job deleted — restart required');
-      setTimeout(() => window.location.reload(), 1000);
-    } else {
-      const data = await resp.json().catch(() => ({}));
-      showToast('error', data.error?.message || 'Failed to delete job');
-    }
-  } catch (_) {
-    showToast('error', 'Failed to reach server');
-  }
-}
-
-// --- Scheduled Task CRUD ---
-
-function resetTaskForm() {
-  const titleEl = document.getElementById('task-form-title');
-  if (titleEl) titleEl.textContent = 'Add Scheduled Task';
-  document.getElementById('task-edit-id').value = '';
-  document.getElementById('task-id').value = '';
-  document.getElementById('task-id').disabled = false;
-  document.getElementById('task-schedule').value = '';
-  document.getElementById('task-title').value = '';
-  document.getElementById('task-description').value = '';
-  document.getElementById('task-type').selectedIndex = 0;
-  document.getElementById('task-acceptance').value = '';
-  document.getElementById('task-enabled').checked = true;
-}
-
-async function submitTaskForm() {
-  const editId = document.getElementById('task-edit-id')?.value?.trim();
-  const id = document.getElementById('task-id')?.value?.trim();
-  const schedule = document.getElementById('task-schedule')?.value?.trim();
-  const title = document.getElementById('task-title')?.value?.trim();
-  const description = document.getElementById('task-description')?.value?.trim();
-  const type = document.getElementById('task-type')?.value;
-  const acceptance = document.getElementById('task-acceptance')?.value?.trim();
-  const enabled = document.getElementById('task-enabled')?.checked ?? true;
-
-  if (!id || !schedule || !title || !description || !type) {
-    showToast('error', 'ID, schedule, title, description, and type are required');
-    return;
-  }
-
-  const body = { id, schedule, title, description, type, enabled };
-  if (acceptance) body.acceptanceCriteria = acceptance;
-
-  try {
-    const isEdit = editId && editId.length > 0;
-    const url = isEdit
-      ? '/api/scheduling/tasks/' + encodeURIComponent(editId) + apiQs()
-      : '/api/scheduling/tasks' + apiQs();
-    const method = isEdit ? 'PUT' : 'POST';
-
-    const resp = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (resp.ok || resp.status === 201) {
-      showToast('success', (isEdit ? 'Task updated' : 'Task created') + ' — restart required');
-      setTimeout(() => window.location.reload(), 1000);
-    } else {
-      const data = await resp.json().catch(() => ({}));
-      showToast('error', data.error?.message || 'Failed to save scheduled task');
-    }
-  } catch (_) {
-    showToast('error', 'Failed to reach server');
-  }
-}
-
-async function toggleScheduledTask(taskId) {
-  // Fetch current config to find the task's current enabled state
-  try {
-    const configResp = await fetch('/api/config' + apiQs());
-    if (!configResp.ok) {
-      showToast('error', 'Failed to read config');
-      return;
-    }
-    const config = await configResp.json();
-    const jobs = config.scheduling?.jobs || [];
-    const job = jobs.find(function(j) { return j.type === 'task' && j.id === taskId; });
-    if (!job) {
-      showToast('error', 'Task not found');
-      return;
-    }
-
-    const resp = await fetch('/api/scheduling/tasks/' + encodeURIComponent(taskId) + apiQs(), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: !job.enabled }),
-    });
-    if (resp.ok) {
-      showToast('success', 'Task ' + (!job.enabled ? 'enabled' : 'disabled') + ' — restart required');
-      setTimeout(() => window.location.reload(), 1000);
-    } else {
-      const data = await resp.json().catch(() => ({}));
-      showToast('error', data.error?.message || 'Failed to toggle task');
-    }
-  } catch (_) {
-    showToast('error', 'Failed to reach server');
-  }
-}
-
-async function editScheduledTask(taskId) {
-  // Fetch current config to pre-populate the form
-  try {
-    const configResp = await fetch('/api/config' + apiQs());
-    if (!configResp.ok) {
-      showToast('error', 'Failed to read config');
-      return;
-    }
-    const config = await configResp.json();
-    const jobs = config.scheduling?.jobs || [];
-    const job = jobs.find(function(j) { return j.type === 'task' && j.id === taskId; });
-    if (!job) {
-      showToast('error', 'Task not found in config');
-      return;
-    }
-    const taskDef = job.task || {};
-
-    // Show and populate form
-    const form = document.getElementById('task-form');
-    if (form) form.style.display = '';
-    const titleEl = document.getElementById('task-form-title');
-    if (titleEl) titleEl.textContent = 'Edit Scheduled Task';
-    document.getElementById('task-edit-id').value = taskId;
-    document.getElementById('task-id').value = job.id;
-    document.getElementById('task-id').disabled = true;
-    document.getElementById('task-schedule').value = job.schedule || '';
-    document.getElementById('task-title').value = taskDef.title || '';
-    document.getElementById('task-description').value = taskDef.description || '';
-    const typeSelect = document.getElementById('task-type');
-    const taskType = taskDef.type || taskDef.task_type;
-    if (typeSelect && taskType) {
-      for (var i = 0; i < typeSelect.options.length; i++) {
-        if (typeSelect.options[i].value === taskType) {
-          typeSelect.selectedIndex = i;
-          break;
-        }
-      }
-    }
-    document.getElementById('task-acceptance').value = taskDef.acceptance_criteria || '';
-    document.getElementById('task-enabled').checked = job.enabled !== false;
-  } catch (_) {
-    showToast('error', 'Failed to reach server');
-  }
-}
-
-async function deleteScheduledTask(taskId) {
-  try {
-    const resp = await fetch('/api/scheduling/tasks/' + encodeURIComponent(taskId) + apiQs(), {
-      method: 'DELETE',
-    });
-    if (resp.ok) {
-      showToast('success', 'Scheduled task deleted — restart required');
-      setTimeout(() => window.location.reload(), 1000);
-    } else {
-      const data = await resp.json().catch(() => ({}));
-      showToast('error', data.error?.message || 'Failed to delete scheduled task');
-    }
-  } catch (_) {
-    showToast('error', 'Failed to reach server');
-  }
-}
-
-// === Init ===
+document.addEventListener('htmx:afterSettle', applyTimelineAutoScroll);
+applyTimelineAutoScroll();
 
 document.addEventListener('DOMContentLoaded', () => {
   initThemeToggle();
@@ -1341,1629 +1363,18 @@ document.addEventListener('DOMContentLoaded', () => {
   initResumeArchive();
   initInlineRename();
   initLoadEarlierMessages();
-  typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
-  typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
-  typeof initSettingsForm === 'function' && initSettingsForm();
-  typeof initChannelDetail === 'function' && initChannelDetail();
-  typeof initPairingPolling === 'function' && initPairingPolling();
-  initSchedulingPage();
   initRestartBanner();
-  typeof initQrFallback === 'function' && initQrFallback();
-  typeof initQrCountdown === 'function' && initQrCountdown();
-  initTaskSse();
-  initTaskElapsedTimers();
-  initTaskListControls();
-  initTaskReviewActions();
-  initTaskStartActions();
-  initTaskCancelActions();
-  initTaskDialogTabs();
-  initNewTaskForm();
-  initTaskDetailRefresh();
-  initProjectHandlers();
-  initWorkflowDetailSSE();
-  renderMarkdown();
-  scrollToBottom();
-});
-
-// === TASK SSE + BADGE ===
-
-let taskEventSource = null;
-let latestTaskReviewCount = null;
-let cachedActiveTasks = [];
-let cachedActiveWorkflows = [];
-let workflowNotificationCount = 0;
-let taskElapsedTimer = null;
-let taskDetailRefreshTimer = null;
-
-function renderRunningSidebar(tasks) {
-  cachedActiveTasks = Array.isArray(tasks) ? tasks : [];
-
-  const existing = document.getElementById('sidebar-running');
-  if (!cachedActiveTasks.length) {
-    existing && existing.remove();
-    return;
-  }
-
-  const sidebar = document.getElementById('sidebar');
-  if (!sidebar) return;
-
-  const chatsLabel = Array.from(sidebar.querySelectorAll('.sidebar-section-label'))
-    .find((element) => element.textContent.trim() === 'Chats');
-  if (!chatsLabel || !chatsLabel.parentNode) return;
-
-  const itemsHtml = cachedActiveTasks.map((task) => {
-    const taskId = encodeURIComponent(task.id || '');
-    const href = '/tasks/' + taskId;
-    const provider = sanitizeClassToken(task.provider || 'claude', 'claude');
-    const providerLabel = escapeHtml(task.providerLabel || task.provider || 'Claude');
-    const title = escapeHtml(task.title || 'Untitled Task');
-    const statusClass = task.status === 'review'
-      ? 'status-dot status-dot--warning'
-      : 'status-dot status-dot--live';
-    const trailingMeta = task.status === 'review'
-      ? '<span class="running-review-label">review</span>'
-      : task.startedAt
-        ? '<span class="task-elapsed running-elapsed" data-started-at="' +
-            escapeHtml(task.startedAt) +
-            '"></span>'
-        : '<span class="task-elapsed running-elapsed">--:--</span>';
-
-    return (
-      '<div class="session-item sidebar-running-item">' +
-        '<a href="' + href + '" hx-get="' + href + '" class="session-item-link"' +
-          ' hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"' +
-          ' hx-select-oob="#topbar,#sidebar">' +
-          '<span class="' + statusClass + '" aria-hidden="true"></span>' +
-          '<span class="session-item-title">' + title + '</span>' +
-          trailingMeta +
-          '<span class="provider-badge provider-badge-' + provider + '">' + providerLabel + '</span>' +
-        '</a>' +
-      '</div>'
-    );
-  }).join('');
-
-  const container = document.createElement('div');
-  container.id = 'sidebar-running';
-  container.innerHTML =
-    '<div class="sidebar-section-label sidebar-running-label">Running</div>' +
-    itemsHtml +
-    '<hr class="sidebar-divider sidebar-running-divider">';
-
-  if (existing) {
-    existing.replaceWith(container);
-  } else {
-    chatsLabel.parentNode.insertBefore(container, chatsLabel);
-  }
-
-  htmx.process(container);
-  initTaskElapsedTimers();
-}
-
-function initTaskSse() {
-  // Only connect when the server rendered an explicit task-SSE capability
-  // marker. This avoids reconnect loops on taskless deployments.
-  if (taskEventSource || !document.querySelector('[data-tasks-enabled]')) return;
-  try {
-    taskEventSource = new EventSource('/api/tasks/events');
-  } catch (_) {
-    return;
-  }
-
-  taskEventSource.onmessage = function(e) {
-    try {
-      const data = JSON.parse(e.data);
-
-      if (data.type === 'connected') {
-        updateTaskBadge(data.reviewCount || 0);
-        renderRunningSidebar(data.activeTasks || []);
-        renderWorkflowSidebar(data.activeWorkflows || []);
-        if (Array.isArray(data.projects)) {
-          data.projects.forEach(p => updateProjectStatusBadge(p.id, p.status));
-        }
-        return;
-      }
-
-      // Status change event — update badge and optionally refresh task list.
-      if (data.type === 'task_status_changed') {
-        updateTaskBadge(data.reviewCount || 0);
-        renderRunningSidebar(data.activeTasks || []);
-        if (shouldRefreshTaskContent(data.taskId)) {
-          refreshTasksPageContent();
-        }
-        return;
-      }
-
-      if (data.type === 'workflow_sidebar_update') {
-        renderWorkflowSidebar(data.activeWorkflows || []);
-        if (data.notification) {
-          incrementWorkflowNotification();
-        }
-        return;
-      }
-
-      if (data.type === 'agent_state') {
-        if (shouldRefreshTaskContent(data.currentTaskId)) {
-          refreshTasksPageContent();
-        }
-        return;
-      }
-
-      if (data.type === 'project_status') {
-        updateProjectStatusBadge(data.projectId, data.newStatus);
-        updateProjectSelectorOption(data.projectId, data.newStatus);
-        return;
-      }
-
-      if (data.type === 'task_progress') {
-        updateTaskProgress(data);
-        updateDashboardProgress(data);
-        return;
-      }
-
-      if (data.type === 'task_event') {
-        updateDashboardEvents(data);
-        return;
-      }
-    } catch (_) {}
-  };
-
-  taskEventSource.onerror = function() {
-    // EventSource auto-reconnects. No custom logic needed.
-  };
-}
-
-function updateTaskProgress(data) {
-  const taskId = data.taskId;
-
-  // Update activity indicator text.
-  const activityEl = document.getElementById('task-activity-text-' + taskId);
-  if (activityEl && data.currentActivity) {
-    activityEl.textContent = data.currentActivity;
-  }
-
-  // Update progress bar fill width.
-  const fillEl = document.getElementById('task-progress-fill-' + taskId);
-  if (fillEl) {
-    if (data.tokenBudget != null && data.tokenBudget > 0) {
-      // Determinate progress.
-      fillEl.classList.remove('indeterminate');
-      const pct = Math.min(Math.max(data.progress || 0, 0), 100);
-      fillEl.style.width = pct + '%';
-      fillEl.setAttribute('aria-valuenow', pct);
-    } else {
-      // Indeterminate — pulsing animation via CSS class.
-      fillEl.classList.add('indeterminate');
-    }
-  }
-
-  // Update progress label text.
-  const labelEl = document.getElementById('task-progress-label-' + taskId);
-  if (labelEl) {
-    if (data.tokenBudget != null && data.tokenBudget > 0) {
-      labelEl.textContent = formatTokenCount(data.tokensUsed) +
-        ' / ' + formatTokenCount(data.tokenBudget) +
-        ' tokens (' + (data.progress || 0) + '%)';
-    } else {
-      labelEl.textContent = formatTokenCount(data.tokensUsed) + ' tokens used';
-    }
-  }
-
-  // Show the progress section if hidden.
-  const section = document.getElementById('task-progress-section');
-  if (section) section.style.display = '';
-
-  // On completion: hide the pulsing dot but keep final token count visible.
-  if (data.isComplete) {
-    const activityIndicator = document.getElementById('task-activity-' + taskId);
-    if (activityIndicator) activityIndicator.style.display = 'none';
-  }
-}
-
-// S11: Update running task card progress bar and token text on /tasks page.
-function updateDashboardProgress(data) {
-  const taskId = data.taskId;
-  const progressEl = document.getElementById('task-progress-' + taskId);
-  if (!progressEl) return; // not on /tasks page or task not visible
-
-  const fillEl = progressEl.querySelector('.task-progress-fill');
-  if (fillEl) {
-    if (data.tokenBudget != null && data.tokenBudget > 0) {
-      progressEl.classList.remove('task-progress-indeterminate');
-      const pct = Math.min(Math.max(data.progress || 0, 0), 100);
-      fillEl.style.width = pct + '%';
-    } else {
-      progressEl.classList.add('task-progress-indeterminate');
-    }
-  }
-
-  const tokensEl = document.getElementById('task-tokens-' + taskId);
-  if (tokensEl) {
-    const span = tokensEl.querySelector('span');
-    if (span) {
-      if (data.tokenBudget != null && data.tokenBudget > 0) {
-        span.textContent = formatTokenCount(data.tokensUsed) +
-          ' / ' + formatTokenCount(data.tokenBudget) +
-          ' tokens (' + (data.progress || 0) + '%)';
-      } else {
-        span.textContent = formatTokenCount(data.tokensUsed) + ' tokens';
-      }
-    }
-  }
-
-  // On completion: hide progress bar on dashboard card.
-  if (data.isComplete) {
-    progressEl.style.display = 'none';
-  }
-}
-
-// S11: Prepend new event to compact timeline on /tasks card; keep max 3.
-function updateDashboardEvents(data) {
-  const taskId = data.taskId;
-  let eventsEl = document.getElementById('task-events-' + taskId);
-
-  // If the events container doesn't exist yet (task had no events on load), create it.
-  if (!eventsEl) {
-    const card = document.querySelector('[id^="task-progress-' + taskId + '"]');
-    const parent = card ? card.closest('.task-card-running') : null;
-    if (!parent) return;
-    eventsEl = document.createElement('div');
-    eventsEl.className = 'task-events';
-    eventsEl.id = 'task-events-' + taskId;
-    parent.appendChild(eventsEl);
-  }
-
-  const eventDiv = document.createElement('div');
-  eventDiv.className = 'task-event';
-  eventDiv.innerHTML =
-    '<span class="task-event-icon ' + escapeHtml(data.iconClass || '') + '">' +
-    escapeHtml(data.iconChar || '\u25CF') + '</span>' +
-    '<span>' + escapeHtml(data.text || '') + '</span>';
-
-  eventsEl.insertBefore(eventDiv, eventsEl.firstChild);
-  while (eventsEl.children.length > 3) {
-    eventsEl.removeChild(eventsEl.lastChild);
-  }
-}
-
-function formatTokenCount(n) {
-  if (n == null) return '0';
-  return n.toLocaleString();
-}
-
-function currentTaskDetailId() {
-  const detailPage = document.querySelector('.task-detail-page');
-  return detailPage ? detailPage.getAttribute('data-task-id') : null;
-}
-
-function shouldRefreshTaskContent(taskId) {
-  return Boolean(document.getElementById('tasks-content')) || currentTaskDetailId() === taskId;
-}
-
-function updateTaskBadge(count) {
-  latestTaskReviewCount = count;
-  const badge = document.getElementById('tasks-badge');
-  if (!badge) return;
-  if (count > 0) {
-    badge.textContent = count;
-    badge.style.display = '';
-  } else {
-    badge.style.display = 'none';
-  }
-}
-
-function initTaskElapsedTimers() {
-  const timers = document.querySelectorAll('.task-elapsed[data-started-at]');
-  if (!timers.length) {
-    if (taskElapsedTimer) {
-      clearInterval(taskElapsedTimer);
-      taskElapsedTimer = null;
-    }
-    return;
-  }
-
-  refreshTaskElapsedTimes();
-  if (taskElapsedTimer) return;
-  taskElapsedTimer = setInterval(refreshTaskElapsedTimes, 1000);
-}
-
-function initTaskDetailRefresh() {
-  const detailPage = document.querySelector('.task-detail-page');
-  if (!detailPage) {
-    if (taskDetailRefreshTimer) {
-      clearInterval(taskDetailRefreshTimer);
-      taskDetailRefreshTimer = null;
-    }
-    return;
-  }
-
-  const statusText = detailPage
-    .querySelector('.task-meta-card .status-badge')
-    ?.textContent
-    ?.trim()
-    .toLowerCase();
-  const shouldPoll = statusText === 'queued' || statusText === 'running';
-  if (!shouldPoll) {
-    if (taskDetailRefreshTimer) {
-      clearInterval(taskDetailRefreshTimer);
-      taskDetailRefreshTimer = null;
-    }
-    return;
-  }
-
-  if (taskDetailRefreshTimer) return;
-
-  taskDetailRefreshTimer = setInterval(async () => {
-    if (!document.querySelector('.task-detail-page')) {
-      clearInterval(taskDetailRefreshTimer);
-      taskDetailRefreshTimer = null;
-      return;
-    }
-
-    await refreshTasksPageContent();
-
-    const nextStatus = document
-      .querySelector('.task-detail-page .task-meta-card .status-badge')
-      ?.textContent
-      ?.trim()
-      .toLowerCase();
-    if (nextStatus !== 'queued' && nextStatus !== 'running') {
-      clearInterval(taskDetailRefreshTimer);
-      taskDetailRefreshTimer = null;
-    }
-  }, 2000);
-}
-
-function refreshTaskElapsedTimes() {
-  document.querySelectorAll('.task-elapsed[data-started-at]').forEach(el => {
-    const started = el.getAttribute('data-started-at');
-    if (!started) return;
-    const diff = Math.floor((Date.now() - new Date(started).getTime()) / 1000);
-    if (diff < 0) {
-      el.textContent = '--:--';
-      return;
-    }
-    const m = Math.floor(diff / 60);
-    const s = diff % 60;
-    el.textContent = m + 'm ' + String(s).padStart(2, '0') + 's';
-  });
-}
-
-function restoreTaskBadge() {
-  if (latestTaskReviewCount !== null) {
-    updateTaskBadge(latestTaskReviewCount);
-  }
-}
-
-// === WORKFLOW SIDEBAR ===
-
-function renderWorkflowSidebar(workflows) {
-  cachedActiveWorkflows = Array.isArray(workflows) ? workflows : [];
-
-  const existing = document.getElementById('sidebar-workflows');
-  if (!cachedActiveWorkflows.length) {
-    existing && existing.remove();
-    return;
-  }
-
-  const sidebar = document.getElementById('sidebar');
-  if (!sidebar) return;
-
-  // Find insertion point: after #sidebar-running if present, else before "Chats" label.
-  const runningSection = document.getElementById('sidebar-running');
-  const chatsLabel = Array.from(sidebar.querySelectorAll('.sidebar-section-label'))
-    .find((el) => el.textContent.trim() === 'Chats');
-  if (!chatsLabel || !chatsLabel.parentNode) return;
-
-  const itemsHtml = cachedActiveWorkflows.map((wf) => {
-    const wfId = encodeURIComponent(wf.id || '');
-    const href = '/workflows/' + wfId;
-    const name = escapeHtml(wf.definitionName || 'Workflow');
-    const progress = (wf.completedSteps || 0) + '/' + (wf.totalSteps || 0);
-    const statusClass = wf.status === 'paused'
-      ? 'status-dot status-dot--warning'
-      : 'status-dot status-dot--live';
-
-    return (
-      '<div class="session-item sidebar-workflow-item">' +
-        '<a href="' + href + '" hx-get="' + href + '" class="session-item-link"' +
-          ' hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML"' +
-          ' hx-push-url="true" hx-select-oob="#topbar,#sidebar">' +
-          '<span class="' + statusClass + '" aria-hidden="true"></span>' +
-          '<span class="session-item-title">' + name + '</span>' +
-          '<span class="workflow-step-progress">' + progress + '</span>' +
-        '</a>' +
-      '</div>'
-    );
-  }).join('');
-
-  const container = document.createElement('div');
-  container.id = 'sidebar-workflows';
-  container.innerHTML =
-    '<div class="sidebar-section-label sidebar-workflows-label">Workflows</div>' +
-    itemsHtml +
-    '<hr class="sidebar-divider sidebar-workflows-divider">';
-
-  if (existing) {
-    existing.replaceWith(container);
-  } else {
-    // Insert after running section if present, otherwise before Chats.
-    const insertBefore = runningSection
-      ? runningSection.nextElementSibling
-      : chatsLabel;
-    if (insertBefore && insertBefore.parentNode) {
-      insertBefore.parentNode.insertBefore(container, insertBefore);
-    } else {
-      chatsLabel.parentNode.insertBefore(container, chatsLabel);
-    }
-  }
-
-  htmx.process(container);
-}
-
-function updateWorkflowBadge(count) {
-  workflowNotificationCount = count;
-  const badge = document.getElementById('workflows-badge');
-  if (!badge) return;
-  if (count > 0) {
-    badge.textContent = count;
-    badge.style.display = '';
-  } else {
-    badge.style.display = 'none';
-  }
-}
-
-function incrementWorkflowNotification() {
-  // Only increment if NOT currently on the workflows page.
-  if (window.location.pathname === '/workflows') return;
-  workflowNotificationCount++;
-  updateWorkflowBadge(workflowNotificationCount);
-}
-
-function resetWorkflowNotification() {
-  workflowNotificationCount = 0;
-  updateWorkflowBadge(0);
-}
-
-function resetWorkflowNotificationIfOnWorkflowsPage() {
-  if (window.location.pathname === '/workflows') {
-    resetWorkflowNotification();
-  }
-}
-
-function filterByDefinition(value) {
-  const url = new URL(window.location.href);
-  if (value) {
-    url.searchParams.set('definition', value);
-  } else {
-    url.searchParams.delete('definition');
-  }
-  htmx.ajax('GET', url.pathname + url.search, {
-    target: '#main-content',
-    select: '#main-content',
-    swap: 'outerHTML',
-    headers: { 'HX-Push-Url': url.pathname + url.search },
-  });
-}
-
-async function refreshTasksPageContent() {
-  try {
-    const response = await fetch(window.location.pathname + window.location.search, {
-      headers: { 'HX-Request': 'true' },
-    });
-    if (!response.ok) return;
-
-    const html = await response.text();
-    const parsed = new DOMParser().parseFromString(html, 'text/html');
-    const nextContent = parsed.getElementById('tasks-content');
-    const currentContent = document.getElementById('tasks-content');
-    if (!nextContent || !currentContent) return;
-
-    currentContent.replaceWith(nextContent);
-    initTaskElapsedTimers();
-    initTaskListControls();
-    initTaskReviewActions();
-    initTaskStartActions();
-    initTaskCancelActions();
-    initTaskDialogTabs();
-    initNewTaskForm();
-    initTaskDetailRefresh();
-    renderMarkdown();
-  } catch (_) {}
-}
-
-async function refreshTaskDetailContent() {
-  try {
-    const response = await fetch(window.location.pathname + window.location.search, {
-      headers: { 'HX-Request': 'true' },
-    });
-    if (!response.ok) return;
-
-    const html = await response.text();
-    const parsed = new DOMParser().parseFromString(html, 'text/html');
-    const nextContent = parsed.getElementById('main-content');
-    const currentContent = document.getElementById('main-content');
-    if (!nextContent || !currentContent) return;
-
-    currentContent.replaceWith(nextContent);
-    initTaskElapsedTimers();
-    initTaskListControls();
-    initTaskReviewActions();
-    initTaskStartActions();
-    initTaskCancelActions();
-    initTaskDialogTabs();
-    initNewTaskForm();
-    initTaskDetailRefresh();
-    renderMarkdown();
-  } catch (_) {}
-}
-
-window.applyTaskFilters = function() {
-  const status = document.getElementById('task-status-filter');
-  const type = document.getElementById('task-type-filter');
-  const params = new URLSearchParams();
-  if (status && status.value) params.set('status', status.value);
-  if (type && type.value) params.set('type', type.value);
-  const qs = params.toString();
-  window.location.href = '/tasks' + (qs ? '?' + qs : '');
-};
-
-function initTaskListControls() {
-  document.querySelectorAll('[data-task-filter]').forEach(select => {
-    if (select.dataset.taskFilterInit) return;
-    select.dataset.taskFilterInit = '1';
-    select.addEventListener('change', window.applyTaskFilters);
-  });
-
-  document.querySelectorAll('[data-task-dialog-open]').forEach(button => {
-    if (button.dataset.taskDialogOpenInit) return;
-    button.dataset.taskDialogOpenInit = '1';
-    button.addEventListener('click', function() {
-      const dialog = document.getElementById('new-task-dialog');
-      if (dialog) dialog.showModal();
-    });
-  });
-
-  document.querySelectorAll('[data-task-dialog-close]').forEach(button => {
-    if (button.dataset.taskDialogCloseInit) return;
-    button.dataset.taskDialogCloseInit = '1';
-    button.addEventListener('click', function() {
-      const dialog = button.closest('dialog');
-      if (dialog) dialog.close();
-    });
-  });
-}
-
-// === TASK DETAIL: REVIEW ACTIONS ===
-
-function initTaskReviewActions() {
-  const reviewBar = document.querySelector('.task-review-bar');
-  if (!reviewBar || reviewBar.dataset.reviewInit) return;
-  reviewBar.dataset.reviewInit = '1';
-
-  const page = document.querySelector('.task-detail-page');
-  const taskId = page ? page.getAttribute('data-task-id') : null;
-  if (!taskId) return;
-
-  const token = new URLSearchParams(window.location.search).get('token');
-  const qs = token ? '?token=' + encodeURIComponent(token) : '';
-
-  reviewBar.addEventListener('click', async function(e) {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    const action = btn.getAttribute('data-action');
-
-    if (action === 'push_back') {
-      const commentArea = reviewBar.querySelector('.pushback-comment');
-      if (commentArea && commentArea.style.display === 'none') {
-        commentArea.style.display = '';
-        return;
-      }
-    }
-
-    if (action === 'push_back') {
-      // handled by submit button
-      return;
-    }
-
-    try {
-      const resp = await fetch('/api/tasks/' + taskId + '/review' + qs, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: action }),
-      });
-      if (resp.ok) {
-        window.location.href = '/tasks' + qs;
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        showToast('error', data.error?.message || 'Review action failed');
-      }
-    } catch (_) {
-      showToast('error', 'Failed to reach server');
-    }
-  });
-
-  // Push-back submit
-  const submitBtn = reviewBar.querySelector('.btn-pushback-submit');
-  if (submitBtn) {
-    submitBtn.addEventListener('click', async function() {
-      const textarea = document.getElementById('pushback-comment');
-      const comment = textarea ? textarea.value.trim() : '';
-      if (!comment) {
-        showToast('error', 'Comment is required for push back');
-        return;
-      }
-      try {
-        const resp = await fetch('/api/tasks/' + taskId + '/review' + qs, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'push_back', comment: comment }),
-        });
-        if (resp.ok) {
-          window.location.href = '/tasks' + qs;
-        } else {
-          const data = await resp.json().catch(() => ({}));
-          showToast('error', data.error?.message || 'Push back failed');
-        }
-      } catch (_) {
-        showToast('error', 'Failed to reach server');
-      }
-    });
-  }
-}
-
-function initTaskStartActions() {
-  const page = document.querySelector('.task-detail-page');
-  if (!page) return;
-
-  const startBtn = page.querySelector('[data-task-start]');
-  if (!startBtn || startBtn.dataset.taskStartInit) return;
-  startBtn.dataset.taskStartInit = '1';
-
-  const taskId = page.getAttribute('data-task-id');
-  if (!taskId) return;
-
-  const token = new URLSearchParams(window.location.search).get('token');
-  const qs = token ? '?token=' + encodeURIComponent(token) : '';
-
-  startBtn.addEventListener('click', async function() {
-    startBtn.disabled = true;
-    try {
-      const resp = await fetch('/api/tasks/' + taskId + '/start' + qs, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (resp.ok) {
-        window.location.reload();
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        showToast('error', data.error?.message || 'Failed to start task');
-        startBtn.disabled = false;
-      }
-    } catch (_) {
-      showToast('error', 'Failed to reach server');
-      startBtn.disabled = false;
-    }
-  });
-}
-
-function initTaskCancelActions() {
-  const page = document.querySelector('.task-detail-page');
-  if (!page) return;
-
-  const cancelBtn = page.querySelector('[data-task-cancel]');
-  if (!cancelBtn || cancelBtn.dataset.taskCancelInit) return;
-  cancelBtn.dataset.taskCancelInit = '1';
-
-  const taskId = page.getAttribute('data-task-id');
-  if (!taskId) return;
-
-  const token = new URLSearchParams(window.location.search).get('token');
-  const qs = token ? '?token=' + encodeURIComponent(token) : '';
-
-  cancelBtn.addEventListener('click', async function() {
-    cancelBtn.disabled = true;
-    try {
-      const resp = await fetch('/api/tasks/' + taskId + '/cancel' + qs, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (resp.ok) {
-        window.location.href = '/tasks' + qs;
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        showToast('error', data.error?.message || 'Failed to cancel task');
-        cancelBtn.disabled = false;
-      }
-    } catch (_) {
-      showToast('error', 'Failed to reach server');
-      cancelBtn.disabled = false;
-    }
-  });
-}
-
-// === NEW TASK FORM ===
-
-// === WORKFLOW PICKER ===
-
-let cachedWorkflowDefs = null;
-let selectedWorkflow = null;
-
-function initTaskDialogTabs() {
-  const tabBtns = document.querySelectorAll('[data-task-tab]');
-  const tabPanels = document.querySelectorAll('[data-task-panel]');
-  const submitBtn = document.getElementById('task-dialog-submit');
-  const dialog = document.getElementById('new-task-dialog');
-
-  let workflowsFetched = false;
-
-  tabBtns.forEach(btn => {
-    if (btn.dataset.taskTabInit) return;
-    btn.dataset.taskTabInit = '1';
-    btn.addEventListener('click', () => {
-      const target = btn.dataset.taskTab;
-      tabBtns.forEach(b => b.classList.toggle('active', b.dataset.taskTab === target));
-      tabPanels.forEach(p => p.classList.toggle('active', p.dataset.taskPanel === target));
-      if (submitBtn) {
-        submitBtn.textContent = target === 'workflow' ? 'Run Workflow' : 'Create Task';
-      }
-      if (target === 'workflow' && !workflowsFetched) {
-        workflowsFetched = true;
-        fetchWorkflowDefinitions();
-      }
-      const errorEl = document.getElementById('new-task-error');
-      if (errorEl) errorEl.textContent = '';
-    });
-  });
-
-  // Reset state when dialog closes.
-  if (dialog && !dialog.dataset.workflowCloseInit) {
-    dialog.dataset.workflowCloseInit = '1';
-    dialog.addEventListener('close', function() {
-      selectedWorkflow = null;
-      cachedWorkflowDefs = null;
-      workflowsFetched = false;
-
-      // Reset to Single Task tab.
-      tabBtns.forEach(b => b.classList.toggle('active', b.dataset.taskTab === 'single'));
-      tabPanels.forEach(p => p.classList.toggle('active', p.dataset.taskPanel === 'single'));
-
-      if (submitBtn) submitBtn.textContent = 'Create Task';
-
-      const listCards = document.querySelector('.workflow-list-cards');
-      if (listCards) listCards.innerHTML = '';
-      const formEl = document.getElementById('workflow-form');
-      if (formEl) formEl.style.display = 'none';
-      const loadingEl = document.querySelector('.workflow-list-loading');
-      if (loadingEl) loadingEl.style.display = 'none';
-      const emptyEl = document.querySelector('.workflow-list-empty');
-      if (emptyEl) emptyEl.style.display = 'none';
-      const errorEl = document.getElementById('new-task-error');
-      if (errorEl) errorEl.textContent = '';
-
-      const formEl2 = document.getElementById('new-task-form');
-      if (formEl2) formEl2.reset();
-    });
-  }
-}
-
-function fetchWorkflowDefinitions() {
-  const listCards = document.querySelector('.workflow-list-cards');
-  const loadingEl = document.querySelector('.workflow-list-loading');
-  const emptyEl = document.querySelector('.workflow-list-empty');
-  if (!listCards) return;
-
-  const token = new URLSearchParams(window.location.search).get('token');
-  const qs = token ? '?token=' + encodeURIComponent(token) : '';
-
-  if (loadingEl) loadingEl.style.display = '';
-  if (emptyEl) emptyEl.style.display = 'none';
-  listCards.innerHTML = '';
-
-  fetch('/api/workflows/definitions' + qs)
-    .then(resp => {
-      if (!resp.ok) throw new Error('Failed to load workflows');
-      return resp.json();
+  ensurePageScriptsForPath(window.location.pathname)
+    .catch((error) => {
+      showToast('error', error.message || 'Failed to load page scripts');
     })
-    .then(definitions => {
-      cachedWorkflowDefs = definitions;
-      if (loadingEl) loadingEl.style.display = 'none';
-      if (!definitions.length) {
-        if (emptyEl) emptyEl.style.display = '';
-        return;
-      }
-      listCards.innerHTML = definitions.map(renderWorkflowCard).join('');
-      listCards.querySelectorAll('.workflow-card').forEach(card => {
-        card.addEventListener('click', () => selectWorkflow(card.dataset.workflowName));
-      });
-    })
-    .catch(err => {
-      if (loadingEl) loadingEl.style.display = 'none';
-      listCards.innerHTML =
-        '<p class="empty-state-text">Failed to load workflows. ' +
-        escapeHtml(err.message) + '</p>';
+    .finally(() => {
+      runPageHook('onLoad');
+      renderMarkdown();
+      scrollToBottom();
     });
-}
-
-function renderWorkflowCard(def) {
-  const name = escapeHtml(def.name);
-  const desc = escapeHtml(def.description || '');
-  const steps = def.stepCount || 0;
-  const loopBadge = def.hasLoops
-    ? '<span class="workflow-badge workflow-badge-loop">Loop</span>'
-    : '';
-  const varCount = Object.keys(def.variables || {}).length;
-  return (
-    '<div class="card workflow-card" data-workflow-name="' + name + '">' +
-      '<div class="workflow-card-header">' +
-        '<span class="workflow-card-name">' + formatWorkflowName(def.name) + '</span>' +
-        '<span class="workflow-card-steps">' + steps + ' step' + (steps !== 1 ? 's' : '') + '</span>' +
-      '</div>' +
-      '<div class="workflow-card-desc">' + desc + '</div>' +
-      '<div class="workflow-card-meta">' +
-        '<span class="workflow-badge">' + varCount + ' variable' + (varCount !== 1 ? 's' : '') + '</span>' +
-        loopBadge +
-      '</div>' +
-    '</div>'
-  );
-}
-
-function formatWorkflowName(name) {
-  // "spec-and-implement" -> "Spec and Implement"
-  return escapeHtml(
-    name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-  );
-}
-
-function selectWorkflow(name) {
-  const formEl = document.getElementById('workflow-form');
-  const varsEl = document.getElementById('workflow-vars');
-  const projectEl = document.getElementById('workflow-project-select');
-
-  // Toggle: clicking the same workflow deselects it.
-  if (selectedWorkflow === name) {
-    selectedWorkflow = null;
-    if (formEl) formEl.style.display = 'none';
-    document.querySelectorAll('.workflow-card').forEach(c => c.classList.remove('workflow-card-selected'));
-    return;
-  }
-
-  selectedWorkflow = name;
-  const def = (cachedWorkflowDefs || []).find(d => d.name === name);
-  if (!def) return;
-
-  document.querySelectorAll('.workflow-card').forEach(
-    c => c.classList.toggle('workflow-card-selected', c.dataset.workflowName === name)
-  );
-
-  const vars = def.variables || {};
-  const varNames = Object.keys(vars);
-
-  if (varsEl) {
-    if (varNames.length === 0) {
-      varsEl.innerHTML = '<p class="empty-state-text">This workflow has no input variables.</p>';
-    } else {
-      varsEl.innerHTML = varNames.map(varName => {
-        const v = vars[varName] || {};
-        const isRequired = v.required !== false;
-        const label = formatVariableName(varName);
-        const placeholder = escapeHtml(v.description || '');
-        const defaultVal = v.default != null ? escapeHtml(String(v.default)) : '';
-        const requiredAttr = isRequired ? ' required' : '';
-        const requiredMark = isRequired ? ' <span class="form-required">*</span>' : '';
-        const isLongForm = ['FEATURE', 'BUG_DESCRIPTION', 'QUESTION', 'TARGET'].includes(varName);
-        const inputHtml = isLongForm
-          ? '<textarea class="form-input" name="wf-var-' + escapeHtml(varName) +
-            '" rows="3" placeholder="' + placeholder + '"' + requiredAttr + '>' +
-            defaultVal + '</textarea>'
-          : '<input type="text" class="form-input" name="wf-var-' + escapeHtml(varName) +
-            '" value="' + defaultVal + '" placeholder="' + placeholder + '"' +
-            requiredAttr + '>';
-        return (
-          '<div class="form-group">' +
-            '<label class="form-label">' + label + requiredMark + '</label>' +
-            inputHtml +
-          '</div>'
-        );
-      }).join('');
-    }
-  }
-
-  // Show/hide project selector based on PROJECT variable.
-  const hasProjectVar = varNames.some(k => k.toUpperCase() === 'PROJECT');
-  if (projectEl) projectEl.style.display = hasProjectVar ? '' : 'none';
-  if (formEl) formEl.style.display = '';
-}
-
-function formatVariableName(name) {
-  // "FEATURE" -> "Feature", "BUG_DESCRIPTION" -> "Bug Description"
-  return escapeHtml(
-    name.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-  );
-}
-
-async function handleWorkflowSubmit(errorEl) {
-  if (!selectedWorkflow) {
-    if (errorEl) errorEl.textContent = 'Please select a workflow.';
-    return;
-  }
-  const def = (cachedWorkflowDefs || []).find(d => d.name === selectedWorkflow);
-  if (!def) {
-    if (errorEl) errorEl.textContent = 'Selected workflow not found.';
-    return;
-  }
-
-  const variables = {};
-  const varNames = Object.keys(def.variables || {});
-  for (const varName of varNames) {
-    const input = document.querySelector('[name="wf-var-' + varName + '"]');
-    if (!input) continue;
-    const value = input.value.trim();
-    if ((def.variables[varName] || {}).required !== false && !value) {
-      if (errorEl) errorEl.textContent = formatVariableName(varName) + ' is required.';
-      input.focus();
-      return;
-    }
-    if (value) variables[varName] = value;
-  }
-
-  const projectSelect = document.getElementById('workflow-project');
-  const project = projectSelect ? projectSelect.value : '';
-  if (project && def.variables && def.variables['PROJECT'] !== undefined) {
-    variables['PROJECT'] = project;
-  }
-
-  const token = new URLSearchParams(window.location.search).get('token');
-  const qs = token ? '?token=' + encodeURIComponent(token) : '';
-
-  const body = { definition: selectedWorkflow, variables };
-  if (project) body.project = project;
-
-  try {
-    const resp = await fetch('/api/workflows/run' + qs, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (resp.ok || resp.status === 201) {
-      const data = await resp.json();
-      const dialog = document.getElementById('new-task-dialog');
-      if (dialog) dialog.close();
-      if (data.id) {
-        window.location.href = '/workflows/' + data.id + qs;
-      } else {
-        window.location.href = '/tasks' + qs;
-      }
-    } else {
-      const data = await resp.json().catch(() => ({}));
-      if (errorEl) errorEl.textContent = (data.error && data.error.message) || 'Failed to start workflow';
-    }
-  } catch (_) {
-    if (errorEl) errorEl.textContent = 'Failed to reach server';
-  }
-}
-
-function initNewTaskForm() {
-  const form = document.getElementById('new-task-form');
-  if (!form || form.dataset.taskFormInit) return;
-  form.dataset.taskFormInit = '1';
-
-  const token = new URLSearchParams(window.location.search).get('token');
-  const qs = token ? '?token=' + encodeURIComponent(token) : '';
-  const typeSelect = form.querySelector('[name="type"]');
-  const goalSelect = form.querySelector('[name="goalId"]');
-  const hintEl = form.querySelector('[data-task-type-hint]');
-  const descriptionLabel = form.querySelector('[data-task-description-label]');
-  const descriptionInput = form.querySelector('[data-task-description-input]');
-  const criteriaLabel = form.querySelector('[data-task-criteria-label]');
-  const criteriaInput = form.querySelector('[data-task-criteria-input]');
-
-  const typeConfig = {
-    coding: {
-      hint: 'Coding tasks run in isolated git worktrees and produce diffs for review.',
-      descriptionLabel: 'Implementation Brief',
-      descriptionPlaceholder: 'What should change in the codebase?',
-      criteriaLabel: 'Definition of Done',
-      criteriaPlaceholder: 'What files, behaviors, or tests should be complete?',
-    },
-    research: {
-      hint: 'Research tasks produce reviewable written artifacts and can run in the restricted profile.',
-      descriptionLabel: 'Research Brief',
-      descriptionPlaceholder: 'What should the agent investigate or summarize?',
-      criteriaLabel: 'Success Criteria',
-      criteriaPlaceholder: 'What should the final write-up answer or include?',
-    },
-    writing: {
-      hint: 'Writing tasks focus on producing polished documents or copy for review.',
-      descriptionLabel: 'Writing Brief',
-      descriptionPlaceholder: 'What should the agent write or rewrite?',
-      criteriaLabel: 'Editorial Criteria',
-      criteriaPlaceholder: 'Tone, audience, structure, and completion criteria',
-    },
-    analysis: {
-      hint: 'Analysis tasks are best for diagnostics, comparisons, and structured conclusions.',
-      descriptionLabel: 'Analysis Brief',
-      descriptionPlaceholder: 'What should the agent analyze?',
-      criteriaLabel: 'Expected Output',
-      criteriaPlaceholder: 'What conclusion, report, or artifact should come back?',
-    },
-    automation: {
-      hint: 'Automation tasks are useful for repeatable operational runs that still end in review.',
-      descriptionLabel: 'Automation Brief',
-      descriptionPlaceholder: 'What repeatable operation should the agent run?',
-      criteriaLabel: 'Completion Check',
-      criteriaPlaceholder: 'What makes the run successful and ready for review?',
-    },
-    custom: {
-      hint: 'Custom tasks use the generic task pipeline when none of the standard types fit cleanly.',
-      descriptionLabel: 'Task Brief',
-      descriptionPlaceholder: 'Describe the task clearly and concretely.',
-      criteriaLabel: 'Acceptance Criteria',
-      criteriaPlaceholder: 'How will you know when it is done?',
-    },
-  };
-
-  function applyTaskTypeFormBehavior() {
-    const config = typeConfig[(typeSelect && typeSelect.value) || 'custom'] || typeConfig.custom;
-    if (hintEl) hintEl.textContent = config.hint;
-    if (descriptionLabel) descriptionLabel.textContent = config.descriptionLabel;
-    if (descriptionInput) descriptionInput.placeholder = config.descriptionPlaceholder;
-    if (criteriaLabel) criteriaLabel.textContent = config.criteriaLabel;
-    if (criteriaInput) criteriaInput.placeholder = config.criteriaPlaceholder;
-  }
-
-  if (typeSelect && !typeSelect.dataset.taskTypeInit) {
-    typeSelect.dataset.taskTypeInit = '1';
-    typeSelect.addEventListener('change', applyTaskTypeFormBehavior);
-  }
-  applyTaskTypeFormBehavior();
-
-  form.addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const errorEl = document.getElementById('new-task-error');
-
-    const activePanel = document.querySelector('[data-task-panel].active');
-    const isWorkflow = activePanel && activePanel.dataset.taskPanel === 'workflow';
-    if (isWorkflow) {
-      await handleWorkflowSubmit(errorEl);
-      return;
-    }
-
-    const title = form.querySelector('[name="title"]').value.trim();
-    const description = form.querySelector('[name="description"]').value.trim();
-    const type = form.querySelector('[name="type"]').value;
-    const goalId = goalSelect ? goalSelect.value.trim() : '';
-    const acceptanceCriteria = form.querySelector('[name="acceptanceCriteria"]').value.trim();
-    const model = form.querySelector('[name="model"]').value.trim();
-    const tokenBudget = form.querySelector('[name="tokenBudget"]').value.trim();
-    const allowedToolsChecked = Array.from(form.querySelectorAll('[name="allowedTools"]:checked')).map(cb => cb.value);
-    const reviewMode = (form.querySelector('[name="reviewMode"]') || {}).value || '';
-    const autoStart = form.querySelector('[name="autoStart"]').checked;
-
-    if (!title || !description || !type) {
-      if (errorEl) errorEl.textContent = 'Title, description, and type are required.';
-      return;
-    }
-
-    const projectSelect = form.querySelector('[name="projectId"]');
-    const projectId = projectSelect ? projectSelect.value.trim() : '';
-
-    const body = { title, description, type, autoStart };
-    if (goalId) body.goalId = goalId;
-    if (projectId) body.projectId = projectId;
-    if (acceptanceCriteria) body.acceptanceCriteria = acceptanceCriteria;
-    if (model) body.configJson = { model };
-    if (tokenBudget) body.configJson = { ...(body.configJson || {}), tokenBudget: parseInt(tokenBudget, 10) };
-    if (allowedToolsChecked.length > 0) body.configJson = { ...(body.configJson || {}), allowedTools: allowedToolsChecked };
-    if (reviewMode) body.configJson = { ...(body.configJson || {}), reviewMode };
-
-    try {
-      const resp = await fetch('/api/tasks' + qs, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (resp.ok || resp.status === 201) {
-        const data = await resp.json();
-        const dialog = document.getElementById('new-task-dialog');
-        if (dialog) dialog.close();
-        window.location.href = '/tasks/' + data.id + qs;
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        if (errorEl) errorEl.textContent = data.error?.message || 'Failed to create task';
-      }
-    } catch (_) {
-      if (errorEl) errorEl.textContent = 'Failed to reach server';
-    }
-  });
-}
-
-// === PROJECT MANAGEMENT ===
-
-function updateProjectStatusBadge(projectId, newStatus) {
-  const card = document.querySelector('[data-project-id="' + projectId + '"]');
-  if (!card) return;
-
-  const badge = card.querySelector('.status-badge');
-  if (badge) {
-    const classMap = {
-      ready: 'status-badge-success',
-      cloning: 'status-badge-info',
-      error: 'status-badge-error',
-      stale: 'status-badge-warning',
-    };
-    badge.className = 'status-badge ' + (classMap[newStatus] || '');
-    badge.textContent = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
-  }
-
-  const errorBanner = card.querySelector('.project-error-banner');
-  if (newStatus === 'ready' && errorBanner) {
-    errorBanner.style.display = 'none';
-  } else if (newStatus !== 'ready' && newStatus !== 'cloning' && errorBanner) {
-    errorBanner.style.display = '';
-  }
-}
-
-function updateProjectSelectorOption(projectId, newStatus) {
-  const select = document.getElementById('task-project-select');
-  if (!select) return;
-  const option = select.querySelector('option[value="' + projectId + '"]');
-  if (!option) return;
-
-  const isReady = newStatus === 'ready';
-  option.disabled = !isReady;
-
-  const baseName = option.textContent.replace(/ [\u2713\u26a0]$/, '').replace(/ \(cloning\)$/, '').replace(/ \(error\)$/, '').trim();
-  const indicator = newStatus === 'ready' ? ' \u2713' : newStatus === 'cloning' ? ' (cloning)' : newStatus === 'error' ? ' (error)' : newStatus === 'stale' ? ' \u26a0' : '';
-  option.textContent = baseName + indicator;
-}
-
-function initProjectHandlers() {
-  // Open "Add Project" dialog.
-  document.addEventListener('click', function(e) {
-    if (e.target.closest('[data-project-dialog-open]')) {
-      const dialog = document.getElementById('add-project-dialog');
-      if (dialog) {
-        dialog.querySelector('form')?.reset();
-        const errorEl = dialog.querySelector('#add-project-error');
-        if (errorEl) errorEl.textContent = '';
-        dialog.showModal();
-      }
-    }
-  });
-
-  // Close project dialog.
-  document.addEventListener('click', function(e) {
-    if (e.target.closest('[data-project-dialog-close]')) {
-      const dialog = document.getElementById('add-project-dialog');
-      if (dialog) dialog.close();
-    }
-  });
-
-  // "Add Project" form submit.
-  document.addEventListener('submit', async function(e) {
-    if (e.target.id !== 'add-project-form') return;
-    e.preventDefault();
-    const form = e.target;
-    const errorEl = document.getElementById('add-project-error');
-
-    const remoteUrl = form.querySelector('[name="remoteUrl"]')?.value.trim() || '';
-    const name = form.querySelector('[name="name"]')?.value.trim() || '';
-    const defaultBranch = form.querySelector('[name="defaultBranch"]')?.value.trim() || 'main';
-    const credentialsRef = form.querySelector('[name="credentialsRef"]')?.value.trim() || '';
-    const prStrategy = form.querySelector('[name="prStrategy"]')?.value || 'branchOnly';
-    const draft = form.querySelector('[name="draft"]')?.checked ?? true;
-    const labelsRaw = form.querySelector('[name="labels"]')?.value.trim() || '';
-    const labels = labelsRaw ? labelsRaw.split(',').map(l => l.trim()).filter(Boolean) : [];
-
-    if (!remoteUrl || !name) {
-      if (errorEl) errorEl.textContent = 'Remote URL and Name are required.';
-      return;
-    }
-
-    const body = { remoteUrl, name, defaultBranch, pr: { strategy: prStrategy, draft, labels } };
-    if (credentialsRef) body.credentialsRef = credentialsRef;
-
-    try {
-      const resp = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (resp.ok || resp.status === 201) {
-        const dialog = document.getElementById('add-project-dialog');
-        if (dialog) dialog.close();
-        window.location.reload();
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        if (errorEl) errorEl.textContent = data.error?.message || 'Failed to add project';
-      }
-    } catch (_) {
-      if (errorEl) errorEl.textContent = 'Failed to reach server';
-    }
-  });
-
-  // "Fetch" button handler.
-  document.addEventListener('click', async function(e) {
-    const btn = e.target.closest('[data-project-fetch]');
-    if (!btn) return;
-    const projectId = btn.dataset.projectFetch;
-    btn.disabled = true;
-    const origText = btn.textContent;
-    btn.textContent = 'Fetching…';
-    try {
-      const resp = await fetch('/api/projects/' + projectId + '/fetch', { method: 'POST' });
-      if (resp.ok) {
-        window.location.reload();
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        showToast('error', data.error?.message || 'Fetch failed');
-      }
-    } catch (_) {
-      showToast('error', 'Failed to reach server');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = origText;
-    }
-  });
-
-  // "Remove" button handler.
-  document.addEventListener('click', async function(e) {
-    const btn = e.target.closest('[data-project-remove]');
-    if (!btn) return;
-    const projectId = btn.dataset.projectRemove;
-    const projectName = btn.dataset.projectName || projectId;
-    const confirmed = window.confirm(
-      'Remove project \'' + projectName + '\'? Running tasks will be cancelled.'
-    );
-    if (!confirmed) return;
-    try {
-      const resp = await fetch('/api/projects/' + projectId, { method: 'DELETE' });
-      if (resp.ok || resp.status === 204) {
-        window.location.reload();
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        showToast('error', data.error?.message || 'Failed to remove project');
-      }
-    } catch (_) {
-      showToast('error', 'Failed to reach server');
-    }
-  });
-
-  // "Edit" button handler — pre-fill and re-use the add dialog.
-  document.addEventListener('click', function(e) {
-    const btn = e.target.closest('[data-project-edit]');
-    if (!btn) return;
-    const projectId = btn.dataset.projectEdit;
-    const dialog = document.getElementById('add-project-dialog');
-    if (!dialog) return;
-
-    dialog.querySelector('h2').textContent = 'Edit Project';
-    dialog.querySelector('[type="submit"]').textContent = 'Save Changes';
-    const form = dialog.querySelector('form');
-    form.dataset.editProjectId = projectId;
-    const errorEl = dialog.querySelector('#add-project-error');
-    if (errorEl) errorEl.textContent = '';
-
-    const setVal = (name, value) => {
-      const el = form.querySelector('[name="' + name + '"]');
-      if (el) el.value = value || '';
-    };
-    const setChecked = (name, value) => {
-      const el = form.querySelector('[name="' + name + '"]');
-      if (el) el.checked = value === 'true' || value === true;
-    };
-    setVal('remoteUrl', btn.dataset.projectUrl);
-    setVal('name', btn.dataset.projectName);
-    setVal('defaultBranch', btn.dataset.projectBranch);
-    setVal('credentialsRef', btn.dataset.projectCreds);
-    setVal('prStrategy', btn.dataset.projectStrategy);
-    setChecked('draft', btn.dataset.projectDraft);
-    setVal('labels', btn.dataset.projectLabels);
-
-    dialog.showModal();
-  });
-
-  // Override add-project form submit for edit mode.
-  document.addEventListener('submit', async function(e) {
-    if (e.target.id !== 'add-project-form') return;
-    const form = e.target;
-    const editProjectId = form.dataset.editProjectId;
-    if (!editProjectId) return; // handled by the add handler above
-    e.stopImmediatePropagation();
-    e.preventDefault();
-
-    const errorEl = document.getElementById('add-project-error');
-    const remoteUrl = form.querySelector('[name="remoteUrl"]')?.value.trim() || '';
-    const name = form.querySelector('[name="name"]')?.value.trim() || '';
-    const defaultBranch = form.querySelector('[name="defaultBranch"]')?.value.trim() || 'main';
-    const credentialsRef = form.querySelector('[name="credentialsRef"]')?.value.trim() || '';
-    const prStrategy = form.querySelector('[name="prStrategy"]')?.value || 'branchOnly';
-    const draft = form.querySelector('[name="draft"]')?.checked ?? true;
-    const labelsRaw = form.querySelector('[name="labels"]')?.value.trim() || '';
-    const labels = labelsRaw ? labelsRaw.split(',').map(l => l.trim()).filter(Boolean) : [];
-
-    const body = { name, defaultBranch, pr: { strategy: prStrategy, draft, labels } };
-    if (remoteUrl) body.remoteUrl = remoteUrl;
-    if (credentialsRef) body.credentialsRef = credentialsRef;
-
-    try {
-      const resp = await fetch('/api/projects/' + editProjectId, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (resp.ok) {
-        delete form.dataset.editProjectId;
-        const dialog = document.getElementById('add-project-dialog');
-        if (dialog) {
-          dialog.querySelector('h2').textContent = 'Add Project';
-          dialog.querySelector('[type="submit"]').textContent = 'Add Project';
-          dialog.close();
-        }
-        window.location.reload();
-      } else if (resp.status === 409) {
-        const data = await resp.json().catch(() => ({}));
-        if (errorEl) errorEl.textContent = data.error?.message || 'Cannot edit: active tasks exist on this project';
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        if (errorEl) errorEl.textContent = data.error?.message || 'Failed to update project';
-      }
-    } catch (_) {
-      if (errorEl) errorEl.textContent = 'Failed to reach server';
-    }
-  }, true); // capture=true so this runs before the add handler
-}
-
-// === TIMELINE AUTO-SCROLL ===
-
-function scrollTimelineToBottom(container) {
-  if (container) container.scrollTop = container.scrollHeight;
-}
-
-function applyTimelineAutoScroll() {
-  const container = document.querySelector('[data-auto-scroll="true"]');
-  scrollTimelineToBottom(container);
-}
-
-document.addEventListener('htmx:afterSettle', applyTimelineAutoScroll);
-applyTimelineAutoScroll();
-
-// === WORKFLOW DETAIL SSE ===
-
-let workflowEventSource = null;
-
-function initWorkflowDetailSSE() {
-  const detailPage = document.querySelector('.workflow-detail-page');
-  if (!detailPage) {
-    cleanupWorkflowSSE();
-    return;
-  }
-
-  const runId = detailPage.getAttribute('data-run-id');
-  if (!runId || workflowEventSource) return;
-
-  workflowEventSource = new EventSource(
-    '/api/workflows/runs/' + runId + '/events',
-    { withCredentials: true }
-  );
-
-  workflowEventSource.onmessage = function(event) {
-    try {
-      const data = JSON.parse(event.data);
-      handleWorkflowEvent(data);
-    } catch (_) {}
-  };
-
-  workflowEventSource.onerror = function() {
-    // Reconnect handled automatically by EventSource.
-  };
-}
-
-function cleanupWorkflowSSE() {
-  if (workflowEventSource) {
-    workflowEventSource.close();
-    workflowEventSource = null;
-  }
-}
-
-function handleWorkflowEvent(data) {
-  switch (data.type) {
-    case 'connected':
-      // Initial state already rendered server-side.
-      break;
-    case 'workflow_status_changed':
-      updateWorkflowStatus(data);
-      break;
-    case 'workflow_step_completed':
-      updateStepCompleted(data);
-      updateProgressBar(data);
-      break;
-    case 'task_status_changed':
-      updateStepTaskStatus(data);
-      break;
-    case 'loop_iteration_completed':
-      updateLoopIteration(data);
-      break;
-    case 'parallel_group_completed':
-      updateParallelGroup(data);
-      break;
-  }
-}
-
-function updateWorkflowStatus(data) {
-  const badge = document.querySelector('.workflow-meta-card .status-badge');
-  if (badge) {
-    badge.textContent = _wfTitleCase(data.newStatus);
-    badge.className = 'status-badge status-badge-' + data.newStatus;
-  }
-
-  const errorEl = document.querySelector('.workflow-error-message');
-  if (data.errorMessage && errorEl) {
-    const msgSpan = errorEl.querySelector('span:last-child');
-    if (msgSpan) msgSpan.textContent = data.errorMessage;
-    errorEl.style.display = '';
-  }
-
-  const isRunning = data.newStatus === 'running';
-  const isPaused = data.newStatus === 'paused';
-  const isTerminal = ['completed', 'failed', 'cancelled'].includes(data.newStatus);
-
-  document.querySelectorAll('.workflow-actions button').forEach(btn => {
-    const label = btn.textContent.trim();
-    if (label === 'Pause') btn.style.display = isRunning ? '' : 'none';
-    if (label === 'Resume') btn.style.display = isPaused ? '' : 'none';
-    if (label === 'Cancel') btn.style.display = (isRunning || isPaused) ? '' : 'none';
-  });
-
-  if (isTerminal) cleanupWorkflowSSE();
-}
-
-function updateStepCompleted(data) {
-  const stepCard = document.querySelector(
-    '.workflow-step-card[data-step-index="' + data.stepIndex + '"]'
-  );
-  if (!stepCard) return;
-
-  const status = data.success ? 'completed' : 'failed';
-  const badge = stepCard.querySelector('.status-badge');
-  if (badge) {
-    badge.textContent = _wfTitleCase(status);
-    badge.className = 'status-badge status-badge-' + status;
-  }
-  stepCard.classList.remove('workflow-step-active');
-  stepCard.setAttribute('data-step-status', status);
-
-  const nextStep = document.querySelector(
-    '.workflow-step-card[data-step-index="' + (data.stepIndex + 1) + '"]'
-  );
-  if (nextStep && nextStep.getAttribute('data-step-status') === 'pending') {
-    nextStep.classList.add('workflow-step-active');
-    const nextBadge = nextStep.querySelector('.status-badge');
-    if (nextBadge) {
-      nextBadge.textContent = 'Running';
-      nextBadge.className = 'status-badge status-badge-running';
-    }
-    nextStep.setAttribute('data-step-status', 'running');
-    nextStep.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-}
-
-function updateStepTaskStatus(data) {
-  if (data.stepIndex == null) return;
-  const stepCard = document.querySelector(
-    '.workflow-step-card[data-step-index="' + data.stepIndex + '"]'
-  );
-  if (!stepCard) return;
-
-  const displayStatus = _mapTaskStatusToStepStatus(data.newStatus);
-  const badge = stepCard.querySelector('.status-badge');
-  if (badge) {
-    badge.textContent = _wfTitleCase(displayStatus);
-    badge.className = 'status-badge status-badge-' + displayStatus;
-  }
-  if (data.newStatus === 'running') {
-    stepCard.classList.add('workflow-step-active');
-  } else {
-    stepCard.classList.remove('workflow-step-active');
-  }
-  stepCard.setAttribute('data-step-status', displayStatus);
-}
-
-function updateLoopIteration(data) {
-  document.querySelectorAll('.workflow-loop-badge').forEach(badge => {
-    const stepCard = badge.closest('.workflow-step-card');
-    if (stepCard && badge.getAttribute('data-loop-id') === data.loopId) {
-      badge.textContent = 'Iteration ' + data.iteration + '/' + data.maxIterations;
-    }
-  });
-}
-
-function updateParallelGroup(data) {
-  (data.stepIds || []).forEach(stepId => {
-    const stepCard = document.querySelector(
-      '.workflow-step-card[data-step-id="' + stepId + '"]'
-    );
-    if (stepCard) {
-      const badge = stepCard.querySelector('.status-badge');
-      if (badge) {
-        badge.textContent = 'Completed';
-        badge.className = 'status-badge status-badge-completed';
-      }
-      stepCard.classList.remove('workflow-step-active');
-      stepCard.setAttribute('data-step-status', 'completed');
-    }
-  });
-}
-
-function updateProgressBar(data) {
-  const fill = document.querySelector('.workflow-progress-fill');
-  const label = document.querySelector('.workflow-progress-label');
-  if (!fill || !data.totalSteps) return;
-
-  const completed = document.querySelectorAll(
-    '.workflow-step-card[data-step-status="completed"]'
-  ).length;
-  const percent = Math.round((completed / data.totalSteps) * 100);
-  fill.style.width = percent + '%';
-  if (label) {
-    label.innerHTML = '<span>' + completed + '</span> / <span>' + data.totalSteps + '</span> steps';
-  }
-}
-
-function _mapTaskStatusToStepStatus(taskStatus) {
-  switch (taskStatus) {
-    case 'draft':
-    case 'queued': return 'queued';
-    case 'running': return 'running';
-    case 'review': return 'review';
-    case 'accepted':
-    case 'completed': return 'completed';
-    case 'failed': return 'failed';
-    case 'cancelled': return 'cancelled';
-    case 'rejected': return 'failed';
-    default: return 'pending';
-  }
-}
-
-function _wfTitleCase(s) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
-}
-
-// Step panel expand/collapse.
-document.addEventListener('click', function(e) {
-  const toggle = e.target.closest('[data-step-toggle]');
-  if (!toggle) return;
-  const stepCard = toggle.closest('.workflow-step-card');
-  if (!stepCard) return;
-  const detail = stepCard.querySelector('.workflow-step-detail');
-  if (!detail) return;
-  const isHidden = detail.style.display === 'none';
-  detail.style.display = isHidden ? '' : 'none';
-  const icon = toggle.querySelector('.workflow-step-expand-icon');
-  if (icon) {
-    icon.classList.toggle('icon-chevron-up', isHidden);
-    icon.classList.toggle('icon-chevron-down', !isHidden);
-  }
 });
 
-// Context viewer expand/collapse.
-document.addEventListener('click', function(e) {
-  const toggle = e.target.closest('[data-context-toggle]');
-  if (!toggle) return;
-  const viewer = toggle.closest('.workflow-context-viewer');
-  if (!viewer) return;
-  const body = viewer.querySelector('.workflow-context-body');
-  if (!body) return;
-  const isHidden = body.style.display === 'none';
-  body.style.display = isHidden ? '' : 'none';
-  const icon = toggle.querySelector('.icon');
-  if (icon) {
-    icon.classList.toggle('icon-chevron-up', isHidden);
-    icon.classList.toggle('icon-chevron-down', !isHidden);
-  }
+document.body.addEventListener('htmx:beforeSwap', (event) => {
+  runPageHook('onBeforeSwap', event);
 });
-
-document.addEventListener('htmx:afterSettle', initWorkflowDetailSSE);
-document.addEventListener('htmx:beforeSwap', cleanupWorkflowSSE);

@@ -77,13 +77,17 @@ export 'src/harness/claude_code_harness.dart' show ClaudeCodeHarness;
 export 'src/harness/claude_protocol_adapter.dart' show ClaudeProtocolAdapter;
 export 'src/harness/codex_config_generator.dart' show CodexConfigGenerator;
 export 'src/harness/codex_environment.dart' show CodexEnvironment;
-export 'src/harness/codex_exec_harness.dart' show CodexExecHarness;
 export 'src/harness/codex_harness.dart' show CodexHarness;
-export 'src/harness/codex_exec_protocol_adapter.dart' show CodexExecProtocolAdapter;
 export 'src/harness/codex_protocol_adapter.dart' show CodexProtocolAdapter;
 export 'src/harness/codex_settings.dart' show CodexSettings;
 export 'src/harness/harness_config.dart' show HarnessConfig;
 export 'src/harness/harness_factory.dart' show HarnessFactory, HarnessFactoryConfig;
+export 'src/harness/merge_resolve_env_vars.dart'
+    show
+        mergeResolveIntegrationBranchEnvVar,
+        mergeResolveStoryBranchEnvVar,
+        mergeResolveTokenCeilingEnvVar,
+        mergeResolveEnvVarNames;
 export 'src/harness/mcp_tool.dart' show McpTool;
 export 'src/harness/claude_protocol.dart' show claudeHardeningEnvVars;
 export 'src/harness/process_types.dart' show ProcessFactory, CommandProbe, DelayFactory, HealthProbe;
@@ -118,6 +122,13 @@ export 'src/agents/session_delegate.dart' show SessionDelegate;
 export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyGuard;
 export 'src/agents/subagent_limits.dart' show SubagentLimits;
 
+// Execution
+export 'src/execution/agent_execution.dart' show AgentExecution;
+export 'src/execution/agent_execution_repository.dart' show AgentExecutionRepository;
+export 'src/execution/execution_repository_transactor.dart' show ExecutionRepositoryTransactor;
+export 'src/execution/workflow_step_execution.dart' show WorkflowStepExecution;
+export 'src/execution/workflow_step_execution_repository.dart' show WorkflowStepExecutionRepository;
+
 // Tasks
 export 'src/task/goal.dart' show Goal;
 export 'src/task/goal_repository.dart' show GoalRepository;
@@ -126,6 +137,9 @@ export 'src/task/task_artifact.dart' show ArtifactKind, TaskArtifact;
 export 'src/task/task_repository.dart' show TaskRepository;
 export 'src/task/task_status.dart' show TaskStatus;
 export 'src/task/workflow_task_service.dart' show WorkflowTaskService;
+
+// Concurrency
+export 'src/concurrency/repo_lock.dart' show RepoLock;
 
 // Search (abstract interface — sqlite3-free)
 export 'src/search/search_backend.dart' show SearchBackend;
@@ -147,6 +161,8 @@ export 'src/events/dartclaw_event.dart'
         SessionCreatedEvent,
         SessionEndedEvent,
         SessionErrorEvent,
+        AgentExecutionEvent,
+        AgentExecutionStatusChangedEvent,
         TaskLifecycleEvent,
         TaskStatusChangedEvent,
         TaskReviewReadyEvent,
@@ -167,11 +183,14 @@ export 'src/events/dartclaw_event.dart'
         LoopIterationCompletedEvent,
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
+        WorkflowSerializationEnactedEvent,
+        StepSkippedEvent,
         ParallelGroupCompletedEvent,
         WorkflowApprovalRequestedEvent,
         WorkflowApprovalResolvedEvent,
         WorkflowBudgetWarningEvent,
         WorkflowLifecycleEvent,
+        WorkflowCliTurnProgressEvent,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent,
         CompactionLifecycleEvent,
@@ -187,3 +206,6 @@ export 'src/worker/worker_state.dart' show WorkerState;
 
 // Behavior
 export 'src/behavior/prompt_scope.dart' show PromptScope;
+
+// Paths
+export 'src/paths/path_canonicalization.dart' show canonicalizePathWithExistingAncestors;

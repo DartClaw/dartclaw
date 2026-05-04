@@ -349,7 +349,7 @@ void main() {
         extraParams: {
           'tool_input': {
             'command': 'printenv',
-            'env': {'OPENAI_API_KEY': 'sk-test-key', 'SAFE': '1'},
+            'env': {'OPENAI_API_KEY': 'sk-test-key', 'CODEX_API_KEY': 'sk-test-key', 'SAFE': '1'},
           },
         },
       );
@@ -400,7 +400,7 @@ void main() {
         extraParams: {
           'tool_input': {
             'command': 'printenv',
-            'env': {'OPENAI_API_KEY': 'sk-test-key', 'SAFE': '1'},
+            'env': {'OPENAI_API_KEY': 'sk-test-key', 'CODEX_API_KEY': 'sk-test-key', 'SAFE': '1'},
           },
         },
       );
@@ -413,12 +413,13 @@ void main() {
           (record) =>
               record.loggerName == 'CodexHarness' &&
               record.level == Level.INFO &&
-              record.message.contains('Stripped OPENAI_API_KEY from Codex approval input env'),
+              record.message.contains('Stripped Codex API key environment variables from approval input env'),
         ),
         isTrue,
       );
       final allowResponse = fakeAllow.sentMessages.singleWhere((message) => message['id'] == 'allow-strip');
       expect(jsonEncode(allowResponse).contains('OPENAI_API_KEY'), isFalse);
+      expect(jsonEncode(allowResponse).contains('CODEX_API_KEY'), isFalse);
     });
   });
 }

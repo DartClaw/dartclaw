@@ -5,6 +5,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         StatusChanged,
         ToolCalled,
         ArtifactCreated,
+        StructuredOutputInlineUsed,
+        StructuredOutputFallbackUsed,
         PushBack,
         TokenUpdate,
         TaskErrorEvent,
@@ -115,6 +117,18 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
       if (artifactKind != null) {
         detailBadge = titleCase(artifactKind);
         detailBadgeClass = 'type-badge-$artifactKind';
+      }
+    case StructuredOutputInlineUsed():
+      label = 'Structured output used inline';
+      detail = truncate(details['outputKey']?.toString() ?? '(output)', 60);
+    case StructuredOutputFallbackUsed():
+      label = 'Structured output fallback';
+      final outputKey = details['outputKey']?.toString();
+      final failureReason = details['failureReason']?.toString();
+      if (outputKey != null && failureReason != null) {
+        detail = '$outputKey ($failureReason)';
+      } else if (outputKey != null) {
+        detail = outputKey;
       }
     case PushBack():
       label = 'Push-back';

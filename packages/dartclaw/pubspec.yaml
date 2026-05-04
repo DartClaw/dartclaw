@@ -3,7 +3,7 @@ description: >-
   An experimental, security-conscious AI agent runtime built with Dart.
   Subprocess harness for the Claude CLI binary via JSONL control protocol,
   with guard chain, session management, and multi-channel messaging.
-version: 0.9.0
+version: 0.16.4
 publish_to: none
 repository: https://github.com/DartClaw/dartclaw
 homepage: https://github.com/DartClaw/dartclaw

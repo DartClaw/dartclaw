@@ -22,9 +22,9 @@ export 'src/container_config.dart' show ContainerConfig;
 export 'src/session_key.dart' show SessionKey;
 export 'src/session_scope_config.dart' show SessionScopeConfig, ChannelScopeConfig, DmScope, GroupScope;
 export 'src/task_type.dart' show TaskType;
-export 'src/project.dart' show Project, ProjectStatus, CloneStrategy, PrStrategy, PrConfig;
+export 'src/project.dart' show Project, ProjectAuthStatus, ProjectStatus, CloneStrategy, PrStrategy, PrConfig;
 export 'src/tool_call_record.dart' show ToolCallRecord;
-export 'src/turn_trace.dart' show TurnTrace;
+export 'src/turn_trace.dart' show TurnTrace, computeEffectiveTokens;
 export 'src/turn_trace_summary.dart' show TurnTraceSummary;
 export 'src/task_event.dart'
     show
@@ -33,21 +33,44 @@ export 'src/task_event.dart'
         StatusChanged,
         ToolCalled,
         ArtifactCreated,
+        StructuredOutputInlineUsed,
+        StructuredOutputFallbackUsed,
         PushBack,
         TokenUpdate,
         TaskErrorEvent,
         Compaction;
 export 'src/workflow_definition.dart'
     show
+        ActionNode,
+        ForeachNode,
+        LoopNode,
+        MapNode,
+        ParallelGroupNode,
         WorkflowDefinition,
+        WorkflowNode,
         WorkflowStep,
         WorkflowVariable,
         WorkflowLoop,
+        WorkflowGitPublishStrategy,
+        WorkflowGitCleanupStrategy,
+        WorkflowGitArtifactsStrategy,
+        WorkflowGitExternalArtifactMount,
+        WorkflowGitWorktreeStrategy,
+        WorkflowGitStrategy,
+        MergeResolveEscalation,
+        MergeResolveConfig,
         StepConfigDefault,
-        StepReviewMode,
+        OnFailurePolicy,
         ExtractionType,
         ExtractionConfig,
         OutputFormat,
+        OutputMode,
         OutputConfig;
-export 'src/workflow_run.dart' show WorkflowRun, WorkflowRunStatus;
+export 'src/workflow_run.dart'
+    show
+        WorkflowExecutionCursor,
+        WorkflowExecutionCursorNodeType,
+        WorkflowRun,
+        WorkflowRunStatus,
+        WorkflowWorktreeBinding;
 export 'src/skill_info.dart' show SkillInfo, SkillSource;

@@ -363,6 +363,14 @@ class TurnRunner {
     _taskToolFilterGuard?.allowedTools = allowedTools;
   }
 
+  /// Enables or disables per-task read-only enforcement.
+  ///
+  /// When enabled, the underlying [TaskToolFilterGuard] blocks mutating shell
+  /// commands and file-edit tools for the duration of the task turn.
+  void setTaskReadOnly(bool readOnly) {
+    _taskToolFilterGuard?.readOnly = readOnly;
+  }
+
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
@@ -493,6 +501,10 @@ class TurnRunner {
 
         final systemPrompt = await _buildSystemPrompt(sessionId);
         final turnCtx = _activeTurns[sessionId];
+        _log.info(
+          'Turn start: session=$sessionId, turn=$turnId, '
+          'provider=$providerId${userMessage != null ? ', prompt=$userMessage' : ''}',
+        );
         statusTickTimer = _statusTickInterval > Duration.zero
             ? Timer.periodic(_statusTickInterval, (_) {
                 _progressController.add(StatusTickProgressEvent(snapshot: buildSnapshot()));
@@ -512,6 +524,11 @@ class TurnRunner {
         final accumulated = buffer.toString();
         toolHooks.finalizePendingToolCalls();
         stopwatch.stop();
+        _log.info(
+          'Turn complete: session=$sessionId, turn=$turnId, '
+          'provider=$providerId, ${stopwatch.elapsedMilliseconds}ms, '
+          'tools=${toolHooks.toolCallCount}, text=${accumulated.length} chars',
+        );
         final cacheReadTokens = _worker.supportsCachedTokens ? (result['cache_read_tokens'] as int? ?? 0) : 0;
         final cacheWriteTokens = _worker.supportsCachedTokens ? (result['cache_write_tokens'] as int? ?? 0) : 0;
 
@@ -626,7 +643,11 @@ class TurnRunner {
       } catch (e, st) {
         final wasCancelled = _cancelledTurns.remove(turnId);
         final loopDetection = _loopDetectedTurns.remove(turnId);
-        _log.warning('Turn $turnId ${wasCancelled ? 'cancelled' : 'failed'}', e, st);
+        if (wasCancelled) {
+          _log.info('Turn $turnId cancelled');
+        } else {
+          _log.warning('Turn $turnId failed', e, st);
+        }
         try {
           var partial = buffer.toString();
           if (partial.isNotEmpty && _redactor != null) {
@@ -706,6 +727,7 @@ class TurnRunner {
         'cache_read_tokens': 0,
         'cache_write_tokens': 0,
         'total_tokens': 0,
+        'effective_tokens': 0,
         'estimated_cost_usd': 0.0,
         'turn_count': 0,
       };
@@ -720,12 +742,19 @@ class TurnRunner {
       final String value when value.trim().isNotEmpty => value,
       _ => null,
     };
+    final effectiveDelta = computeEffectiveTokens(
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cacheReadTokens: cacheReadTokens,
+      cacheWriteTokens: cacheWriteTokens,
+    );
 
     costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + inputTokens;
     costData['output_tokens'] = ((costData['output_tokens'] as num?)?.toInt() ?? 0) + outputTokens;
     costData['cache_read_tokens'] = ((costData['cache_read_tokens'] as num?)?.toInt() ?? 0) + cacheReadTokens;
     costData['cache_write_tokens'] = ((costData['cache_write_tokens'] as num?)?.toInt() ?? 0) + cacheWriteTokens;
     costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + inputTokens + outputTokens;
+    costData['effective_tokens'] = ((costData['effective_tokens'] as num?)?.toInt() ?? 0) + effectiveDelta;
     costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as num).toDouble() + costUsd;
     costData['turn_count'] = ((costData['turn_count'] as num?)?.toInt() ?? 0) + 1;
     costData['provider'] = existingProvider ?? provider;

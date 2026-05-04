@@ -16,13 +16,18 @@ String memoryDashboardTemplate({
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
-  final topbar = pageTopbarTemplate(title: 'Memory Dashboard', backHref: '/', backLabel: 'Back to Chat');
+  final topbar = pageTopbarTemplate(title: 'Memory Dashboard');
 
   final context = _buildContext(status, sidebar, topbar, workspacePath);
   if (bannerHtml.isNotEmpty) context['bannerHtml'] = bannerHtml;
 
   final body = templateLoader.trellis.render(templateLoader.source('memory_dashboard'), context);
-  return layoutTemplate(title: 'Memory', body: body, appName: appName);
+  return layoutTemplate(
+    title: 'Memory',
+    body: body,
+    appName: appName,
+    scripts: standardShellScripts(const ['/static/memory.js']),
+  );
 }
 
 /// Renders only the inner content for HTMX polling refresh.

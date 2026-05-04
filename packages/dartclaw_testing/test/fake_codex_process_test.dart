@@ -34,10 +34,7 @@ void main() {
       expect(lines, hasLength(9));
       expect(lines[0]['id'], 10);
       expect(lines[0]['result'], containsPair('session_id', 'sess-1'));
-      expect(
-        (lines[1]['result'] as Map<String, dynamic>)['thread'],
-        containsPair('id', 'thread-1'),
-      );
+      expect((lines[1]['result'] as Map<String, dynamic>)['thread'], containsPair('id', 'thread-1'));
       expect(lines[2]['method'], 'turn/started');
       expect(lines[3]['params'], containsPair('delta', 'hello'));
       expect((lines[4]['params'] as Map<String, dynamic>)['item'], containsPair('command', 'pwd'));

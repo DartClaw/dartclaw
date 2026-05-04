@@ -91,6 +91,12 @@ class CodexHarness extends BaseHarness {
   bool get supportsCachedTokens => true;
 
   @override
+  bool get supportsSessionContinuity => true;
+
+  @override
+  String skillActivationLine(String skill) => '\$$skill';
+
+  @override
   Future<void> start() => startLifecycle(
     busyMessage: 'Cannot start CodexHarness while busy',
     beforeStart: () async {
@@ -100,6 +106,7 @@ class CodexHarness extends BaseHarness {
         developerInstructions: harnessConfig.appendSystemPrompt ?? '',
         mcpServerUrl: harnessConfig.mcpServerUrl,
         mcpGatewayToken: harnessConfig.mcpGatewayToken,
+        useSystemCodexHome: _boolProviderOption('use_system_codex_home', defaultValue: true),
       );
     },
     start: () async {
@@ -183,6 +190,15 @@ class CodexHarness extends BaseHarness {
         resume: resume,
       );
       payload['id'] = _nextJsonRpcId();
+      final promptPreview = stringifyMessageContent(messages.last['content']);
+      final params = payload['params'] as Map<String, dynamic>?;
+      final sandboxPolicy = params?['sandboxPolicy'] as Map<String, dynamic>?;
+      _log.info(
+        'Turn start: session=$sessionId, thread=$threadId, '
+        'model=${model ?? harnessConfig.model}, '
+        'sandbox=${sandboxPolicy?['type'] ?? 'not-set'}, '
+        'prompt=${promptPreview.length > 120 ? '${promptPreview.substring(0, 120)}...' : promptPreview}',
+      );
       stopwatch.start();
       _writeLine(payload);
 
@@ -190,6 +206,7 @@ class CodexHarness extends BaseHarness {
       if (stopwatch.isRunning) {
         stopwatch.stop();
       }
+      _log.info('Turn finished in ${stopwatch.elapsedMilliseconds}ms');
       result['duration_ms'] ??= stopwatch.elapsedMilliseconds;
       if (currentState != WorkerState.stopped && currentState != WorkerState.crashed) {
         crashCount = 0;
@@ -262,19 +279,39 @@ class CodexHarness extends BaseHarness {
 
   Future<void> _spawnProcess() async {
     final spawnEnvironment = <String, String>{...environment, ...?_environment?.environmentOverrides()};
+
+    // Build app-server args with sandbox permissions from provider options.
+    // The per-turn `sandbox` JSON-RPC parameter is ignored in app-server mode;
+    // sandbox must be configured at process startup via `-c sandbox_permissions`.
+    final args = ['app-server'];
+    final sandboxOption = _stringProviderOption('sandbox');
+    if (sandboxOption != null) {
+      final permissions = _sandboxPermissions(sandboxOption);
+      if (permissions != null) {
+        args.addAll(['-c', 'sandbox_permissions=$permissions']);
+        _log.info('Codex sandbox permissions: $permissions (from "$sandboxOption")');
+      }
+    }
+
     final process = await processFactory(
       executable,
-      const [
-        // App-server mode must keep approval prompts active. `--yolo` would
-        // bypass the only guard-chain interception point for Codex tool calls.
-        'app-server',
-      ],
+      args,
       workingDirectory: cwd,
       environment: spawnEnvironment,
       includeParentEnvironment: false,
     );
 
+    _log.info('Codex process spawned (pid: ${process.pid}, cwd: $cwd)');
     attachProcess(process, dropEmptyStdoutLines: true);
+  }
+
+  /// Maps DartClaw sandbox config values to Codex `sandbox_permissions` TOML arrays.
+  static String? _sandboxPermissions(String sandboxValue) {
+    return switch (sandboxValue.trim()) {
+      'danger-full-access' => '["disk-full-read-write-access", "network-full-access"]',
+      'workspace-write' => '["disk-full-read-access", "disk-write-platform-user-caches", "disk-write-cwd"]',
+      _ => null,
+    };
   }
 
   Future<void> _restartAfterCrash() async {
@@ -318,9 +355,20 @@ class CodexHarness extends BaseHarness {
     final id = _nextJsonRpcId();
     _threadStartRequestId = id;
     _threadStartCompleter = Completer<String>();
-    _writeLine(
-      adapter.buildThreadStartRequest(id: id, params: <String, dynamic>{'thread_id': '$sessionId-thread-$id'}),
-    );
+    // Per Codex issues #14068/#15310: thread/start must include sandbox +
+    // approvalPolicy for reliable sandbox override in app-server mode.
+    // Note: thread/start uses kebab-case values (e.g. "danger-full-access"),
+    // unlike turn/start which uses camelCase in a sandboxPolicy object.
+    final threadParams = <String, dynamic>{'thread_id': '$sessionId-thread-$id'};
+    final sandboxOption = _stringProviderOption('sandbox');
+    if (sandboxOption != null) {
+      threadParams['sandbox'] = sandboxOption;
+    }
+    final approvalOption = _stringProviderOption('approval');
+    if (approvalOption != null) {
+      threadParams['approvalPolicy'] = approvalOption;
+    }
+    _writeLine(adapter.buildThreadStartRequest(id: id, params: threadParams));
     final threadId = await _threadStartCompleter!.future;
     _threadIds[sessionId] = threadId;
     return threadId;
@@ -341,12 +389,17 @@ class CodexHarness extends BaseHarness {
         emitEvent(DeltaEvent(text));
 
       case proto.ToolUse(:final name, :final id, :final input):
+        _log.fine('Tool use: $name (id=$id)');
         emitEvent(ToolUseEvent(toolName: name, toolId: id, input: input));
 
       case proto.ToolResult(:final toolId, :final output, :final isError):
+        if (isError) {
+          _log.warning('Tool error (id=$toolId): ${output.length > 200 ? '${output.substring(0, 200)}...' : output}');
+        }
         emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
+        _log.fine('Control request: $subtype (id=$requestId)');
         unawaited(_dispatchControlRequest(requestId, subtype, data, sessionId: _activeSessionId));
 
       case proto.TurnComplete(
@@ -356,6 +409,11 @@ class CodexHarness extends BaseHarness {
         :final cacheReadTokens,
         :final cacheWriteTokens,
       ):
+        _log.info(
+          'Turn complete: reason=$stopReason, '
+          'tokens(in=${inputTokens ?? 0}, out=${outputTokens ?? 0}, '
+          'cacheR=${cacheReadTokens ?? 0}, cacheW=${cacheWriteTokens ?? 0})',
+        );
         final completer = _turnCompleter;
         if (completer != null && !completer.isCompleted) {
           final result = <String, dynamic>{'stop_reason': stopReason ?? 'completed'};
@@ -374,6 +432,7 @@ class CodexHarness extends BaseHarness {
         }
 
       case proto.SystemInit(:final contextWindow):
+        _log.info('System init: contextWindow=$contextWindow');
         if (contextWindow != null) {
           emitEvent(SystemInitEvent(contextWindow: contextWindow));
         }
@@ -384,15 +443,22 @@ class CodexHarness extends BaseHarness {
         break;
 
       case proto.CompactionStarted():
+        _log.info('Compaction started');
         // TurnRunner translates bridge-level compaction signals into the
         // shared DartclawEvents stream for observers and alerts.
         emitEvent(CompactionStartingBridgeEvent());
 
       case proto.CompactionCompleted():
+        _log.info('Compaction completed');
         // TurnRunner translates bridge-level compaction signals into the
         // shared DartclawEvents stream for observers and alerts.
         emitEvent(CompactionCompletedBridgeEvent());
     }
+  }
+
+  @override
+  void handleProcessStderrLine(String line) {
+    _log.warning('stderr: $line');
   }
 
   @override
@@ -601,7 +667,7 @@ class CodexHarness extends BaseHarness {
 
   static Map<String, dynamic> _prepareGuardToolInput(String rawToolName, Map<String, dynamic> providerToolInput) {
     final guardToolInput = Map<String, dynamic>.from(providerToolInput);
-    _stripOpenAiApiKey(guardToolInput);
+    _stripCredentialEnvVars(guardToolInput);
 
     if (rawToolName != 'file_change') {
       return guardToolInput;
@@ -655,14 +721,21 @@ class CodexHarness extends BaseHarness {
     return null;
   }
 
-  static void _stripOpenAiApiKey(Map<String, dynamic> toolInput) {
+  static void _stripCredentialEnvVars(Map<String, dynamic> toolInput) {
     final envMap = mapValue(toolInput['env']);
-    if (envMap == null || !envMap.containsKey('OPENAI_API_KEY')) {
+    if (envMap == null) {
       return;
     }
 
-    toolInput['env'] = Map<String, dynamic>.from(envMap)..remove('OPENAI_API_KEY');
-    _log.info('Stripped OPENAI_API_KEY from Codex approval input env');
+    final sanitized = Map<String, dynamic>.from(envMap)
+      ..remove('OPENAI_API_KEY')
+      ..remove('CODEX_API_KEY');
+    if (sanitized.length == envMap.length) {
+      return;
+    }
+
+    toolInput['env'] = sanitized;
+    _log.info('Stripped Codex API key environment variables from approval input env');
   }
 
   static String? _extractTurnFailedError(String line) {
@@ -691,5 +764,16 @@ class CodexHarness extends BaseHarness {
   String? _stringProviderOption(String key) {
     final value = providerOptions[key];
     return value is String && value.trim().isNotEmpty ? value : null;
+  }
+
+  bool _boolProviderOption(String key, {required bool defaultValue}) {
+    final value = providerOptions[key];
+    if (value is bool) return value;
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      if (normalized == 'true') return true;
+      if (normalized == 'false') return false;
+    }
+    return defaultValue;
   }
 }

@@ -177,27 +177,51 @@ void main() {
         'title': 'Test Page',
         'body': '<p>Hello</p>',
         'appName': 'DartClaw',
+        'scriptsHtml': '<script defer="defer" src="/static/app.js"></script>',
       });
       expect(html, contains('<!DOCTYPE html>'));
       expect(html, contains('Test Page - DartClaw'));
     });
 
     test('includes required CDN scripts', () async {
-      final html = await engine.renderFile('layout', {'title': 'T', 'body': ''});
+      final html = await engine.renderFile('layout', {
+        'title': 'T',
+        'body': '',
+        'scriptsHtml': '<script defer="defer" src="/static/app.js"></script>',
+      });
       expect(html, contains('htmx.org'));
       expect(html, contains('marked'));
       expect(html, contains('purify.min.js'));
     });
 
     test('includes static asset references', () async {
-      final html = await engine.renderFile('layout', {'title': 'T', 'body': ''});
+      final html = await engine.renderFile('layout', {
+        'title': 'T',
+        'body': '',
+        'scriptsHtml': '<script defer="defer" src="/static/app.js"></script>',
+      });
       expect(html, contains('/static/tokens.css'));
       expect(html, contains('/static/components.css'));
       expect(html, contains('/static/app.js'));
+      expect(html, isNot(contains('/static/settings.js')));
+    });
+
+    test('renders explicit page scripts only when requested', () async {
+      final html = await engine.renderFile('layout', {
+        'title': 'T',
+        'body': '',
+        'scriptsHtml':
+            '<script defer="defer" src="/static/app.js"></script>\n<script defer="defer" src="/static/settings.js"></script>',
+      });
+      expect(html, contains('/static/settings.js'));
     });
 
     test('escapes title to prevent XSS', () async {
-      final html = await engine.renderFile('layout', {'title': '<script>xss</script>', 'body': ''});
+      final html = await engine.renderFile('layout', {
+        'title': '<script>xss</script>',
+        'body': '',
+        'scriptsHtml': '<script defer="defer" src="/static/app.js"></script>',
+      });
       expect(html, contains('&lt;script&gt;'));
       expect(html, isNot(contains('<script>xss</script>')));
     });
@@ -833,7 +857,7 @@ void main() {
         context: {'content': 'Hello <world>'},
       );
       expect(html, contains('msg-user'));
-      expect(html, contains('operator'));
+      expect(html, contains('>You<'));
       expect(html, contains('Hello &lt;world&gt;'));
     });
 

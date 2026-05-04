@@ -37,6 +37,10 @@ class StorageWiring {
   late SessionService _sessions;
   late MessageService _messages;
   late Database _searchDb;
+  late TaskRepository _taskRepository;
+  late AgentExecutionRepository _agentExecutionRepository;
+  late WorkflowStepExecutionRepository _workflowStepExecutionRepository;
+  late ExecutionRepositoryTransactor _executionRepositoryTransactor;
   late TaskService _taskService;
   late GoalService _goalService;
   late TurnTraceService _traceService;
@@ -53,6 +57,10 @@ class StorageWiring {
   SessionService get sessions => _sessions;
   MessageService get messages => _messages;
   Database get searchDb => _searchDb;
+  TaskRepository get taskRepository => _taskRepository;
+  AgentExecutionRepository get agentExecutionRepository => _agentExecutionRepository;
+  WorkflowStepExecutionRepository get workflowStepExecutionRepository => _workflowStepExecutionRepository;
+  ExecutionRepositoryTransactor get executionRepositoryTransactor => _executionRepositoryTransactor;
   TaskService get taskService => _taskService;
   GoalService get goalService => _goalService;
   TurnTraceService get traceService => _traceService;
@@ -82,13 +90,22 @@ class StorageWiring {
 
     try {
       final taskDb = _taskDbFactory(config.tasksDbPath);
-      final taskRepository = SqliteTaskRepository(taskDb);
+      _agentExecutionRepository = SqliteAgentExecutionRepository(taskDb, eventBus: _eventBus);
+      _workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskDb);
+      _executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(taskDb);
+      _taskRepository = SqliteTaskRepository(taskDb);
       final goalRepository = SqliteGoalRepository(taskDb);
       _goalService = GoalService(goalRepository);
       _traceService = TurnTraceService(taskDb);
       _taskEventService = TaskEventService(taskDb);
       _taskEventRecorder = TaskEventRecorder(eventService: _taskEventService, eventBus: _eventBus);
-      _taskService = TaskService(taskRepository, eventBus: _eventBus, eventRecorder: _taskEventRecorder);
+      _taskService = TaskService(
+        _taskRepository,
+        agentExecutionRepository: _agentExecutionRepository,
+        executionTransactor: _executionRepositoryTransactor,
+        eventBus: _eventBus,
+        eventRecorder: _taskEventRecorder,
+      );
       _workflowRunRepository = SqliteWorkflowRunRepository(taskDb);
     } catch (e, st) {
       try {

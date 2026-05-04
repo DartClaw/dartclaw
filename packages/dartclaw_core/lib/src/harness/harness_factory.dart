@@ -1,9 +1,9 @@
 import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:logging/logging.dart';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show HistoryConfig;
 import 'agent_harness.dart';
 import 'claude_code_harness.dart';
-import 'codex_exec_harness.dart';
 import 'codex_harness.dart';
 import '../container/container_executor.dart';
 import 'harness_config.dart';
@@ -11,6 +11,13 @@ import 'harness_config.dart';
 /// Configuration bundle used when constructing a harness through [HarnessFactory].
 class HarnessFactoryConfig {
   /// Current working directory for the harness process.
+  ///
+  /// When constructing a harness purely to probe capability flags
+  /// (`supportsSessionContinuity`, `skillActivationLine`, etc.) without
+  /// ever calling `start()`, the factory convention is to pass
+  /// `cwd: '/'` to signal "no real working directory required". See
+  /// [HarnessFactory.probeContinuityProviders] and
+  /// [HarnessFactory.skillActivationLineFor].
   final String cwd;
 
   /// Executable path for the provider binary.
@@ -75,18 +82,30 @@ class HarnessFactoryConfig {
 
 /// Factory for creating [AgentHarness] instances by provider identifier.
 class HarnessFactory {
+  static final _log = Logger('HarnessFactory');
+
   final Map<String, AgentHarness Function(HarnessFactoryConfig config)> _factories = {};
+
+  /// Cached probe instances used by [skillActivationLineFor]. Probes are
+  /// stateless relative to skills — the activation line depends only on
+  /// the harness type, not its construction config — so one instance per
+  /// provider is enough to answer every prompt-build call in the
+  /// long-lived factory.
+  final Map<String, AgentHarness> _activationProbes = {};
 
   /// Creates a factory with built-in provider registrations.
   HarnessFactory() {
     register('claude', _createClaudeHarness);
     register('codex', _createCodexHarness);
-    register('codex-exec', _createCodexExecHarness);
   }
 
   /// Registers a provider-specific harness factory.
+  ///
+  /// Drops any cached probe for the same [providerId] so the next
+  /// activation-line lookup reflects the new registration.
   void register(String providerId, AgentHarness Function(HarnessFactoryConfig config) factory) {
     _factories[providerId] = factory;
+    _activationProbes.remove(providerId);
   }
 
   /// Creates a harness for [providerId] using [config].
@@ -105,6 +124,61 @@ class HarnessFactory {
 
   /// Returns the registered provider identifiers.
   Iterable<String> get registeredProviders => _factories.keys;
+
+  /// Returns which registered providers support session continuity.
+  ///
+  /// Creates lightweight, unstarted harness instances to probe their capability
+  /// flags — no process is spawned. Useful for offline validation (e.g.,
+  /// `workflow validate`) where a live [HarnessPool] is not available.
+  Set<String> probeContinuityProviders() {
+    final result = <String>{};
+    for (final entry in _factories.entries) {
+      final harness = entry.value(const HarnessFactoryConfig(cwd: '/'));
+      if (harness.supportsSessionContinuity) {
+        result.add(entry.key);
+      }
+    }
+    return result;
+  }
+
+  /// Returns the skill-activation line for [providerId] via polymorphic
+  /// dispatch — creates an unstarted lightweight harness instance and
+  /// asks it. Falls back to the [AgentHarness] base-class default when the
+  /// provider is not registered, so callers working with an unknown
+  /// provider still get the portable verbose form.
+  ///
+  /// This is the entry point used by the workflow one-shot CLI path
+  /// (which spawns `codex exec` / `claude --json` directly, without
+  /// holding a live harness instance) and by prompt builders that only
+  /// have a provider name to go on. Keeps the activation-line decision
+  /// owned by each harness — adding a new harness automatically lights
+  /// up correct activation without any central switch to update.
+  String skillActivationLineFor(String? providerId, String skill) {
+    if (providerId == null) {
+      return AgentHarness.defaultSkillActivationLine(skill);
+    }
+    final probe = _activationProbes[providerId];
+    if (probe != null) return probe.skillActivationLine(skill);
+    final factory = _factories[providerId];
+    if (factory == null) {
+      return AgentHarness.defaultSkillActivationLine(skill);
+    }
+    final created = factory(const HarnessFactoryConfig(cwd: '/'));
+    _activationProbes[providerId] = created;
+    return created.skillActivationLine(skill);
+  }
+
+  /// Warns when the factory has no registered providers — indicates that
+  /// a caller constructed us outside the normal wiring path, which
+  /// silently breaks provider lookup and skill-activation dispatch.
+  void warnIfEmpty({String context = ''}) {
+    if (_factories.isEmpty) {
+      _log.warning(
+        'HarnessFactory has no registered providers${context.isEmpty ? '' : ' ($context)'}; '
+        'provider lookups and skill-activation dispatch will all fall back to defaults.',
+      );
+    }
+  }
 }
 
 AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
@@ -112,6 +186,7 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     claudeExecutable: config.executable,
     cwd: config.cwd,
     turnTimeout: config.turnTimeout,
+    providerOptions: config.providerOptions,
     onMemorySave: config.onMemorySave,
     onMemorySearch: config.onMemorySearch,
     onMemoryRead: config.onMemoryRead,
@@ -134,17 +209,5 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     harnessConfig: config.harnessConfig,
     providerOptions: config.providerOptions,
     guardChain: config.guardChain,
-  );
-}
-
-AgentHarness _createCodexExecHarness(HarnessFactoryConfig config) {
-  final sandboxMode = config.providerOptions['sandbox'];
-  return CodexExecHarness(
-    cwd: config.cwd,
-    codexExecutable: config.executable == 'claude' ? 'codex' : config.executable,
-    sandboxMode: sandboxMode is String && sandboxMode.trim().isNotEmpty ? sandboxMode : 'danger-full-access',
-    turnTimeout: config.turnTimeout,
-    harnessConfig: config.harnessConfig,
-    environment: config.environment,
   );
 }

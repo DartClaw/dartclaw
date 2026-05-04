@@ -2,42 +2,28 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_server/dartclaw_server.dart' show skillRoutes;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistryImpl, SkillSource, embeddedSkills;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistryImpl, SkillSource;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-const dartclawSkillNames = <String>{
-  'dartclaw-discover-project',
-  'dartclaw-exec-spec',
-  'dartclaw-plan',
-  'dartclaw-refactor',
-  'dartclaw-remediate-findings',
-  'dartclaw-review-code',
-  'dartclaw-review-doc',
-  'dartclaw-review-gap',
-  'dartclaw-spec',
-  'dartclaw-update-state',
-};
+// DC-native skills shipped in-tree with DartClaw (post-ADR-025 migration).
+// The 8 ported SYNC-VERBATIM skills and dartclaw-update-state were removed;
+// workflows now resolve against runtime-provisioned `dartclaw-*` skills
+// installed by SkillProvisioner (AndThen >= 0.14.3, `--prefix dartclaw-`).
+const dartclawSkillNames = <String>{'dartclaw-discover-project', 'dartclaw-validate-workflow'};
 
 void main() {
   late Directory tmpDir;
   late Directory workspaceDir;
   late Directory dataDir;
-  late Map<String, Map<String, String>> previousEmbeddedSkills;
 
   setUp(() {
     tmpDir = Directory.systemTemp.createTempSync('skill_routes_test_');
     workspaceDir = Directory('${tmpDir.path}/workspace')..createSync();
     dataDir = Directory('${tmpDir.path}/data')..createSync();
-    previousEmbeddedSkills = {
-      for (final entry in embeddedSkills.entries) entry.key: Map<String, String>.from(entry.value),
-    };
   });
 
   tearDown(() {
-    embeddedSkills
-      ..clear()
-      ..addAll({for (final entry in previousEmbeddedSkills.entries) entry.key: Map<String, String>.from(entry.value)});
     tmpDir.deleteSync(recursive: true);
   });
 
@@ -61,7 +47,7 @@ void main() {
 
   group('GET /api/skills', () {
     test('returns discovered skills with metadata', () async {
-      final registry = makeRegistry(skillNames: ['andthen:review-code', 'andthen:implement']);
+      final registry = makeRegistry(skillNames: ['dartclaw-review-code', 'custom-implement']);
       final router = skillRoutes(registry);
 
       final response = await router.call(Request('GET', Uri.parse('http://localhost/api/skills')));
@@ -76,7 +62,7 @@ void main() {
       expect(skills, hasLength(2));
 
       final names = skills.map((s) => s['name'] as String).toSet();
-      expect(names, containsAll(<String>['andthen:review-code', 'andthen:implement']));
+      expect(names, containsAll(<String>['dartclaw-review-code', 'custom-implement']));
 
       // Each skill has required fields.
       for (final skill in skills) {
@@ -111,15 +97,21 @@ void main() {
       expect(body['count'], 3);
     });
 
-    test('returns embedded built-in skills when embedded registry data is present', () async {
-      embeddedSkills
-        ..clear()
-        ..addAll({
-          for (final name in dartclawSkillNames)
-            name: {'SKILL.md': '---\nname: $name\ndescription: $name description\n---\n'},
-        });
+    test('returns filesystem built-in skills when a built-in directory is present', () async {
+      final builtInDir = Directory('${tmpDir.path}/built-ins')..createSync(recursive: true);
+      for (final name in dartclawSkillNames) {
+        final skillDir = Directory('${builtInDir.path}/$name')..createSync(recursive: true);
+        File('${skillDir.path}/SKILL.md').writeAsStringSync('---\nname: $name\ndescription: $name description\n---\n');
+      }
 
       final registry = makeRegistry();
+      registry.discover(
+        workspaceDir: workspaceDir.path,
+        dataDir: dataDir.path,
+        userClaudeSkillsDir: '/nonexistent',
+        userAgentsSkillsDir: '/nonexistent',
+        builtInSkillsDir: builtInDir.path,
+      );
       final router = skillRoutes(registry);
 
       final response = await router.call(Request('GET', Uri.parse('http://localhost/api/skills')));
@@ -127,8 +119,8 @@ void main() {
 
       final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
       final skills = (body['skills'] as List<dynamic>).cast<Map<String, dynamic>>();
-      expect(body['count'], 10);
-      expect(skills, hasLength(10));
+      expect(body['count'], 2);
+      expect(skills, hasLength(2));
       expect(skills.map((skill) => skill['name'] as String).toSet(), containsAll(dartclawSkillNames));
       expect(skills.every((skill) => skill['source'] == SkillSource.dartclaw.name), isTrue);
     });

@@ -53,7 +53,7 @@ void main() {
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
-        () => runner.run(['status', 'nonexistent-run-id']),
+        () => runner.run(['status', '--standalone', 'nonexistent-run-id']),
         throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
       );
     });
@@ -85,7 +85,7 @@ void main() {
           exitFn: _fakeExit,
         );
         final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
-        await runner.run(['status', runId]);
+        await runner.run(['status', '--standalone', runId]);
         return output;
       }
 

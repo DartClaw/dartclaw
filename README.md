@@ -9,7 +9,7 @@ _Agentic powers. No dependency black holes. Secure by design._
 > [!NOTE]
 > Welcome to DartClaw – An **experimental**, security-conscious AI agent runtime built with Dart.
 >
-> _Status_: `v0.16.3` – architecture hygiene, package boundary cleanup, unified workflow package, and fitness-function verification. See [CHANGELOG](CHANGELOG.md).
+> _Status_: `v0.16.4` – connected-by-default CLI workflow execution, operational command groups, workflow trigger surfaces, redesigned `plan-and-implement` built-in, and AndThen-as-runtime-prerequisite skill provisioning. See [CHANGELOG](CHANGELOG.md).
 
 <p align="center">
   <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI — Task Dashboard" width="720">
@@ -20,14 +20,14 @@ _Agentic powers. No dependency black holes. Secure by design._
 ```bash
 git clone <repo-url> && cd dartclaw
 dart pub get
-bash tool/build.sh
+bash dev/tools/build.sh
 export ANTHROPIC_API_KEY="sk-ant-..."
 ./build/dartclaw init
 ./build/dartclaw serve
 # Open http://127.0.0.1:3333
 ```
 
-The recommended runtime entrypoint is the standalone `dartclaw` binary. When you are working from a checkout, build it with `bash tool/build.sh` and run `./build/dartclaw`. Use `dart run dartclaw_cli:dartclaw ...` only for source-based development and `--dev` hot-reload workflows.
+The recommended runtime entrypoint is the standalone `dartclaw` binary. When you are working from a checkout, build it with `bash dev/tools/build.sh` and run `./build/dartclaw`. Use `dart run dartclaw_cli:dartclaw ...` only for source-based development and `--dev` hot-reload workflows.
 
 ## What is DartClaw?
 
@@ -92,7 +92,8 @@ packages/
   dartclaw_signal/              Signal channel (signal-cli sidecar)
   dartclaw_google_chat/         Google Chat channel (Workspace Events + Pub/Sub)
   dartclaw_testing/             Shared test fakes and utilities
-docs/                           User guide, SDK guide, specs, ADRs
+docs/                           User guide and SDK guide
+dev/                            Contributor / agent docs, dev tools, testing profiles
 ```
 
 Dart pub workspace — all packages share dependencies and resolve locally.
@@ -141,9 +142,8 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 
 ### Architecture & Specs
 - **[Architecture](docs/guide/architecture.md)** -- 2-layer model, multi-provider, design decisions
-- **[Architecture Governance](docs/development/architecture-governance.md)** -- contributor-facing executable boundary checks via `tool/arch_check.dart`
+- **[Architecture Governance](dev/architecture-governance.md)** -- contributor-facing executable boundary checks via `dev/tools/arch_check.dart`
 - **[Web UI & API](docs/guide/web-ui-and-api.md)** -- interface features, REST endpoints, provider status API
-- **[ADRs](docs/adrs/)** -- architecture decision records
 
 ## Security Model
 

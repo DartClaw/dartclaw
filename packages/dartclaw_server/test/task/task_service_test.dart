@@ -1,14 +1,17 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/task/task_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
   late _InMemoryTaskRepository repo;
+  late InMemoryAgentExecutionRepository agentExecutions;
   late TaskService service;
 
   setUp(() {
     repo = _InMemoryTaskRepository();
-    service = TaskService(repo);
+    agentExecutions = InMemoryAgentExecutionRepository();
+    service = TaskService(repo, agentExecutionRepository: agentExecutions);
   });
 
   group('create', () {
@@ -53,7 +56,8 @@ void main() {
 
       expect(task.goalId, 'goal-1');
       expect(task.acceptanceCriteria, 'Done');
-      expect(task.configJson, {'model': 'sonnet'});
+      expect(task.configJson, isEmpty);
+      expect(task.model, 'sonnet');
     });
 
     test('creates with empty configJson by default', () async {
@@ -65,6 +69,37 @@ void main() {
       );
 
       expect(task.configJson, isEmpty);
+    });
+
+    test('reuses an existing agent execution without overwriting its richer fields', () async {
+      await agentExecutions.create(
+        AgentExecution(
+          id: 'ae-existing',
+          sessionId: 'sess-1',
+          provider: 'codex',
+          model: 'gpt-5.4',
+          workspaceDir: '/tmp/workspace',
+          budgetTokens: 50000,
+        ),
+      );
+
+      final task = await service.create(
+        id: 'task-1',
+        title: 'Task',
+        description: 'Describe the work',
+        type: TaskType.research,
+        agentExecutionId: 'ae-existing',
+        provider: 'claude',
+        configJson: const {'model': 'should-not-win'},
+        maxTokens: 1000,
+      );
+
+      expect(task.agentExecutionId, 'ae-existing');
+      expect(task.agentExecution?.sessionId, 'sess-1');
+      expect(task.agentExecution?.provider, 'codex');
+      expect(task.agentExecution?.model, 'gpt-5.4');
+      expect(task.agentExecution?.workspaceDir, '/tmp/workspace');
+      expect(task.agentExecution?.budgetTokens, 50000);
     });
   });
 
@@ -370,6 +405,25 @@ void main() {
     });
   });
 
+  group('mergeConfigJson', () {
+    test('returns the task unchanged when status is terminal (no throw)', () async {
+      final created = await service.create(
+        id: 'task-merge-terminal',
+        title: 'Will be cancelled',
+        description: 'desc',
+        type: TaskType.automation,
+        autoStart: true,
+      );
+      await service.transition(created.id, TaskStatus.cancelled);
+
+      final result = await service.mergeConfigJson(created.id, const {'token_breakdown': 1});
+
+      expect(result.status.terminal, isTrue);
+      final stored = await repo.getById(created.id);
+      expect(stored?.configJson.containsKey('token_breakdown'), isFalse);
+    });
+  });
+
   group('dispose', () {
     test('disposes repository', () async {
       await service.dispose();
@@ -549,5 +603,33 @@ class _InMemoryTaskRepository implements TaskRepository {
       throw ArgumentError('Task not found: ${task.id}');
     }
     _tasks[task.id] = task;
+  }
+
+  @override
+  Future<bool> mergeConfigJsonIfStatus(
+    String taskId,
+    Map<String, dynamic> patch, {
+    required TaskStatus expectedStatus,
+  }) async {
+    final current = _tasks[taskId];
+    if (current == null) {
+      return false;
+    }
+    if (current.status != expectedStatus) {
+      return false;
+    }
+    if (patch.isEmpty) {
+      return true;
+    }
+    final merged = <String, dynamic>{...current.configJson};
+    for (final entry in patch.entries) {
+      if (entry.value == null) {
+        merged.remove(entry.key);
+      } else {
+        merged[entry.key] = entry.value;
+      }
+    }
+    _tasks[taskId] = current.copyWith(configJson: merged);
+    return true;
   }
 }

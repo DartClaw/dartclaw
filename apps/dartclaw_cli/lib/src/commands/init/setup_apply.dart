@@ -76,7 +76,7 @@ class SetupApply {
       }
 
       if (authMethod == 'env') {
-        final envVar = providerId == 'codex' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
+        final envVar = providerId == 'codex' ? 'CODEX_API_KEY' : 'ANTHROPIC_API_KEY';
         _set(editor, ['credentials', _credentialNameFor(providerId), 'api_key'], '\${$envVar}');
       } else {
         _remove(editor, ['credentials', _credentialNameFor(providerId)]);

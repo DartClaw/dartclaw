@@ -14,8 +14,9 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 
 | Guide | What it covers |
 |-------|---------------|
-| [Getting Started](getting-started.md) | Prerequisites, installation, first session |
+| [Getting Started](getting-started.md) | Standalone binary install, source-based dev path, first session |
 | [Configuration](configuration.md) | `dartclaw.yaml` reference, environment variables, CLI flags |
+| [CLI Operations](cli-operations.md) | Connected vs standalone CLI mode, authentication, server detection, headless operations |
 | [Workspace](workspace.md) | Behavior files (SOUL.md, AGENTS.md, USER.md, TOOLS.md, MEMORY.md, HEARTBEAT.md), prompt assembly, git sync |
 | [Security](security.md) | Guard chain, container isolation, credential proxy, input sanitizer, content guard |
 
@@ -28,6 +29,7 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [Search & Memory](search.md) | Search agent, FTS5/QMD hybrid search, memory consolidation |
 | [Tasks](tasks.md) | Task lifecycle, review workflow, coding tasks, worktrees |
 | [Workflows](workflows.md) | Writing custom workflows, progressive refinement, YAML field reference, built-in workflows |
+| [AndThen Skills](andthen-skills.md) | Runtime provisioning of AndThen-derived `dartclaw-*` workflow skills, native user-tier installs, offline cache |
 | [Projects & Git](projects-and-git.md) | Project directory, git worktrees, branch management, merge strategies |
 | [Canvas](canvas.md) | Shareable visual canvas for workshops: share links, projector display, task board, stats |
 | [Web UI & API](web-ui-and-api.md) | Interface features, REST API endpoints, SSE streaming |

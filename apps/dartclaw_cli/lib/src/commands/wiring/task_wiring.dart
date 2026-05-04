@@ -67,16 +67,19 @@ class TaskWiring {
     required EventBus eventBus,
     required StorageWiring storage,
     ProjectWiring? project,
+    Map<String, ContainerExecutor> containerManagers = const <String, ContainerExecutor>{},
   }) : _dataDir = dataDir,
        _eventBus = eventBus,
        _storage = storage,
-       _project = project;
+       _project = project,
+       _containerManagers = containerManagers;
 
   final DartclawConfig config;
   final String _dataDir;
   final EventBus _eventBus;
   final StorageWiring _storage;
   final ProjectWiring? _project;
+  final Map<String, ContainerExecutor> _containerManagers;
 
   static final _log = Logger('TaskWiring');
 
@@ -91,6 +94,7 @@ class TaskWiring {
   late AgentObserver _agentObserver;
   late TaskExecutor _taskExecutor;
   late ChannelReviewHandler _reviewHandler;
+  late TaskCancellationSubscriber _taskCancellationSubscriber;
   late ContainerTaskFailureSubscriber _containerTaskFailureSubscriber;
   late CompactionTaskEventSubscriber _compactionTaskEventSubscriber;
 
@@ -98,6 +102,8 @@ class TaskWiring {
   MergeExecutor get mergeExecutor => _mergeExecutor;
   TaskFileGuard get taskFileGuard => _taskFileGuard;
   TaskReviewService get taskReviewService => _taskReviewService;
+  RemotePushService get remotePushService => _remotePushService;
+  PrCreator get prCreator => _prCreator;
   DiffGenerator get diffGenerator => _diffGenerator;
   ArtifactCollector get artifactCollector => _artifactCollector;
   AgentObserver get agentObserver => _agentObserver;
@@ -122,11 +128,13 @@ class TaskWiring {
       baseRef: config.tasks.worktreeBaseRef,
       staleTimeoutHours: config.tasks.worktreeStaleTimeoutHours,
       worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
+      taskLookup: _storage.taskService.get,
+      projectLookup: _project?.projectService.get,
     );
     await _worktreeManager.detectStaleWorktrees();
 
     _remotePushService = RemotePushService(credentials: config.credentials, dataDir: _dataDir);
-    _prCreator = PrCreator();
+    _prCreator = PrCreator(credentials: config.credentials);
 
     _taskReviewService = TaskReviewService(
       tasks: _storage.taskService,
@@ -168,6 +176,9 @@ class TaskWiring {
     _containerTaskFailureSubscriber = ContainerTaskFailureSubscriber(tasks: _storage.taskService);
     _containerTaskFailureSubscriber.subscribe(_eventBus);
 
+    _taskCancellationSubscriber = TaskCancellationSubscriber(tasks: _storage.taskService, turns: turns);
+    _taskCancellationSubscriber.subscribe(_eventBus);
+
     _compactionTaskEventSubscriber = CompactionTaskEventSubscriber(
       tasks: _storage.taskService,
       eventRecorder: _storage.taskEventRecorder,
@@ -175,6 +186,19 @@ class TaskWiring {
     _compactionTaskEventSubscriber.subscribe(_eventBus);
 
     _agentObserver = AgentObserver(pool: pool, eventBus: _eventBus);
+    final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
+    final workflowCliRunner = WorkflowCliRunner(
+      providers: {
+        for (final providerId in <String>{config.agent.provider, ...config.providers.entries.keys})
+          providerId: WorkflowCliProviderConfig(
+            executable: _resolveWorkflowProviderExecutable(config, providerId),
+            environment: _providerEnvironmentForWorkflow(providerId, credentialRegistry),
+            options: _providerOptionsForWorkflow(config, providerId),
+          ),
+      },
+      containerManagers: _containerManagers,
+      eventBus: _eventBus,
+    );
 
     _taskExecutor = TaskExecutor(
       tasks: _storage.taskService,
@@ -187,6 +211,8 @@ class TaskWiring {
       taskFileGuard: _taskFileGuard,
       observer: _agentObserver,
       eventRecorder: _storage.taskEventRecorder,
+      workflowStepExecutionRepository: _storage.workflowStepExecutionRepository,
+      workflowRunRepository: _storage.workflowRunRepository,
       onSpawnNeeded: onSpawnNeeded,
       onAutoAccept: buildAutoAcceptCallback(
         completionAction: config.tasks.completionAction,
@@ -202,6 +228,7 @@ class TaskWiring {
       budgetConfig: config.tasks.budget,
       eventBus: _eventBus,
       dataDir: _dataDir,
+      workflowCliRunner: workflowCliRunner,
     );
     _taskExecutor.start();
     _log.fine('TaskExecutor started');
@@ -234,7 +261,36 @@ class TaskWiring {
   Future<void> dispose() async {
     await _taskExecutor.stop();
     _agentObserver.dispose();
+    await _taskCancellationSubscriber.dispose();
     await _containerTaskFailureSubscriber.dispose();
     await _compactionTaskEventSubscriber.dispose();
+    _remotePushService.dispose();
   }
 }
+
+Map<String, String> _providerEnvironmentForWorkflow(String providerId, CredentialRegistry registry) {
+  final environment = SafeProcess.sanitize(
+    baseEnvironment: Platform.environment,
+    sensitivePatterns: [...kDefaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
+  );
+  final apiKey = registry.getApiKey(providerId);
+  if (apiKey != null) {
+    for (final envVar in CredentialRegistry.envVarsFor(providerId)) {
+      environment[envVar] = apiKey;
+    }
+  }
+  return environment;
+}
+
+String _resolveWorkflowProviderExecutable(DartclawConfig config, String providerId) {
+  final entry = config.providers[providerId];
+  if (entry != null) return entry.executable;
+  return switch (ProviderIdentity.family(providerId)) {
+    'claude' => config.server.claudeExecutable,
+    'codex' => 'codex',
+    _ => providerId,
+  };
+}
+
+Map<String, dynamic> _providerOptionsForWorkflow(DartclawConfig config, String providerId) =>
+    config.providers[providerId]?.options ?? const <String, dynamic>{};

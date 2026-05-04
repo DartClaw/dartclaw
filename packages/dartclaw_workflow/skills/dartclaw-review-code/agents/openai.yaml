@@ -1,8 +1,0 @@
-interface:
-  display_name: "DartClaw - Review Code"
-  short_description: "Structured code review with calibrated findings"
-  default_prompt: "Review the provided scope with calibrated severity and a concise findings report. Scope: "
-
-policy:
-  allow_implicit_invocation: true
-

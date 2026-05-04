@@ -3,6 +3,16 @@ import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
 import 'topbar.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        WorkflowRun,
+        WorkflowRunStatus,
+        workflowCanApprove,
+        workflowCanReject,
+        workflowCanResume,
+        workflowCanRetry,
+        workflowStatusBadgeClass,
+        workflowStatusLabel;
 
 /// Renders the workflow run detail page with vertical pipeline,
 /// progress bar, context viewer, and action buttons.
@@ -18,22 +28,47 @@ String workflowDetailPageTemplate({
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final definitionName = run['definitionName']?.toString() ?? 'Workflow';
-  final topbar = pageTopbarTemplate(title: 'Workflow: $definitionName', backHref: '/tasks', backLabel: 'Back to Tasks');
+  final topbar = pageTopbarTemplate(
+    title: 'Workflow: $definitionName',
+    backHref: '/workflows',
+    backLabel: 'Back to Workflows',
+  );
   final statusName = run['status']?.toString() ?? 'pending';
 
   // Compute progress.
   final totalSteps = steps.length;
-  final completedSteps = steps.where((s) => s['status'] == 'completed').length;
+  final completedSteps = steps.where((s) {
+    final status = s['status'];
+    return status == 'completed' || status == 'skipped';
+  }).length;
   final progressPercent = totalSteps > 0 ? (completedSteps * 100 ~/ totalSteps) : 0;
 
   // Determine which actions are available.
-  final isApprovalPaused = run['isApprovalPaused'] == true;
+  final runStatus = switch (statusName) {
+    'pending' => WorkflowRunStatus.pending,
+    'running' => WorkflowRunStatus.running,
+    'paused' => WorkflowRunStatus.paused,
+    'awaitingApproval' => WorkflowRunStatus.awaitingApproval,
+    'completed' => WorkflowRunStatus.completed,
+    'failed' => WorkflowRunStatus.failed,
+    'cancelled' => WorkflowRunStatus.cancelled,
+    _ => WorkflowRunStatus.pending,
+  };
+  final workflowRun = WorkflowRun(
+    id: run['id']?.toString() ?? '',
+    definitionName: definitionName,
+    status: runStatus,
+    contextJson: Map<String, dynamic>.from(run['contextJson'] as Map? ?? const {}),
+    variablesJson: const {},
+    startedAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
   final canPause = statusName == 'running';
-  final canResume = statusName == 'paused';
-  final canCancel = statusName == 'running' || statusName == 'paused';
-  // Approval-paused runs show Approve/Reject instead of generic Resume/Cancel.
-  final canApprove = isApprovalPaused;
-  final canReject = isApprovalPaused;
+  final canResume = workflowCanResume(workflowRun);
+  final canRetry = workflowCanRetry(workflowRun);
+  final canCancel = statusName == 'running' || statusName == 'paused' || statusName == 'awaitingApproval';
+  final canApprove = workflowCanApprove(workflowRun);
+  final canReject = workflowCanReject(workflowRun);
 
   // Annotate steps with loop/parallel info and display labels.
   final annotatedSteps = steps.map((step) {
@@ -90,8 +125,8 @@ String workflowDetailPageTemplate({
     'runId': run['id'],
     'definitionName': definitionName,
     'status': statusName,
-    'statusLabel': titleCase(statusName),
-    'statusBadgeClass': 'status-badge-$statusName',
+    'statusLabel': workflowStatusLabel(runStatus),
+    'statusBadgeClass': workflowStatusBadgeClass(runStatus),
     'startedAtDisplay': _formatTimeAgo(run['startedAt']),
     'updatedAtDisplay': _formatTimeAgo(run['updatedAt']),
     'hasCompletedAt': run['completedAt'] != null,
@@ -108,22 +143,27 @@ String workflowDetailPageTemplate({
     'contextEntries': contextEntries,
     'hasContext': contextEntries.isNotEmpty,
     'canPause': canPause,
-    'canResume': canResume && !isApprovalPaused,
-    'canCancel': canCancel && !isApprovalPaused,
-    'isApprovalPaused': isApprovalPaused,
+    'canResume': canResume,
+    'canRetry': canRetry,
+    'canCancel': canCancel && !canApprove,
     'canApprove': canApprove,
     'canReject': canReject,
   });
 
-  return layoutTemplate(title: 'Workflow: $definitionName', body: body, appName: appName);
+  return layoutTemplate(
+    title: 'Workflow: $definitionName',
+    body: body,
+    appName: appName,
+    scripts: standardShellScripts(),
+  );
 }
 
 /// Renders the step detail partial fragment for a workflow step.
 String workflowStepDetailFragment({
   required String? messagesHtml,
   required List<Map<String, dynamic>> artifacts,
-  required List<Map<String, dynamic>> contextInputs,
-  required List<Map<String, dynamic>> contextOutputs,
+  required List<Map<String, dynamic>> inputs,
+  required List<Map<String, dynamic>> outputKeys,
   int? tokenCount,
   String? durationDisplay,
 }) {
@@ -138,10 +178,10 @@ String workflowStepDetailFragment({
       'noSessionText': 'No session started yet.',
       'hasArtifacts': artifacts.isNotEmpty,
       'artifacts': artifacts,
-      'hasContextInputs': contextInputs.isNotEmpty,
-      'contextInputs': contextInputs,
-      'hasContextOutputs': contextOutputs.isNotEmpty,
-      'contextOutputs': contextOutputs,
+      'hasInputs': inputs.isNotEmpty,
+      'inputs': inputs,
+      'hasOutputKeys': outputKeys.isNotEmpty,
+      'outputKeys': outputKeys,
       'hasMetrics': hasTokens || hasDuration,
       'tokenCount': tokenCount != null ? formatNumber(tokenCount) : '0',
       'hasDuration': hasDuration,

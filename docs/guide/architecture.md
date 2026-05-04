@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.16**
+> Current through: **0.16.4**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -52,6 +52,8 @@ The actual agent runtimes. DartClaw supports multiple providers (since 0.13):
 | **Codex** | `codex` CLI | JSON-RPC JSONL | OpenAI GPT-4o, GPT-5, o-series, Ollama |
 
 Each provider binary is spawned as a subprocess. The Dart host manages its lifecycle, including auto-restart with exponential backoff on crash. The `HarnessFactory` creates the appropriate harness type based on the configured provider ID.
+
+Workflow execution now has a scoped exception to the normal long-lived streaming session model: bounded workflow agent steps can run through a one-shot CLI path that invokes the provider binary directly per workflow prompt while the Dart host still owns the task, session transcript, budgets, and workflow state. Interactive chat, channel turns, and ordinary task turns remain on the streaming harness path.
 
 In a mixed deployment, the `HarnessPool` can contain workers from different providers — for example, a Claude primary harness for interactive chat and Codex workers for background tasks. See [Agents § Providers](agents.md#providers) for configuration details.
 
@@ -300,7 +302,7 @@ When Docker is enabled, DartClaw runs agent processes inside containers with ker
 
 Multiple concurrent tasks sharing the same profile share one container (via `docker exec`). This keeps the container count small (2-4) regardless of task parallelism (up to 10 concurrent).
 
-Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. API credentials are injected via a credential proxy on a Unix socket — keys never exist inside the container environment.
+Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. The current credential-proxy path covers Claude/Anthropic container traffic via a Unix socket, so Anthropic keys never exist inside that container environment.
 
 Container names include a hash of the data directory, preventing collisions when running multiple DartClaw instances on the same Docker daemon.
 

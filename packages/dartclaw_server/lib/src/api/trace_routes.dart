@@ -93,5 +93,18 @@ Router traceRoutes(TurnTraceService traceService) {
     }
   });
 
+  router.get('/api/traces/<id>', (Request request, String id) async {
+    try {
+      final trace = await traceService.getById(id);
+      if (trace == null) {
+        return errorResponse(404, 'TRACE_NOT_FOUND', 'Trace not found: $id');
+      }
+      return Response.ok(jsonEncode(trace.toJson()), headers: {'content-type': 'application/json; charset=utf-8'});
+    } catch (e, st) {
+      _log.warning('Trace lookup failed', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to read trace');
+    }
+  });
+
   return router;
 }

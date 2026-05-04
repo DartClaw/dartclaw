@@ -1,3 +1,6 @@
+@Tags(['component'])
+library;
+
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -12,10 +15,11 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowRun,
         WorkflowRunStatus,
+        WorkflowRunStatusChangedEvent,
         WorkflowStep,
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ContextExtractor, GateEvaluator, WorkflowExecutor;
+    show ContextExtractor, GateEvaluator, StepExecutionContext, WorkflowExecutor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
@@ -39,21 +43,37 @@ void main() {
 
     final db = sqlite3.openInMemory();
     eventBus = EventBus();
-    taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    final taskRepository = SqliteTaskRepository(db);
+    final agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
+    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
+    final executionTransactor = SqliteExecutionRepositoryTransactor(db);
+    taskService = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      executionTransactor: executionTransactor,
+      eventBus: eventBus,
+    );
     repository = SqliteWorkflowRunRepository(db);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
     executor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
+      executionContext: StepExecutionContext(
         taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionTransactor,
       ),
       dataDir: tempDir.path,
     );
@@ -95,6 +115,21 @@ void main() {
       }
     }
     await taskService.transition(taskId, status, trigger: 'test');
+  }
+
+  Future<void> transitionRun(WorkflowRun run, WorkflowRunStatus status, String reason) async {
+    final current = await repository.getById(run.id) ?? run;
+    await repository.update(current.copyWith(status: status, updatedAt: DateTime.now()));
+    eventBus.fire(
+      WorkflowRunStatusChangedEvent(
+        runId: run.id,
+        definitionName: run.definitionName,
+        oldStatus: current.status,
+        newStatus: status,
+        errorMessage: reason,
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
   test('3-step parallel group happy path: all steps execute and complete', () async {
@@ -189,7 +224,7 @@ void main() {
     expect(callCount, equals(3));
 
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('Parallel step(s) failed'));
 
     // Successful steps' metadata should still be set.
@@ -197,6 +232,90 @@ void main() {
     expect(context['p3.status'], equals('accepted'));
     // Failed step has 'failed' status.
     expect(context['p2.status'], equals('failed'));
+  });
+
+  test('pause during parallel group preserves paused status', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: [
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    var queuedCount = 0;
+    final failedEvents = <WorkflowRunStatusChangedEvent>[];
+    final groupEvents = <ParallelGroupCompletedEvent>[];
+    final failureSub = eventBus
+        .on<WorkflowRunStatusChangedEvent>()
+        .where((e) => e.newStatus == WorkflowRunStatus.failed)
+        .listen(failedEvents.add);
+    final groupSub = eventBus.on<ParallelGroupCompletedEvent>().listen(groupEvents.add);
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      queuedCount++;
+      if (queuedCount == 2) {
+        await transitionRun(run, WorkflowRunStatus.paused, 'operator pause');
+      }
+    });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+    await failureSub.cancel();
+    await groupSub.cancel();
+
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(failedEvents, isEmpty);
+    expect(groupEvents, isEmpty);
+    expect(context['p1.status'], isNull);
+    expect(context['p2.status'], isNull);
+  });
+
+  test('cancel during parallel group preserves cancelled status', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: [
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    var queuedCount = 0;
+    final failedEvents = <WorkflowRunStatusChangedEvent>[];
+    final groupEvents = <ParallelGroupCompletedEvent>[];
+    final failureSub = eventBus
+        .on<WorkflowRunStatusChangedEvent>()
+        .where((e) => e.newStatus == WorkflowRunStatus.failed)
+        .listen(failedEvents.add);
+    final groupSub = eventBus.on<ParallelGroupCompletedEvent>().listen(groupEvents.add);
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      queuedCount++;
+      if (queuedCount == 2) {
+        await transitionRun(run, WorkflowRunStatus.cancelled, 'operator cancel');
+      }
+    });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+    await failureSub.cancel();
+    await groupSub.cancel();
+
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.cancelled));
+    expect(failedEvents, isEmpty);
+    expect(groupEvents, isEmpty);
+    expect(context['p1.status'], isNull);
+    expect(context['p2.status'], isNull);
   });
 
   test('all parallel steps fail: workflow pauses listing all failures', () async {
@@ -222,7 +341,7 @@ void main() {
     await sub.cancel();
 
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('Parallel step(s) failed'));
   });
 
@@ -255,7 +374,7 @@ void main() {
     // No tasks created — gate blocked the group.
     expect(taskCount, equals(0));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('Gate failed for parallel step'));
   });
 
@@ -286,7 +405,7 @@ void main() {
 
     expect(taskCount, equals(0));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('budget'));
   });
 
@@ -383,6 +502,45 @@ void main() {
     expect(stepEvents.length, equals(2));
     final stepIds = stepEvents.map((e) => e.stepId).toList();
     expect(stepIds, containsAll(['p1', 'p2']));
+  });
+
+  test('WorkflowStepCompletedEvent sees persisted parallel context', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: [
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    final snapshots = <Future<WorkflowRun?>>[];
+    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+      snapshots.add(repository.getById(event.runId));
+    });
+
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      await completeTask(e.taskId);
+    });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+    await stepSub.cancel();
+
+    expect(snapshots, hasLength(2));
+    for (final snapshot in await Future.wait(snapshots)) {
+      expect(snapshot?.currentStepIndex, equals(2));
+      expect(snapshot?.contextJson, isNot(contains('_parallel.current.stepIds')));
+      expect(snapshot?.contextJson, isNot(contains('_parallel.failed.stepIds')));
+      final data = (snapshot?.contextJson['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+      expect(data['p1.status'], equals('accepted'));
+      expect(data['p2.status'], equals('accepted'));
+    }
   });
 
   test('parallel group: budget accumulates from all steps', () async {

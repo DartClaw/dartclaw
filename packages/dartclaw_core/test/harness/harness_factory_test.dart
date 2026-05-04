@@ -42,8 +42,7 @@ void main() {
 
       expect(factory.supports('claude'), isTrue);
       expect(factory.supports('codex'), isTrue);
-      expect(factory.supports('codex-exec'), isTrue);
-      expect(factory.registeredProviders, containsAll(['claude', 'codex', 'codex-exec']));
+      expect(factory.registeredProviders, containsAll(['claude', 'codex']));
     });
 
     test('creates a ClaudeCodeHarness from the built-in claude provider', () {
@@ -76,9 +75,31 @@ void main() {
       expect(claude.containerManager, same(containerManager));
       expect(claude.guardChain, same(guardChain));
       expect(claude.auditLogger, same(auditLogger));
+      expect(claude.providerOptions, isEmpty);
       expect(claude.onMemorySave, isNotNull);
       expect(claude.onMemorySearch, isNotNull);
       expect(claude.onMemoryRead, isNotNull);
+    });
+
+    test('passes claude providerOptions through the factory config', () {
+      final factory = HarnessFactory();
+      final harness = factory.create(
+        'claude',
+        const HarnessFactoryConfig(
+          cwd: '/tmp/workspace',
+          providerOptions: {
+            'permissionMode': 'auto',
+            'sandbox': {'enabled': true},
+          },
+        ),
+      );
+
+      expect(harness, isA<ClaudeCodeHarness>());
+      final claude = harness as ClaudeCodeHarness;
+      expect(claude.providerOptions, {
+        'permissionMode': 'auto',
+        'sandbox': {'enabled': true},
+      });
     });
 
     test('creates a CodexHarness from the built-in codex provider', () {
@@ -99,34 +120,6 @@ void main() {
       expect(codex.executable, '/usr/local/bin/codex');
       expect(codex.turnTimeout, const Duration(seconds: 42));
       expect(codex.guardChain, same(guardChain));
-    });
-
-    test('creates a CodexExecHarness from the built-in codex-exec provider', () {
-      final factory = HarnessFactory();
-      final config = HarnessFactoryConfig(
-        cwd: '/tmp/workspace',
-        executable: '/usr/local/bin/codex',
-        turnTimeout: const Duration(seconds: 42),
-        harnessConfig: const HarnessConfig(
-          model: 'gpt-5',
-          appendSystemPrompt: 'follow the rules',
-          mcpServerUrl: 'http://127.0.0.1:3333/mcp',
-          mcpGatewayToken: 'test-token',
-        ),
-      );
-
-      final harness = factory.create('codex-exec', config);
-
-      expect(harness, isA<CodexExecHarness>());
-      final codexExec = harness as CodexExecHarness;
-      expect(codexExec.cwd, '/tmp/workspace');
-      expect(codexExec.codexExecutable, '/usr/local/bin/codex');
-      expect(codexExec.sandboxMode, 'danger-full-access');
-      expect(codexExec.turnTimeout, const Duration(seconds: 42));
-      expect(codexExec.harnessConfig.model, 'gpt-5');
-      expect(codexExec.harnessConfig.appendSystemPrompt, 'follow the rules');
-      expect(codexExec.harnessConfig.mcpServerUrl, 'http://127.0.0.1:3333/mcp');
-      expect(codexExec.harnessConfig.mcpGatewayToken, 'test-token');
     });
 
     test('defaults codex to the codex binary when executable is not set explicitly', () {
@@ -187,6 +180,23 @@ void main() {
 
       final harness = factory.create('fake', const HarnessFactoryConfig(cwd: '/tmp'));
       expect(harness, isA<FakeAgentHarness>());
+    });
+
+    test('probeContinuityProviders returns built-in providers that support session continuity', () {
+      final factory = HarnessFactory();
+
+      final providers = factory.probeContinuityProviders();
+
+      expect(providers, containsAll(['claude', 'codex']));
+    });
+
+    test('probeContinuityProviders excludes custom providers without continuity', () {
+      final factory = HarnessFactory();
+      factory.register('no-continuity', (_) => FakeAgentHarness());
+
+      final providers = factory.probeContinuityProviders();
+
+      expect(providers, isNot(contains('no-continuity')));
     });
   });
 }

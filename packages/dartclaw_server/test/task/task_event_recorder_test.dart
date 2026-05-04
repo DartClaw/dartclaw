@@ -83,6 +83,33 @@ void main() {
     expect(events[0].details['kind'], 'diff');
   });
 
+  test('recordStructuredOutputInlineUsed inserts structuredOutputInlineUsed event', () {
+    recorder.recordStructuredOutputInlineUsed('task-4a', stepId: 'plan', outputKey: 'stories');
+
+    final events = eventService.listForTask('task-4a');
+    expect(events, hasLength(1));
+    expect(events[0].kind.name, 'structuredOutputInlineUsed');
+    expect(events[0].details['stepId'], 'plan');
+    expect(events[0].details['outputKey'], 'stories');
+  });
+
+  test('recordStructuredOutputFallbackUsed inserts structuredOutputFallbackUsed event', () {
+    recorder.recordStructuredOutputFallbackUsed(
+      'task-4b',
+      stepId: 'review',
+      outputKey: 'verdict',
+      failureReason: 'missing_payload',
+    );
+
+    final events = eventService.listForTask('task-4b');
+    expect(events, hasLength(1));
+    expect(events[0].kind.name, 'structuredOutputFallbackUsed');
+    expect(events[0].details['stepId'], 'review');
+    expect(events[0].details['outputKey'], 'verdict');
+    expect(events[0].details['failureReason'], 'missing_payload');
+    expect(events[0].details.containsKey('providerSubtype'), isFalse);
+  });
+
   test('recordPushBack inserts pushBack event with comment', () {
     recorder.recordPushBack('task-5', comment: 'Needs better tests');
 

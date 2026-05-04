@@ -1,7 +1,7 @@
 name: dartclaw_workflow
 description: Unified DartClaw workflow parsing, validation, registry, and execution utilities.
 publish_to: none
-version: 0.9.0
+version: 0.16.4
 repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_workflow
 homepage: https://github.com/DartClaw/dartclaw
 issue_tracker: https://github.com/DartClaw/dartclaw/issues
@@ -23,6 +23,8 @@ dependencies:
     path: ../dartclaw_core
   dartclaw_models:
     path: ../dartclaw_models
+  dartclaw_security:
+    path: ../dartclaw_security
   dartclaw_storage:
     path: ../dartclaw_storage
   logging: ^1.3.0
@@ -31,6 +33,8 @@ dependencies:
   yaml: ^3.1.3
 
 dev_dependencies:
+  dartclaw_cli:
+    path: ../../apps/dartclaw_cli
   dartclaw_server:
     path: ../dartclaw_server
   dartclaw_testing:

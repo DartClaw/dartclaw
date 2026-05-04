@@ -14,6 +14,7 @@ String workflowListPageTemplate({
   required List<NavItem> navItems,
   required List<Map<String, dynamic>> runs,
   required List<Map<String, dynamic>> definitions,
+  required List<Map<String, dynamic>> projectOptions,
   required Map<String, dynamic> filters,
   String bannerHtml = '',
   String appName = 'DartClaw',
@@ -54,10 +55,12 @@ String workflowListPageTemplate({
     'hasRuns': runs.isNotEmpty,
     'definitions': definitions,
     'hasDefinitions': definitions.isNotEmpty,
+    'projectOptions': projectOptions,
+    'hasProjects': projectOptions.isNotEmpty,
     'filters': filters,
     'statusOptions': statusOptions,
     'definitionOptions': definitionOptions,
   });
 
-  return layoutTemplate(title: 'Workflows', body: body);
+  return layoutTemplate(title: 'Workflows', body: body, scripts: standardShellScripts());
 }

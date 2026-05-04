@@ -1,11 +1,38 @@
 import 'dart:io';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionParser, WorkflowDefinitionValidator, WorkflowRegistry, WorkflowSource;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowDefinition, WorkflowDefinitionParser, WorkflowDefinitionValidator, WorkflowRegistry, WorkflowSource;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-WorkflowRegistry _makeRegistry() =>
-    WorkflowRegistry(parser: WorkflowDefinitionParser(), validator: WorkflowDefinitionValidator());
+WorkflowRegistry _makeRegistry({Logger? log, Set<String>? continuityProviders}) => WorkflowRegistry(
+  parser: WorkflowDefinitionParser(),
+  validator: WorkflowDefinitionValidator(),
+  continuityProviders: continuityProviders,
+  log: log,
+);
+
+String _workflowDefinitionsDir() {
+  var current = Directory.current;
+  while (true) {
+    final candidates = [
+      p.join(current.path, 'lib', 'src', 'workflow', 'definitions'),
+      p.join(current.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions'),
+    ];
+    for (final candidate in candidates) {
+      if (Directory(candidate).existsSync()) {
+        return candidate;
+      }
+    }
+
+    final parent = current.parent;
+    if (parent.path == current.path) {
+      throw StateError('Could not locate workflow definitions dir');
+    }
+    current = parent;
+  }
+}
 
 /// A minimal valid workflow YAML for testing custom loading.
 String _validCustomYaml(String name) =>
@@ -31,17 +58,21 @@ steps:
     prompt: Do the thing.
 ''';
 
-/// Valid YAML with a warning-only validation issue (unknown step type).
+/// Valid YAML with a warning-only validation issue.
 /// This should load successfully with a warning but not be excluded.
 String _warningsOnlyYaml(String name) =>
     '''
 name: $name
-description: Workflow with a future step type.
+description: Workflow with approval in a loop.
 steps:
   - id: step1
     name: Step 1
-    type: future-type
-    prompt: Do the thing.
+    type: approval
+loops:
+  - id: approval-loop
+    steps: [step1]
+    maxIterations: 1
+    exitGate: step1.done == true
 ''';
 
 /// Valid YAML with a hard error (approval step as parallel — always an error).
@@ -67,78 +98,200 @@ void main() {
   });
 
   // ------------------------------------------------------------------
-  // Built-in loading
+  // Materialized loading
   // ------------------------------------------------------------------
-  group('loadBuiltIn()', () {
-    test('populates registry with 4 built-in workflows', () {
+  group('materialized loading', () {
+    test('populates registry with 3 materialized workflows', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
-      expect(registry.length, equals(4));
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      expect(registry.length, equals(3));
     });
 
-    test('listBuiltIn() returns only built-in definitions', () {
+    test('listMaterialized() returns only materialized definitions', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
-      expect(registry.listBuiltIn(), hasLength(4));
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      expect(registry.listMaterialized(), hasLength(3));
     });
 
-    test('listCustom() is empty after loadBuiltIn() only', () {
+    test('listCustom() is empty after materialized loading only', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       expect(registry.listCustom(), isEmpty);
     });
 
-    test('getByName("spec-and-implement") returns the definition', () {
+    test('getByName("spec-and-implement") returns the definition', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       final def = registry.getByName('spec-and-implement');
       expect(def, isNotNull);
       expect(def!.name, equals('spec-and-implement'));
     });
 
-    test('getByName("nonexistent") returns null', () {
+    test('bootstrap built-ins leave BRANCH empty so project resolution can infer the base ref', () async {
+      final parser = WorkflowDefinitionParser();
+      for (final name in ['spec-and-implement.yaml', 'plan-and-implement.yaml']) {
+        final definition = await parser.parseFile(p.join(_workflowDefinitionsDir(), name));
+        expect(
+          definition.variables['BRANCH']?.defaultValue,
+          anyOf(isNull, isEmpty),
+          reason: '$name should not hardcode main for workflow bootstrap',
+        );
+      }
+
+      final codeReview = await parser.parseFile(p.join(_workflowDefinitionsDir(), 'code-review.yaml'));
+      expect(codeReview.variables['BASE_BRANCH']?.defaultValue, 'main');
+    });
+
+    test('getByName("nonexistent") returns null', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       expect(registry.getByName('nonexistent'), isNull);
     });
 
-    test('sourceOf("spec-and-implement") returns WorkflowSource.builtIn', () {
+    test('sourceOf("spec-and-implement") returns WorkflowSource.materialized', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
-      expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.builtIn));
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.materialized));
     });
 
-    test('listAll() returns all built-in definitions', () {
+    test('listAll() returns all materialized definitions', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
-      expect(registry.listAll(), hasLength(4));
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      expect(registry.listAll(), hasLength(3));
     });
 
-    test('listSummaries() returns summary records without full step payloads', () {
+    test('listSummaries() returns summary records without full step payloads', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
 
       final summaries = registry.listSummaries();
-      expect(summaries, hasLength(4));
+      expect(summaries, hasLength(3));
       final summary = summaries.firstWhere((entry) => entry.name == 'code-review');
       expect(summary.description, isNotEmpty);
       expect(summary.stepCount, greaterThan(0));
       expect(summary.variables.containsKey('TARGET'), isTrue);
     });
 
-    test('loads all expected built-in workflow names', () {
+    test('loads all expected materialized workflow names', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       final names = registry.listAll().map((d) => d.name).toSet();
-      expect(
-        names,
-        containsAll([
-          'spec-and-implement',
-          'plan-and-implement',
-          'code-review',
-          'research-and-evaluate',
-        ]),
+      expect(names, containsAll(['spec-and-implement', 'plan-and-implement', 'code-review']));
+    });
+
+    test('materialized workflow YAMLs do not embed runtime budget policy', () async {
+      final parser = WorkflowDefinitionParser();
+      final definitionsDir = _workflowDefinitionsDir();
+      final defs = await Future.wait([
+        parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml')),
+        parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml')),
+        parser.parseFile(p.join(definitionsDir, 'code-review.yaml')),
+      ]);
+      for (final def in defs) {
+        expect(def.maxTokens, isNull, reason: '${def.name} must not embed a maxTokens budget policy');
+      }
+    });
+
+    test('built-ins adopt the shared project/branch contract and direct specialist review routing', () async {
+      final parser = WorkflowDefinitionParser();
+      final definitionsDir = _workflowDefinitionsDir();
+      final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml'));
+      final planAndImplement = await parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml'));
+      final codeReview = await parser.parseFile(p.join(definitionsDir, 'code-review.yaml'));
+
+      void assertSkills(WorkflowDefinition def, List<String> required, List<String> forbidden) {
+        final allSkills = def.steps.map((s) => s.skill).whereType<String>().toSet();
+        for (final r in required) {
+          expect(allSkills, contains(r), reason: '${def.name} must use skill $r');
+        }
+        for (final f in forbidden) {
+          expect(allSkills, isNot(contains(f)), reason: '${def.name} must not use skill $f');
+        }
+      }
+
+      // spec-and-implement: BRANCH variable, gitStrategy, revise-spec step, not approve-spec.
+      expect(specAndImplement.variables.containsKey('BRANCH'), isTrue);
+      expect(specAndImplement.variables.containsKey('BASE_BRANCH'), isFalse);
+      expect(specAndImplement.gitStrategy, isNotNull);
+      expect(specAndImplement.steps.any((s) => s.id == 'revise-spec'), isTrue);
+      expect(specAndImplement.steps.any((s) => s.id == 'approve-spec'), isFalse);
+      expect(specAndImplement.steps.any((s) => s.id == 'review-spec'), isFalse);
+      // Confidence-gated revise-spec uses entryGate that references spec_confidence.
+      final reviseSpec = specAndImplement.steps.firstWhere((s) => s.id == 'revise-spec');
+      expect(reviseSpec.entryGate, contains('spec_confidence'));
+      // spec_path is referenced somewhere in the definition steps.
+      expect(specAndImplement.steps.any((s) => s.prompts?.any((p) => p.contains('spec_path')) ?? false), isTrue);
+      assertSkills(specAndImplement, ['dartclaw-review'], ['andthen-review', 'dartclaw-review-gap']);
+
+      // plan-and-implement: BRANCH variable, gitStrategy, revise-prd step, not review-prd.
+      expect(planAndImplement.variables.containsKey('BRANCH'), isTrue);
+      expect(planAndImplement.gitStrategy, isNotNull);
+      expect(planAndImplement.steps.any((s) => s.id == 'revise-prd'), isTrue);
+      expect(planAndImplement.steps.any((s) => s.id == 'review-prd'), isFalse);
+      final revisePrd = planAndImplement.steps.firstWhere((s) => s.id == 'revise-prd');
+      expect(revisePrd.entryGate, contains('prd_confidence'));
+      expect(planAndImplement.steps.any((s) => s.id == 'update-state'), isFalse);
+      assertSkills(
+        planAndImplement,
+        ['dartclaw-quick-review', 'dartclaw-review', 'dartclaw-plan', 'dartclaw-prd'],
+        ['andthen-quick-review', 'andthen-review', 'andthen-plan', 'andthen-prd', 'dartclaw-spec-plan'],
       );
+
+      // code-review: PROJECT variable (not REPO), gitStrategy, dartclaw-review skill.
+      expect(codeReview.variables.containsKey('PROJECT'), isTrue);
+      expect(codeReview.variables.containsKey('REPO'), isFalse);
+      expect(codeReview.gitStrategy, isNotNull);
+      assertSkills(codeReview, ['dartclaw-review'], ['andthen-review', 'dartclaw-review-code']);
+    });
+
+    test('code-review uses dartclaw-review and forbids legacy andthen-review', () async {
+      final parser = WorkflowDefinitionParser();
+      final codeReview = await parser.parseFile(p.join(_workflowDefinitionsDir(), 'code-review.yaml'));
+
+      // Exactly two steps use dartclaw-review (initial review + re-review).
+      final reviewSteps = codeReview.steps.where((s) => s.skill == 'dartclaw-review').toList();
+      expect(reviewSteps.length, equals(2));
+      expect(codeReview.steps.map((s) => s.skill), isNot(contains('andthen-review')));
+
+      // No legacy multi-pass step IDs that pre-date the unified reviewer.
+      final stepIds = codeReview.steps.map((s) => s.id).toSet();
+      for (final legacy in [
+        'extract-diff',
+        'gather-context',
+        'review-correctness',
+        'review-security',
+        'review-architecture',
+      ]) {
+        expect(stepIds, isNot(contains(legacy)));
+      }
+    });
+
+    test('implementation built-ins gate remediation loops on re-review findings only', () async {
+      final parser = WorkflowDefinitionParser();
+      final definitionsDir = _workflowDefinitionsDir();
+      final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml'));
+      final planAndImplement = await parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml'));
+      final codeReview = await parser.parseFile(p.join(definitionsDir, 'code-review.yaml'));
+
+      // No legacy verify-refine step in any built-in.
+      for (final def in [specAndImplement, planAndImplement, codeReview]) {
+        expect(def.steps.any((s) => s.id == 'verify-refine'), isFalse);
+      }
+
+      // spec-and-implement remediation loop: entryGate on integrated-review, exitGate on re-review.
+      final specRemLoop = specAndImplement.loops.firstWhere((l) => l.entryGate?.contains('integrated-review') ?? false);
+      expect(specRemLoop.entryGate, contains('integrated-review.gating_findings_count > 0'));
+      expect(specRemLoop.exitGate, contains('re-review.gating_findings_count == 0'));
+
+      // plan-and-implement remediation loop: entryGate on plan-review.
+      final planRemLoop = planAndImplement.loops.firstWhere((l) => l.entryGate?.contains('plan-review') ?? false);
+      expect(planRemLoop.entryGate, contains('plan-review.gating_findings_count > 0'));
+      expect(planRemLoop.exitGate, contains('re-review.gating_findings_count == 0'));
+
+      // code-review remediation loop: entryGate on review-code.
+      final codeRemLoop = codeReview.loops.firstWhere((l) => l.entryGate?.contains('review-code') ?? false);
+      expect(codeRemLoop.entryGate, contains('review-code.gating_findings_count > 0'));
+      expect(codeRemLoop.exitGate, contains('re-review.gating_findings_count == 0'));
     });
   });
 
@@ -242,23 +395,58 @@ void main() {
       expect(registry.length, equals(1));
       expect(registry.getByName('valid-wf'), isNotNull);
     });
+
+    test('wrong-shaped YAML values are excluded without aborting sibling loading', () async {
+      File(p.join(tempDir.path, 'valid.yaml')).writeAsStringSync(_validCustomYaml('valid-wf'));
+      File(p.join(tempDir.path, 'wrong-shaped.yaml')).writeAsStringSync('''
+name: wrong-shaped
+description: Wrong-shaped workflow
+steps:
+  - id: review
+    name: Review
+    prompt: Review it.
+    extraction:
+      type: [json]
+      pattern: {}
+''');
+
+      final registry = _makeRegistry();
+      await registry.loadFromDirectory(tempDir.path);
+
+      expect(registry.length, equals(1));
+      expect(registry.getByName('valid-wf'), isNotNull);
+      expect(registry.getByName('wrong-shaped'), isNull);
+    });
   });
 
   // ------------------------------------------------------------------
   // Name collision
   // ------------------------------------------------------------------
   group('name collision', () {
-    test('custom with built-in name: built-in kept, custom skipped', () async {
+    test('custom with materialized name: materialized kept, custom skipped', () async {
       File(p.join(tempDir.path, 'spec-and-implement.yaml')).writeAsStringSync(_validCustomYaml('spec-and-implement'));
 
-      final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      final previousHierarchicalLoggingEnabled = hierarchicalLoggingEnabled;
+      hierarchicalLoggingEnabled = true;
+      addTearDown(() => hierarchicalLoggingEnabled = previousHierarchicalLoggingEnabled);
+
+      final logger = Logger('workflow-registry-test-conflict')..level = Level.ALL;
+      final records = <LogRecord>[];
+      final sub = logger.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      final registry = _makeRegistry(log: logger);
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
-      // Still built-in
-      expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.builtIn));
-      // Total count unchanged — custom did not add a new entry
-      expect(registry.length, equals(4));
+      expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.materialized));
+      expect(registry.length, equals(3));
+      expect(
+        records.any(
+          (record) => record.level == Level.WARNING && record.message.toLowerCase().contains('materialized workflow'),
+        ),
+        isTrue,
+      );
     });
 
     test('two custom workflows with same name: last loaded wins', () async {
@@ -276,44 +464,44 @@ void main() {
       expect(registry.length, equals(1));
     });
 
-    test('custom with unique name alongside built-ins: both available', () async {
+    test('custom with unique name alongside materialized workflows: both available', () async {
       File(p.join(tempDir.path, 'unique-wf.yaml')).writeAsStringSync(_validCustomYaml('unique-wf'));
 
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
       expect(registry.getByName('unique-wf'), isNotNull);
       expect(registry.getByName('spec-and-implement'), isNotNull);
-      expect(registry.length, equals(5));
+      expect(registry.length, equals(4));
     });
   });
 
   // ------------------------------------------------------------------
-  // Integration: built-in + custom combined
+  // Integration: materialized + custom combined
   // ------------------------------------------------------------------
-  group('integration: built-in + custom', () {
-    test('listAll() includes both built-in and custom definitions', () async {
+  group('integration: materialized + custom', () {
+    test('listAll() includes both materialized and custom definitions', () async {
       File(p.join(tempDir.path, 'custom-a.yaml')).writeAsStringSync(_validCustomYaml('custom-a'));
       File(p.join(tempDir.path, 'custom-b.yaml')).writeAsStringSync(_validCustomYaml('custom-b'));
       File(p.join(tempDir.path, 'broken.yaml')).writeAsStringSync(_invalidYaml);
 
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
-      // 4 built-in + 2 valid custom (broken excluded)
-      expect(registry.length, equals(6));
-      expect(registry.listBuiltIn(), hasLength(4));
+      // 3 materialized + 2 valid custom (broken excluded)
+      expect(registry.length, equals(5));
+      expect(registry.listMaterialized(), hasLength(3));
       expect(registry.listCustom(), hasLength(2));
-      expect(registry.listAll(), hasLength(6));
+      expect(registry.listAll(), hasLength(5));
     });
   });
 
   // ------------------------------------------------------------------
-  // S01 (0.16.1): warnings-only and hard-error registry behavior
+  // warnings-only and hard-error registry behavior
   // ------------------------------------------------------------------
-  group('S01 (0.16.1): warnings-only loading', () {
+  group('warnings-only loading', () {
     test('warnings-only custom workflow is registered and listable', () async {
       File(p.join(tempDir.path, 'warn-wf.yaml')).writeAsStringSync(_warningsOnlyYaml('warn-wf'));
 
@@ -350,9 +538,9 @@ void main() {
   });
 
   // ------------------------------------------------------------------
-  // S01 (0.16.1): TI06 continuity-provider capability flow
+  // TI06 continuity-provider capability flow
   // ------------------------------------------------------------------
-  group('S01 (0.16.1): continuity-provider capability validation', () {
+  group('continuity-provider capability validation', () {
     const continueSessionYaml = '''
 name: continue-session-wf
 description: Workflow using continueSession.

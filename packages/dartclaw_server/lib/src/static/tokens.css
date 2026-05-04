@@ -34,6 +34,7 @@
   --error:       #f38ba8;
   --warning:     #fab387;
   --info:        #89b4fa;
+  --color-peach: #fab387;
 
   /* --- Brand --- */
   --color-claude: #e07c4f;  /* Claude brand terracotta/orange */
@@ -54,10 +55,13 @@
 
   --weight-normal: 400;
   --weight-medium: 500;
+  --weight-semibold: 550;
   --weight-bold:   600;
 
   /* --- Spacing (4px base) --- */
+  --sp-0:  0;
   --sp-1:  0.25rem;
+  --sp-px: 0.125rem;
   --sp-2:  0.5rem;
   --sp-3:  0.75rem;
   --sp-4:  1rem;
@@ -72,6 +76,7 @@
   --topbar-h:      48px;
   --input-h:       80px;
   --container-max: 900px;
+  --container-wide: 1120px;
 
   /* --- Breakpoints (reference only — used in media queries) --- */
   /* --bp-mobile:  640px;  */
@@ -79,8 +84,10 @@
   /* --bp-desktop: 1024px; */
 
   /* --- Effects --- */
+  --radius-sm: 3px;
   --radius:    4px;
   --radius-lg: 6px;
+  --radius-full: 999px;
 
   --border:           1px solid var(--bg-surface0);
   --border-active:    1px solid var(--accent);

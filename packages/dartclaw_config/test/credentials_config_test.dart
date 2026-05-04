@@ -36,7 +36,44 @@ credentials:
       );
 
       expect(config.credentials['anthropic']?.apiKey, 'anthropic-test-key');
+      expect(config.credentials['anthropic']?.envVars, ['ANTHROPIC_API_KEY']);
       expect(config.credentials['openai']?.apiKey, 'openai-test-key');
+      expect(config.credentials['openai']?.envVars, ['OPENAI_API_KEY']);
+    });
+
+    test('captures env-var provenance for custom-named api-key credentials', () {
+      final config = _loadYaml('''
+credentials:
+  github-ssh:
+    api_key: \${MY_CUSTOM_SECRET}
+''');
+
+      expect(config.credentials['github-ssh']?.envVars, ['MY_CUSTOM_SECRET']);
+    });
+
+    test('captures env-var provenance for github-token credentials', () {
+      final config = _loadYaml(
+        '''
+credentials:
+  github-main:
+    type: github-token
+    token: \${GH_TOKEN}
+''',
+        env: {'GH_TOKEN': 'secret'},
+      );
+
+      expect(config.credentials['github-main']?.token, 'secret');
+      expect(config.credentials['github-main']?.envVars, ['GH_TOKEN']);
+    });
+
+    test('leaves envVars empty when the credential uses a literal value', () {
+      final config = _loadYaml('''
+credentials:
+  openai:
+    api_key: literal-api-key
+''');
+
+      expect(config.credentials['openai']?.envVars, isEmpty);
     });
 
     test('unresolved env var resolves to empty string and logs warning', () async {
@@ -79,6 +116,26 @@ credentials:
 ''');
 
       expect(config.credentials['openai']?.apiKey, 'literal-api-key');
+      expect(config.credentials['openai']?.type, CredentialType.apiKey);
+    });
+
+    test('parses typed github-token credentials with repository policy', () {
+      final config = _loadYaml(
+        '''
+credentials:
+  github-main:
+    type: github-token
+    token: \${GITHUB_TOKEN}
+    repository: acme/platform
+''',
+        env: {'GITHUB_TOKEN': 'ghp_token'},
+      );
+
+      final entry = config.credentials['github-main'];
+      expect(entry, isNotNull);
+      expect(entry?.type, CredentialType.githubToken);
+      expect(entry?.token, 'ghp_token');
+      expect(entry?.repository, 'acme/platform');
     });
 
     test('handles missing api_key field in credential entry', () {
@@ -97,6 +154,17 @@ credentials:
 
       expect(config.credentials.isEmpty, isTrue);
       expect(config.warnings, anyElement(contains('Invalid type for credentials')));
+    });
+
+    test('warns on missing github-token token field', () {
+      final config = _loadYaml('''
+credentials:
+  github-main:
+    type: github-token
+''');
+
+      expect(config.credentials.isEmpty, isTrue);
+      expect(config.warnings, anyElement(contains('credentials.github-main missing "token"')));
     });
   });
 }

@@ -1,0 +1,21 @@
+# file:line:reason
+# Paths are relative to the workspace root (the directory the check is invoked from).
+# The check canonicalizes paths before comparison so absolute paths also work locally.
+#
+# Curated 2026-05-02 after the 0.16.4 task_executor decomposition: most workflow
+# orchestration moved into WorkflowWorktreeBinder + WorkflowOneShotRunner, so the
+# remaining refs in task_executor are limited to dependency wiring and a single
+# delegation entry point + the workflow-orchestrated execution dispatch.
+packages/dartclaw_server/lib/src/task/task_executor.dart:80:workflow-cli-runner-wiring
+packages/dartclaw_server/lib/src/task/task_executor.dart:81:workflow-step-execution-repository-wiring
+packages/dartclaw_server/lib/src/task/task_executor.dart:82:workflow-run-repository-wiring
+packages/dartclaw_server/lib/src/task/task_executor.dart:111:workflow-cli-runner-field
+packages/dartclaw_server/lib/src/task/task_executor.dart:112:workflow-step-execution-repository-field
+packages/dartclaw_server/lib/src/task/task_executor.dart:113:workflow-run-repository-field
+packages/dartclaw_server/lib/src/task/task_executor.dart:148:workflow-run-repository-binder-arg
+packages/dartclaw_server/lib/src/task/task_executor.dart:151:workflow-one-shot-runner-creation
+packages/dartclaw_server/lib/src/task/task_executor.dart:152:workflow-one-shot-runner-cli-runner-arg
+packages/dartclaw_server/lib/src/task/task_executor.dart:153:workflow-one-shot-runner-step-execution-repository-arg
+packages/dartclaw_server/lib/src/task/task_executor.dart:165:workflow-shared-worktree-binding-method
+packages/dartclaw_server/lib/src/task/task_executor.dart:166:workflow-shared-worktree-binding-delegate
+packages/dartclaw_server/lib/src/task/task_executor.dart:525:workflow-one-shot-runner-execute

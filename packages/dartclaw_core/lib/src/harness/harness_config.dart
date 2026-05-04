@@ -12,7 +12,14 @@ class HarnessConfig {
   /// suffixes (`opus[1m]`). When null, the harness falls back to `opus[1m]`.
   final String? model;
 
-  /// Optional reasoning effort level (`low`, `medium`, `high`, `max`).
+  /// Optional reasoning effort level, passed verbatim to the provider binary.
+  ///
+  /// DartClaw performs no canonical/provider mapping — the string is forwarded
+  /// unchanged as `--effort <value>` (Claude) or `-c model_reasoning_effort="<value>"`
+  /// (Codex exec), so use the exact literal the target provider accepts.
+  /// Current provider vocabularies:
+  /// - Claude: `low` | `medium` | `high` | `xhigh` | `max`
+  /// - Codex/GPT-5: `low` | `medium` | `high` | `xhigh`
   final String? effort;
 
   /// Optional sub-agent configuration forwarded during initialization.

@@ -65,7 +65,7 @@ advisor:
       expect(config.warnings, contains(contains('Unknown advisor trigger: "bad_trigger"')));
     });
 
-    test('unrecognized advisor model and effort produce warnings', () {
+    test('unrecognized advisor model warns; effort passes through verbatim', () {
       final config = DartclawConfig.load(
         configPath: 'dartclaw.yaml',
         fileReader: (path) {
@@ -82,7 +82,11 @@ advisor:
       expect(config.advisor.model, 'mystery-model');
       expect(config.advisor.effort, 'turbo');
       expect(config.warnings, anyElement(contains('Unrecognized advisor.model')));
-      expect(config.warnings, anyElement(contains('Unrecognized advisor.effort')));
+      expect(
+        config.warnings,
+        isNot(anyElement(contains('advisor.effort'))),
+        reason: 'effort is forwarded verbatim to the provider — no canonical allow-list',
+      );
     });
 
     test('registerExtensionParser rejects advisor as built-in key', () {

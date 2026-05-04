@@ -1,7 +1,7 @@
 name: dartclaw_server
 description: Reference HTTP API server and HTMX web UI for DartClaw deployments and task workflows.
 publish_to: none
-version: 0.9.0
+version: 0.16.4
 repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_server
 homepage: https://github.com/DartClaw/dartclaw
 issue_tracker: https://github.com/DartClaw/dartclaw/issues
@@ -60,3 +60,8 @@ dev_dependencies:
   sqlite3: ^3.1.6
   test: ^1.31.0
   lints: ^6.1.0
+
+hooks:
+  user_defines:
+    sqlite3:
+      source: system

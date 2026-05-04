@@ -3,16 +3,16 @@ import 'dart:io';
 import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowDefinition;
 import 'package:logging/logging.dart';
 
-import 'built_in_workflows.dart';
 import 'workflow_definition_source.dart';
+import 'workflow_definition_resolver.dart';
 import 'workflow_definition_parser.dart';
 import 'skill_registry.dart';
 import 'workflow_definition_validator.dart' show ValidationReport, WorkflowDefinitionValidator;
 
 /// Source type for a registered workflow definition.
 enum WorkflowSource {
-  /// Bundled with DartClaw — loaded from embedded constants.
-  builtIn,
+  /// Materialized into the workspace from bundled assets or the source tree.
+  materialized,
 
   /// User-authored — discovered from a filesystem directory.
   custom,
@@ -26,18 +26,21 @@ class _RegisteredWorkflow {
   const _RegisteredWorkflow({required this.definition, required this.source, this.sourcePath});
 }
 
-/// Production registry of workflow definitions — built-in and custom.
+/// Production registry of workflow definitions - materialized and custom.
 ///
-/// Implements [WorkflowDefinitionSource] (S05) to serve as the single
-/// source of workflow definitions for the API routes, CLI, and UI.
+/// Implements [WorkflowDefinitionSource] as the single source of workflow
+/// definitions for the API routes, CLI, and UI.
 ///
-/// Built-in workflows are loaded from embedded Dart string constants
-/// (derived from the YAML source files in `definitions/`). Custom
-/// workflows are discovered from filesystem directories at startup.
+/// Materialized workflows are loaded from the workspace copy of the bundled
+/// YAML definitions. Custom workflows are discovered from filesystem
+/// directories at startup.
 ///
-/// Name collision policy: built-in names take precedence. Custom
-/// workflows with the same name as a built-in are logged and skipped.
+/// Name collision policy: materialized names take precedence. Custom
+/// workflows with the same name as a materialized workflow are logged and
+/// skipped.
 class WorkflowRegistry implements WorkflowDefinitionSource {
+  static const _resolver = WorkflowDefinitionResolver();
+
   final WorkflowDefinitionParser _parser;
   final WorkflowDefinitionValidator _validator;
   final Set<String>? _continuityProviders;
@@ -55,51 +58,16 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
        _continuityProviders = continuityProviders,
        _log = log ?? Logger('WorkflowRegistry');
 
-  /// Sets the skill registry on the validator for skill-aware validation (S04).
   set skillRegistry(SkillRegistry? registry) => _validator.skillRegistry = registry;
-
-  /// Loads all built-in workflow definitions from embedded constants.
-  ///
-  /// Called once during server startup before custom discovery, so that
-  /// built-in names take precedence over any custom workflows with the
-  /// same name.
-  void loadBuiltIn() {
-    for (final entry in builtInWorkflowYaml.entries) {
-      try {
-        final definition = _parser.parse(entry.value, sourcePath: 'built-in:${entry.key}');
-        final report = _validator.validate(definition, continuityProviders: _continuityProviders);
-        if (report.hasErrors) {
-          _log.severe(
-            'Built-in workflow "${entry.key}" failed validation: '
-            '${report.errors.join('; ')}. This is a bug — please report it.',
-          );
-          continue;
-        }
-        if (report.hasWarnings) {
-          _log.warning(
-            'Built-in workflow "${entry.key}" has validation warnings: '
-            '${report.warnings.join('; ')}',
-          );
-        }
-        _definitions[definition.name] = _RegisteredWorkflow(definition: definition, source: WorkflowSource.builtIn);
-        _log.info('Loaded built-in workflow: ${definition.name}');
-      } on FormatException catch (e) {
-        _log.severe(
-          'Built-in workflow "${entry.key}" has invalid YAML: $e. '
-          'This is a bug — please report it.',
-        );
-      }
-    }
-  }
 
   /// Discovers and loads custom workflow YAML files from [directory].
   ///
   /// Scans for `.yaml` files (non-recursive), parses and validates each.
-  /// Valid definitions are registered with source type [WorkflowSource.custom].
+  /// Valid definitions are registered with the provided [source].
   /// Invalid files are logged and skipped — the server continues without them.
   ///
   /// If [directory] does not exist, this is a no-op (not an error).
-  Future<void> loadFromDirectory(String directory) async {
+  Future<void> loadFromDirectory(String directory, {WorkflowSource source = WorkflowSource.custom}) async {
     final dir = Directory(directory);
     if (!await dir.exists()) {
       _log.fine('Workflow directory does not exist, skipping: $directory');
@@ -109,6 +77,7 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
     await for (final entity in dir.list()) {
       if (entity is! File) continue;
       if (!entity.path.endsWith('.yaml')) continue;
+      final sourceLabel = source == WorkflowSource.materialized ? 'Materialized' : 'Custom';
 
       try {
         final content = await entity.readAsString();
@@ -116,46 +85,64 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
         final ValidationReport report = _validator.validate(definition, continuityProviders: _continuityProviders);
         if (report.hasErrors) {
           _log.warning(
-            'Custom workflow excluded: ${entity.path} — '
+            '$sourceLabel workflow excluded: ${entity.path} — '
             'validation errors: ${report.errors.join('; ')}',
           );
           continue;
         }
         if (report.hasWarnings) {
           _log.warning(
-            'Custom workflow "${definition.name}" from ${entity.path} '
+            '$sourceLabel workflow "${definition.name}" from ${entity.path} '
             'loaded with warnings: ${report.warnings.join('; ')}',
           );
         }
 
-        // Name collision check — built-in names always win.
+        // Name collision check — materialized names always win.
         if (_definitions.containsKey(definition.name)) {
           final existing = _definitions[definition.name]!;
-          if (existing.source == WorkflowSource.builtIn) {
+          if (existing.source == WorkflowSource.materialized && source == WorkflowSource.custom) {
             _log.warning(
-              'Custom workflow "${definition.name}" from '
-              '${entity.path} skipped — name conflicts with built-in '
-              'workflow. Choose a different name.',
+              'Custom workflow "${definition.name}" from ${entity.path} skipped '
+              '— name conflicts with materialized workflow. Choose a different name.',
             );
             continue;
           }
-          // Custom-to-custom collision: last loaded wins with warning.
-          _log.warning(
-            'Custom workflow "${definition.name}" from '
-            '${entity.path} replaces previous custom definition.',
-          );
+          if (existing.source == WorkflowSource.custom && source == WorkflowSource.materialized) {
+            _log.warning(
+              'Materialized workflow "${definition.name}" from ${entity.path} '
+              'replaces previous custom definition.',
+            );
+          } else if (existing.source == WorkflowSource.custom && source == WorkflowSource.custom) {
+            // Custom-to-custom collision: last loaded wins with warning.
+            _log.warning(
+              'Custom workflow "${definition.name}" from ${entity.path} '
+              'replaces previous custom definition.',
+            );
+          }
         }
 
         _definitions[definition.name] = _RegisteredWorkflow(
           definition: definition,
-          source: WorkflowSource.custom,
+          source: source,
           sourcePath: entity.path,
         );
-        _log.info('Loaded custom workflow: ${definition.name} from ${entity.path}');
+        if (source == WorkflowSource.materialized) {
+          _log.info('Loaded materialized workflow: ${definition.name}');
+        } else {
+          _log.info('Loaded custom workflow: ${definition.name} from ${entity.path}');
+        }
       } on FormatException catch (e) {
-        _log.warning('Custom workflow excluded: ${entity.path} — invalid YAML: $e');
+        _log.warning('$sourceLabel workflow excluded: ${entity.path} — invalid YAML: $e');
+      } on ArgumentError catch (e) {
+        _log.warning('$sourceLabel workflow excluded: ${entity.path} — invalid workflow definition: $e');
+      } on TypeError catch (e, st) {
+        // TypeError out of the parser indicates a hard cast failure inside
+        // WorkflowDefinitionParser (a parser bug), not malformed user input.
+        // Log at severe so it stays visible alongside other internal errors;
+        // the workflow is still excluded so the registry remains usable.
+        _log.severe('$sourceLabel workflow excluded: ${entity.path} — internal parser error: $e', e, st);
       } on FileSystemException catch (e) {
-        _log.warning('Custom workflow excluded: ${entity.path} — file read error: $e');
+        _log.warning('$sourceLabel workflow excluded: ${entity.path} — file read error: $e');
       }
     }
   }
@@ -164,23 +151,41 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
   WorkflowDefinition? getByName(String name) => _definitions[name]?.definition;
 
   @override
+  String? authoredYaml(String name) {
+    final registered = _definitions[name];
+    if (registered == null) return null;
+    final sourcePath = registered.sourcePath;
+    if (sourcePath != null) {
+      final file = File(sourcePath);
+      if (file.existsSync()) return file.readAsStringSync();
+    }
+    return _resolver.emitYaml(registered.definition);
+  }
+
+  @override
   List<WorkflowSummary> listSummaries() =>
       _definitions.values.map((registered) => _toSummary(registered.definition)).toList(growable: false);
 
   List<WorkflowDefinition> listAll() => _definitions.values.map((r) => r.definition).toList(growable: false);
 
-  /// Returns only built-in workflow definitions.
-  List<WorkflowDefinition> listBuiltIn() =>
-      _definitions.values.where((r) => r.source == WorkflowSource.builtIn).map((r) => r.definition).toList();
+  /// Returns only materialized workflow definitions.
+  List<WorkflowDefinition> listMaterialized() => _definitions.values
+      .where((r) => r.source == WorkflowSource.materialized)
+      .map((r) => r.definition)
+      .toList(growable: false);
+
+  /// Compatibility alias for older callers.
+  @Deprecated('Use listMaterialized()')
+  List<WorkflowDefinition> listBuiltIn() => listMaterialized();
 
   /// Returns only custom workflow definitions.
-  List<WorkflowDefinition> listCustom() =>
-      _definitions.values.where((r) => r.source == WorkflowSource.custom).map((r) => r.definition).toList();
+  List<WorkflowDefinition> listCustom() => _definitions.values
+      .where((r) => r.source == WorkflowSource.custom)
+      .map((r) => r.definition)
+      .toList(growable: false);
 
-  /// Returns the number of registered workflows.
   int get length => _definitions.length;
 
-  /// Returns the source type for a workflow by name, or null if not found.
   WorkflowSource? sourceOf(String name) => _definitions[name]?.source;
 
   static WorkflowSummary _toSummary(WorkflowDefinition definition) => (

@@ -22,6 +22,7 @@ void main() {
       final usage = runner.usage;
       expect(usage, contains('serve'));
       expect(usage, contains('status'));
+      expect(usage, contains('--token'));
     });
 
     test('no arguments outputs help text', () async {

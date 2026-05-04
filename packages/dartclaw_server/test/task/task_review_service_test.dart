@@ -261,6 +261,43 @@ void main() {
       expect((await tasks.get('task-1'))!.status, TaskStatus.accepted);
     });
 
+    test('accepting workflow-owned git review tasks skips merge and cleanup', () async {
+      await tasks.create(
+        id: 'task-workflow-review',
+        title: 'Workflow review task',
+        description: 'Workflow review task',
+        type: TaskType.coding,
+        autoStart: true,
+        workflowRunId: 'run-123',
+        now: DateTime.parse('2026-03-13T10:00:00Z'),
+        configJson: const {
+          '_workflowGit': {'worktree': 'per-map-item', 'promotion': 'merge'},
+        },
+      );
+      await tasks.transition('task-workflow-review', TaskStatus.running, now: DateTime.parse('2026-03-13T10:05:00Z'));
+      await tasks.transition('task-workflow-review', TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z'));
+      await tasks.updateFields(
+        'task-workflow-review',
+        worktreeJson: const {
+          'path': '/tmp/worktree',
+          'branch': 'dartclaw/workflow/run123/story',
+          'createdAt': '2026-03-13T10:00:00.000Z',
+        },
+      );
+      final mergeExecutor = _RecordingMergeExecutor(
+        result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-workflow-review): accept'),
+      );
+      final worktreeManager = _RecordingWorktreeManager();
+      final service = TaskReviewService(tasks: tasks, mergeExecutor: mergeExecutor, worktreeManager: worktreeManager);
+
+      final result = await service.review('task-workflow-review', 'accept');
+
+      expect(result, const TypeMatcher<ReviewSuccess>());
+      expect((await tasks.get('task-workflow-review'))!.status, TaskStatus.accepted);
+      expect(mergeExecutor.callCount, 0);
+      expect(worktreeManager.cleanedTaskIds, isEmpty);
+    });
+
     test('returns merge conflict and persists conflict artifacts', () async {
       final tempDir = await Directory.systemTemp.createTemp('dartclaw_task_review_conflict_');
       addTearDown(() async {
@@ -430,14 +467,15 @@ void main() {
       final pushService = _FakeRemotePushService(result: const PushSuccess());
       final prCreator = _FakePrCreator(result: const PrCreated('https://github.com/u/r/pull/42'));
       final worktreeManager = _RecordingWorktreeManager();
+      final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
-
         remotePushService: pushService,
         prCreator: prCreator,
         projectService: projectService,
         worktreeManager: worktreeManager,
         dataDir: tempDir.path,
+        processRunner: gitRunner.run,
       );
 
       final result = await service.review('task-proj', 'accept');
@@ -468,12 +506,13 @@ void main() {
         ),
       );
       final pushService = _FakeRemotePushService(result: const PushSuccess());
+      final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
-
         remotePushService: pushService,
         projectService: projectService,
         dataDir: tempDir.path,
+        processRunner: gitRunner.run,
       );
 
       final result = await service.review('task-branch', 'accept');
@@ -483,6 +522,44 @@ void main() {
       final branchArtifact = artifacts.firstWhere((a) => a.kind == ArtifactKind.pr);
       expect(branchArtifact.name, 'Branch');
       expect(branchArtifact.path, 'dartclaw/task-task-branch');
+    });
+
+    test('project-backed accept commits dirty worktree changes before push', () async {
+      final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await _putProjectTaskInReview(tasks, 'task-dirty');
+
+      final projectService = _projectService(
+        project: _makeProject(
+          id: 'my-app',
+          pr: const PrConfig(strategy: PrStrategy.branchOnly),
+        ),
+      );
+      final pushService = _FakeRemotePushService(result: const PushSuccess());
+      final gitRunner = _FakeGitRunner.withResponses({
+        'status --porcelain --untracked-files=all': _gitResult('?? notes/spec-publish.md\n'),
+        'add -A': _gitResult(''),
+        'commit -m task(task-dirty): Project task task-dirty': _gitResult('[branch abc123] commit\n'),
+        'rev-parse --verify origin/main': _gitResult('origin/main\n'),
+        'diff --quiet origin/main...HEAD': _gitResult('', exitCode: 1),
+      });
+      final service = TaskReviewService(
+        tasks: tasks,
+        remotePushService: pushService,
+        projectService: projectService,
+        dataDir: tempDir.path,
+        processRunner: gitRunner.run,
+      );
+
+      final result = await service.review('task-dirty', 'accept');
+
+      expect(result, const TypeMatcher<ReviewSuccess>());
+      expect(pushService.callCount, 1);
+      expect(gitRunner.commands, contains('add -A'));
+      expect(gitRunner.commands, contains('commit -m task(task-dirty): Project task task-dirty'));
     });
 
     test('gh not found → push succeeds, warning artifact, task accepted', () async {
@@ -501,13 +578,14 @@ void main() {
       );
       final pushService = _FakeRemotePushService(result: const PushSuccess());
       final prCreator = _FakePrCreator(result: const PrGhNotFound('gh not found. Create PR manually.'));
+      final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
-
         remotePushService: pushService,
         prCreator: prCreator,
         projectService: projectService,
         dataDir: tempDir.path,
+        processRunner: gitRunner.run,
       );
 
       final result = await service.review('task-gh', 'accept');
@@ -517,6 +595,49 @@ void main() {
       final artifacts = await tasks.listArtifacts('task-gh');
       final prArtifact = artifacts.firstWhere((a) => a.kind == ArtifactKind.pr);
       expect(prArtifact.name, 'PR Instructions');
+    });
+
+    test('PR creation failure keeps task in review and preserves the worktree', () async {
+      final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await _putProjectTaskInReview(tasks, 'task-pr-failure');
+
+      final projectService = _projectService(
+        project: _makeProject(
+          id: 'my-app',
+          pr: const PrConfig(strategy: PrStrategy.githubPr),
+        ),
+      );
+      final pushService = _FakeRemotePushService(result: const PushSuccess());
+      final prCreator = _FakePrCreator(
+        result: const PrCreationFailed(
+          error: 'GitHub PR creation failed (HTTP 422)',
+          details: 'A pull request already exists for this branch.',
+        ),
+      );
+      final worktreeManager = _RecordingWorktreeManager();
+      final gitRunner = _FakeGitRunner.cleanBranchDiff();
+      final service = TaskReviewService(
+        tasks: tasks,
+        remotePushService: pushService,
+        prCreator: prCreator,
+        projectService: projectService,
+        worktreeManager: worktreeManager,
+        dataDir: tempDir.path,
+        processRunner: gitRunner.run,
+      );
+
+      final result = await service.review('task-pr-failure', 'accept');
+
+      expect(result, isA<ReviewActionFailed>());
+      expect((await tasks.get('task-pr-failure'))!.status, TaskStatus.review);
+      expect(worktreeManager.cleanedTaskIds, isEmpty);
+      final artifacts = await tasks.listArtifacts('task-pr-failure');
+      final prArtifact = artifacts.firstWhere((a) => a.kind == ArtifactKind.pr);
+      expect(prArtifact.name, 'PR Creation Error');
     });
 
     test('push auth failure → task stays in review, error artifact stored', () async {
@@ -532,13 +653,14 @@ void main() {
         result: const PushAuthFailure('Authentication denied. Check credentials.'),
       );
       final worktreeManager = _RecordingWorktreeManager();
+      final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
-
         remotePushService: pushService,
         projectService: projectService,
         worktreeManager: worktreeManager,
         dataDir: tempDir.path,
+        processRunner: gitRunner.run,
       );
 
       final result = await service.review('task-auth', 'accept');
@@ -561,12 +683,13 @@ void main() {
 
       final projectService = _projectService(project: _makeProject(id: 'my-app'));
       final pushService = _FakeRemotePushService(result: const PushRejected('non-fast-forward update rejected'));
+      final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
-
         remotePushService: pushService,
         projectService: projectService,
         dataDir: tempDir.path,
+        processRunner: gitRunner.run,
       );
 
       final result = await service.review('task-reject', 'accept');
@@ -685,6 +808,7 @@ class _RecordingMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     callCount += 1;
@@ -706,6 +830,7 @@ class _BlockingMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     callCount += 1;
@@ -728,6 +853,7 @@ class _ThrowingMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     throw error;
@@ -822,4 +948,29 @@ class _FakePrCreator extends PrCreator {
   @override
   Future<PrCreationResult> create({required Project project, required Task task, required String branch}) async =>
       result;
+}
+
+class _FakeGitRunner {
+  final Map<String, ProcessResult> _responses;
+  final List<String> commands = [];
+
+  _FakeGitRunner._(this._responses);
+
+  factory _FakeGitRunner.withResponses(Map<String, ProcessResult> responses) => _FakeGitRunner._(responses);
+
+  factory _FakeGitRunner.cleanBranchDiff() => _FakeGitRunner.withResponses({
+    'status --porcelain --untracked-files=all': _gitResult(''),
+    'rev-parse --verify origin/main': _gitResult('origin/main\n'),
+    'diff --quiet origin/main...HEAD': _gitResult('', exitCode: 1),
+  });
+
+  Future<ProcessResult> run(String executable, List<String> arguments, {String? workingDirectory}) async {
+    final key = arguments.join(' ');
+    commands.add(key);
+    return _responses[key] ?? _gitResult('');
+  }
+}
+
+ProcessResult _gitResult(String stdout, {String stderr = '', int exitCode = 0}) {
+  return ProcessResult(0, exitCode, stdout, stderr);
 }

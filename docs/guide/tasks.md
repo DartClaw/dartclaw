@@ -182,8 +182,8 @@ scheduling:
       enabled: true
       task:
         title: Daily maintenance review
+        task_type: "coding"
         description: Review maintenance items and prepare a coding task if changes are needed.
-        type: coding
         acceptance_criteria: Tests stay green and the worktree is ready for review.
         auto_start: true
 ```
@@ -200,7 +200,6 @@ scheduling:
       task:
         title: Quick analysis
         description: Run a lightweight daily analysis.
-        type: analysis
 ```
 
 See [Scheduling](scheduling.md) for the broader scheduler model.

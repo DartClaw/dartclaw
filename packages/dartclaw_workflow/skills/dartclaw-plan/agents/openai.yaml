@@ -1,4 +1,0 @@
-interface:
-  display_name: "DartClaw Plan"
-  short_description: "Decompose requirements into executable stories"
-  default_prompt: "Use $dartclaw-plan to turn requirements into a workflow-safe story plan, surfacing assumptions and open questions instead of blocking."

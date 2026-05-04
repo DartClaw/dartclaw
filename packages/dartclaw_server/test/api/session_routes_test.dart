@@ -4,7 +4,8 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_server/src/templates/sidebar.dart' show NavItem, SidebarData, SidebarSession;
+import 'package:dartclaw_server/src/templates/sidebar.dart'
+    show NavItem, SidebarActiveTask, SidebarActiveWorkflow, SidebarData, SidebarSession;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -195,6 +196,26 @@ void main() {
     });
   });
 
+  group('GET /api/sessions/<id>', () {
+    test('returns 200 with the session payload', () async {
+      final session = await sessions.createSession();
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/${session.id}')));
+
+      expect(res.statusCode, equals(200));
+      final body = jsonDecode(await res.readAsString()) as Map<String, dynamic>;
+      expect(body['id'], session.id);
+      expect(body['type'], session.type.name);
+    });
+
+    test('returns 404 when the session does not exist', () async {
+      final res = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/missing')));
+
+      expect(res.statusCode, equals(404));
+      expect(await _errorCode(res), equals('SESSION_NOT_FOUND'));
+    });
+  });
+
   // -------------------------------------------------------------------------
   group('POST /api/sessions', () {
     test('returns 201 with created session', () async {
@@ -311,12 +332,14 @@ void main() {
     });
 
     test('returns HTML sidebar when sidebar builders are wired', () async {
-      const emptySidebarData = (
+      final emptySidebarData = (
         main: null,
         dmChannels: <SidebarSession>[],
         groupChannels: <SidebarSession>[],
         activeEntries: <SidebarSession>[],
         archivedEntries: <SidebarSession>[],
+        activeTasks: <SidebarActiveTask>[],
+        activeWorkflows: <SidebarActiveWorkflow>[],
         showChannels: true,
         tasksEnabled: false,
       );
@@ -357,6 +380,8 @@ void main() {
           groupChannels: <SidebarSession>[],
           activeEntries: <SidebarSession>[],
           archivedEntries: <SidebarSession>[],
+          activeTasks: <SidebarActiveTask>[],
+          activeWorkflows: <SidebarActiveWorkflow>[],
           showChannels: true,
           tasksEnabled: false,
         ),

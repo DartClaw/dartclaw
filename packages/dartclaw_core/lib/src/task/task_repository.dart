@@ -31,6 +31,18 @@ abstract class TaskRepository {
   /// missing or its status changed before the write.
   Future<bool> updateMutableFieldsIfStatus(Task task, {required TaskStatus expectedStatus});
 
+  /// Atomically merges [patch] into the task's `configJson` when the current
+  /// status matches [expectedStatus].
+  ///
+  /// Merge semantics follow RFC 7396 JSON Merge Patch: keys in [patch] replace
+  /// matching keys in `configJson`; null values remove keys. Because the merge
+  /// happens as a single storage-level update (not a read-modify-write), this
+  /// is safe against concurrent writers that only touch disjoint config keys.
+  ///
+  /// Returns `true` when the patch was applied, or `false` when the row is
+  /// missing or its status changed before the write.
+  Future<bool> mergeConfigJsonIfStatus(String taskId, Map<String, dynamic> patch, {required TaskStatus expectedStatus});
+
   /// Deletes a task by id.
   Future<void> delete(String id);
 

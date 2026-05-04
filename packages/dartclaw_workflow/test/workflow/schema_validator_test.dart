@@ -1,3 +1,5 @@
+// Pure unit test — SchemaValidator has no SQLite, filesystem, or
+// service dependencies. Default tier so it runs on -x component too.
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
 
@@ -200,6 +202,158 @@ void main() {
       test('returns no warnings when schema has no type', () {
         // Edge case: schema without 'type' field — validator does nothing.
         expect(validator.validate({'any': 'value'}, {}), isEmpty);
+      });
+    });
+
+    group('explicit-null property values', () {
+      test('explicit null value against typed property fires warning', () {
+        // Regression: previously _validateObject skipped any field whose
+        // value was null, conflating "absent" with "explicit null". A
+        // payload like {priority: null} bypassed type/enum/bounds checks.
+        const schema = {
+          'type': 'object',
+          'properties': {
+            'priority': {
+              'type': 'string',
+              'enum': ['low', 'medium', 'high'],
+            },
+          },
+        };
+        final warnings = validator.validate({'priority': null}, schema);
+        expect(warnings, hasLength(1));
+        expect(warnings.first, contains('got null'));
+      });
+
+      test('truly absent property remains skipped (not required)', () {
+        const schema = {
+          'type': 'object',
+          'properties': {
+            'priority': {'type': 'string'},
+          },
+        };
+        expect(validator.validate(<String, dynamic>{}, schema), isEmpty);
+      });
+
+      test('explicit null is fine when type allows null', () {
+        const schema = {
+          'type': 'object',
+          'properties': {
+            'priority': {
+              'type': ['string', 'null'],
+            },
+          },
+        };
+        expect(validator.validate({'priority': null}, schema), isEmpty);
+      });
+    });
+
+    group('additionalProperties: false enforcement', () {
+      const strictSchema = {
+        'type': 'object',
+        'properties': {
+          'name': {'type': 'string'},
+        },
+        'additionalProperties': false,
+      };
+
+      test('no extra fields returns no warnings', () {
+        expect(validator.validate({'name': 'Alice'}, strictSchema), isEmpty);
+      });
+
+      test('extra field returns warning', () {
+        final warnings = validator.validate({'name': 'Alice', 'extra': 1}, strictSchema);
+        expect(warnings, hasLength(1));
+        expect(warnings.first, contains('Unexpected property "extra"'));
+      });
+
+      test('schema without additionalProperties:false allows extra fields', () {
+        const lenient = {
+          'type': 'object',
+          'properties': {
+            'name': {'type': 'string'},
+          },
+        };
+        expect(validator.validate({'name': 'Alice', 'extra': 1}, lenient), isEmpty);
+      });
+    });
+
+    group('enum enforcement', () {
+      test('string matching enum passes', () {
+        expect(
+          validator.validate('low', {
+            'type': 'string',
+            'enum': ['low', 'medium', 'high'],
+          }),
+          isEmpty,
+        );
+      });
+
+      test('string not in enum returns warning', () {
+        final warnings = validator.validate('critical', {
+          'type': 'string',
+          'enum': ['low', 'medium', 'high'],
+        });
+        expect(warnings, hasLength(1));
+        expect(warnings.first, contains('"critical"'));
+        expect(warnings.first, contains('"low"'));
+      });
+
+      test('integer matching enum passes', () {
+        expect(
+          validator.validate(1, {
+            'type': 'integer',
+            'enum': [1, 2, 3],
+          }),
+          isEmpty,
+        );
+      });
+
+      test('integer not in enum returns warning', () {
+        final warnings = validator.validate(5, {
+          'type': 'integer',
+          'enum': [1, 2, 3],
+        });
+        expect(warnings, hasLength(1));
+        expect(warnings.first, contains('5'));
+      });
+    });
+
+    group('numeric bounds enforcement', () {
+      test('value at minimum boundary passes', () {
+        expect(validator.validate(0, {'type': 'integer', 'minimum': 0}), isEmpty);
+      });
+
+      test('value below minimum returns warning', () {
+        final warnings = validator.validate(-1, {'type': 'integer', 'minimum': 0});
+        expect(warnings, hasLength(1));
+        expect(warnings.first, contains('minimum 0'));
+      });
+
+      test('value at maximum boundary passes', () {
+        expect(validator.validate(10, {'type': 'integer', 'maximum': 10}), isEmpty);
+      });
+
+      test('value above maximum returns warning', () {
+        final warnings = validator.validate(11, {'type': 'integer', 'maximum': 10});
+        expect(warnings, hasLength(1));
+        expect(warnings.first, contains('maximum 10'));
+      });
+
+      test('number type respects minimum and maximum', () {
+        expect(validator.validate(3.14, {'type': 'number', 'minimum': 0.0, 'maximum': 5.0}), isEmpty);
+        expect(validator.validate(-0.1, {'type': 'number', 'minimum': 0.0}), hasLength(1));
+      });
+
+      test('max_parallel:0 triggers minimum warning when minimum is 1', () {
+        final warnings = validator.validate(0, {'type': 'integer', 'minimum': 1});
+        expect(warnings, hasLength(1));
+        expect(warnings.first, contains('minimum 1'));
+      });
+
+      test('negative max_parallel triggers minimum warning when minimum is 1', () {
+        final warnings = validator.validate(-3, {'type': 'integer', 'minimum': 1});
+        expect(warnings, hasLength(1));
+        expect(warnings.first, contains('minimum 1'));
       });
     });
   });

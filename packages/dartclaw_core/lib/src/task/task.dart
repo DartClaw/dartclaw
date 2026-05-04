@@ -1,5 +1,7 @@
 import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
 
+import '../execution/agent_execution.dart';
+import '../execution/workflow_step_execution.dart';
 import 'task_status.dart';
 
 /// Immutable task value object for orchestrated work.
@@ -27,9 +29,6 @@ class Task {
 
   /// Optional acceptance criteria used during review.
   final String? acceptanceCriteria;
-
-  /// Session associated with the task's execution, if one has been created.
-  final String? sessionId;
 
   /// Arbitrary task configuration persisted as immutable JSON data.
   final Map<String, dynamic> configJson;
@@ -59,8 +58,11 @@ class Task {
   /// message, or from the UI when created via the web interface.
   final String? createdBy;
 
-  /// Optional provider override for executing this task.
-  final String? provider;
+  /// Optional shared execution row linked to this task.
+  final String? agentExecutionId;
+
+  /// Optional hydrated shared execution row linked to this task.
+  final AgentExecution? agentExecution;
 
   /// Optional project this task targets.
   ///
@@ -68,19 +70,14 @@ class Task {
   /// When null, the task uses the default project (typically _local).
   final String? projectId;
 
-  /// Optional maximum token budget for this task.
-  ///
-  /// When set, cumulative token consumption is checked before each turn.
-  /// At the warning threshold: warning event + system message injected.
-  /// At 100%: task fails with `budget_exceeded` reason.
-  /// Overrides goal-level and global defaults.
-  final int? maxTokens;
-
   /// Optional workflow run that owns this task.
-  final String? workflowRunId;
+  final String? _workflowRunId;
 
   /// Optional step index within the workflow (0-based).
-  final int? stepIndex;
+  final int? _stepIndex;
+
+  /// Optional hydrated workflow step execution row linked to this task.
+  final WorkflowStepExecution? workflowStepExecution;
 
   /// Maximum retry attempts on failure (default 0 = no retries).
   ///
@@ -104,7 +101,7 @@ class Task {
     this.status = TaskStatus.draft,
     this.goalId,
     this.acceptanceCriteria,
-    this.sessionId,
+    String? sessionId,
     Map<String, dynamic>? configJson,
     Map<String, dynamic>? worktreeJson,
     required this.createdAt,
@@ -112,15 +109,33 @@ class Task {
     this.completedAt,
     this.version = 1,
     this.createdBy,
-    this.provider,
+    String? agentExecutionId,
+    AgentExecution? agentExecution,
     this.projectId,
-    this.maxTokens,
-    this.workflowRunId,
-    this.stepIndex,
+    String? provider,
+    String? model,
+    int? maxTokens,
+    String? workflowRunId,
+    int? stepIndex,
+    this.workflowStepExecution,
     this.maxRetries = 0,
     this.retryCount = 0,
   }) : configJson = _freezeJsonMap(configJson ?? const {}),
-       worktreeJson = worktreeJson == null ? null : _freezeJsonMap(worktreeJson);
+       worktreeJson = worktreeJson == null ? null : _freezeJsonMap(worktreeJson),
+       agentExecution =
+           agentExecution ??
+           _legacyAgentExecution(
+             agentExecutionId: agentExecutionId,
+             taskId: id,
+             sessionId: sessionId,
+             provider: provider,
+             model: model,
+             maxTokens: maxTokens,
+           ),
+       agentExecutionId =
+           agentExecutionId ?? agentExecution?.id ?? _legacyAgentExecutionId(id, sessionId, provider, model, maxTokens),
+       _workflowRunId = workflowRunId,
+       _stepIndex = stepIndex;
 
   /// Returns a new task with selected fields replaced.
   Task copyWith({
@@ -140,10 +155,14 @@ class Task {
     int? version,
     Object? createdBy = _sentinel,
     Object? provider = _sentinel,
+    Object? agentExecutionId = _sentinel,
+    Object? agentExecution = _sentinel,
     Object? projectId = _sentinel,
+    Object? model = _sentinel,
     Object? maxTokens = _sentinel,
     Object? workflowRunId = _sentinel,
     Object? stepIndex = _sentinel,
+    Object? workflowStepExecution = _sentinel,
     int? maxRetries,
     int? retryCount,
   }) => Task(
@@ -164,14 +183,51 @@ class Task {
     completedAt: identical(completedAt, _sentinel) ? this.completedAt : completedAt as DateTime?,
     version: version ?? this.version,
     createdBy: identical(createdBy, _sentinel) ? this.createdBy : createdBy as String?,
-    provider: identical(provider, _sentinel) ? this.provider : provider as String?,
+    agentExecutionId: identical(agentExecutionId, _sentinel) ? this.agentExecutionId : agentExecutionId as String?,
+    agentExecution: identical(agentExecution, _sentinel)
+        ? _copyAgentExecution(
+            this.id,
+            this.agentExecution,
+            sessionId: sessionId,
+            provider: provider,
+            model: model,
+            maxTokens: maxTokens,
+          )
+        : agentExecution as AgentExecution?,
     projectId: identical(projectId, _sentinel) ? this.projectId : projectId as String?,
+    model: identical(model, _sentinel) ? this.model : model as String?,
     maxTokens: identical(maxTokens, _sentinel) ? this.maxTokens : maxTokens as int?,
     workflowRunId: identical(workflowRunId, _sentinel) ? this.workflowRunId : workflowRunId as String?,
     stepIndex: identical(stepIndex, _sentinel) ? this.stepIndex : stepIndex as int?,
+    workflowStepExecution: identical(workflowStepExecution, _sentinel)
+        ? _copyWorkflowStepExecution(this.workflowStepExecution, workflowRunId: workflowRunId, stepIndex: stepIndex)
+        : workflowStepExecution as WorkflowStepExecution?,
     maxRetries: maxRetries ?? this.maxRetries,
     retryCount: retryCount ?? this.retryCount,
   );
+
+  /// Session associated with the task's execution, if one has been created.
+  String? get sessionId => agentExecution?.sessionId;
+
+  /// Optional provider override for executing this task.
+  String? get provider => agentExecution?.provider;
+
+  /// Optional model override resolved for this task.
+  String? get model => agentExecution?.model;
+
+  /// Optional maximum token budget for this task.
+  ///
+  /// When set, cumulative token consumption is checked before each turn.
+  /// At the warning threshold: warning event + system message injected.
+  /// At 100%: task fails with `budget_exceeded` reason.
+  /// Overrides goal-level and global defaults.
+  int? get maxTokens => agentExecution?.budgetTokens;
+
+  /// Optional workflow run that owns this task.
+  String? get workflowRunId => workflowStepExecution?.workflowRunId ?? _workflowRunId;
+
+  /// Optional step index within the workflow (0-based).
+  int? get stepIndex => workflowStepExecution?.stepIndex ?? _stepIndex;
 
   /// Applies a validated lifecycle transition and updates timestamps.
   Task transition(TaskStatus newStatus, {DateTime? now}) {
@@ -217,13 +273,9 @@ class Task {
     'version': version,
     if (goalId != null) 'goalId': goalId,
     if (acceptanceCriteria != null) 'acceptanceCriteria': acceptanceCriteria,
-    if (sessionId != null) 'sessionId': sessionId,
     if (createdBy != null) 'createdBy': createdBy,
-    if (provider != null) 'provider': provider,
+    if (agentExecutionId != null) 'agentExecutionId': agentExecutionId,
     if (projectId != null) 'projectId': projectId,
-    if (maxTokens != null) 'maxTokens': maxTokens,
-    if (workflowRunId != null) 'workflowRunId': workflowRunId,
-    if (stepIndex != null) 'stepIndex': stepIndex,
     if (maxRetries != 0) 'maxRetries': maxRetries,
     if (retryCount != 0) 'retryCount': retryCount,
     'configJson': _mutableJsonMap(configJson),
@@ -231,6 +283,8 @@ class Task {
     'createdAt': createdAt.toIso8601String(),
     if (startedAt != null) 'startedAt': startedAt!.toIso8601String(),
     if (completedAt != null) 'completedAt': completedAt!.toIso8601String(),
+    if (agentExecution != null) 'agentExecution': agentExecution!.toJson(),
+    if (workflowStepExecution != null) 'workflowStepExecution': workflowStepExecution!.toJson(),
   };
 
   /// Deserializes a task from persisted JSON.
@@ -243,24 +297,127 @@ class Task {
     version: (json['version'] as int?) ?? 1,
     goalId: json['goalId'] as String?,
     acceptanceCriteria: json['acceptanceCriteria'] as String?,
-    sessionId: json['sessionId'] as String?,
     configJson: _jsonMapOrEmpty(json['configJson']),
     worktreeJson: _jsonMapOrNull(json['worktreeJson']),
     createdAt: DateTime.parse(json['createdAt'] as String),
     startedAt: _parseDateTime(json['startedAt']),
     completedAt: _parseDateTime(json['completedAt']),
     createdBy: json['createdBy'] as String?,
-    provider: json['provider'] as String?,
+    agentExecutionId: json['agentExecutionId'] as String?,
+    agentExecution: _agentExecutionFromJson(json),
     projectId: json['projectId'] as String?,
-    maxTokens: (json['maxTokens'] as num?)?.toInt(),
-    workflowRunId: json['workflowRunId'] as String?,
-    stepIndex: json['stepIndex'] as int?,
+    workflowRunId: _workflowStepExecutionFromJson(json)?.workflowRunId,
+    stepIndex: _workflowStepExecutionFromJson(json)?.stepIndex,
+    workflowStepExecution: _workflowStepExecutionFromJson(json),
     maxRetries: (json['maxRetries'] as int?) ?? 0,
     retryCount: (json['retryCount'] as int?) ?? 0,
   );
+
+  /// True when this task is orchestrated by a workflow rather than the
+  /// standalone task review/merge flow.
+  bool get isWorkflowOwnedGitTask => workflowRunId != null;
 }
 
 const _sentinel = Object();
+
+AgentExecution? _legacyAgentExecution({
+  required String taskId,
+  required String? agentExecutionId,
+  required String? sessionId,
+  required String? provider,
+  required String? model,
+  required int? maxTokens,
+}) {
+  if (sessionId == null && provider == null && model == null && maxTokens == null) {
+    return null;
+  }
+  return AgentExecution(
+    id: agentExecutionId ?? _legacyAgentExecutionId(taskId, sessionId, provider, model, maxTokens)!,
+    sessionId: sessionId,
+    provider: provider,
+    model: model,
+    budgetTokens: maxTokens,
+  );
+}
+
+String? _legacyAgentExecutionId(String taskId, String? sessionId, String? provider, String? model, int? maxTokens) {
+  if (sessionId == null && provider == null && model == null && maxTokens == null) {
+    return null;
+  }
+  return 'legacy-ae:$taskId';
+}
+
+AgentExecution? _copyAgentExecution(
+  String taskId,
+  AgentExecution? current, {
+  required Object? sessionId,
+  required Object? provider,
+  required Object? model,
+  required Object? maxTokens,
+}) {
+  if (current == null) {
+    if (identical(sessionId, _sentinel) &&
+        identical(provider, _sentinel) &&
+        identical(model, _sentinel) &&
+        identical(maxTokens, _sentinel)) {
+      return null;
+    }
+    return _legacyAgentExecution(
+      taskId: taskId,
+      agentExecutionId: null,
+      sessionId: identical(sessionId, _sentinel) ? null : sessionId as String?,
+      provider: identical(provider, _sentinel) ? null : provider as String?,
+      model: identical(model, _sentinel) ? null : model as String?,
+      maxTokens: identical(maxTokens, _sentinel) ? null : maxTokens as int?,
+    );
+  }
+  var next = current;
+  if (!identical(sessionId, _sentinel)) {
+    next = next.copyWith(sessionId: sessionId as String?);
+  }
+  if (!identical(provider, _sentinel)) {
+    next = next.copyWith(provider: provider as String?);
+  }
+  if (!identical(model, _sentinel)) {
+    next = next.copyWith(model: model as String?);
+  }
+  if (!identical(maxTokens, _sentinel)) {
+    next = next.copyWith(budgetTokens: maxTokens as int?);
+  }
+  return next;
+}
+
+WorkflowStepExecution? _copyWorkflowStepExecution(
+  WorkflowStepExecution? current, {
+  required Object? workflowRunId,
+  required Object? stepIndex,
+}) {
+  if (current == null) return null;
+  var next = current;
+  if (!identical(workflowRunId, _sentinel)) {
+    next = next.copyWith(workflowRunId: workflowRunId as String?);
+  }
+  if (!identical(stepIndex, _sentinel)) {
+    next = next.copyWith(stepIndex: stepIndex as int?);
+  }
+  return next;
+}
+
+AgentExecution? _agentExecutionFromJson(Map<String, dynamic> json) {
+  final nested = json['agentExecution'];
+  if (nested is Map<String, dynamic>) {
+    return AgentExecution.fromJson(nested);
+  }
+  return null;
+}
+
+WorkflowStepExecution? _workflowStepExecutionFromJson(Map<String, dynamic> json) {
+  final nested = json['workflowStepExecution'];
+  if (nested is Map<String, dynamic>) {
+    return WorkflowStepExecution.fromJson(nested);
+  }
+  return null;
+}
 
 TaskStatus _parseStatus(Object? value) {
   if (value == null) {

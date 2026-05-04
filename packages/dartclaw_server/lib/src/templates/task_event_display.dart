@@ -1,5 +1,15 @@
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent, Compaction;
+    show
+        TaskEventKind,
+        StatusChanged,
+        ToolCalled,
+        ArtifactCreated,
+        StructuredOutputInlineUsed,
+        StructuredOutputFallbackUsed,
+        PushBack,
+        TokenUpdate,
+        TaskErrorEvent,
+        Compaction;
 
 /// CSS icon class for a given [TaskEventKind].
 ///
@@ -9,6 +19,8 @@ String eventIconClass(TaskEventKind kind, {String? newStatus}) {
     StatusChanged() => _statusChangedIconClass(newStatus),
     ToolCalled() => 'icon-wrench',
     ArtifactCreated() => 'icon-file-text',
+    StructuredOutputInlineUsed() => 'icon-file-json',
+    StructuredOutputFallbackUsed() => 'icon-file-warning',
     PushBack() => 'icon-message-circle',
     TokenUpdate() => 'icon-gauge',
     TaskErrorEvent() => 'icon-triangle-alert',
@@ -22,6 +34,8 @@ String eventKindClass(TaskEventKind kind, {bool? success}) {
     StatusChanged() => 'tl-event-status',
     ToolCalled() => (success == false) ? 'tl-event-error' : 'tl-event-tool',
     ArtifactCreated() => 'tl-event-artifact',
+    StructuredOutputInlineUsed() => 'tl-event-tool',
+    StructuredOutputFallbackUsed() => 'tl-event-warning',
     PushBack() => 'tl-event-pushback',
     TokenUpdate() => 'tl-event-token',
     TaskErrorEvent() => 'tl-event-error',
@@ -43,6 +57,8 @@ String compactEventIconClass(TaskEventKind kind) {
     StatusChanged() => 'task-event-icon-status',
     ToolCalled() => 'task-event-icon-tool',
     ArtifactCreated() => 'task-event-icon-artifact',
+    StructuredOutputInlineUsed() => 'task-event-icon-tool',
+    StructuredOutputFallbackUsed() => 'task-event-icon-warning',
     PushBack() => 'task-event-icon-pushback',
     TokenUpdate() => 'task-event-icon-token',
     TaskErrorEvent() => 'task-event-icon-error',
@@ -58,6 +74,8 @@ String compactEventIconChar(TaskEventKind kind) {
     StatusChanged() => '\u25CF', // ● filled circle
     ToolCalled() => '\uD83D\uDD27', // 🔧 wrench
     ArtifactCreated() => '\uD83D\uDCC4', // 📄 page
+    StructuredOutputInlineUsed() => '\uD83D\uDCE5', // 📥 inbox tray
+    StructuredOutputFallbackUsed() => '\u26A0', // ⚠ warning
     PushBack() => '\uD83D\uDCAC', // 💬 speech bubble
     TokenUpdate() => '\uD83D\uDCCA', // 📊 chart
     TaskErrorEvent() => '\u26A0', // ⚠ warning

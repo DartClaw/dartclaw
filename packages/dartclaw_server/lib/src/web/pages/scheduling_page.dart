@@ -1,3 +1,4 @@
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:shelf/shelf.dart';
 
 import '../../params/display_params.dart';
@@ -9,11 +10,13 @@ import '../web_utils.dart';
 class SchedulingPage extends DashboardPage {
   SchedulingPage({
     this.runtimeConfigGetter,
+    this.configWriter,
     this.heartbeatDisplay = const HeartbeatDisplayParams(),
     this.schedulingDisplay = const SchedulingDisplayParams(),
   });
 
   final RuntimeConfig? Function()? runtimeConfigGetter;
+  final ConfigWriter? configWriter;
   final HeartbeatDisplayParams heartbeatDisplay;
   final SchedulingDisplayParams schedulingDisplay;
 
@@ -34,12 +37,16 @@ class SchedulingPage extends DashboardPage {
     final sidebarData = await context.buildSidebarData();
     final liveHeartbeat = runtimeConfigGetter?.call()?.heartbeatEnabled ?? heartbeatDisplay.enabled;
 
+    // Read jobs fresh from YAML so newly-added jobs surface without restart;
+    // fall back to the startup snapshot when no writer is wired.
+    final liveJobs = configWriter != null ? await configWriter!.readSchedulingJobs() : schedulingDisplay.jobs;
+
     final page = schedulingTemplate(
       sidebarData: sidebarData,
       navItems: context.navItems(activePage: title),
       heartbeatEnabled: liveHeartbeat,
       heartbeatIntervalMinutes: heartbeatDisplay.intervalMinutes,
-      jobs: schedulingDisplay.jobs,
+      jobs: liveJobs,
       systemJobNames: schedulingDisplay.systemJobNames,
       scheduledTasks: schedulingDisplay.scheduledTasks,
       bannerHtml: context.restartBannerHtml(),

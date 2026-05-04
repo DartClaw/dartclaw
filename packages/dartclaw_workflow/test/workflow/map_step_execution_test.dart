@@ -1,3 +1,6 @@
+@Tags(['component'])
+library;
+
 import 'dart:async';
 import 'dart:io';
 
@@ -8,15 +11,30 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
         MessageService,
+        OutputConfig,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
+        WorkflowDefinitionParser,
+        WorkflowGitBootstrapResult,
+        WorkflowGitPromotionConflict,
+        WorkflowGitPromotionSuccess,
+        WorkflowGitPublishStrategy,
+        WorkflowGitWorktreeStrategy,
+        WorkflowGitStrategy,
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowStep;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ContextExtractor, GateEvaluator, WorkflowExecutor;
+    show
+        ContextExtractor,
+        GateEvaluator,
+        StepExecutionContext,
+        WorkflowExecutor,
+        WorkflowTurnAdapter,
+        WorkflowTurnOutcome;
+import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowExecutionCursor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
@@ -26,12 +44,40 @@ import 'package:test/test.dart';
 void main() {
   late Directory tempDir;
   late String sessionsDir;
+  late SqliteTaskRepository taskRepository;
   late TaskService taskService;
   late MessageService messageService;
   late KvService kvService;
   late SqliteWorkflowRunRepository repository;
+  late SqliteAgentExecutionRepository agentExecutionRepository;
+  late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
+  late SqliteExecutionRepositoryTransactor executionRepositoryTransactor;
   late EventBus eventBus;
   late WorkflowExecutor executor;
+
+  WorkflowExecutor makeExecutor({WorkflowTurnAdapter? turnAdapter}) {
+    return WorkflowExecutor(
+      executionContext: StepExecutionContext(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionRepositoryTransactor,
+        turnAdapter: turnAdapter,
+      ),
+      dataDir: tempDir.path,
+    );
+  }
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_map_step_test_');
@@ -40,24 +86,21 @@ void main() {
 
     final db = sqlite3.openInMemory();
     eventBus = EventBus();
-    taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    taskRepository = SqliteTaskRepository(db);
+    agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
+    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
+    executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(db);
+    taskService = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
+      eventBus: eventBus,
+    );
     repository = SqliteWorkflowRunRepository(db);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
-    executor = WorkflowExecutor(
-      taskService: taskService,
-      eventBus: eventBus,
-      kvService: kvService,
-      repository: repository,
-      gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: taskService,
-        messageService: messageService,
-        dataDir: tempDir.path,
-      ),
-      dataDir: tempDir.path,
-    );
+    executor = makeExecutor();
   });
 
   tearDown(() async {
@@ -99,6 +142,96 @@ void main() {
   }
 
   group('core map execution', () {
+    test('workflow-owned map coding task auto-advances on accepted terminal status', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-auto-accept',
+        description: 'Workflow-owned map tasks should unblock on accepted.',
+        project: '{{PROJECT}}',
+        gitStrategy: const WorkflowGitStrategy(
+          bootstrap: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+          promotion: 'merge',
+          publish: WorkflowGitPublishStrategy(enabled: false),
+        ),
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement Stories',
+            prompts: ['Implement {{map.item.id}}'],
+            mapOver: 'stories',
+            maxParallel: 1,
+            outputs: {'story_result': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = WorkflowRun(
+        id: 'map-review-ready-run',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+        definitionJson: definition.toJson(),
+      );
+      await repository.insert(run);
+
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+          ],
+        },
+        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+      );
+
+      final runtimeExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          promoteWorkflowBranch:
+              ({
+                required runId,
+                required projectId,
+                required branch,
+                required integrationBranch,
+                required strategy,
+                String? storyId,
+              }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
+        ),
+      );
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        await taskService.updateFields(
+          task.id,
+          worktreeJson: {
+            'path': p.join(tempDir.path, 'worktrees', task.id),
+            'branch': 'story-s01',
+            'createdAt': DateTime.now().toIso8601String(),
+          },
+        );
+        try {
+          await taskService.transition(task.id, TaskStatus.running, trigger: 'test');
+        } on StateError {
+          // Already running.
+        }
+        await taskService.transition(task.id, TaskStatus.accepted, trigger: 'test');
+      });
+
+      await runtimeExecutor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('map-review-ready-run');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
     test('3-item array creates 3 tasks', () async {
       final collection = [
         {'id': 's01', 'name': 'Story 1'},
@@ -109,14 +242,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['produce'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['produce'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
             maxParallel: 3,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -140,20 +273,143 @@ void main() {
       expect(taskIds.length, equals(3), reason: '3 tasks should be created, one per item');
     });
 
+    test('worktree auto resolves to inline for serial map execution', () async {
+      final repoBackedExecutor = makeExecutor();
+      final definition = WorkflowDefinition(
+        name: 'map-inline-auto',
+        description: 'Map auto worktree serial resolution',
+        gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            type: 'coding',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'stories',
+            maxParallel: 1,
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = ['story-1'];
+      final modeCompleter = Completer<String?>();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null && !modeCompleter.isCompleted) {
+          final workflowGit = (await workflowStepExecutionRepository.getByTaskId(task.id))?.git;
+          modeCompleter.complete(workflowGit?['worktree'] as String?);
+        }
+        await completeTask(e.taskId);
+      });
+
+      await repoBackedExecutor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(await modeCompleter.future, 'inline');
+    });
+
+    test('worktree auto resolves to per-map-item for parallel map execution', () async {
+      final repoBackedExecutor = makeExecutor();
+      final definition = WorkflowDefinition(
+        name: 'map-per-item-auto',
+        description: 'Map auto worktree parallel resolution',
+        gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            type: 'coding',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'stories',
+            maxParallel: 2,
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = ['story-1'];
+      final modeCompleter = Completer<String?>();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null && !modeCompleter.isCompleted) {
+          final workflowGit = (await workflowStepExecutionRepository.getByTaskId(task.id))?.git;
+          modeCompleter.complete(workflowGit?['worktree'] as String?);
+        }
+        await completeTask(e.taskId);
+      });
+
+      await repoBackedExecutor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(await modeCompleter.future, 'per-map-item');
+    });
+
+    test('worktree auto resolves to per-map-item for unlimited map execution', () async {
+      final repoBackedExecutor = makeExecutor();
+      final definition = WorkflowDefinition(
+        name: 'map-unlimited-auto',
+        description: 'Map auto worktree unlimited resolution',
+        gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            type: 'coding',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'stories',
+            maxParallel: 'unlimited',
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = ['story-1'];
+      final modeCompleter = Completer<String?>();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null && !modeCompleter.isCompleted) {
+          final workflowGit = (await workflowStepExecutionRepository.getByTaskId(task.id))?.git;
+          modeCompleter.complete(workflowGit?['worktree'] as String?);
+        }
+        await completeTask(e.taskId);
+      });
+
+      await repoBackedExecutor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(await modeCompleter.future, 'per-map-item');
+    });
+
     test('results collected in index order (not completion order)', () async {
       final collection = ['item0', 'item1', 'item2'];
       final definition = WorkflowDefinition(
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             maxParallel: 3,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -198,14 +454,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             // maxParallel omitted → defaults to 1 (sequential)
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -238,14 +494,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             maxParallel: 'unlimited',
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -278,21 +534,133 @@ void main() {
 
       expect(taskIds.length, equals(5));
     });
+
+    test('map iterations preserve project binding for coding tasks', () async {
+      final collection = ['story-a', 'story-b'];
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Project map test',
+        project: '{{PROJECT}}',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'stories',
+            maxParallel: 2,
+            outputs: {'results': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext(variables: const {'PROJECT': 'my-app'})..['stories'] = collection;
+
+      final projectIds = <String?>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        projectIds.add(task?.projectId);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(projectIds, equals(['my-app', 'my-app']));
+    });
   });
 
   group('error handling', () {
+    test('dependency-aware map rejects unknown dependency IDs before dispatch', () async {
+      final definition = WorkflowDefinition(
+        name: 'dependency-aware-map',
+        description: 'Unknown dependency validation',
+        project: '{{PROJECT}}',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item.id}}'],
+            mapOver: 'stories',
+            maxParallel: 2,
+            outputs: {'results': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition).copyWith(id: 'run-unknown-deps');
+      await repository.insert(run);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {
+            'id': 'S01',
+            'dependencies': ['S99'],
+          },
+        ];
+
+      await executor.execute(run, definition, context);
+
+      final finalRun = await repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.failed);
+      expect(finalRun?.errorMessage, contains('Unknown dependency IDs'));
+      final tasks = await taskService.list();
+      expect(tasks.where((t) => t.workflowRunId == run.id), isEmpty, reason: 'Validation should fail before dispatch');
+    });
+
+    test('dependency-aware map missing dependencies fails before dispatch', () async {
+      final definition = WorkflowDefinition(
+        name: 'dependency-aware-map-shape',
+        description: 'Shape validation',
+        project: '{{PROJECT}}',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item.id}}'],
+            mapOver: 'stories',
+            maxParallel: 2,
+            outputs: {'results': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition).copyWith(id: 'run-missing-deps');
+      await repository.insert(run);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01'},
+          {
+            'id': 'S02',
+            'dependencies': ['S01'],
+          },
+        ];
+
+      await executor.execute(run, definition, context);
+
+      final finalRun = await repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.failed);
+      expect(finalRun?.errorMessage, contains('missing `dependencies`'));
+      final tasks = await taskService.list();
+      expect(tasks.where((t) => t.workflowRunId == run.id), isEmpty, reason: 'Validation should fail before dispatch');
+    });
+
     test('empty collection succeeds with empty result array', () async {
       final definition = WorkflowDefinition(
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -314,13 +682,13 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -333,7 +701,7 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('null or missing'));
     });
 
@@ -342,13 +710,13 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -360,7 +728,7 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('not a List'));
     });
 
@@ -370,14 +738,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             maxItems: 3,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -389,7 +757,7 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('maxItems'));
       expect(updatedRun?.errorMessage, contains('decompos'));
     });
@@ -400,14 +768,14 @@ void main() {
         name: 'test-wf',
         description: 'Map test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Process {{map.item}}'],
             mapOver: 'items',
             maxParallel: 3,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -441,7 +809,7 @@ void main() {
 
       // Step should be paused (has failures).
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
 
       // Results array is still stored in context before pausing.
       expect(context['mapped'], isA<List<Object?>>());
@@ -471,13 +839,13 @@ void main() {
         name: 'test-wf',
         description: 'Dep test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -489,7 +857,7 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('Circular dependency'));
     });
   });
@@ -497,7 +865,7 @@ void main() {
   group('dependency ordering', () {
     test('item with dependency not dispatched until dep completes', () async {
       final collection = [
-        {'id': 's01', 'name': 'S1'},
+        {'id': 's01', 'name': 'S1', 'dependencies': <String>[]},
         {
           'id': 's02',
           'name': 'S2',
@@ -508,14 +876,14 @@ void main() {
         name: 'test-wf',
         description: 'Dep test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
             maxParallel: 3,
-            contextOutputs: ['results'],
+            outputs: {'results': OutputConfig()},
           ),
         ],
       );
@@ -563,20 +931,80 @@ void main() {
       expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
     });
 
+    test('whitespace-bearing ids still unblock dependent items after completion', () async {
+      final collection = [
+        {'id': ' s01 ', 'name': 'S1', 'dependencies': <String>[]},
+        {
+          'id': 's02',
+          'name': 'S2',
+          'dependencies': ['s01'],
+        },
+      ];
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Whitespace dependency normalization',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'stories',
+            maxParallel: 3,
+            outputs: {'results': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = collection;
+
+      final taskIds = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskIds.add(e.taskId);
+      });
+
+      final executorFuture = executor.execute(run, definition, context, startFromStepIndex: 1);
+
+      await Future.doWhile(() async {
+        await Future<void>.delayed(Duration.zero);
+        return taskIds.isEmpty;
+      });
+
+      expect(taskIds, hasLength(1), reason: 'Dependent item must stay blocked until the trimmed prerequisite settles');
+
+      await completeTask(taskIds.first);
+      await Future.doWhile(() async {
+        await Future<void>.delayed(Duration.zero);
+        return taskIds.length < 2;
+      });
+      await sub.cancel();
+
+      await completeTask(taskIds.last);
+      await executorFuture;
+
+      expect(taskIds, hasLength(2));
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
     test('items without id field are all independent (dispatched immediately)', () async {
       final collection = ['plain-a', 'plain-b', 'plain-c'];
       final definition = WorkflowDefinition(
         name: 'test-wf',
         description: 'No dep test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['{{map.item}}'],
             mapOver: 'items',
             maxParallel: 3,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -618,14 +1046,14 @@ void main() {
         name: 'test-wf',
         description: 'Event test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['{{map.item}}'],
             mapOver: 'items',
             maxParallel: 2,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -664,14 +1092,14 @@ void main() {
         name: 'test-wf',
         description: 'Event test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['{{map.item}}'],
             mapOver: 'items',
             maxParallel: 3,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -703,6 +1131,57 @@ void main() {
       expect(completedEvent!.failureCount, equals(0));
       expect(completedEvent!.cancelledCount, equals(0));
     });
+
+    test('persists map progress checkpoints between sequential map iterations', () async {
+      final collection = ['a', 'b', 'c'];
+      final definition = WorkflowDefinition(
+        name: 'map-recovery',
+        description: 'Map recovery',
+        steps: const [
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 1,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      var run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = collection;
+
+      final queuedTitles = <String>[];
+      final checkpointReady = Completer<void>();
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        queuedTitles.add(task.title);
+        if (queuedTitles.length == 2 && !checkpointReady.isCompleted) {
+          checkpointReady.complete();
+        }
+        await completeTask(e.taskId);
+      });
+
+      final executeFuture = executor.execute(run, definition, context);
+      await checkpointReady.future;
+
+      final checkpointed = await repository.getById('run-1');
+      expect(checkpointed?.executionCursor?.nodeId, 'map');
+      expect(checkpointed?.executionCursor?.completedIndices, [0]);
+
+      await executeFuture;
+      await sub.cancel();
+
+      expect(queuedTitles, ['map-recovery — Map (1/3)', 'map-recovery — Map (2/3)', 'map-recovery — Map (3/3)']);
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
   });
 
   group('maxParallel resolution', () {
@@ -712,14 +1191,14 @@ void main() {
         name: 'test-wf',
         description: 'maxParallel test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['{{map.item}}'],
             mapOver: 'items',
             maxParallel: 2,
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -765,14 +1244,14 @@ void main() {
         name: 'test-wf',
         description: 'maxParallel test',
         steps: const [
-          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
           WorkflowStep(
             id: 'map',
             name: 'Map',
             prompts: ['{{map.item}}'],
             mapOver: 'items',
             maxParallel: 'not-a-number',
-            contextOutputs: ['mapped'],
+            outputs: {'mapped': OutputConfig()},
           ),
         ],
       );
@@ -784,8 +1263,732 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('maxParallel'));
+    });
+  });
+
+  group('foreach execution', () {
+    test('dependency-aware foreach duplicate ids fail before dispatch', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-duplicate-id',
+        description: 'Duplicate dependency-aware ids',
+        steps: const [
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['child'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'child', name: 'Child', type: 'coding', prompts: ['Do {{map.item.id}}']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+          {'id': 'S01', 'dependencies': <String>[]},
+        ];
+
+      await executor.execute(run, definition, context);
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
+      expect(updatedRun?.errorMessage, contains('duplicate id `S01`'));
+      final tasks = await taskService.list();
+      expect(
+        tasks.where((task) => task.workflowRunId == run.id),
+        isEmpty,
+        reason: 'Validation should fail before dispatch',
+      );
+    });
+
+    test('end-to-end: `as:` on inline `type: foreach` parses and reaches child prompts', () async {
+      // Regression for the parser bug where _parseInlineForeachStep silently
+      // dropped `as:` / `mapAlias:`. This test goes YAML → parser → executor
+      // and asserts the alias substitutes in child task descriptions.
+      const yaml = r'''
+name: e2e-foreach-as
+description: end-to-end foreach with as
+steps:
+  - id: produce
+    name: Produce
+    prompt: p
+  - id: story-pipeline
+    name: Per-Story Pipeline
+    type: foreach
+    map_over: stories
+    as: story
+    steps:
+      - id: implement
+        name: Implement
+        type: coding
+        prompt: 'Story {{story.display_index}}/{{story.length}}: implement {{story.item.spec_path}}'
+''';
+      final definition = WorkflowDefinitionParser().parse(yaml);
+
+      final controller = definition.steps.firstWhere((s) => s.id == 'story-pipeline');
+      expect(controller.mapAlias, 'story', reason: 'Parser must propagate `as:` on inline foreach');
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01', 'spec_path': 'docs/s01.md'},
+          {'id': 'S02', 'spec_path': 'docs/s02.md'},
+        ];
+
+      final descriptions = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null) descriptions.add(task.description);
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(descriptions, hasLength(2));
+      expect(descriptions[0], contains('Story 1/2: implement docs/s01.md'));
+      expect(descriptions[1], contains('Story 2/2: implement docs/s02.md'));
+    });
+
+    test('foreach with `as:` resolves aliased refs in child prompts', () async {
+      final collection = [
+        {'id': 'S01', 'spec_path': 'docs/s01.md'},
+        {'id': 'S02', 'spec_path': 'docs/s02.md'},
+      ];
+      final definition = WorkflowDefinition(
+        name: 'foreach-as-test',
+        description: 'foreach with as: alias',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            type: 'foreach',
+            mapOver: 'stories',
+            mapAlias: 'story',
+            foreachSteps: ['implement'],
+            outputs: {'story_results': OutputConfig()},
+          ),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Story {{story.display_index}}/{{story.length}}: implement {{story.item.spec_path}}'],
+            type: 'coding',
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = collection;
+
+      final descriptions = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null) descriptions.add(task.description);
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(descriptions, hasLength(2));
+      expect(descriptions[0], contains('Story 1/2: implement docs/s01.md'));
+      expect(descriptions[1], contains('Story 2/2: implement docs/s02.md'));
+    });
+
+    test('plain mapOver step with `as:` substitutes in the controller prompt', () async {
+      final collection = [
+        {'id': 's01', 'title': 'first'},
+        {'id': 's02', 'title': 'second'},
+      ];
+      final definition = WorkflowDefinition(
+        name: 'map-as-test',
+        description: 'plain map with as: alias',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'process',
+            name: 'Process',
+            prompts: ['Process item {{thing.index}}: {{thing.item.title}}'],
+            mapOver: 'items',
+            mapAlias: 'thing',
+            maxParallel: 1,
+            outputs: {'results': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = collection;
+
+      final descriptions = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null) descriptions.add(task.description);
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(descriptions, hasLength(2));
+      expect(descriptions[0], contains('Process item 0: first'));
+      expect(descriptions[1], contains('Process item 1: second'));
+    });
+
+    test('foreach iterates items and runs child steps sequentially per item', () async {
+      final collection = [
+        {'id': 'S01', 'title': 'Story 1'},
+        {'id': 'S02', 'title': 'Story 2'},
+        {'id': 'S03', 'title': 'Story 3'},
+      ];
+      final definition = WorkflowDefinition(
+        name: 'foreach-test',
+        description: 'Foreach execution test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['implement', 'validate'],
+            outputs: {'story_results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Build {{map.item}}'], type: 'coding'),
+          WorkflowStep(id: 'validate', name: 'Validate', prompts: ['Validate {{map.item}}']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = collection;
+
+      // Track task creation order to verify sequential child-step execution.
+      var taskCount = 0;
+      final taskTitles = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskCount++;
+        final task = await taskService.get(e.taskId);
+        if (task != null) taskTitles.add(task.title);
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      // 3 items × 2 child steps = 6 tasks.
+      expect(taskCount, 6);
+      // Task titles should alternate implement/validate for sequential per-item execution.
+      expect(taskTitles.length, 6);
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('dependency-aware foreach waits for prerequisite completion before dispatch', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-dependency-ordering',
+        description: 'Dependency-aware foreach ordering',
+        steps: const [
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['implement'],
+            maxParallel: 2,
+            outputs: {'story_results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', type: 'coding', prompts: ['Build {{map.item.id}}']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01', 'dependencies': <String>[]},
+          {
+            'id': 'S02',
+            'dependencies': <String>['S01'],
+          },
+        ];
+
+      final taskIds = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskIds.add(e.taskId);
+      });
+
+      final executorFuture = executor.execute(run, definition, context);
+
+      await Future.doWhile(() async {
+        await Future<void>.delayed(Duration.zero);
+        return taskIds.isEmpty;
+      });
+
+      expect(taskIds, hasLength(1), reason: 'Dependent foreach item must stay blocked until S01 settles');
+
+      await completeTask(taskIds.first);
+      await Future.doWhile(() async {
+        await Future<void>.delayed(Duration.zero);
+        return taskIds.length < 2;
+      });
+      await sub.cancel();
+
+      await completeTask(taskIds.last);
+      await executorFuture;
+
+      expect(taskIds, hasLength(2));
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('promotion-aware foreach keeps dependents blocked until prerequisite is promoted', () async {
+      final definition = WorkflowDefinition(
+        name: 'promotion-aware-foreach',
+        description: 'Promotion-aware dependency gating',
+        project: '{{PROJECT}}',
+        gitStrategy: const WorkflowGitStrategy(
+          bootstrap: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+          promotion: 'merge',
+          publish: WorkflowGitPublishStrategy(enabled: false),
+        ),
+        steps: const [
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['implement'],
+            maxParallel: 2,
+            outputs: {'story_results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{map.item.id}}']),
+        ],
+      );
+
+      final run = WorkflowRun(
+        id: 'run-promotion-aware-foreach',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+        definitionJson: definition.toJson(),
+      );
+      await repository.insert(run);
+
+      final stories = [
+        {'id': 'S01', 'dependencies': <String>[]},
+        {
+          'id': 'S02',
+          'dependencies': <String>['S01'],
+        },
+      ];
+      final firstContext = WorkflowContext(
+        data: {'stories': stories},
+        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+      );
+
+      final conflictExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          promoteWorkflowBranch:
+              ({
+                required runId,
+                required projectId,
+                required branch,
+                required integrationBranch,
+                required strategy,
+                String? storyId,
+              }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
+        ),
+      );
+
+      final firstRunTaskIds = <String>[];
+      final firstSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        firstRunTaskIds.add(e.taskId);
+        final task = await taskService.get(e.taskId);
+        if (task != null) {
+          await taskService.updateFields(
+            task.id,
+            worktreeJson: {
+              'path': p.join(tempDir.path, 'worktrees', task.id),
+              'branch': 'story-s01',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          );
+        }
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await conflictExecutor.execute(run, definition, firstContext);
+      await firstSub.cancel();
+
+      expect(firstRunTaskIds, hasLength(1), reason: 'Dependent story must remain undispatched during conflict');
+
+      final conflictedRun = await repository.getById(run.id);
+      expect(conflictedRun?.status, equals(WorkflowRunStatus.failed));
+      expect(conflictedRun?.executionCursor, isNotNull);
+      final conflictedSlot = conflictedRun?.executionCursor?.resultSlots.first as Map<Object?, Object?>?;
+      expect(conflictedSlot?['message'], contains('promotion-conflict'));
+      expect(
+        conflictedRun?.executionCursor?.cancelledIndices,
+        isEmpty,
+        reason: 'Pending dependents must remain resumable',
+      );
+
+      final resumedExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-2'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          promoteWorkflowBranch:
+              ({
+                required runId,
+                required projectId,
+                required branch,
+                required integrationBranch,
+                required strategy,
+                String? storyId,
+              }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
+        ),
+      );
+
+      final resumedContext = WorkflowContext(
+        data: {'stories': stories},
+        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+      );
+      final retryingRun = conflictedRun!.copyWith(
+        status: WorkflowRunStatus.running,
+        errorMessage: null,
+        completedAt: null,
+        updatedAt: DateTime.now(),
+      );
+      await repository.update(retryingRun);
+      final resumedTaskIds = <String>[];
+      final resumedSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        resumedTaskIds.add(e.taskId);
+        final task = await taskService.get(e.taskId);
+        if (task != null) {
+          final branch = resumedTaskIds.length == 1 ? 'story-s01-retry' : 'story-s02';
+          await taskService.updateFields(
+            task.id,
+            worktreeJson: {
+              'path': p.join(tempDir.path, 'worktrees', task.id),
+              'branch': branch,
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          );
+        }
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await resumedExecutor.execute(retryingRun, definition, resumedContext, startCursor: retryingRun.executionCursor);
+      await resumedSub.cancel();
+
+      expect(resumedTaskIds, hasLength(2), reason: 'Resume should retry S01, promote it, then dispatch dependent S02');
+      final updatedRun = await repository.getById(run.id);
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('foreach with empty collection succeeds with empty results', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-empty',
+        description: 'Empty foreach',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['child'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = <Map<String, dynamic>>[];
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+      expect(context['results'], isA<List<Object?>>());
+      expect((context['results'] as List<Object?>), isEmpty);
+    });
+
+    test('foreach child step failure records iteration failure', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-fail',
+        description: 'Foreach with child failure',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['step-a', 'step-b'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'step-a', name: 'A', prompts: ['p']),
+          WorkflowStep(id: 'step-b', name: 'B', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['item1', 'item2'];
+
+      var taskCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskCount++;
+        await Future<void>.delayed(Duration.zero);
+        if (taskCount == 1) {
+          // Fail the first child step of item1 — item1 should fail, item2 proceeds.
+          await completeTask(e.taskId, status: TaskStatus.failed);
+        } else {
+          await completeTask(e.taskId);
+        }
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      // item1: step-a fails → no step-b for item1. item2 still runs (step-a + step-b).
+      // Total: 3 tasks (item1: 1, item2: 2).
+      expect(taskCount, 3);
+
+      // Foreach with a failed iteration pauses the workflow (consistent with map step behavior).
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
+    });
+
+    test('foreach fires MapIterationCompletedEvent per item', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-events',
+        description: 'Event test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['child'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['a', 'b'];
+
+      final iterEvents = <MapIterationCompletedEvent>[];
+      final iterSub = eventBus.on<MapIterationCompletedEvent>().listen(iterEvents.add);
+
+      final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await taskSub.cancel();
+      await iterSub.cancel();
+
+      expect(iterEvents.length, 2);
+      expect(iterEvents[0].iterationIndex, 0);
+      expect(iterEvents[1].iterationIndex, 1);
+      expect(iterEvents[0].stepId, 'fe');
+    });
+
+    test('foreach fires MapStepCompletedEvent with aggregate stats', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-complete-event',
+        description: 'Completion event test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['child'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['a', 'b'];
+
+      MapStepCompletedEvent? completionEvent;
+      final completeSub = eventBus.on<MapStepCompletedEvent>().listen((e) => completionEvent = e);
+
+      final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await taskSub.cancel();
+      await completeSub.cancel();
+
+      expect(completionEvent, isNotNull);
+      expect(completionEvent!.stepId, 'fe');
+      expect(completionEvent!.totalIterations, 2);
+    });
+
+    test('foreach crash recovery resumes from crashed iteration without replaying completed', () async {
+      final collection = [
+        {'id': 'S01'},
+        {'id': 'S02'},
+        {'id': 'S03'},
+      ];
+      final definition = WorkflowDefinition(
+        name: 'foreach-recovery',
+        description: 'Recovery test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['child'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['Do {{map.item}}']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      // Seed cursor: iteration 0 completed, iterations 1 and 2 pending.
+      final foreachCursor = WorkflowExecutionCursor.foreach(
+        stepId: 'fe',
+        stepIndex: 1, // index of the foreach controller in the step list
+        totalItems: 3,
+        completedIndices: [0],
+        resultSlots: [
+          {'child': {}},
+          null,
+          null,
+        ],
+      );
+      final seededRun = run.copyWith(
+        executionCursor: foreachCursor,
+        contextJson: {
+          'stories': collection,
+          '_foreach.current.stepId': 'fe',
+          '_foreach.current.total': 3,
+          '_foreach.current.completedIndices': [0],
+          '_foreach.current.failedIndices': <int>[],
+          '_foreach.current.cancelledIndices': <int>[],
+        },
+      );
+      await repository.insert(seededRun);
+      final context = WorkflowContext()..['stories'] = collection;
+
+      var taskCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskCount++;
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      // Resume: the executor should skip iteration 0 and run iterations 1 and 2.
+      await executor.execute(seededRun, definition, context, startCursor: foreachCursor);
+      await sub.cancel();
+
+      // Only 2 tasks (for iterations 1 and 2), not 3.
+      expect(taskCount, 2, reason: 'Already-completed iteration 0 should not be replayed');
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('foreach exceeding maxItems fails the step', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-max',
+        description: 'MaxItems test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            maxItems: 2,
+            foreachSteps: ['child'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['a', 'b', 'c'];
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
+      expect(updatedRun?.errorMessage, contains('maxItems'));
     });
   });
 }

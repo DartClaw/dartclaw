@@ -52,6 +52,57 @@ void main() {
           tempDir.deleteSync(recursive: true);
         }
       });
+
+      test('migrates legacy task tables that predate agent_execution_id', () async {
+        final legacyDb = sqlite3.openInMemory();
+        legacyDb.execute('PRAGMA foreign_keys = ON');
+        legacyDb.execute('''
+          CREATE TABLE tasks (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            version INTEGER,
+            goal_id TEXT,
+            acceptance_criteria TEXT,
+            session_id TEXT,
+            provider TEXT,
+            config_json TEXT NOT NULL,
+            worktree_json TEXT,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            created_by TEXT,
+            max_tokens INTEGER
+          )
+        ''');
+        legacyDb.execute('''
+          INSERT INTO tasks (
+            id, title, description, type, status, version, goal_id, acceptance_criteria,
+            session_id, provider, config_json, worktree_json, created_at, started_at,
+            completed_at, created_by, max_tokens
+          ) VALUES (
+            'task-1', 'Legacy task', 'Legacy description', 'coding', 'review', 1, NULL, NULL,
+            'sess-1', 'codex', '{"priority":"high","model":"gpt-5.4"}', NULL,
+            '2026-03-10T10:00:00Z', '2026-03-10T10:01:00Z', NULL, 'operator', 50000
+          )
+        ''');
+
+        final legacyRepository = SqliteTaskRepository(legacyDb);
+        final loaded = await legacyRepository.getById('task-1');
+
+        expect(loaded, isNotNull);
+        expect(loaded?.sessionId, 'sess-1');
+        expect(loaded?.provider, 'codex');
+        expect(loaded?.model, 'gpt-5.4');
+        expect(loaded?.maxTokens, 50000);
+
+        final columns = legacyDb.select('PRAGMA table_info(tasks)').map((row) => row['name'] as String).toSet();
+        expect(columns, contains('agent_execution_id'));
+
+        await legacyRepository.dispose();
+      });
     });
 
     group('tasks', () {
@@ -221,6 +272,51 @@ void main() {
         expect(updated, isFalse);
         expect((await repository.getById(task.id))?.title, task.title);
         expect((await repository.getById(task.id))?.status, TaskStatus.running);
+      });
+
+      test('mergeConfigJsonIfStatus preserves keys not present in the patch', () async {
+        final task = _task(status: TaskStatus.running, startedAt: DateTime.parse('2026-03-10T10:05:00Z'));
+        await repository.insert(task.copyWith(configJson: const {'existing': true, 'keep': 1}));
+
+        final applied = await repository.mergeConfigJsonIfStatus(task.id, const {
+          'added': 'value',
+          'keep': 2,
+        }, expectedStatus: TaskStatus.running);
+
+        expect(applied, isTrue);
+        final loaded = await repository.getById(task.id);
+        expect(loaded?.configJson, {'existing': true, 'keep': 2, 'added': 'value'});
+      });
+
+      test('mergeConfigJsonIfStatus does not clobber concurrent disjoint writes', () async {
+        final task = _task(status: TaskStatus.running, startedAt: DateTime.parse('2026-03-10T10:05:00Z'));
+        await repository.insert(task.copyWith(configJson: const {'a': 1}));
+
+        // Simulate a concurrent writer landing a disjoint key between two
+        // merge-patch calls on the same status.
+        final first = await repository.mergeConfigJsonIfStatus(task.id, const {
+          'b': 2,
+        }, expectedStatus: TaskStatus.running);
+        final second = await repository.mergeConfigJsonIfStatus(task.id, const {
+          'c': 3,
+        }, expectedStatus: TaskStatus.running);
+
+        expect(first, isTrue);
+        expect(second, isTrue);
+        expect((await repository.getById(task.id))?.configJson, {'a': 1, 'b': 2, 'c': 3});
+      });
+
+      test('mergeConfigJsonIfStatus returns false when status changed', () async {
+        final task = _task(status: TaskStatus.queued);
+        await repository.insert(task.copyWith(configJson: const {'a': 1}));
+        await repository.update(task.copyWith(status: TaskStatus.running, configJson: const {'a': 1}));
+
+        final applied = await repository.mergeConfigJsonIfStatus(task.id, const {
+          'b': 2,
+        }, expectedStatus: TaskStatus.queued);
+
+        expect(applied, isFalse);
+        expect((await repository.getById(task.id))?.configJson, {'a': 1});
       });
 
       test('deletes a task', () async {

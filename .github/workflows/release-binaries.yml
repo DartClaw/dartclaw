@@ -1,0 +1,59 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os_name }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs_on: ubuntu-latest
+            os_name: linux
+            arch_name: x64
+            publish_assets: true
+          - runs_on: macos-latest
+            os_name: macos
+            arch_name: arm64
+            publish_assets: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Read DartClaw version
+        run: |
+          VERSION=$(sed -n "s/^const dartclawVersion = '\([^']*\)';/\1/p" packages/dartclaw_server/lib/src/version.dart)
+          echo "DARTCLAW_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build standalone binary
+        run: bash dev/tools/build.sh
+
+      - name: Publish platform release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/dartclaw-v${{ env.DARTCLAW_VERSION }}-${{ matrix.os_name }}-${{ matrix.arch_name }}.tar.gz
+            build/dartclaw-v${{ env.DARTCLAW_VERSION }}-${{ matrix.os_name }}-${{ matrix.arch_name }}.tar.gz.sha256
+
+      - name: Publish shared asset release files
+        if: matrix.publish_assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/dartclaw-assets-v${{ env.DARTCLAW_VERSION }}.tar.gz
+            build/dartclaw-assets-v${{ env.DARTCLAW_VERSION }}.tar.gz.sha256
+            build/SHA256SUMS.txt

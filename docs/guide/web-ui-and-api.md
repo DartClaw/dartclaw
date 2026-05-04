@@ -2,7 +2,7 @@
 
 ## Web Interface
 
-DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HTMX SSE extension, and server-rendered HTML fragments. No JavaScript build step — everything runs from vendored libraries and a single `app.js` file.
+DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HTMX SSE extension, and server-rendered HTML fragments. No JavaScript build step — everything runs from vendored libraries plus a coarse static module split (`app.js`, `tasks.js`, `workflows.js`, and page-specific modules such as `settings.js` and `scheduling.js`).
 
 ### Layout
 
@@ -31,6 +31,7 @@ The interface has three main areas:
 - **Delete**: Click the × button on a sidebar item, or the delete button in the topbar
 - **Auto-title**: After the first assistant response, the session is titled with the first ~50 characters of your message
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage.
+- **Workflow chat commands**: Web chat supports `/workflow list` and `/workflow run <name> VAR=value` without creating a normal agent turn
 
 **Chat**
 - **Send**: Type in the textarea, press **Ctrl+Enter** (or **Cmd+Enter** on macOS)
@@ -49,6 +50,11 @@ The interface has three main areas:
 **Responsive**
 - On mobile/narrow screens, the sidebar collapses behind a hamburger menu
 - Single-column layout below 768px
+
+**Workflow Operations**
+- **Workflow launch form**: The `/workflows` page now includes an inline launch form on each workflow definition card
+- **Validation**: Required workflow variables are validated inline before a run starts
+- **Redirect**: Successful launches navigate directly to `/workflows/<runId>`
 
 ### Keyboard Shortcuts
 
@@ -81,6 +87,14 @@ Returns all sessions ordered by last activity (most recent first).
   }
 ]
 ```
+
+#### Get session detail
+
+```
+GET /api/sessions/:id
+```
+
+Returns the persisted session metadata for a single session.
 
 #### Create session
 
@@ -201,6 +215,22 @@ Validates and applies configuration changes. Fields requiring restart are flagge
 
 ### Scheduling
 
+#### List jobs
+
+```
+GET /api/scheduling/jobs
+```
+
+Returns scheduled jobs from the current YAML config.
+
+#### Get job detail
+
+```
+GET /api/scheduling/jobs/:name
+```
+
+Returns a single scheduled job by name.
+
 #### Create job
 
 ```
@@ -250,6 +280,93 @@ POST /api/memory/prune
 ```
 
 Runs the memory pruner immediately. Returns prune results (archived, deduped, remaining).
+
+### Traces
+
+#### Query traces
+
+```
+GET /api/traces
+```
+
+Supports filtering by `taskId`, `sessionId`, `provider`, `since`, `until`, `limit`, and `offset`.
+
+#### Get trace detail
+
+```
+GET /api/traces/:id
+```
+
+Returns a single persisted turn trace, including token totals, duration, and tool call records.
+
+### Workflows
+
+#### Start workflow
+
+```
+POST /api/workflows/run
+Content-Type: application/json
+
+{"definition": "spec-and-implement", "variables": {"FEATURE": "Add trace UI"}}
+```
+
+#### Start workflow from the workflows page
+
+```
+POST /api/workflows/run-form
+Content-Type: application/x-www-form-urlencoded
+
+definition=spec-and-implement&var_FEATURE=Add+trace+UI
+```
+
+On success the response includes `HX-Location: /workflows/<runId>`.
+
+#### Pause workflow run
+
+```
+POST /api/workflows/runs/:id/pause
+```
+
+Pauses a running workflow and returns the updated run as JSON.
+
+#### Resume workflow run
+
+```
+POST /api/workflows/runs/:id/resume
+```
+
+Resumes a paused workflow, including approval-paused runs, and returns the updated run as JSON.
+
+#### Cancel workflow run
+
+```
+POST /api/workflows/runs/:id/cancel
+Content-Type: application/json
+
+{"feedback": "Not ready yet"}
+```
+
+Cancels a running or paused workflow. Approval rejections can include optional feedback. Successful cancellation returns `204 No Content`.
+
+#### GitHub workflow webhook
+
+```
+POST /webhook/github
+X-GitHub-Event: pull_request
+X-Hub-Signature-256: sha256=<digest>
+```
+
+When enabled, pull request events can start the built-in `code-review` workflow. Signature validation uses HMAC-SHA256 and invalid signatures emit `FailedAuthEvent`.
+
+### Tasks
+
+#### Create task guard for `configJson`
+
+```
+POST /api/tasks
+```
+
+Client-supplied `configJson` keys starting with `_` are rejected with `400 INVALID_INPUT`. Workflow-internal `_` keys remain server-owned and are still allowed when the server sets them internally.
 
 ### Channel Access Management
 
@@ -400,11 +517,16 @@ Workflow discovery and execution endpoints:
 | Method | Route | Description |
 |--------|-------|-------------|
 | `POST` | `/api/workflows/run` | Start a workflow run from a named definition |
+| `POST` | `/api/workflows/run-form` | Start a workflow run from the `/workflows` HTMX form |
 | `GET` | `/api/workflows/runs` | List workflow runs (filterable by `status` and `definition`) |
 | `GET` | `/api/workflows/runs/<id>` | Get a single run with step/task detail |
+| `POST` | `/api/workflows/runs/<id>/pause` | Pause a running workflow |
+| `POST` | `/api/workflows/runs/<id>/resume` | Resume a paused workflow |
+| `POST` | `/api/workflows/runs/<id>/cancel` | Cancel a running or paused workflow |
 | `GET` | `/api/workflows/runs/<id>/events` | SSE stream for a specific run |
 | `GET` | `/api/workflows/definitions` | List workflow summaries |
 | `GET` | `/api/workflows/definitions/<name>` | Fetch a full workflow definition |
+| `POST` | `/webhook/github` | Trigger webhook-driven workflow launches for matching GitHub PR events |
 | `GET` | `/api/skills` | List discovered skills and metadata |
 
 Common request shape for `POST /api/workflows/run`:

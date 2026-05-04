@@ -19,6 +19,8 @@ TurnRunner _buildRunner({
   required KvService kvService,
   SessionResetService? resetService,
   String providerId = 'claude',
+  Duration stallTimeout = Duration.zero,
+  TurnProgressAction stallAction = TurnProgressAction.warn,
 }) {
   return TurnRunner(
     harness: harness,
@@ -29,6 +31,8 @@ TurnRunner _buildRunner({
     kv: kvService,
     resetService: resetService,
     providerId: providerId,
+    stallTimeout: stallTimeout,
+    stallAction: stallAction,
   );
 }
 
@@ -37,6 +41,7 @@ Map<String, dynamic> _turnResult({
   int outputTokens = 0,
   double? totalCostUsd,
   int? cachedInputTokens,
+  int? cacheWriteTokens,
 }) {
   final result = <String, dynamic>{'input_tokens': inputTokens, 'output_tokens': outputTokens};
   if (totalCostUsd != null) {
@@ -44,6 +49,9 @@ Map<String, dynamic> _turnResult({
   }
   if (cachedInputTokens != null) {
     result['cache_read_tokens'] = cachedInputTokens;
+  }
+  if (cacheWriteTokens != null) {
+    result['cache_write_tokens'] = cacheWriteTokens;
   }
   return result;
 }
@@ -284,11 +292,24 @@ void main() {
 
     expect(outcome.status, TurnStatus.completed);
     final usageData = await _readSessionCost(kvService, session.id);
+    expect(usageData.keys.toSet(), {
+      'input_tokens',
+      'output_tokens',
+      'cache_read_tokens',
+      'cache_write_tokens',
+      'total_tokens',
+      'effective_tokens',
+      'estimated_cost_usd',
+      'turn_count',
+      'provider',
+    });
+    expect(usageData.containsKey('new_input_tokens'), isFalse);
     expect(usageData['provider'], 'claude');
     expect(usageData['input_tokens'], 2);
     expect(usageData['output_tokens'], 3);
     expect(usageData['total_tokens'], 5);
     expect(usageData['cache_read_tokens'], 0);
+    expect(usageData['effective_tokens'], 5);
     expect((usageData['estimated_cost_usd'] as num).toDouble(), 0.0);
     expect(usageData['turn_count'], 1);
   });
@@ -319,6 +340,8 @@ void main() {
 
     expect(outcome.status, TurnStatus.completed);
     expect(outcome.cacheReadTokens, 7);
+    // 1 + 1 + (0 * 125 ~/ 100 = 0) + (7 * 10 ~/ 100 = 0) = 2.
+    expect(outcome.effectiveTokens, 2);
   });
 
   test('startTurn forwards maxTurns to the harness', () async {
@@ -371,13 +394,56 @@ void main() {
     await codexRunner.waitForOutcome(session.id, secondTurnId);
 
     final costData = await _readSessionCost(kvService, session.id);
+    expect(costData.keys.toSet(), {
+      'input_tokens',
+      'output_tokens',
+      'cache_read_tokens',
+      'cache_write_tokens',
+      'total_tokens',
+      'effective_tokens',
+      'estimated_cost_usd',
+      'turn_count',
+      'provider',
+    });
+    expect(costData.containsKey('new_input_tokens'), isFalse);
     expect(costData['provider'], 'codex');
     expect(costData['input_tokens'], 5);
     expect(costData['output_tokens'], 5);
     expect(costData['total_tokens'], 10);
     expect(costData['cache_read_tokens'], 12);
+    // Turn 1: 2+1+(5*0.1~/1=0) = 3. Turn 2: 3+4+(7*0.1~/1=0) = 7. Accumulated = 10.
+    expect(costData['effective_tokens'], 10);
     expect((costData['estimated_cost_usd'] as num).toDouble(), 0.0);
     expect(costData['turn_count'], 2);
+  });
+
+  test('effective_tokens accumulates weighted cache-write and cache-read through _trackSessionUsage', () async {
+    final cachedWorker = FakeAgentHarness(supportsCachedTokens: true);
+    addTearDown(() async => cachedWorker.dispose());
+    final cachedRunner = _buildRunner(
+      harness: cachedWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    final session = await sessions.getOrCreateMain();
+    // Values chosen so both weights produce non-zero integer contributions.
+    _scheduleTurnCompletion(
+      cachedWorker,
+      result: _turnResult(inputTokens: 100, outputTokens: 50, cachedInputTokens: 1000, cacheWriteTokens: 200),
+    );
+    final turnId = await cachedRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Exercise both cache weights'},
+    ]);
+    await cachedRunner.waitForOutcome(session.id, turnId);
+
+    final costData = await _readSessionCost(kvService, session.id);
+    // 100 + 50 + (200 * 125 ~/ 100 = 250) + (1000 * 10 ~/ 100 = 100) = 500
+    expect(costData['effective_tokens'], 500);
+    expect(costData['cache_read_tokens'], 1000);
+    expect(costData['cache_write_tokens'], 200);
   });
 
   test('preserves the first provider written for a session cost record', () async {
@@ -662,5 +728,105 @@ void main() {
     expect(events, hasLength(1));
     expect(events[0], isA<TextDeltaProgressEvent>());
     expect((events[0] as TextDeltaProgressEvent).text, 'only');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Stall-timeout wiring — regression for 2026-04-24 E2E issue #9 where the
+  // plan-review turn hung silently for 27 minutes while a Codex sub-agent
+  // waited on shell verification. The stall monitor is supposed to surface
+  // that silence; these tests pin the wiring so a regression flips from a
+  // 75-minute E2E failure to a <2-second unit failure.
+  // ---------------------------------------------------------------------------
+  group('stall timeout', () {
+    test('stallAction=cancel produces TurnStatus.cancelled when turn emits no progress', () async {
+      final stallRunner = _buildRunner(
+        harness: worker,
+        messages: messages,
+        workspaceDir: workspaceDir,
+        sessions: sessions,
+        turnState: turnState,
+        kvService: kvService,
+        stallTimeout: const Duration(milliseconds: 200),
+        stallAction: TurnProgressAction.cancel,
+      );
+
+      // Never complete the worker turn — it's the hung-sub-agent case.
+      // The turn invocation awaits indefinitely; only the stall monitor
+      // surfaces the silence.
+      final session = await sessions.getOrCreateMain();
+
+      final turnId = await stallRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'stall'},
+      ]);
+
+      final outcome = await stallRunner
+          .waitForOutcome(session.id, turnId)
+          .timeout(const Duration(seconds: 5), onTimeout: () => fail('Stall action=cancel did not cancel the turn'));
+
+      expect(outcome.status, TurnStatus.cancelled);
+      expect(stallRunner.isActive(session.id), isFalse);
+    });
+
+    test('stallAction=warn lets the turn complete normally once progress resumes', () async {
+      final stallRunner = _buildRunner(
+        harness: worker,
+        messages: messages,
+        workspaceDir: workspaceDir,
+        sessions: sessions,
+        turnState: turnState,
+        kvService: kvService,
+        stallTimeout: const Duration(milliseconds: 150),
+        stallAction: TurnProgressAction.warn,
+      );
+
+      unawaited(() async {
+        await worker.turnInvoked;
+        // Sleep past the stall timeout without emitting events — expect a
+        // warning log but no cancellation.
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        worker.emit(DeltaEvent('finally some progress'));
+        worker.completeSuccess(_turnResult(inputTokens: 1, outputTokens: 1));
+      }());
+
+      final session = await sessions.getOrCreateMain();
+      final turnId = await stallRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'warn only'},
+      ]);
+
+      final outcome = await stallRunner.waitForOutcome(session.id, turnId).timeout(const Duration(seconds: 5));
+
+      expect(outcome.status, TurnStatus.completed);
+      expect(outcome.responseText, 'finally some progress');
+    });
+
+    test('stallAction=cancel emits TurnStallProgressEvent before cancelling', () async {
+      final stallRunner = _buildRunner(
+        harness: worker,
+        messages: messages,
+        workspaceDir: workspaceDir,
+        sessions: sessions,
+        turnState: turnState,
+        kvService: kvService,
+        stallTimeout: const Duration(milliseconds: 120),
+        stallAction: TurnProgressAction.cancel,
+      );
+
+      final stallEvents = <TurnStallProgressEvent>[];
+      final sub = stallRunner.progressEvents.listen((event) {
+        if (event is TurnStallProgressEvent) stallEvents.add(event);
+      });
+      addTearDown(sub.cancel);
+
+      final session = await sessions.getOrCreateMain();
+      final turnId = await stallRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'stall with event'},
+      ]);
+
+      await stallRunner.waitForOutcome(session.id, turnId).timeout(const Duration(seconds: 5));
+
+      expect(stallEvents, isNotEmpty, reason: 'stall monitor must emit TurnStallProgressEvent before cancelling');
+      expect(stallEvents.first.action, 'cancel');
+      expect(stallEvents.first.stallTimeout.inMilliseconds, greaterThanOrEqualTo(120));
+    });
   });
 }

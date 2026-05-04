@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
+import 'git_credential_env.dart';
 import 'worktree_manager.dart';
 
 /// File-level change classification in a diff.
@@ -134,69 +136,47 @@ class DiffGenerator {
     List<String> arguments, {
     String? workingDirectory,
   }) {
+    if (executable == 'git') {
+      return SafeProcess.git(arguments, plan: const GitCredentialPlan.none(), workingDirectory: workingDirectory);
+    }
     return Process.run(executable, arguments, workingDirectory: workingDirectory);
   }
 
-  /// Generates a structured diff between [baseRef] and [branch].
+  /// Generates a structured diff for [branch] relative to [baseRef].
   ///
-  /// Uses three-dot diff (`baseRef...branch`) to show only changes introduced
-  /// on the branch, not changes on base since branching.
+  /// Includes both committed branch changes (`baseRef...branch`) and current
+  /// worktree changes so review/publish flows can see files that have not yet
+  /// been committed by the agent.
   Future<DiffResult> generate({required String baseRef, required String branch, String? projectDir}) async {
     final workingDirectory = projectDir ?? _projectDir;
 
-    // 1. Get file-level stats via numstat
-    final numstatResult = await _runProcess('git', [
-      'diff',
-      '--numstat',
-      '$baseRef...$branch',
-    ], workingDirectory: workingDirectory);
-    if (numstatResult.exitCode != 0) {
-      throw WorktreeException(
-        'git diff --numstat failed',
-        gitStderr: (numstatResult.stderr as String).trim(),
-        exitCode: numstatResult.exitCode,
-      );
-    }
+    final filesByPath = <String, DiffFileEntry>{};
 
-    // 2. Get unified diff with hunks
-    final unifiedResult = await _runProcess('git', [
-      'diff',
-      '-U3',
-      '--no-color',
-      '$baseRef...$branch',
-    ], workingDirectory: workingDirectory);
-    if (unifiedResult.exitCode != 0) {
-      throw WorktreeException(
-        'git diff -U3 failed',
-        gitStderr: (unifiedResult.stderr as String).trim(),
-        exitCode: unifiedResult.exitCode,
-      );
-    }
+    final committedNumstat = await _gitDiffNumstat('$baseRef...$branch', workingDirectory: workingDirectory);
+    final committedHunks = await _gitDiffUnified('$baseRef...$branch', workingDirectory: workingDirectory);
+    _mergeEntries(filesByPath, _parseNumstat(committedNumstat), _parseUnifiedDiff(committedHunks));
 
-    final numstatEntries = _parseNumstat((numstatResult.stdout as String).trim());
-    final hunksByFile = _parseUnifiedDiff((unifiedResult.stdout as String));
+    final worktreeNumstat = await _gitDiffNumstat('HEAD', workingDirectory: workingDirectory);
+    final worktreeHunks = await _gitDiffUnified('HEAD', workingDirectory: workingDirectory);
+    _mergeEntries(filesByPath, _parseNumstat(worktreeNumstat), _parseUnifiedDiff(worktreeHunks));
 
-    // 3. Correlate numstat with hunks
-    final files = <DiffFileEntry>[];
-    var totalAdditions = 0;
-    var totalDeletions = 0;
-
-    for (final entry in numstatEntries) {
-      final hunks = hunksByFile[entry.path] ?? hunksByFile[entry.oldPath] ?? const <DiffHunk>[];
-      files.add(
+    final untrackedPaths = await _gitUntrackedFiles(workingDirectory: workingDirectory);
+    for (final relativePath in untrackedPaths) {
+      _mergeEntry(
+        filesByPath,
         DiffFileEntry(
-          path: entry.path,
-          oldPath: entry.oldPath,
-          status: entry.status,
-          additions: entry.additions,
-          deletions: entry.deletions,
-          binary: entry.binary,
-          hunks: hunks,
+          path: relativePath,
+          status: DiffFileStatus.added,
+          additions: _countFileLines(workingDirectory, relativePath),
+          deletions: 0,
+          hunks: const [],
         ),
       );
-      totalAdditions += entry.additions;
-      totalDeletions += entry.deletions;
     }
+
+    final files = filesByPath.values.toList()..sort((a, b) => a.path.compareTo(b.path));
+    final totalAdditions = files.fold<int>(0, (sum, file) => sum + file.additions);
+    final totalDeletions = files.fold<int>(0, (sum, file) => sum + file.deletions);
 
     _log.info(
       'Diff generated: ${files.length} files, '
@@ -209,6 +189,113 @@ class DiffGenerator {
       totalDeletions: totalDeletions,
       filesChanged: files.length,
     );
+  }
+
+  Future<String> _gitDiffNumstat(String revisionRange, {required String workingDirectory}) async {
+    final result = await _runProcess('git', ['diff', '--numstat', revisionRange], workingDirectory: workingDirectory);
+    if (result.exitCode != 0) {
+      throw WorktreeException(
+        'git diff --numstat failed',
+        gitStderr: (result.stderr as String).trim(),
+        exitCode: result.exitCode,
+      );
+    }
+    return (result.stdout as String).trim();
+  }
+
+  Future<String> _gitDiffUnified(String revisionRange, {required String workingDirectory}) async {
+    final result = await _runProcess('git', [
+      'diff',
+      '-U3',
+      '--no-color',
+      revisionRange,
+    ], workingDirectory: workingDirectory);
+    if (result.exitCode != 0) {
+      throw WorktreeException(
+        'git diff -U3 failed',
+        gitStderr: (result.stderr as String).trim(),
+        exitCode: result.exitCode,
+      );
+    }
+    return result.stdout as String;
+  }
+
+  Future<List<String>> _gitUntrackedFiles({required String workingDirectory}) async {
+    final result = await _runProcess('git', [
+      'ls-files',
+      '--others',
+      '--exclude-standard',
+    ], workingDirectory: workingDirectory);
+    if (result.exitCode != 0) {
+      throw WorktreeException(
+        'git ls-files --others failed',
+        gitStderr: (result.stderr as String).trim(),
+        exitCode: result.exitCode,
+      );
+    }
+
+    return (result.stdout as String).split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toList();
+  }
+
+  int _countFileLines(String workingDirectory, String relativePath) {
+    final file = File('$workingDirectory${Platform.pathSeparator}$relativePath');
+    if (!file.existsSync()) {
+      return 0;
+    }
+    return file.readAsLinesSync().length;
+  }
+
+  void _mergeEntries(
+    Map<String, DiffFileEntry> filesByPath,
+    List<_NumstatEntry> entries,
+    Map<String, List<DiffHunk>> hunksByFile,
+  ) {
+    for (final entry in entries) {
+      final hunks = hunksByFile[entry.path] ?? hunksByFile[entry.oldPath] ?? const <DiffHunk>[];
+      _mergeEntry(
+        filesByPath,
+        DiffFileEntry(
+          path: entry.path,
+          oldPath: entry.oldPath,
+          status: entry.status,
+          additions: entry.additions,
+          deletions: entry.deletions,
+          binary: entry.binary,
+          hunks: hunks,
+        ),
+      );
+    }
+  }
+
+  void _mergeEntry(Map<String, DiffFileEntry> filesByPath, DiffFileEntry entry) {
+    final existing = filesByPath[entry.path];
+    if (existing == null) {
+      filesByPath[entry.path] = entry;
+      return;
+    }
+
+    filesByPath[entry.path] = DiffFileEntry(
+      path: entry.path,
+      oldPath: entry.oldPath ?? existing.oldPath,
+      status: _mergeStatus(existing.status, entry.status),
+      additions: existing.additions + entry.additions,
+      deletions: existing.deletions + entry.deletions,
+      binary: existing.binary || entry.binary,
+      hunks: [...existing.hunks, ...entry.hunks],
+    );
+  }
+
+  DiffFileStatus _mergeStatus(DiffFileStatus existing, DiffFileStatus incoming) {
+    if (existing == incoming) {
+      return existing;
+    }
+    if (incoming == DiffFileStatus.renamed || existing == DiffFileStatus.renamed) {
+      return DiffFileStatus.renamed;
+    }
+    if (incoming == DiffFileStatus.added || existing == DiffFileStatus.added) {
+      return DiffFileStatus.added;
+    }
+    return DiffFileStatus.modified;
   }
 
   List<_NumstatEntry> _parseNumstat(String output) {

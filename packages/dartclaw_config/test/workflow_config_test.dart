@@ -13,9 +13,12 @@ void main() {
     test('defaults leave workspaceDir unset', () {
       const config = WorkflowConfig.defaults();
       expect(config.workspaceDir, isNull);
+      expect(config.defaults.workflow.provider, 'claude');
+      expect(config.defaults.reviewer.model, 'claude-opus-4');
+      expect(config.cleanup.deleteRemoteBranchOnFailure, isFalse);
     });
 
-    test('equality includes workspaceDir', () {
+    test('equality includes workspaceDir and role defaults', () {
       expect(
         const WorkflowConfig(workspaceDir: '/tmp/workflow'),
         equals(const WorkflowConfig(workspaceDir: '/tmp/workflow')),
@@ -23,6 +26,20 @@ void main() {
       expect(
         const WorkflowConfig(workspaceDir: '/tmp/workflow'),
         isNot(equals(const WorkflowConfig(workspaceDir: '/tmp/other-workflow'))),
+      );
+      expect(
+        const WorkflowConfig(),
+        isNot(
+          equals(
+            const WorkflowConfig(
+              defaults: WorkflowRoleDefaultsConfig(workflow: WorkflowRoleModelConfig(provider: 'codex')),
+            ),
+          ),
+        ),
+      );
+      expect(
+        const WorkflowConfig(),
+        isNot(equals(const WorkflowConfig(cleanup: WorkflowCleanupConfig(deleteRemoteBranchOnFailure: true)))),
       );
     });
   });
@@ -42,6 +59,61 @@ workflow:
 ''');
 
       expect(config.workflow.workspaceDir, '/home/user/workflow-workspace');
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.defaults parses role-specific provider/model overrides', () {
+      final config = _load('''
+workflow:
+  defaults:
+    workflow:
+      provider: codex
+      model: gpt-5
+    planner:
+      model: gpt-5-thinking
+    executor:
+      provider: claude
+    reviewer:
+      provider: codex
+      model: gpt-5.4
+''');
+
+      expect(config.workflow.defaults.workflow.provider, 'codex');
+      expect(config.workflow.defaults.workflow.model, 'gpt-5');
+      expect(config.workflow.defaults.planner.provider, isNull);
+      expect(config.workflow.defaults.planner.model, 'gpt-5-thinking');
+      expect(config.workflow.defaults.executor.provider, 'claude');
+      expect(config.workflow.defaults.executor.model, isNull);
+      expect(config.workflow.defaults.reviewer.provider, 'codex');
+      expect(config.workflow.defaults.reviewer.model, 'gpt-5.4');
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.defaults model shorthand populates provider and model', () {
+      final config = _load('''
+workflow:
+  defaults:
+    reviewer:
+      model: claude/opus
+    executor:
+      model: codex/gpt-5.4-mini
+''');
+
+      expect(config.workflow.defaults.reviewer.provider, 'claude');
+      expect(config.workflow.defaults.reviewer.model, 'opus');
+      expect(config.workflow.defaults.executor.provider, 'codex');
+      expect(config.workflow.defaults.executor.model, 'gpt-5.4-mini');
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.cleanup.delete_remote_branch_on_failure parses bool', () {
+      final config = _load('''
+workflow:
+  cleanup:
+    delete_remote_branch_on_failure: true
+''');
+
+      expect(config.workflow.cleanup.deleteRemoteBranchOnFailure, isTrue);
       expect(config.warnings, isEmpty);
     });
   });

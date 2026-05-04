@@ -1,6 +1,12 @@
+import 'dart:io';
+
+import 'package:dartclaw_config/dartclaw_config.dart' show ProjectConfig;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, projectRoutes;
+import 'package:dartclaw_server/src/project/project_auth_support.dart' show ProjectAuthException;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, openTaskDbInMemory;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_models/dartclaw_models.dart' show ProjectAuthStatus;
+import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -73,7 +79,208 @@ void main() {
     test('missing remoteUrl returns 400', () async {
       final response = await handler(jsonRequest('POST', '/api/projects', {'name': 'Oops'}));
       expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'MISSING_INPUT');
+    });
+
+    test('localPath only returns 201 when API localPath is enabled', () async {
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Local App', 'localPath': '/tmp/live-checkout'}),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect(body['remoteUrl'], '');
+      expect(body['localPath'], '/tmp/live-checkout');
+      expect(body['status'], 'ready');
+    });
+
+    test('localPath only returns 403 when API localPath is disabled', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/projects', {'name': 'Local App', 'localPath': '/tmp/live-checkout'}),
+      );
+
+      expect(response.statusCode, 403);
+      expect(await errorCode(response), 'LOCAL_PATH_DISABLED');
+    });
+
+    test('both remoteUrl and localPath returns 400 XOR error', () async {
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {
+          'name': 'Confused App',
+          'remoteUrl': 'https://github.com/x/y.git',
+          'localPath': '/tmp/live-checkout',
+        }),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'XOR_INPUT');
+    });
+
+    test('invalid localPath is rejected against the allowlist', () async {
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true, localPathAllowlist: ['/Users/allowed']),
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Local App', 'localPath': '/tmp/live-checkout'}),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'INVALID_LOCAL_PATH');
+    });
+
+    test('allowlist rejects ancestor symlink escapes even outside container mode', () async {
+      final tempDir = Directory.systemTemp.createTempSync('project_routes_allowlist_symlink_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final allowedRoot = Directory(p.join(tempDir.path, 'allowed'))..createSync(recursive: true);
+      final outsideRoot = Directory(p.join(tempDir.path, 'outside'))..createSync(recursive: true);
+      final escapeLink = p.join(allowedRoot.path, 'link-out');
+      Link(escapeLink).createSync(outsideRoot.path);
+      final escapedPath = p.join(escapeLink, 'repo');
+
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: ProjectConfig(allowApiLocalPath: true, localPathAllowlist: [allowedRoot.path]),
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Escaped App', 'localPath': escapedPath}),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'INVALID_LOCAL_PATH');
+    });
+
+    test('container mode rejects API localPath projects outside mounted roots', () async {
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+        containerEnabled: true,
+        containerMountRoots: const ['/srv/workspace', '/srv/projects'],
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Local App', 'localPath': '/tmp/live-checkout'}),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'LOCAL_PATH_NOT_MOUNTABLE');
+    });
+
+    test('container mode accepts API localPath projects inside mounted roots', () async {
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+        containerEnabled: true,
+        containerMountRoots: const ['/srv/workspace', '/srv/projects'],
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Local App', 'localPath': '/srv/projects/live-checkout'}),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect(body['localPath'], '/srv/projects/live-checkout');
+    });
+
+    test('container mode rejects symlinked localPath that resolves outside mounted roots', () async {
+      final tempDir = Directory.systemTemp.createTempSync('project_routes_symlink_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final mountedRoot = Directory(p.join(tempDir.path, 'mounted'))..createSync(recursive: true);
+      final outsideRoot = Directory(p.join(tempDir.path, 'outside'))..createSync(recursive: true);
+      Directory(p.join(outsideRoot.path, '.git')).createSync(recursive: true);
+      final symlinkPath = p.join(mountedRoot.path, 'linked-checkout');
+      Link(symlinkPath).createSync(outsideRoot.path);
+
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+        containerEnabled: true,
+        containerMountRoots: [mountedRoot.path],
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Linked App', 'localPath': symlinkPath}),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'LOCAL_PATH_NOT_MOUNTABLE');
+    });
+
+    test('container mode rejects new descendants under ancestor symlink escapes', () async {
+      final tempDir = Directory.systemTemp.createTempSync('project_routes_symlink_ancestor_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final mountedRoot = Directory(p.join(tempDir.path, 'mounted'))..createSync(recursive: true);
+      final outsideRoot = Directory(p.join(tempDir.path, 'outside'))..createSync(recursive: true);
+      final escapeLink = p.join(mountedRoot.path, 'escape');
+      Link(escapeLink).createSync(outsideRoot.path);
+      final localPath = p.join(escapeLink, 'new-checkout');
+
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+        containerEnabled: true,
+        containerMountRoots: [mountedRoot.path],
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Escaped App', 'localPath': localPath}),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'LOCAL_PATH_NOT_MOUNTABLE');
+    });
+
+    test('container mode accepts new descendants under symlinked mounted roots', () async {
+      final tempDir = Directory.systemTemp.createTempSync('project_routes_symlink_root_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final realRoot = Directory(p.join(tempDir.path, 'real-root'))..createSync(recursive: true);
+      final aliasRoot = p.join(tempDir.path, 'alias-root');
+      Link(aliasRoot).createSync(realRoot.path);
+      final localPath = p.join(aliasRoot, 'new-checkout');
+
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+        containerEnabled: true,
+        containerMountRoots: [aliasRoot],
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Aliased App', 'localPath': localPath}),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect(body['localPath'], localPath);
     });
 
     test('duplicate ID returns 409', () async {
@@ -83,6 +290,49 @@ void main() {
       );
       expect(response.statusCode, 409);
       expect(await errorCode(response), 'PROJECT_ID_CONFLICT');
+    });
+
+    test('project auth failures return 422 with auth details', () async {
+      final authFailingProjects = FakeProjectService(
+        onCreate:
+            ({
+              required name,
+              remoteUrl,
+              localPath,
+              defaultBranch = 'main',
+              credentialsRef,
+              cloneStrategy = CloneStrategy.shallow,
+              pr = const PrConfig.defaults(),
+            }) async {
+              throw const ProjectAuthException(
+                ProjectAuthStatus(
+                  repository: 'acme/private-repo',
+                  credentialsRef: 'github-main',
+                  credentialType: 'githubToken',
+                  compatible: false,
+                  errorCode: 'github_auth_failed',
+                  errorMessage: 'GitHub token "github-main" cannot access acme/private-repo.',
+                ),
+              );
+            },
+      );
+      final authHandler = projectRoutes(authFailingProjects).call;
+
+      final response = await authHandler(
+        jsonRequest('POST', '/api/projects', {
+          'name': 'Private App',
+          'remoteUrl': 'https://github.com/acme/private-repo.git',
+          'credentialsRef': 'github-main',
+        }),
+      );
+
+      expect(response.statusCode, 422);
+      final body = decodeObject(await response.readAsString());
+      expect((body['error'] as Map<String, dynamic>)['code'], 'github_auth_failed');
+      expect(
+        ((body['error'] as Map<String, dynamic>)['details'] as Map<String, dynamic>)['auth']['repository'],
+        'acme/private-repo',
+      );
     });
   });
 
@@ -404,6 +654,32 @@ void main() {
       final body = decodeObject(await response.readAsString());
       expect(body['status'], 'error');
       expect(body['errorMessage'], 'Clone failed');
+    });
+
+    test('status includes auth metadata when present', () async {
+      final p = Project(
+        id: 'auth-proj',
+        name: 'Auth',
+        remoteUrl: 'https://github.com/acme/private-repo.git',
+        localPath: '/tmp',
+        defaultBranch: 'main',
+        status: ProjectStatus.error,
+        auth: const ProjectAuthStatus(
+          repository: 'acme/private-repo',
+          credentialsRef: 'github-main',
+          credentialType: 'githubToken',
+          compatible: false,
+          errorCode: 'github_auth_failed',
+          errorMessage: 'denied',
+        ),
+        createdAt: DateTime.parse('2026-01-01T00:00:00Z'),
+      );
+      projects.seed(p);
+      final response = await handler(_emptyRequest('GET', '/api/projects/auth-proj/status'));
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      expect((body['auth'] as Map<String, dynamic>)['repository'], 'acme/private-repo');
+      expect((body['auth'] as Map<String, dynamic>)['compatible'], isFalse);
     });
 
     test('unknown project returns 404', () async {

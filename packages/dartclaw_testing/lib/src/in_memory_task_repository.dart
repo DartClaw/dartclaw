@@ -133,8 +133,37 @@ class InMemoryTaskRepository implements TaskRepository {
       sessionId: task.sessionId,
       configJson: task.configJson,
       worktreeJson: task.worktreeJson,
+      agentExecutionId: task.agentExecutionId,
       projectId: task.projectId ?? current.projectId,
     );
+    return true;
+  }
+
+  @override
+  Future<bool> mergeConfigJsonIfStatus(
+    String taskId,
+    Map<String, dynamic> patch, {
+    required TaskStatus expectedStatus,
+  }) async {
+    final current = _tasks[taskId];
+    if (current == null) {
+      return false;
+    }
+    if (current.status != expectedStatus) {
+      return false;
+    }
+    if (patch.isEmpty) {
+      return true;
+    }
+    final merged = <String, dynamic>{...current.configJson};
+    for (final entry in patch.entries) {
+      if (entry.value == null) {
+        merged.remove(entry.key);
+      } else {
+        merged[entry.key] = entry.value;
+      }
+    }
+    _tasks[taskId] = current.copyWith(configJson: merged);
     return true;
   }
 

@@ -12,6 +12,7 @@ void main() {
     ensureDartclawGoogleChatRegistered();
     ensureDartclawSignalRegistered();
     ensureDartclawWhatsappRegistered();
+    ensureGitHubWebhookConfigRegistered();
   });
 
   group('ConfigSerializer.toJson', () {
@@ -34,6 +35,7 @@ void main() {
 
       // Nested sections
       final agent = json['agent'] as Map<String, dynamic>;
+      expect(agent['provider'], 'claude');
       expect(agent['model'], isNull);
       expect(agent['maxTurns'], isNull);
       expect(agent['effort'], isNull);
@@ -83,6 +85,87 @@ void main() {
       final governance = json['governance'] as Map<String, dynamic>;
       expect(governance['queueStrategy'], 'fifo');
       expect((governance['crowdCoding'] as Map<String, dynamic>)['model'], isNull);
+
+      final workflow = json['workflow'] as Map<String, dynamic>;
+      expect(workflow['workspaceDir'], isNull);
+      expect(workflow['defaults'], {
+        'workflow': {'provider': 'claude', 'model': null},
+        'planner': {'provider': null, 'model': null},
+        'executor': {'provider': null, 'model': null},
+        'reviewer': {'provider': null, 'model': 'claude-opus-4'},
+      });
+    });
+
+    test('security.bashStep is serialized with defaults', () {
+      final config = const DartclawConfig.defaults();
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final security = json['security'] as Map<String, dynamic>;
+      final bashStep = security['bashStep'] as Map<String, dynamic>;
+      expect(bashStep['envAllowlist'], containsAll(['PATH', 'HOME', 'LANG']));
+      expect(bashStep['extraStripPatterns'], isEmpty);
+    });
+
+    test('security.bashStep reflects configured overrides', () {
+      final config = const DartclawConfig(
+        security: SecurityConfig(
+          bashStep: SecurityBashStepConfig(
+            envAllowlist: ['PATH', 'HOME', 'CUSTOM_ALLOWED'],
+            extraStripPatterns: ['CUSTOM_FLAG'],
+          ),
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final bashStep = (json['security'] as Map<String, dynamic>)['bashStep'] as Map<String, dynamic>;
+      expect(bashStep['envAllowlist'], ['PATH', 'HOME', 'CUSTOM_ALLOWED']);
+      expect(bashStep['extraStripPatterns'], ['CUSTOM_FLAG']);
+    });
+
+    test('andthen section serializes defaults under camelCase keys', () {
+      final config = const DartclawConfig.defaults();
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final andthen = json['andthen'] as Map<String, dynamic>;
+      expect(andthen, {'gitUrl': 'https://github.com/IT-HUSET/andthen', 'ref': 'latest', 'network': 'auto'});
+    });
+
+    test('andthen section reflects configured overrides', () {
+      final config = const DartclawConfig(
+        andthen: AndthenConfig(
+          gitUrl: 'https://example.com/andthen.git',
+          ref: 'v0.42.0',
+          network: AndthenNetworkPolicy.disabled,
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      expect(json['andthen'], {'gitUrl': 'https://example.com/andthen.git', 'ref': 'v0.42.0', 'network': 'disabled'});
+    });
+
+    test('andthen ConfigMeta keys lookup against the serialized JSON', () {
+      // Validates the contract relied on by `dartclaw config show/get`: every
+      // andthen.* meta entry must resolve to a value via lookupPath against
+      // toJson output (i.e. serializer keys match ConfigMeta.jsonKey).
+      final config = const DartclawConfig(andthen: AndthenConfig(network: AndthenNetworkPolicy.required));
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+      final json = serializer.toJson(config, runtime: runtime);
+
+      final andthenMeta = ConfigMeta.fields.entries.where((e) => e.key.startsWith('andthen.'));
+      expect(andthenMeta, hasLength(3));
+      for (final entry in andthenMeta) {
+        final segments = entry.value.jsonKey.split('.');
+        dynamic cursor = json;
+        for (final s in segments) {
+          expect(cursor, isA<Map<String, dynamic>>(), reason: 'meta key ${entry.value.jsonKey}');
+          cursor = (cursor as Map<String, dynamic>)[s];
+        }
+        expect(cursor, isNotNull, reason: 'meta key ${entry.value.jsonKey} resolved to null');
+      }
     });
 
     test('gateway.token masked as "***" when non-null', () {
@@ -96,6 +179,32 @@ void main() {
       expect(gateway['hsts'], false);
     });
 
+    test('workflow defaults serialize configured role overrides', () {
+      final config = const DartclawConfig(
+        workflow: WorkflowConfig(
+          workspaceDir: '/tmp/workflow-space',
+          defaults: WorkflowRoleDefaultsConfig(
+            workflow: WorkflowRoleModelConfig(provider: 'codex', model: 'gpt-5'),
+            planner: WorkflowRoleModelConfig(model: 'gpt-5-thinking'),
+            executor: WorkflowRoleModelConfig(provider: 'claude'),
+            reviewer: WorkflowRoleModelConfig(provider: 'codex', model: 'gpt-5.4'),
+          ),
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      expect(json['workflow'], {
+        'workspaceDir': '/tmp/workflow-space',
+        'defaults': {
+          'workflow': {'provider': 'codex', 'model': 'gpt-5'},
+          'planner': {'provider': null, 'model': 'gpt-5-thinking'},
+          'executor': {'provider': 'claude', 'model': null},
+          'reviewer': {'provider': 'codex', 'model': 'gpt-5.4'},
+        },
+      });
+    });
+
     test('gateway.hsts is serialized', () {
       final config = const DartclawConfig(gateway: GatewayConfig(hsts: true));
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
@@ -103,6 +212,39 @@ void main() {
       final json = serializer.toJson(config, runtime: runtime);
       final gateway = json['gateway'] as Map<String, dynamic>;
       expect(gateway['hsts'], true);
+    });
+
+    test('github extension config is serialized when present', () {
+      final config = DartclawConfig(
+        extensions: {
+          'github': const GitHubWebhookConfig(
+            enabled: true,
+            webhookSecret: 'secret',
+            webhookPath: '/hooks/github',
+            triggers: [
+              GitHubWorkflowTrigger(
+                event: 'pull_request',
+                actions: ['opened'],
+                labels: ['needs-review'],
+                workflow: 'code-review',
+              ),
+            ],
+          ),
+        },
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final github = json['github'] as Map<String, dynamic>;
+      expect(github['enabled'], isTrue);
+      expect(github['webhookSecret'], '***');
+      expect(github['webhookPath'], '/hooks/github');
+      expect((github['triggers'] as List).single, {
+        'event': 'pull_request',
+        'actions': ['opened'],
+        'labels': ['needs-review'],
+        'workflow': 'code-review',
+      });
     });
 
     test('auth cookie settings and retention config serialize custom values', () {
@@ -624,6 +766,14 @@ governance:
       final meta = serializer.metaJson();
       final authMode = meta['gateway.auth_mode'] as Map<String, dynamic>;
       expect(authMode['mutable'], 'readonly');
+    });
+
+    test('github metadata is exposed for typed config fields', () {
+      final meta = serializer.metaJson();
+      expect((meta['github.enabled'] as Map<String, dynamic>)['type'], 'bool');
+      expect((meta['github.webhook_secret'] as Map<String, dynamic>)['nullable'], true);
+      expect((meta['github.webhook_path'] as Map<String, dynamic>)['mutable'], 'restart');
+      expect((meta['github.triggers'] as Map<String, dynamic>)['type'], 'object[]');
     });
   });
 

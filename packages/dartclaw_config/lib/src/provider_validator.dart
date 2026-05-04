@@ -40,7 +40,7 @@ class ProviderValidator {
   /// (OAuth/subscription), independent of an API key.
   ///
   /// For `claude`: runs `claude auth status` and checks `loggedIn`.
-  /// For `codex`/`codex-exec`: checks `~/.codex/auth.json` for tokens.
+  /// For `codex`: checks `~/.codex/auth.json` for tokens.
   /// Returns `false` for unknown providers or on any error.
   ///
   /// [homePath] overrides `$HOME` for testing.
@@ -95,8 +95,10 @@ class ProviderValidator {
         if (accessToken is String && accessToken.isNotEmpty) return true;
       }
 
-      // Also accept an explicit OPENAI_API_KEY stored in the file.
-      final storedKey = json['OPENAI_API_KEY'];
+      // Also accept explicit API keys stored in the auth file. Newer Codex
+      // exec automation guidance prefers CODEX_API_KEY, while older setups may
+      // still persist OPENAI_API_KEY-compatible state.
+      final storedKey = json['CODEX_API_KEY'] ?? json['OPENAI_API_KEY'];
       return storedKey is String && storedKey.trim().isNotEmpty;
     } on FileSystemException {
       return false;

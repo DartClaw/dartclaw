@@ -15,11 +15,7 @@ SearchBackend createSearchBackend({
   final fts5 = Fts5SearchBackend(memoryService: memoryService);
 
   if (backend == 'qmd' && qmdManager != null) {
-    return QmdSearchBackend(
-      manager: qmdManager,
-      fallback: fts5,
-      defaultDepth: SearchDepth.fromString(defaultDepth),
-    );
+    return QmdSearchBackend(manager: qmdManager, fallback: fts5, defaultDepth: SearchDepth.fromString(defaultDepth));
   }
 
   return fts5;

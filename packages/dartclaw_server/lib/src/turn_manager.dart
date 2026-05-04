@@ -89,6 +89,15 @@ class TurnOutcome {
 
   int get totalTokens => inputTokens + outputTokens;
 
+  /// Billing-weighted token count — see [computeEffectiveTokens]. Prefer this
+  /// over [totalTokens] when comparing runs across harnesses.
+  int get effectiveTokens => computeEffectiveTokens(
+    inputTokens: inputTokens,
+    outputTokens: outputTokens,
+    cacheReadTokens: cacheReadTokens,
+    cacheWriteTokens: cacheWriteTokens,
+  );
+
   TurnOutcome({
     required this.turnId,
     required this.sessionId,
@@ -365,6 +374,14 @@ class TurnManager implements Reconfigurable {
   /// the primary [TurnRunner.setTaskToolFilter].
   void setTaskToolFilter(List<String>? allowedTools) {
     _primary.setTaskToolFilter(allowedTools);
+  }
+
+  /// Updates the per-task read-only mode on the primary runner's guard.
+  ///
+  /// Used by [TaskExecutor] in single-harness mode — passes through to
+  /// the primary [TurnRunner.setTaskReadOnly].
+  void setTaskReadOnly(bool readOnly) {
+    _primary.setTaskReadOnly(readOnly);
   }
 
   Future<TurnRunner> _reserveRunnerForSession(String sessionId) async {

@@ -55,6 +55,9 @@ class FakeWorkflowService extends WorkflowService {
   bool throwOnPause = false;
   bool throwOnResume = false;
   bool throwOnCancel = false;
+  Object? startError;
+  String? lastProjectId;
+  bool lastAllowDirtyLocalPath = false;
 
   final List<String> calls = [];
 
@@ -63,9 +66,15 @@ class FakeWorkflowService extends WorkflowService {
     WorkflowDefinition definition,
     Map<String, String> variables, {
     String? projectId,
+    bool allowDirtyLocalPath = false,
     bool headless = false,
   }) async {
     calls.add('start:${definition.name}');
+    if (startError != null) {
+      throw startError!;
+    }
+    lastProjectId = projectId;
+    lastAllowDirtyLocalPath = allowDirtyLocalPath;
     return startResult!;
   }
 
@@ -139,6 +148,7 @@ WorkflowRun _makeRun({
   WorkflowRunStatus status = WorkflowRunStatus.running,
   int currentStepIndex = 0,
   Map<String, dynamic>? definitionJson,
+  Map<String, dynamic>? contextJson,
 }) {
   final now = DateTime.parse('2026-03-24T10:00:00Z');
   return WorkflowRun(
@@ -150,6 +160,7 @@ WorkflowRun _makeRun({
     variablesJson: const {'FEATURE': 'User pagination'},
     definitionJson: definitionJson ?? _makeDefinition().toJson(),
     currentStepIndex: currentStepIndex,
+    contextJson: contextJson ?? const {},
   );
 }
 
@@ -295,8 +306,6 @@ void main() {
     });
 
     test('passes project to service', () async {
-      // We can't directly verify the projectId passed since FakeWorkflowService
-      // only logs the definition name. But we verify the call succeeded.
       final response = await handler(
         jsonRequest('POST', '/api/workflows/run', {
           'definition': 'spec-and-implement',
@@ -306,6 +315,52 @@ void main() {
       );
 
       expect(response.statusCode, 201);
+      expect(workflows.lastProjectId, 'my-project');
+    });
+
+    test('passes allowDirtyLocalPath to the workflow service', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/workflows/run', {
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Pagination'},
+          'allowDirtyLocalPath': true,
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      expect(workflows.lastAllowDirtyLocalPath, isTrue);
+    });
+
+    test('local-path preflight state errors return workflow precondition failed', () async {
+      workflows.startError = StateError(
+        'Local-path project "alpha" is not safe to mutate: observed branch "feature/local", expected "main", dirty path count 1. Re-run with --allow-dirty-localpath to override.',
+      );
+
+      final response = await handler(
+        jsonRequest('POST', '/api/workflows/run', {
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Pagination'},
+        }),
+      );
+
+      expect(response.statusCode, 409);
+      expect(await errorCode(response), 'WORKFLOW_PRECONDITION_FAILED');
+    });
+
+    test('remote strict ref failures return workflow precondition failed', () async {
+      workflows.startError = StateError(
+        "git fetch failed for \"alpha\" (ref: missing/ref): fatal: couldn't find remote ref",
+      );
+
+      final response = await handler(
+        jsonRequest('POST', '/api/workflows/run', {
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Pagination'},
+        }),
+      );
+
+      expect(response.statusCode, 409);
+      expect(await errorCode(response), 'WORKFLOW_PRECONDITION_FAILED');
     });
 
     test('optional variable with default can be omitted', () async {
@@ -476,6 +531,21 @@ void main() {
       final body = decodeObject(await response.readAsString());
       final steps = body['steps'] as List;
       expect(steps[1]['status'], 'running'); // current step, no task yet
+    });
+
+    test('skipped outcome in run context is surfaced for taskless steps', () async {
+      workflows.getResult = _makeRun(
+        currentStepIndex: 1,
+        status: WorkflowRunStatus.running,
+        contextJson: const {'step.research.outcome': 'skipped'},
+      );
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      final steps = body['steps'] as List;
+      expect(steps[0]['status'], 'skipped');
     });
   });
 
@@ -649,67 +719,29 @@ void main() {
   // ──────────────────────────────────────────────────────────────────────────
 
   group('GET /api/workflows/definitions/<name>', () {
-    test('returns full definition for known name', () async {
+    test('returns authored YAML for known name', () async {
       final response = await handler(
         Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
       );
 
       expect(response.statusCode, 200);
-      final body = decodeObject(await response.readAsString());
-      expect(body['name'], 'spec-and-implement');
-      expect(body['description'], isNotEmpty);
-      expect(body['stepCount'], 3);
-      expect(body['hasLoops'], false);
+      expect(response.headers['content-type'], contains('application/yaml'));
+      final body = await response.readAsString();
+      expect(body, startsWith('name: spec-and-implement'));
+      expect(body, contains('description:'));
+      expect(body, contains('steps:'));
     });
 
-    test('detail includes steps array with id, name, type', () async {
+    test('authored YAML includes variables and step prompts', () async {
       final response = await handler(
         Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
       );
 
       expect(response.statusCode, 200);
-      final body = decodeObject(await response.readAsString());
-      final steps = body['steps'] as List<dynamic>;
-      expect(steps, hasLength(3));
-      final first = steps.first as Map<String, dynamic>;
-      expect(first['id'], 'research');
-      expect(first['name'], isNotEmpty);
-      expect(first['type'], isNotNull);
-    });
-
-    test('detail includes full step payload, including prompts', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
-      );
-
-      expect(response.statusCode, 200);
-      final body = decodeObject(await response.readAsString());
-      final steps = body['steps'] as List<dynamic>;
-      final first = steps.first as Map<String, dynamic>;
-      expect(first['prompts'], isA<List<dynamic>>());
-      expect((first['prompts'] as List<dynamic>).first, contains('Research'));
-    });
-
-    test('detail includes variables with required flag', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
-      );
-
-      expect(response.statusCode, 200);
-      final body = decodeObject(await response.readAsString());
-      final variables = body['variables'] as Map<String, dynamic>;
-      expect(variables['FEATURE']['required'], true);
-      expect(variables['PROJECT']['required'], false);
-    });
-
-    test('detail includes loops array', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
-      );
-
-      expect(response.statusCode, 200);
-      final body = decodeObject(await response.readAsString());
-      expect(body['loops'], isA<List<dynamic>>());
+      final body = await response.readAsString();
+      expect(body, contains('variables:'));
+      expect(body, contains('FEATURE:'));
+      expect(body, contains('prompt:'));
     });
 
     test('returns 404 for unknown definition name', () async {
@@ -721,7 +753,7 @@ void main() {
       expect(await errorCode(response), 'DEFINITION_NOT_FOUND');
     });
 
-    test('summary listing omits steps array while detail includes it', () async {
+    test('summary listing stays JSON while detail returns YAML', () async {
       final summaryResponse = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
       final detailResponse = await handler(
         Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
@@ -734,8 +766,8 @@ void main() {
       final summaryEntry = summaryList.first as Map<String, dynamic>;
       expect(summaryEntry.containsKey('steps'), isFalse);
 
-      final detail = decodeObject(await detailResponse.readAsString());
-      expect(detail.containsKey('steps'), isTrue);
+      final detail = await detailResponse.readAsString();
+      expect(detail, startsWith('name: spec-and-implement'));
     });
   });
 

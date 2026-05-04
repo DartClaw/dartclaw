@@ -9,6 +9,9 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 class _FakeHarness implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   WorkerState _state = WorkerState.idle;
 
   @override

@@ -15,17 +15,17 @@
     </div>
   </div>
 
-  <div tl:if="${hasContextInputs}" class="workflow-step-context-io">
+  <div tl:if="${hasInputs}" class="workflow-step-context-io">
     <h4>Context Inputs</h4>
-    <div tl:each="input : ${contextInputs}" class="workflow-context-entry">
+    <div tl:each="input : ${inputs}" class="workflow-context-entry">
       <span class="workflow-context-key" tl:text="${input.key}">key</span>
       <span class="workflow-context-value" tl:text="${input.value}">value</span>
     </div>
   </div>
 
-  <div tl:if="${hasContextOutputs}" class="workflow-step-context-io">
+  <div tl:if="${hasOutputKeys}" class="workflow-step-context-io">
     <h4>Context Outputs</h4>
-    <div tl:each="output : ${contextOutputs}" class="workflow-context-entry">
+    <div tl:each="output : ${outputKeys}" class="workflow-context-entry">
       <span class="workflow-context-key" tl:text="${output.key}">key</span>
       <span class="workflow-context-value" tl:text="${output.value}">value</span>
     </div>

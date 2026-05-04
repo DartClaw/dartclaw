@@ -91,6 +91,57 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
       'task: $taskId, success: $success, tokens: $tokenCount)';
 }
 
+/// Fired when a workflow-owned one-shot CLI provider finishes a turn.
+final class WorkflowCliTurnProgressEvent extends DartclawEvent {
+  /// Task whose workflow-owned CLI invocation emitted the progress signal.
+  final String taskId;
+
+  /// DartClaw session that owns the workflow task.
+  final String sessionId;
+
+  /// Provider ID (`codex`, `claude`, ...).
+  final String provider;
+
+  /// 1-based turn index within the one-shot invocation.
+  final int turnIndex;
+
+  /// Cumulative provider-reported tokens after this turn completed.
+  final int cumulativeTokens;
+
+  /// Raw provider-reported cumulative input tokens.
+  final int inputTokens;
+
+  /// Raw provider-reported cumulative output tokens.
+  final int outputTokens;
+
+  /// Raw provider-reported cumulative cache-read tokens.
+  final int cacheReadTokens;
+
+  /// Raw provider-reported cumulative cache-write tokens.
+  final int cacheWriteTokens;
+
+  @override
+  final DateTime timestamp;
+
+  WorkflowCliTurnProgressEvent({
+    required this.taskId,
+    required this.sessionId,
+    required this.provider,
+    required this.turnIndex,
+    required this.cumulativeTokens,
+    required this.inputTokens,
+    required this.outputTokens,
+    required this.cacheReadTokens,
+    required this.cacheWriteTokens,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'WorkflowCliTurnProgressEvent(task: $taskId, provider: $provider, '
+      'turn: $turnIndex, cumulative: $cumulativeTokens)';
+}
+
 /// Fired when all steps in a parallel group complete (success or partial failure).
 final class ParallelGroupCompletedEvent extends WorkflowLifecycleEvent {
   @override
@@ -351,4 +402,71 @@ final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
       'MapStepCompletedEvent(run: $runId, step: $stepId, '
       'total: $totalIterations, ok: $successCount, fail: $failureCount, '
       'cancelled: $cancelledCount, tokens: $totalTokens)';
+}
+
+/// Fired once per workflow run when a merge-conflict escalation first triggers
+/// serialize-remaining mode for any foreach step — parallel execution of that
+/// step is halted and remaining iterations will run serially.
+///
+/// Exactly one event is emitted per run (PRD US06 / FR4): if multiple foreach
+/// steps in the same run each escalate, only the first emits this event;
+/// subsequent steps still drain and re-queue but do not re-emit. The
+/// [foreachStepId] field identifies the step that triggered the run-level
+/// transition.
+final class WorkflowSerializationEnactedEvent extends WorkflowLifecycleEvent {
+  @override
+  final String runId;
+
+  /// Identifier of the foreach step that entered serial mode.
+  final String foreachStepId;
+
+  /// Zero-based index of the iteration whose merge conflict triggered escalation.
+  final int failingIterationIndex;
+
+  /// Attempt number (1-based) of the failing merge attempt.
+  final int failedAttemptNumber;
+
+  /// Number of in-flight sibling iterations that were cancelled during drain.
+  final int drainedIterationCount;
+
+  @override
+  final DateTime timestamp;
+
+  WorkflowSerializationEnactedEvent({
+    required this.runId,
+    required this.foreachStepId,
+    required this.failingIterationIndex,
+    required this.failedAttemptNumber,
+    required this.drainedIterationCount,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'WorkflowSerializationEnactedEvent(run: $runId, step: $foreachStepId, '
+      'failingIter: $failingIterationIndex, attempt: $failedAttemptNumber, '
+      'drained: $drainedIterationCount)';
+}
+
+/// Fired when a workflow step is skipped because its [entryGate] expression
+/// evaluated false.
+///
+/// The cursor advances past the step without pausing the run.
+final class StepSkippedEvent extends WorkflowLifecycleEvent {
+  @override
+  final String runId;
+
+  /// Identifier of the skipped step.
+  final String stepId;
+
+  /// The entryGate expression that evaluated false.
+  final String reason;
+
+  @override
+  final DateTime timestamp;
+
+  StepSkippedEvent({required this.runId, required this.stepId, required this.reason, required this.timestamp});
+
+  @override
+  String toString() => 'StepSkippedEvent(run: $runId, step: $stepId, reason: "$reason")';
 }

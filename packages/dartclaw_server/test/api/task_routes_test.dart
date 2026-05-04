@@ -22,7 +22,12 @@ void main() {
   setUp(() async {
     db = openTaskDbInMemory();
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    tasks = TaskService(
+      SqliteTaskRepository(db),
+      agentExecutionRepository: SqliteAgentExecutionRepository(db, eventBus: eventBus),
+      executionTransactor: SqliteExecutionRepositoryTransactor(db),
+      eventBus: eventBus,
+    );
     tempDir = Directory.systemTemp.createTempSync('task_routes_test_');
     threadBindingStore = ThreadBindingStore(File('${tempDir.path}/thread-bindings.json'));
     await threadBindingStore.load();
@@ -86,6 +91,139 @@ void main() {
       final body = decodeObject(await response.readAsString());
       expect(body['title'], 'Draft task');
       expect(body['status'], 'draft');
+    });
+
+    test('task payload nests agent execution fields', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Nested task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'provider': 'codex',
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect(body.containsKey('provider'), isFalse);
+      expect(body.containsKey('sessionId'), isFalse);
+      expect(body['agentExecution'], isA<Map<String, dynamic>>());
+      expect((body['agentExecution'] as Map<String, dynamic>)['provider'], 'codex');
+    });
+
+    test('persists model, sessionId, and maxTokens onto agent execution', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Execution-seeded task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'provider': 'claude',
+          'model': 'claude-opus-4-7',
+          'sessionId': 'sess-42',
+          'maxTokens': 8000,
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      final ae = body['agentExecution'] as Map<String, dynamic>;
+      expect(ae['provider'], 'claude');
+      expect(ae['model'], 'claude-opus-4-7');
+      expect(ae['sessionId'], 'sess-42');
+      expect(ae['budgetTokens'], 8000);
+    });
+
+    test('accepts whole-number JSON double for maxTokens', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Double task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'maxTokens': 8000.0,
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect((body['agentExecution'] as Map<String, dynamic>)['budgetTokens'], 8000);
+    });
+
+    test('rejects non-numeric maxTokens', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Bad task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'maxTokens': 'lots',
+        }),
+      );
+
+      expect(response.statusCode, 400);
+    });
+
+    test('rejects fractional maxTokens', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Fractional task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'maxTokens': 1.5,
+        }),
+      );
+
+      expect(response.statusCode, 400);
+    });
+
+    test('rejects non-positive maxTokens', () async {
+      for (final value in <num>[0, -1, 0.0]) {
+        final response = await handler(
+          jsonRequest('POST', '/api/tasks', {
+            'title': 'Zero task',
+            'description': 'Describe the work',
+            'type': 'coding',
+            'maxTokens': value,
+          }),
+        );
+        expect(response.statusCode, 400, reason: 'maxTokens=$value should be rejected');
+      }
+    });
+
+    test('rejects non-string model and sessionId', () async {
+      final modelResponse = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Bad task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'model': 42,
+        }),
+      );
+      expect(modelResponse.statusCode, 400);
+
+      final sessionResponse = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Bad task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'sessionId': true,
+        }),
+      );
+      expect(sessionResponse.statusCode, 400);
+    });
+
+    test('strips model key from configJson when persisted onto AE', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Model in config',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'configJson': {'model': 'claude-opus-4-7', 'allowedTools': <String>[]},
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect((body['agentExecution'] as Map<String, dynamic>)['model'], 'claude-opus-4-7');
+      expect((body['configJson'] as Map<String, dynamic>).containsKey('model'), isFalse);
     });
 
     test('creates task with autoStart as queued', () async {
@@ -1114,6 +1252,7 @@ class _MockMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     callCount++;
@@ -1132,6 +1271,7 @@ class _ThrowingMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     throw error;

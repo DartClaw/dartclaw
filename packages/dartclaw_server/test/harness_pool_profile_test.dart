@@ -8,6 +8,9 @@ import 'package:test/test.dart';
 /// Minimal AgentHarness stub for pool tests.
 class _StubHarness implements AgentHarness {
   @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
+  @override
   bool get supportsCostReporting => true;
 
   @override

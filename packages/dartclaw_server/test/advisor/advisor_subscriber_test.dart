@@ -150,6 +150,9 @@ TurnRunner _makeRunner({
 }
 
 class _AdvisorHarness implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   _AdvisorHarness(this._responseText);
 
   final String _responseText;

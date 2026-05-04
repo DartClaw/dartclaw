@@ -21,3 +21,8 @@ workspace:
 
 dev_dependencies:
   sqlite3: ^3.1.6
+
+hooks:
+  user_defines:
+    sqlite3:
+      source: system

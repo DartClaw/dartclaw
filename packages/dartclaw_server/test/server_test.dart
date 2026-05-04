@@ -17,6 +17,9 @@ import 'test_utils.dart';
 // ---------------------------------------------------------------------------
 
 class FakeWorkerService implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   Completer<Map<String, dynamic>>? _turnCompleter;
   final Completer<void> _turnStarted = Completer<void>();
@@ -238,6 +241,24 @@ void main() {
 
       expect(worker.cancelCalled, isFalse, reason: 'no active turn to cancel after completion');
       expect(worker.disposeCalled, isTrue, reason: 'worker.dispose() always called');
+    });
+  });
+
+  group('dashboard registration', () {
+    test('registers canvas admin route when canvas service is configured', () async {
+      server =
+          (DartclawServerBuilder()
+                ..sessions = sessions
+                ..messages = messages
+                ..worker = worker
+                ..staticDir = _staticDir()
+                ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+                ..canvasService = CanvasService())
+              .build();
+
+      final response = await server.handler(Request('GET', Uri.parse('http://localhost/canvas-admin')));
+
+      expect(response.statusCode, equals(200));
     });
   });
 

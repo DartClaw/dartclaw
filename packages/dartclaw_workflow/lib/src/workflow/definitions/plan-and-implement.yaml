@@ -1,8 +1,7 @@
 name: plan-and-implement
 description: >-
-  Multi-story pipeline — discover the project, plan stories, spec each story,
-  implement each story, review each story, synthesize results, remediate gaps,
-  and update state.
+  Multi-story pipeline — discover the project, draft a PRD, plan and spec all stories in one pass,
+  implement + validate + review each story, and iterate plan-level remediation.
 variables:
   REQUIREMENTS:
     required: true
@@ -10,272 +9,356 @@ variables:
   PROJECT:
     required: false
     description: Project ID for worktree isolation
+  BRANCH:
+    required: false
+    description: Base branch/ref used for workflow bootstrap and comparisons
+    default: ""
   MAX_PARALLEL:
     required: false
     description: Max parallel story executions
     default: "2"
 
+project: "{{PROJECT}}"
+
+gitStrategy:
+  bootstrap: true
+  worktree: auto
+  promotion: merge
+  publish:
+    enabled: true
+  # Auto-commit generated artifacts (PRD, plan, per-story FIS) on the workflow
+  # branch so parallel per-story worktrees inherit them when created. Required
+  # when artifact-producing steps (dartclaw-prd / dartclaw-plan /
+  # dartclaw-spec) run under worktree: auto with max_parallel > 1.
+  artifacts:
+    commit: true
+    commitMessage: "chore(workflow): artifacts for run {{runId}}"
+  merge_resolve:
+    enabled: true
+    max_attempts: 2
+    token_ceiling: 100000
+    escalation: serialize-remaining
+
 stepDefaults:
+  - match: "prd"
+    provider: "@planner"
+    model: "@planner"
+  - match: "plan"
+    provider: "@planner"
+    model: "@planner"
+  - match: "revise*"
+    provider: "@reviewer"
+    model: "@reviewer"
   - match: "implement*"
-    provider: claude
-    maxTokens: 100000
-    maxCostUsd: 5.00
-  - match: "review*"
-    model: claude-opus-4
-    maxCostUsd: 2.00
+    provider: "@executor"
+    model: "@executor"
+  - match: "*review*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "remediate*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "refactor"
+    provider: "@executor"
+    model: "@executor"
   - match: "*"
-    provider: claude
-    maxTokens: 50000
+    provider: "@workflow"
+    model: "@workflow"
 
 steps:
+  # Discover the project layout and document/state locations before planning begins.
+  # Existing PRD/plan state lives in `project_index.active_prd` /
+  # `project_index.active_plan`. Discover-project republishes `active_prd` as
+  # the flat `prd` handoff key immediately. It republishes `active_plan` as
+  # the flat `plan` key only when `project_index.active_story_specs` is
+  # present, meaning the reused plan is executable without re-running the
+  # plan step. The flat `story_specs` output remains the foreach handoff key.
   - id: discover-project
     name: Discover Project
-    type: research
     skill: dartclaw-discover-project
-    prompt: |
-      Discover the project structure before planning the work.
-
-      Requirements:
-      {{REQUIREMENTS}}
-
-      Identify the SDD framework, project root, document locations, and state
-      update protocol. Return a normalized project index for downstream steps.
-      Output the project index JSON directly.
-    contextOutputs: [project_index]
+    # read-only: discovers project layout, no writes — narrow surface preserves
+    # step_config_policy.stepIsReadOnly inference (file_write non-membership).
+    allowedTools: [shell, file_read]
+    workflowVariables: [REQUIREMENTS]
     outputs:
       project_index:
         format: json
-        schema:
-          type: object
-          required: [framework, project_root, document_locations, state_protocol]
-          properties:
-            framework:
-              type: string
-            project_root:
-              type: string
-            document_locations:
-              type: object
-            state_protocol:
-              type: object
+        schema: project-index
+        description: Normalized snapshot of the project layout, active artifacts, and state protocol.
+      prd:
+        format: path
+        description: Workspace-relative path to prd.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the prd step.
+      plan:
+        format: path
+        description: Workspace-relative path to plan.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the plan step.
+      story_specs:
+        format: json
+        schema: story-specs
+        description: Per-story records driving the foreach controller; populated from project_index.active_story_specs for an active plan or by the plan step for a synthesized plan.
 
+  # Synthesize a PRD from the input requirements, or reuse an existing one at
+  # context.project_index.active_prd. Writes prd.md to disk and emits the path
+  # + a source tag — never emits the PRD body inline. Also emits a 1-10
+  # self-rated confidence score; downstream review/revise steps are gated on
+  # this value so high-confidence PRDs skip the review loop entirely. Skipped
+  # entirely when discover-project found `project_index.active_prd`.
+  - id: prd
+    name: Draft PRD
+    skill: dartclaw-prd
+    entryGate: "project_index.active_prd == null"
+    inputs: [project_index]
+    workflowVariables: [REQUIREMENTS]
+    prompt: "--auto {{REQUIREMENTS}}"
+    outputs:
+      prd:
+        format: path
+        description: Workspace-relative path to prd.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the prd step.
+      prd_confidence:
+        format: json
+        schema: non-negative-integer
+        description: "Skill's self-rated 1-10 readiness of the synthesized PRD. `<7` triggers the revise-prd step when this workflow authored the PRD."
+
+  # Review-and-revise pass gated on the PRD skill's own confidence score.
+  # The `--fix` flag on dartclaw-review writes a doc-review report and
+  # delegates remediation to dartclaw-remediate-findings in one invocation.
+  # Skipped entirely when the PRD was reused via project_index.active_prd or
+  # when confidence is already >= 7.
+  - id: revise-prd
+    name: Revise PRD (low confidence)
+    skill: dartclaw-review
+    entryGate: "project_index.active_prd == null && prd_confidence < 7"
+    inputs: [project_index, prd, prd_confidence]
+    prompt: |
+      --mode doc --fix --auto --output-dir "{{workflow.runtime_artifacts_dir}}/reviews" {{context.prd}}
+    # revise-prd modifies the PRD file in place at the same path. No new
+    # context value is produced — downstream steps continue reading
+    # {{context.prd}} written by the prd step, which now points at the
+    # revised file contents.
+
+  # Plan stories and per-story FIS files from the reviewed PRD path. Reuses
+  # context.project_index.active_plan when it exists; otherwise synthesizes.
+  # Writes plan.md, optional technical-research.md, and per-story FIS files;
+  # emits file paths + structured records, never inline artifact bodies.
   - id: plan
-    name: Plan Stories
-    type: analysis
+    name: Plan Stories and Specs
     skill: dartclaw-plan
-    contextInputs: [project_index]
-    prompt: |
-      Use the `dartclaw-plan` skill to decompose the requirements into
-      implementation stories.
-
-      Requirements:
-      {{REQUIREMENTS}}
-
-      Project index:
-      {{context.project_index}}
-
-      Produce 3-7 stories that are independently implementable. Surface any
-      uncertainties as ASSUMPTION: or OPEN_QUESTION: annotations rather than
-      blocking the workflow. Output the story-plan JSON array directly.
-    contextOutputs: [stories]
+    entryGate: "plan == null"
+    inputs: [project_index, prd]
+    # Retry once on failure so we recover from a flaky plan pass where the
+    # agent reports `succeeded` without writing every per-story FIS file
+    # (post-extraction validation in `_validateStorySpecOutputs` promotes
+    # that silent drop-out to a real failure; this gives the skill a
+    # fresh turn to fill the gap before the workflow hard-fails).
+    onFailure: retry
+    maxRetries: 1
+    prompt: "--auto {{context.prd}}"
     outputs:
-      stories:
+      story_specs:
         format: json
-        schema: story-plan
+        schema: story-specs
+        description: Per-story records driving the foreach controller; populated from project_index.active_story_specs for an active plan or by the plan step for a synthesized plan.
+      plan:
+        format: path
+        description: Workspace-relative path to plan.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the plan step.
 
-  - id: spec
-    name: Spec Stories
-    type: analysis
-    skill: dartclaw-spec
-    map_over: stories
+  # Run the implement/validate/review sub-pipeline independently for each planned story.
+  - id: story-pipeline
+    name: Per-Story Pipeline
+    type: foreach
+    map_over: story_specs
     max_parallel: "{{MAX_PARALLEL}}"
-    max_items: 20
-    prompt: |
-      Use the `dartclaw-spec` skill to write a lightweight spec for this story.
-
-      Story {{map.index + 1}} of {{map.length}}:
-      {{map.item.title}} ({{map.item.id}})
-
-      Story description:
-      {{map.item.description}}
-
-      Acceptance criteria:
-      {{map.item.acceptance_criteria}}
-
-      Key files:
-      {{map.item.key_files}}
-
-      Project index:
-      {{context.project_index}}
-
-      Include story scope, key scenarios, acceptance criteria, and any
-      implementation notes that the implement step must honor. End with
-      `## Context Output` and a JSON object containing `story_spec`.
-    contextInputs: [project_index, stories]
-    contextOutputs: [story_spec]
+    #max_items: 20
+    # The foreach controller emits a single aggregate list under this name.
     outputs:
-      story_spec:
-        format: text
-
-  - id: implement
-    name: Implement Stories
-    type: coding
-    skill: dartclaw-exec-spec
-    map_over: stories
-    max_parallel: "{{MAX_PARALLEL}}"
-    max_items: 20
-    project: "{{PROJECT}}"
-    review: always
-    prompt: |
-      Use the `dartclaw-exec-spec` skill to implement this story.
-
-      Story {{map.index + 1}} of {{map.length}}:
-      {{map.item.title}} ({{map.item.id}})
-
-      Story spec:
-      {{context.story_spec[map.index]}}
-
-      Acceptance criteria:
-      {{map.item.acceptance_criteria}}
-
-      Project index:
-      {{context.project_index}}
-
-      Follow the specification precisely. Break the work into execution groups,
-      scaffold failing tests from the scenarios first, verify between groups,
-      and keep each fix scoped. If tests fail, fix them before completing.
-      End with `## Context Output` and a JSON object containing `story_result`.
-    contextInputs: [project_index, stories, story_spec]
-    contextOutputs: [story_result]
-    outputs:
-      story_result:
-        format: text
-
-  - id: review
-    name: Review Stories
-    type: analysis
-    skill: dartclaw-review-code
-    map_over: stories
-    max_parallel: "{{MAX_PARALLEL}}"
-    max_items: 20
-    prompt: |
-      Use the `dartclaw-review-code` skill to review this story implementation.
-
-      Story {{map.index + 1}} of {{map.length}}:
-      {{map.item.title}} ({{map.item.id}})
-
-      Story spec:
-      {{context.story_spec[map.index]}}
-
-      Implementation result:
-      {{context.story_result[map.index]}}
-
-      Acceptance criteria:
-      {{map.item.acceptance_criteria}}
-
-      Project index:
-      {{context.project_index}}
-
-      Evaluate correctness, security, performance, and spec compliance. Provide
-      a PASS/FAIL verdict with findings and severity. Output the verdict JSON
-      directly.
-    contextInputs: [project_index, stories, story_spec, story_result]
-    contextOutputs: [review_result]
-    outputs:
-      review_result:
+      story_results:
         format: json
-        schema: verdict
+    steps:
+      # Implement one story against its generated story spec.
+      # dartclaw-exec-spec reads the FIS body from disk at story.spec_path;
+      # per-story worktrees inherit the committed FIS from the workflow branch.
+      - id: implement
+        name: Implement Story
+        skill: dartclaw-exec-spec
+        # Transient Codex CLI exits (exit code 1 with only `thread.started`
+        # on stdout, typically under memory pressure with parallel runners)
+        # have been observed mid-turn. Retry once before failing the story.
+        onFailure: retry
+        maxRetries: 1
+        prompt: "--auto {{map.item.spec_path}}"
+        inputs: [project_index, story_specs]
+        outputs:
+          story_result:
+            format: text
+            schema: story-result
 
-  - id: synthesize
-    name: Synthesize Stories
-    type: analysis
-    prompt: |
-      Synthesize the mapped story results into a single delivery summary.
+      # Review the implemented story against its spec and acceptance criteria.
+      # exec-spec already ran analysis/tests/linting; this step gates the outcome.
+      - id: quick-review
+        name: Quick Review Story
+        skill: dartclaw-quick-review
+        # Pin to @executor so the continued harness session is honored —
+        # continueSession requires the same provider family as the root
+        # (implement) step. The *review* stepDefault would otherwise route
+        # this to @reviewer and trigger a runtime fallback warning.
+        provider: "@executor"
+        model: "@executor"
+        continueSession: true
+        # Same transient-crash mitigation as `implement`; a dropped Codex
+        # process on the review turn shouldn't fail the story when a retry
+        # would succeed.
+        onFailure: retry
+        maxRetries: 1
+        prompt: "--fix --auto"
+        inputs: [project_index, story_result]
+        outputs:
+          quick_review_summary:
+            format: text
+            description: Short assessment of whether the story implementation meets its spec and acceptance criteria.
+          quick_review_findings_count:
+            format: json
+            schema: non-negative-integer
+            description: Number of issues flagged by the story-level quick review; 0 means clean.
 
-      Requirements:
-      {{REQUIREMENTS}}
+  # Refactor pass after implementation, before review. Cleans up code
+  # shape from the parallel story pipeline (consistency, dead code, small
+  # simplifications) so the reviews see polished output.
+  - id: refactor
+    name: Refactor After Implementation
+    skill: dartclaw-refactor
+    inputs: [project_index, story_specs, story_results, plan]
+    prompt: "--auto {{context.plan}} - refactor only the changes introduced on the current branch (vs the base ref); preserve behavior; no scope creep into untouched packages."
+    outputs:
+      refactor_summary:
+        format: text
+        description: Summary of refactoring changes applied to implementation work for this plan.
 
-      Project index:
-      {{context.project_index}}
+  # Review the batch outcome across all stories and decide whether plan-level remediation is needed.
+  # Runs regardless of whether the upstream plan step synthesized a new plan
+  # or reused an existing one — the review concerns the implemented batch,
+  # not plan authoring quality.
+  #
+  # plan-review and architecture-review form a parallel group: consecutive
+  # `parallel: true` steps execute concurrently via Future.wait and merge
+  # their outputs back into context before the workflow continues serially
+  # to remediation-loop. Each writes to distinct context keys so the merge
+  # is conflict-free; the @reviewer alias resolves to whichever agents the
+  # runtime has configured for the reviewer role (potentially two
+  # different harnesses).
+  - id: plan-review
+    name: Review Full Implementation
+    skill: dartclaw-review
+    parallel: true
+    inputs: [project_index, story_specs, story_results, plan]
+    # File-backed review: the step writes a review report artifact under the
+    # workflow runtime artifacts directory and emits its absolute path, so it
+    # needs a project worktree and file_write.
+    # shell/web_fetch/mcp_call enable `git diff`, `dart analyze`, doc lookup,
+    # and MCP-routed checks.
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: '--mode mixed --auto --output-dir "{{workflow.runtime_artifacts_dir}}/reviews" Review implementation of {{context.plan}}, i.e. all the changes in the current branch.'
+    outputs:
+      review_findings:
+        format: path
+        description: Absolute path to the review report file written by dartclaw-review in the --output-dir directory.
+      plan-review.findings_count:
+        format: json
+        schema: non-negative-integer
+        description: Total number of issues requiring remediation; 0 means the remediation loop can exit.
+      plan-review.gating_findings_count:
+        format: json
+        schema: non-negative-integer
+        description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
 
-      Story plans:
-      {{context.stories}}
+  # Architecture review running in parallel with plan-review. Independent
+  # concern (modularity, coupling, anti-patterns, fitness) from gap/code
+  # review. Code path is implicit — the skill scans the project — but the
+  # prompt narrows attention to this branch's changes so the review stays
+  # proportional to what the plan actually delivered.
+  - id: architecture-review
+    name: Architecture Review
+    skill: dartclaw-architecture
+    parallel: true
+    inputs: [project_index, story_specs, story_results, plan]
+    # File-backed review: the step writes a review report artifact and emits
+    # its workspace-relative path, so it needs a project worktree and file_write.
+    # web_fetch/mcp_call cover doc lookup and any architecture-pattern
+    # references the skill consults.
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: "--mode review --auto {{context.plan}}. Scope the review to changes introduced on the current branch (vs the base ref) — skip packages untouched by this plan."
+    outputs:
+      architecture_review_findings:
+        format: path
+        description: Workspace-relative path to the architecture review report file written by dartclaw-architecture.
+      architecture-review.findings_count:
+        format: json
+        schema: non-negative-integer
+        description: Number of architecture findings; combined with plan-review.findings_count to gate the remediation loop.
+      architecture-review.gating_findings_count:
+        format: json
+        schema: non-negative-integer
+        description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
 
-      Story specs:
-      {{context.story_spec}}
+  # Iterate plan-level remediation until validation and re-review both pass or the loop is exhausted.
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    entryGate: "plan-review.gating_findings_count > 0 || architecture-review.gating_findings_count > 0"
+    exitGate: "re-review.gating_findings_count == 0"
+    steps:
+      # Remediate each report independently. dartclaw-remediate-findings
+      # accepts exactly one report path or URL, so each gated pass receives
+      # a single file-backed review artifact.
+      - id: remediate
+        name: Remediate Findings
+        skill: dartclaw-remediate-findings
+        entryGate: "plan-review.gating_findings_count > 0 || re-review.gating_findings_count > 0"
+        inputs: [project_index, review_findings, story_results]
+        prompt: "--auto {{context.review_findings}}"
+        outputs:
+          remediation_summary:
+            format: text
+            schema: remediation-summary
+          diff_summary:
+            format: text
+            schema: diff-summary
 
-      Story implementations:
-      {{context.story_result}}
+      - id: remediate-architecture
+        name: Remediate Architecture Findings
+        skill: dartclaw-remediate-findings
+        entryGate: "architecture-review.gating_findings_count > 0 && loop.remediation-loop.iteration == 1"
+        inputs: [project_index, architecture_review_findings, story_results]
+        prompt: "--auto {{context.architecture_review_findings}}"
+        outputs:
+          architecture_remediation_summary:
+            format: text
+            schema: remediation-summary
+          architecture_diff_summary:
+            format: text
+            schema: diff-summary
 
-      Story reviews:
-      {{context.review_result}}
-
-      Summarize:
-      - Which stories are complete
-      - Which stories still need work
-      - Cross-story risks or integration gaps
-      - Whether remediation is needed before state update
-
-      Set needs_remediation to true if any story still has unresolved findings.
-      End with `## Context Output` and a JSON object containing:
-      - implementation_summary
-      - remediation_plan
-      - needs_remediation
-    contextInputs: [project_index, stories, story_spec, story_result, review_result]
-    contextOutputs: [implementation_summary, remediation_plan, needs_remediation]
-
-  - id: remediate
-    name: Remediate Findings
-    type: coding
-    skill: dartclaw-remediate-findings
-    project: "{{PROJECT}}"
-    review: always
-    prompt: |
-      Use the `dartclaw-remediate-findings` skill to apply minimal fixes for the
-      issues found during story synthesis.
-
-      Project index:
-      {{context.project_index}}
-
-      Remediation plan:
-      {{context.remediation_plan}}
-
-      Story implementations:
-      {{context.story_result}}
-
-      Story reviews:
-      {{context.review_result}}
-
-      If the synthesis indicates no remediation is needed, confirm that no code
-      changes are necessary and explain why the batch is already acceptable.
-      Otherwise, address only the identified gaps and re-validate after each fix.
-      End with `## Context Output` and a JSON object containing:
-      - remediation_summary
-      - diff_summary
-    contextInputs: [project_index, remediation_plan, story_result, review_result]
-    contextOutputs: [remediation_summary, diff_summary]
-
-  - id: update-state
-    name: Update State
-    type: coding
-    skill: dartclaw-update-state
-    project: "{{PROJECT}}"
-    prompt: |
-      Use the `dartclaw-update-state` skill to record the completed batch.
-
-      Project index:
-      {{context.project_index}}
-
-      Requirements:
-      {{REQUIREMENTS}}
-
-      Implementation summary:
-      {{context.implementation_summary}}
-
-      Remediation summary:
-      {{context.remediation_summary}}
-
-      Update the detected framework's state format appropriately and record
-      completion, blockers, and learnings. End with `## Context Output` and a
-      JSON object containing `state_update_summary`.
-    contextInputs: [project_index, implementation_summary, remediation_summary]
-    contextOutputs: [state_update_summary]
+      # Re-review the full implementation after remediation. Mirrors
+      # plan-review's invocation shape so the output is a fresh review
+      # report file path consumable by the next iteration's remediate
+      # step. No session continuity — dartclaw-review reads the plan and
+      # the current workspace state on each iteration.
+      - id: re-review
+        name: Re-review After Remediation
+        skill: dartclaw-review
+        # File-backed review: matches plan-review's surface so the re-review
+        # pass can write the next review report artifact.
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        inputs: [project_index, story_specs, story_results, remediation_summary, diff_summary, architecture_remediation_summary, architecture_diff_summary]
+        prompt: '--mode mixed --auto --output-dir "{{workflow.runtime_artifacts_dir}}/reviews" Review implementation of {{context.plan}}, i.e. all the changes in the current branch.'
+        outputs:
+          review_findings:
+            format: path
+            description: Absolute path to the review report file written by dartclaw-review in the --output-dir directory.
+          re-review.findings_count:
+            format: json
+            schema: non-negative-integer
+            description: Number of remaining plan-level issues after this re-review; 0 exits the remediation loop.
+          re-review.gating_findings_count:
+            format: json
+            schema: non-negative-integer
+            description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."

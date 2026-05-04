@@ -167,6 +167,79 @@ void main() {
         expect(afterSecond.sessionId, isNotNull);
       });
 
+      test('coding task retry reuses persisted worktreeJson instead of creating a second worktree', () async {
+        final projectDir = Directory.systemTemp.createTempSync('dartclaw_retry_repo_');
+        addTearDown(() {
+          if (projectDir.existsSync()) {
+            projectDir.deleteSync(recursive: true);
+          }
+        });
+
+        var branchCreated = false;
+        var worktreeAddCalls = 0;
+        final worktreeManager = WorktreeManager(
+          dataDir: tempDir.path,
+          projectDir: projectDir.path,
+          processRunner: (executable, arguments, {workingDirectory}) async {
+            if (arguments.contains('--version')) {
+              return ProcessResult(0, 0, 'git version 2', '');
+            }
+            if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'list') {
+              final worktreePath = p.join(tempDir.path, 'worktrees', 'task-worktree-retry');
+              final output = Directory(worktreePath).existsSync()
+                  ? 'worktree $worktreePath\nHEAD abc123\nbranch refs/heads/dartclaw/task-task-worktree-retry\n\n'
+                  : '';
+              return ProcessResult(0, 0, output, '');
+            }
+            if (arguments.length >= 3 && arguments[0] == 'branch' && arguments[1] == '--list') {
+              return ProcessResult(0, 0, branchCreated ? '  dartclaw/task-task-worktree-retry\n' : '', '');
+            }
+            if (arguments.isNotEmpty && arguments[0] == 'branch') {
+              branchCreated = true;
+              return ProcessResult(0, 0, '', '');
+            }
+            if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'add') {
+              worktreeAddCalls++;
+              final path = arguments[2];
+              await Directory(path).create(recursive: true);
+              return ProcessResult(0, 0, '', '');
+            }
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+        final retryExecutor = TaskExecutor(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          turns: turns,
+          artifactCollector: collector,
+          worktreeManager: worktreeManager,
+          pollInterval: const Duration(milliseconds: 10),
+        );
+        addTearDown(retryExecutor.stop);
+
+        worker.responses = [_WorkerResponse.fail('any error'), _WorkerResponse.succeed('done')];
+        await tasks.create(
+          id: 'task-worktree-retry',
+          title: 'Retry with worktree adoption',
+          description: 'Should reuse the first attempt worktree.',
+          type: TaskType.coding,
+          autoStart: true,
+          maxRetries: 1,
+        );
+
+        await retryExecutor.pollOnce();
+        final afterFirst = await tasks.get('task-worktree-retry');
+        expect(afterFirst!.status, TaskStatus.queued);
+        expect(afterFirst.retryCount, 1);
+        expect(afterFirst.worktreeJson, isNotNull);
+
+        await retryExecutor.pollOnce();
+        final afterSecond = await tasks.get('task-worktree-retry');
+        expect(afterSecond!.status, TaskStatus.review);
+        expect(worktreeAddCalls, 1);
+      });
+
       test('retried task prompt contains retry context section', () async {
         worker.responses = [_WorkerResponse.fail('any error'), _WorkerResponse.succeed('done')];
 
@@ -336,6 +409,9 @@ class _WorkerResponse {
 }
 
 class _CountingWorker implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
 
   List<_WorkerResponse> responses = [];

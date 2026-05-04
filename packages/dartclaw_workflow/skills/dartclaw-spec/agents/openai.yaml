@@ -1,8 +1,0 @@
-interface:
-  display_name: "DartClaw - Spec"
-  short_description: "Generate a Feature Implementation Specification"
-  default_prompt: "Generate a complete Feature Implementation Specification. Analyze the codebase first, then write the FIS using the template. Feature: "
-
-policy:
-  allow_implicit_invocation: true
-

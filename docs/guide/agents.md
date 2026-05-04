@@ -212,15 +212,15 @@ DartClaw supports multiple agent providers. Each provider is a separate CLI bina
 |-------------|--------|----------|--------|-------|
 | `claude` | `claude` CLI | Bidirectional JSONL | Claude (Haiku, Sonnet, Opus) | Default. Full feature support including cost reporting, streaming, tool approval via hooks |
 | `codex` | `codex` CLI (app-server mode) | JSON-RPC JSONL | OpenAI (GPT-4o, GPT-5, o-series), Ollama | Persistent process, approval chain via JSON-RPC, no USD cost reporting |
-| `codex-exec` | `codex` CLI (exec mode) | One-shot JSON | Same as `codex` | Lightweight one-shot execution per turn. No streaming, no approval chain. Relies on container isolation + Codex's built-in sandbox |
 
 ### Setting Up Codex
 
-1. **Install the Codex CLI**: See [OpenAI Codex CLI documentation](https://github.com/openai/codex) for installation. Verify with `codex --version`.
+1. **Install the Codex CLI**: See the [OpenAI Codex CLI docs](https://developers.openai.com/codex/cli). Verify with `codex --version`.
 
-2. **Set your OpenAI API key**:
+2. **Set up auth**:
+
    ```bash
-   export OPENAI_API_KEY="sk-..."
+   export CODEX_API_KEY="sk-..."
    ```
 
 3. **Configure DartClaw** to use Codex as the default provider, or alongside Claude:
@@ -233,7 +233,7 @@ DartClaw supports multiple agent providers. Each provider is a separate CLI bina
 
    credentials:
      openai:
-       api_key: ${OPENAI_API_KEY}
+       api_key: ${CODEX_API_KEY}
    ```
 
    **Mixed (Claude default + Codex for tasks):**
@@ -254,7 +254,7 @@ DartClaw supports multiple agent providers. Each provider is a separate CLI bina
      anthropic:
        api_key: ${ANTHROPIC_API_KEY}
      openai:
-       api_key: ${OPENAI_API_KEY}
+       api_key: ${CODEX_API_KEY}
    ```
 
 4. **Start DartClaw** — it will probe each configured provider binary at startup and log the detected version and availability.
@@ -286,21 +286,6 @@ This acquires a harness from the Codex pool regardless of the global `agent.prov
 | **Pool allocation** | `providers.<id>.pool_size` | Controls how many concurrent workers each provider gets |
 
 The primary harness (Runner 0, for interactive chat) always uses the global default provider. Task pool workers can be a mix of providers.
-
-### Codex Modes: App-Server vs Exec
-
-**App-server mode** (`codex`, the default) runs `codex app-server` as a persistent subprocess:
-- Bidirectional JSON-RPC over stdin/stdout
-- Streaming text deltas
-- Approval chain — DartClaw's guard chain evaluates tool requests before allowing execution
-- Thread lifecycle — conversations persist across turns within the same harness process
-- Crash recovery with exponential backoff
-
-**Exec mode** (`codex-exec`) runs `codex exec --json` as a one-shot per turn:
-- No persistent process — spawns and exits per turn
-- No streaming — result returned as a single JSON blob
-- No approval chain — uses `--yolo --ephemeral`, relying on container isolation
-- Simpler deployment, useful for batch operations
 
 ### Codex Approval Policy & Sandbox Mode
 
@@ -336,20 +321,28 @@ The Codex app-server provider supports two per-turn settings that control how Co
 >
 > Also consider reducing `worker_timeout` (default 600s) to 120s for shared-session scenarios to limit blast radius if other hang causes occur (context compaction, orphaned child processes).
 
+### Codex Skill Loading
+
+Codex CLI exposes installed skills through a `<skills_instructions>` available-skills index in the initial model context. Codex 0.121+ loads only skill metadata (name, description, and path), not full skill bodies. Full `SKILL.md` instructions are read from disk only when a skill is invoked or opened. If you are running an older Codex release without this optimization, every workflow turn pays the full skill-body cost; upgrade to 0.121+ to restore the metadata-only behavior.
+
+DartClaw therefore uses Codex's native skill loading directly. Runtime-provisioned workflow skills are installed into `~/.agents/skills` with the `dartclaw-` prefix, and AndThen-provided Codex agents are installed into `~/.codex/agents`. Spawned Codex workflow one-shot turns run with the normal Codex profile and OAuth state. DartClaw does not create an isolated `CODEX_HOME` for workflow one-shot execution, does not symlink Codex auth files, and does not inline skill bodies into prompts. (The long-lived `dartclaw_core` Codex harness used for interactive sessions can establish its own `CODEX_HOME` isolation when `providers.codex.use_system_codex_home: false` is set; the default inherits the system home.)
+
+This keeps authentication and provider behavior aligned with ordinary `codex` CLI usage. If a Codex workflow step can run from your shell, DartClaw uses the same native profile and the same user-tier skill root.
+
 ### Provider Capability Differences
 
 Not all providers support every feature. DartClaw degrades gracefully:
 
-| Capability | Claude | Codex (app-server) | Codex (exec) |
-|-----------|--------|-------------------|--------------|
-| Streaming text | Yes | Yes | No |
-| Tool approval (guard chain) | Yes (via hooks) | Yes (via JSON-RPC approvals) | No (sandbox only) |
-| USD cost reporting | Yes | No (token counts only) | No |
-| Crash recovery | Yes | Yes | N/A (one-shot) |
-| System prompt injection | `--append-system-prompt` | `config.toml` `developer_instructions` | `config.toml` |
-| MCP server support | Yes | Yes (via `config.toml`) | No |
+| Capability | Claude | Codex |
+|-----------|--------|-------|
+| Streaming text | Yes | Yes |
+| Tool approval (guard chain) | Yes (via hooks) | Yes (via JSON-RPC approvals) |
+| USD cost reporting | Yes | No (token counts only) |
+| Crash recovery | Yes | Yes |
+| System prompt injection | `--append-system-prompt` | `config.toml` `developer_instructions` |
+| MCP server support | Yes | Yes (via `config.toml`) |
 
-When a provider doesn't report cost, the UI shows token counts with a "cost unavailable" indicator.
+When a provider doesn't report cost, the UI shows token counts with a "cost unavailable" indicator. For Codex sessions, the sidebar now labels input as fresh input and shows cached input separately so Claude and Codex totals are comparable.
 
 ### Provider Status
 

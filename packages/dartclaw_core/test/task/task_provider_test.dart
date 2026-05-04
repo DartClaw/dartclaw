@@ -37,8 +37,8 @@ void main() {
       final taskWithProvider = _task(provider: 'codex');
       final taskWithoutProvider = _task();
 
-      expect(taskWithProvider.toJson()['provider'], 'codex');
-      expect(taskWithoutProvider.toJson().containsKey('provider'), isFalse);
+      expect((taskWithProvider.toJson()['agentExecution'] as Map<String, dynamic>)['provider'], 'codex');
+      expect((taskWithoutProvider.toJson()['agentExecution'] as Map<String, dynamic>).containsKey('provider'), isFalse);
     });
 
     test('fromJson parses provider and defaults to null when absent', () {
@@ -50,14 +50,13 @@ void main() {
         'status': 'draft',
         'goalId': 'goal-1',
         'acceptanceCriteria': 'Keep provider intact',
-        'sessionId': 'session-1',
         'configJson': {'priority': 'high'},
         'worktreeJson': {'path': '/tmp/worktree'},
         'createdAt': '2026-03-10T10:00:00Z',
         'startedAt': '2026-03-10T10:05:00Z',
         'completedAt': '2026-03-10T10:10:00Z',
         'createdBy': 'operator',
-        'provider': 'codex',
+        'agentExecution': {'id': 'ae-1', 'sessionId': 'session-1', 'provider': 'codex'},
       });
       final withoutProvider = Task.fromJson({
         'id': 'task-2',

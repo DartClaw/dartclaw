@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, ProjectStatusChangedEvent;
 import 'package:dartclaw_server/dartclaw_server.dart' show GitRunner, ProjectServiceImpl;
+import 'package:dartclaw_server/src/project/project_auth_support.dart' show ProjectAuthException;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -31,11 +32,14 @@ Future<void> deleteTempDirWithRetries(Directory dir) async {
 
 void main() {
   late Directory tempDir;
+  late Directory gitRepoDir;
   late String dataDir;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('proj_svc_test_');
     dataDir = tempDir.path;
+    gitRepoDir = Directory(p.join(tempDir.path, 'git-repo'))..createSync(recursive: true);
+    Directory(p.join(gitRepoDir.path, '.git')).createSync(recursive: true);
   });
 
   tearDown(() async {
@@ -47,12 +51,15 @@ void main() {
     CredentialsConfig? credentials,
     EventBus? eventBus,
     GitRunner? gitRunner,
+    Future<({int statusCode, String body})> Function(Uri uri, {required Map<String, String> headers})?
+    gitHubProbeRunner,
   }) => ProjectServiceImpl(
     dataDir: dataDir,
     projectConfig: projectConfig ?? const ProjectConfig.defaults(),
     credentials: credentials ?? const CredentialsConfig.defaults(),
     eventBus: eventBus,
     gitRunner: gitRunner ?? _fakeGitRunner(),
+    gitHubProbeRunner: gitHubProbeRunner,
   );
 
   group('initialize', () {
@@ -77,14 +84,14 @@ void main() {
       // Create and persist a project.
       final svc1 = makeService(gitRunner: _fakeGitRunner(exitCode: 0));
       await svc1.initialize();
-      await svc1.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git');
+      await svc1.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
 
       // Restart with a new service instance.
       final svc2 = makeService(gitRunner: _fakeGitRunner());
       await svc2.initialize();
 
       final all = await svc2.getAll();
-      expect(all.any((p) => p.remoteUrl == 'git@github.com:u/r.git'), isTrue);
+      expect(all.any((p) => p.remoteUrl == 'git@example.com:u/r.git'), isTrue);
     });
 
     test('recovers stale cloning status to error', () async {
@@ -93,7 +100,7 @@ void main() {
       final project = Project(
         id: 'stuck-clone',
         name: 'Stuck',
-        remoteUrl: 'git@github.com:u/r.git',
+        remoteUrl: 'git@example.com:u/r.git',
         localPath: '$dataDir/projects/stuck-clone',
         status: ProjectStatus.cloning,
         createdAt: DateTime.now(),
@@ -111,7 +118,7 @@ void main() {
 
     test('seeds config-defined projects', () async {
       final config = ProjectConfig(
-        definitions: {'cfg-project': const ProjectDefinition(id: 'cfg-project', remote: 'git@github.com:u/cfg.git')},
+        definitions: {'cfg-project': const ProjectDefinition(id: 'cfg-project', remote: 'git@example.com:u/cfg.git')},
       );
 
       // Create the clone dir to simulate an already-cloned project.
@@ -123,6 +130,30 @@ void main() {
       final project = await svc.get('cfg-project');
       expect(project, isNotNull);
       expect(project!.configDefined, isTrue);
+      expect(project.status, equals(ProjectStatus.ready));
+    });
+
+    test('seeds config-defined localPath projects without cloning', () async {
+      final commands = <List<String>>[];
+      final config = ProjectConfig(
+        definitions: {'cfg-project': ProjectDefinition(id: 'cfg-project', localPath: gitRepoDir.path)},
+      );
+
+      final svc = makeService(
+        projectConfig: config,
+        gitRunner: (args, {environment, workingDirectory}) async {
+          commands.add(args);
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      final project = await svc.get('cfg-project');
+      expect(commands, isEmpty);
+      expect(project, isNotNull);
+      expect(project!.configDefined, isTrue);
+      expect(project.remoteUrl, isEmpty);
+      expect(project.localPath, gitRepoDir.path);
       expect(project.status, equals(ProjectStatus.ready));
     });
 
@@ -141,7 +172,7 @@ void main() {
 
       final config = ProjectConfig(
         definitions: {
-          'shared-id': const ProjectDefinition(id: 'shared-id', remote: 'git@github.com:u/config-version.git'),
+          'shared-id': const ProjectDefinition(id: 'shared-id', remote: 'git@example.com:u/config-version.git'),
         },
       );
 
@@ -153,7 +184,7 @@ void main() {
       final project = await svc.get('shared-id');
       expect(project, isNotNull);
       expect(project!.configDefined, isTrue);
-      expect(project.remoteUrl, equals('git@github.com:u/config-version.git'));
+      expect(project.remoteUrl, equals('git@example.com:u/config-version.git'));
     });
   });
 
@@ -162,10 +193,10 @@ void main() {
       final svc = makeService(gitRunner: _fakeGitRunner());
       await svc.initialize();
 
-      final project = await svc.create(name: 'test-app', remoteUrl: 'git@github.com:u/r.git');
+      final project = await svc.create(name: 'test-app', remoteUrl: 'git@example.com:u/r.git');
 
       expect(project.status, equals(ProjectStatus.cloning));
-      expect(project.remoteUrl, equals('git@github.com:u/r.git'));
+      expect(project.remoteUrl, equals('git@example.com:u/r.git'));
       expect(project.id, isNotEmpty);
     });
 
@@ -173,7 +204,7 @@ void main() {
       final svc = makeService(gitRunner: _fakeGitRunner());
       await svc.initialize();
 
-      await svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git');
+      await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
 
       final projectsFile = File('$dataDir/projects.json');
       expect(projectsFile.existsSync(), isTrue);
@@ -183,16 +214,16 @@ void main() {
       final svc = makeService(gitRunner: _fakeGitRunner());
       await svc.initialize();
 
-      await svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git');
+      await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
 
-      expect(() => svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git'), throwsArgumentError);
+      expect(() => svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git'), throwsArgumentError);
     });
 
     test('clone success transitions project to ready', () async {
       final svc = makeService(gitRunner: _fakeGitRunner(exitCode: 0));
       await svc.initialize();
 
-      final project = await svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git');
+      final project = await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
       // Wait briefly for the async clone to complete.
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
@@ -209,12 +240,30 @@ void main() {
       final svc = makeService(gitRunner: _fakeGitRunner(exitCode: 128, stderr: 'fatal: repository not found'));
       await svc.initialize();
 
-      final project = await svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/bad.git');
+      final project = await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/bad.git');
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       final updated = await svc.get(project.id);
       expect(updated!.status, equals(ProjectStatus.error));
       expect(updated.errorMessage, isNotEmpty);
+    });
+
+    test('localPath projects are created ready without cloning', () async {
+      final commands = <List<String>>[];
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          commands.add(args);
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      final project = await svc.create(name: 'live-app', localPath: gitRepoDir.path);
+
+      expect(project.status, equals(ProjectStatus.ready));
+      expect(project.remoteUrl, isEmpty);
+      expect(project.localPath, equals(gitRepoDir.path));
+      expect(commands, isEmpty);
     });
 
     test('fires ProjectStatusChangedEvent on status transition', () async {
@@ -225,7 +274,7 @@ void main() {
       final svc = makeService(gitRunner: _fakeGitRunner(exitCode: 0), eventBus: eventBus);
       await svc.initialize();
 
-      final project = await svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git');
+      final project = await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       // At least 2 events: initial cloning (oldStatus=null) + ready transition.
@@ -267,7 +316,7 @@ void main() {
     test('returns first external project when present', () async {
       final svc = makeService(gitRunner: _fakeGitRunner());
       await svc.initialize();
-      await svc.create(name: 'app', remoteUrl: 'git@github.com:u/app.git');
+      await svc.create(name: 'app', remoteUrl: 'git@example.com:u/app.git');
 
       final def = await svc.getDefaultProject();
       expect(def.id, isNot(equals('_local')));
@@ -296,7 +345,7 @@ void main() {
     test('updates mutable fields for runtime project', () async {
       final svc = makeService(gitRunner: _fakeGitRunner());
       await svc.initialize();
-      final project = await svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git');
+      final project = await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
 
       final updated = await svc.update(project.id, name: 'Renamed App');
       expect(updated.name, equals('Renamed App'));
@@ -339,29 +388,152 @@ void main() {
 
       final svc = makeService(gitRunner: gitRunner);
       await svc.initialize();
-      final project = await svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git');
+      final project = await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       final originalClone = Directory(project.localPath)..createSync(recursive: true);
       final oldMarker = File(p.join(originalClone.path, 'old.txt'))..writeAsStringSync('stale clone');
 
-      final updated = await svc.update(project.id, remoteUrl: 'git@github.com:u/new.git', defaultBranch: 'develop');
+      final updated = await svc.update(project.id, remoteUrl: 'git@example.com:u/new.git', defaultBranch: 'develop');
 
       expect(updated.status, ProjectStatus.cloning);
-      expect(updated.remoteUrl, 'git@github.com:u/new.git');
+      expect(updated.remoteUrl, 'git@example.com:u/new.git');
       expect(updated.defaultBranch, 'develop');
 
       await Future<void>.delayed(const Duration(milliseconds: 50));
       final refreshed = await svc.get(project.id);
       expect(refreshed, isNotNull);
       expect(refreshed!.status, ProjectStatus.ready);
-      expect(refreshed.remoteUrl, 'git@github.com:u/new.git');
+      expect(refreshed.remoteUrl, 'git@example.com:u/new.git');
       expect(refreshed.defaultBranch, 'develop');
       expect(oldMarker.existsSync(), isFalse);
 
       final cloneCalls = gitCalls.where((args) => args.isNotEmpty && args.first == 'clone').toList();
       expect(cloneCalls, hasLength(2));
-      expect(cloneCalls.last, containsAll(['--branch', 'develop', 'git@github.com:u/new.git', project.localPath]));
+      expect(cloneCalls.last, containsAll(['--branch', 'develop', 'git@example.com:u/new.git', project.localPath]));
+    });
+
+    test('rejects GitHub projects without a github-token credential', () async {
+      final svc = makeService();
+      await svc.initialize();
+
+      await expectLater(
+        () => svc.create(name: 'github-app', remoteUrl: 'git@github.com:u/repo.git'),
+        throwsA(isA<ProjectAuthException>()),
+      );
+    });
+
+    test('stores auth metadata for valid GitHub token projects', () async {
+      final svc = makeService(
+        credentials: const CredentialsConfig(
+          entries: {'github-main': CredentialEntry.githubToken(token: 'ghp_test', repository: 'u/repo')},
+        ),
+        gitRunner: _fakeGitRunner(exitCode: 0),
+        gitHubProbeRunner: (uri, {required headers}) async => (statusCode: 200, body: '{"full_name":"u/repo"}'),
+      );
+      await svc.initialize();
+
+      final project = await svc.create(
+        name: 'github-app',
+        remoteUrl: 'git@github.com:u/repo.git',
+        credentialsRef: 'github-main',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final updated = await svc.get(project.id);
+      expect(updated?.auth, isNotNull);
+      expect(updated?.auth?.compatible, isTrue);
+      expect(updated?.auth?.repository, 'u/repo');
+    });
+
+    test('GitHub token clone normalizes SSH remote to HTTPS', () async {
+      final gitCalls = <List<String>>[];
+      final svc = makeService(
+        credentials: const CredentialsConfig(
+          entries: {'github-main': CredentialEntry.githubToken(token: 'ghp_test', repository: 'u/repo')},
+        ),
+        gitHubProbeRunner: (uri, {required headers}) async => (statusCode: 200, body: '{"full_name":"u/repo"}'),
+        gitRunner: (args, {environment, workingDirectory}) async {
+          gitCalls.add(List<String>.from(args));
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      await svc.create(name: 'github-app', remoteUrl: 'git@github.com:u/repo.git', credentialsRef: 'github-main');
+
+      final cloneCall = gitCalls.firstWhere((args) => args.isNotEmpty && args.first == 'clone');
+      expect(cloneCall, contains('https://github.com/u/repo.git'));
+      expect(cloneCall, isNot(contains('git@github.com:u/repo.git')));
+    });
+
+    test('GitHub probe returns structured auth failure for non-JSON error bodies', () async {
+      final svc = makeService(
+        credentials: const CredentialsConfig(
+          entries: {'github-main': CredentialEntry.githubToken(token: 'ghp_test', repository: 'u/repo')},
+        ),
+        gitHubProbeRunner: (uri, {required headers}) async => (statusCode: 403, body: '<html>denied</html>'),
+      );
+      await svc.initialize();
+
+      await expectLater(
+        () => svc.create(name: 'github-app', remoteUrl: 'git@github.com:u/repo.git', credentialsRef: 'github-main'),
+        throwsA(
+          isA<ProjectAuthException>().having((error) => error.message, 'message', contains('cannot access u/repo')),
+        ),
+      );
+    });
+  });
+
+  group('resolveWorkflowBaseRef', () {
+    Project makeWorkflowProject({String defaultBranch = 'main'}) => Project(
+      id: 'repo',
+      name: 'Repo',
+      remoteUrl: 'git@example.com:u/r.git',
+      localPath: gitRepoDir.path,
+      defaultBranch: defaultBranch,
+      status: ProjectStatus.ready,
+      createdAt: DateTime.now(),
+    );
+
+    test('returns the explicit requested branch when provided', () async {
+      final svc = makeService();
+      await svc.initialize();
+
+      final resolved = await svc.resolveWorkflowBaseRef(makeWorkflowProject(), requestedBranch: 'feature/requested');
+
+      expect(resolved, 'feature/requested');
+    });
+
+    test('returns the configured default branch when it is non-empty', () async {
+      final svc = makeService();
+      await svc.initialize();
+
+      final resolved = await svc.resolveWorkflowBaseRef(makeWorkflowProject(defaultBranch: 'release/0.16'));
+
+      expect(resolved, 'release/0.16');
+    });
+
+    test('resolves local-path projects from symbolic HEAD when defaultBranch is empty', () async {
+      final commands = <List<String>>[];
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          commands.add(args);
+          if (args.join(' ') == 'symbolic-ref --quiet --short HEAD') {
+            return (exitCode: 0, stderr: '', stdout: 'feature/live\n');
+          }
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      final resolved = await svc.resolveWorkflowBaseRef(
+        makeWorkflowProject(defaultBranch: '').copyWith(remoteUrl: '', localPath: gitRepoDir.path),
+      );
+
+      expect(resolved, 'feature/live');
+      expect(commands, hasLength(1));
+      expect(commands.single, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
     });
   });
 
@@ -369,7 +541,7 @@ void main() {
     test('removes runtime project', () async {
       final svc = makeService(gitRunner: _fakeGitRunner());
       await svc.initialize();
-      final project = await svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git');
+      final project = await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
 
       await svc.delete(project.id);
 
@@ -397,7 +569,7 @@ void main() {
     test('_local is NOT persisted to projects.json', () async {
       final svc = makeService(gitRunner: _fakeGitRunner());
       await svc.initialize();
-      await svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git');
+      await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
 
       final projectsFile = File('$dataDir/projects.json');
       expect(projectsFile.existsSync(), isTrue);
@@ -412,7 +584,7 @@ void main() {
     Project makeReadyProject({DateTime? lastFetchAt}) => Project(
       id: 'my-app',
       name: 'My App',
-      remoteUrl: 'git@github.com:u/r.git',
+      remoteUrl: 'git@example.com:u/r.git',
       localPath: p.join(dataDir, 'projects', 'my-app'),
       defaultBranch: 'main',
       status: ProjectStatus.ready,
@@ -487,6 +659,23 @@ void main() {
       expect(fetchCall, contains('main'));
     });
 
+    test('fetch for external project honors explicit ref override', () async {
+      final commands = <List<String>>[];
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          commands.add(args);
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      await svc.ensureFresh(makeReadyProject(), ref: 'release/0.16', strict: true);
+
+      final fetchCall = commands.firstWhere((c) => c.isNotEmpty && c[0] == 'fetch', orElse: () => []);
+      expect(fetchCall, contains('release/0.16'));
+      expect(fetchCall, isNot(contains('main')));
+    });
+
     test('does not throw on fetch failure — best-effort', () async {
       final svc = makeService(
         gitRunner: (args, {environment, workingDirectory}) async {
@@ -502,7 +691,7 @@ void main() {
       await expectLater(svc.ensureFresh(makeReadyProject()), completes);
     });
 
-    test('_local project runs git fetch + merge --ff-only', () async {
+    test('named local-path projects no-op without invoking git', () async {
       final commands = <List<String>>[];
       final svc = makeService(
         gitRunner: (args, {environment, workingDirectory}) async {
@@ -512,28 +701,25 @@ void main() {
       );
       await svc.initialize();
 
-      final localProject = svc.getLocalProject();
+      final localProject = makeReadyProject().copyWith(remoteUrl: '', localPath: gitRepoDir.path);
       await svc.ensureFresh(localProject);
 
-      expect(commands, anyElement(predicate<List<String>>((c) => c.isNotEmpty && c[0] == 'fetch')));
-      expect(
-        commands,
-        anyElement(predicate<List<String>>((c) => c.length >= 2 && c[0] == 'merge' && c[1] == '--ff-only')),
-      );
+      expect(commands, isEmpty);
     });
 
-    test('_local project failed merge does not throw', () async {
+    test('_local project ensureFresh is a no-op', () async {
+      final commands = <List<String>>[];
       final svc = makeService(
         gitRunner: (args, {environment, workingDirectory}) async {
-          if (args.isNotEmpty && args[0] == 'merge') {
-            return (exitCode: 1, stderr: 'merge conflict', stdout: '');
-          }
+          commands.add(args);
           return (exitCode: 0, stderr: '', stdout: '');
         },
       );
       await svc.initialize();
 
-      await expectLater(svc.ensureFresh(svc.getLocalProject()), completes);
+      await svc.ensureFresh(svc.getLocalProject(), ref: 'release/0.16', strict: true);
+
+      expect(commands, isEmpty);
     });
 
     test('does not fetch within cooldown window (existing test)', () async {
@@ -551,7 +737,7 @@ void main() {
       await svc.initialize();
 
       // Create a project with a recent lastFetchAt.
-      final project = await svc.create(name: 'my-app', remoteUrl: 'git@github.com:u/r.git');
+      final project = await svc.create(name: 'my-app', remoteUrl: 'git@example.com:u/r.git');
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       // The project should now be ready with lastFetchAt set.
@@ -586,6 +772,38 @@ void main() {
 
       // Only one fetch should have run — the second waited on the in-flight Completer.
       expect(fetchCallCount, equals(1));
+    });
+
+    test('concurrent ensureFresh calls with different refs do not share in-flight validation', () async {
+      final calls = <List<String>>[];
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          calls.add(args);
+          if (args.isNotEmpty && args.first == 'fetch' && args.contains('release/0.16')) {
+            await Future<void>.delayed(const Duration(milliseconds: 15));
+            return (exitCode: 0, stderr: '', stdout: '');
+          }
+          if (args.isNotEmpty && args.first == 'fetch' && args.contains('missing/ref')) {
+            return (exitCode: 1, stderr: 'fatal: invalid ref', stdout: '');
+          }
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      final project = makeReadyProject();
+      final releaseCall = svc.ensureFresh(project, ref: 'release/0.16', strict: true);
+      final missingCall = svc.ensureFresh(project, ref: 'missing/ref', strict: true);
+      final missingHandled = missingCall.then<Object?>((_) => null).catchError((error) => error);
+
+      await expectLater(releaseCall, completes);
+      final missingError = await missingHandled;
+      expect(missingError, isA<StateError>());
+
+      final fetchCalls = calls.where((args) => args.isNotEmpty && args.first == 'fetch').toList();
+      expect(fetchCalls, hasLength(2));
+      expect(fetchCalls.any((args) => args.contains('release/0.16')), isTrue);
+      expect(fetchCalls.any((args) => args.contains('missing/ref')), isTrue);
     });
   });
 }

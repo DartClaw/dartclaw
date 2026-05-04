@@ -1,7 +1,7 @@
 name: dartclaw_google_chat
 description: Google Chat channel adapter for DartClaw, including inbound messages and outbound API responses.
 publish_to: none
-version: 0.9.0
+version: 0.16.4
 repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_google_chat
 homepage: https://github.com/DartClaw/dartclaw
 issue_tracker: https://github.com/DartClaw/dartclaw/issues

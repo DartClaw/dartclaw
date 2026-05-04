@@ -1,0 +1,82 @@
+{
+  "workflow": "plan-and-implement",
+  "profile": "workflows-dartclaw",
+  "total_outputs": 17,
+  "baseline_extraction_turns": 12,
+  "post_extraction_turns": 3,
+  "baseline_rate": 0.7059,
+  "absolute_post_rate": 0.1765,
+  "relative_reduction": 0.75,
+  "steps": [
+    {
+      "step_id": "discover-project",
+      "fields": {
+        "project_index": {
+          "outputs": 1,
+          "extraction_turns": 0
+        },
+        "prd": {
+          "outputs": 1,
+          "extraction_turns": 0
+        }
+      }
+    },
+    {
+      "step_id": "prd",
+      "fields": {
+        "prd": {
+          "outputs": 1,
+          "extraction_turns": 0
+        },
+        "prd_source": {
+          "outputs": 1,
+          "extraction_turns": 1
+        }
+      }
+    },
+    {
+      "step_id": "plan",
+      "fields": {
+        "story_specs": {
+          "outputs": 1,
+          "extraction_turns": 0
+        },
+        "plan": {
+          "outputs": 1,
+          "extraction_turns": 0
+        },
+        "plan_source": {
+          "outputs": 1,
+          "extraction_turns": 1
+        }
+      }
+    },
+    {
+      "step_id": "story-pipeline",
+      "fields": {
+        "story_results": {
+          "outputs": 6,
+          "extraction_turns": 0
+        }
+      }
+    },
+    {
+      "step_id": "plan-review",
+      "fields": {
+        "verdict": {
+          "outputs": 1,
+          "extraction_turns": 1
+        }
+      }
+    },
+    {
+      "step_id": "update-state",
+      "fields": {
+        "state_update_summary": {
+          "outputs": 3,
+          "extraction_turns": 0
+        }
+      }
+    }
+  ]
+}

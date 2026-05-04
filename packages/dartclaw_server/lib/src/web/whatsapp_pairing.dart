@@ -29,6 +29,8 @@ String whatsappPairingTemplate({
     groupChannels: [],
     activeEntries: [],
     archivedEntries: [],
+    activeTasks: [],
+    activeWorkflows: [],
     showChannels: true,
     tasksEnabled: false,
   ),
@@ -62,5 +64,10 @@ String whatsappPairingTemplate({
   );
 
   if (fragmentOnly) return '$body$topbar$sidebar';
-  return layoutTemplate(title: 'WhatsApp Setup', body: body, appName: appName);
+  return layoutTemplate(
+    title: 'WhatsApp Setup',
+    body: body,
+    appName: appName,
+    scripts: standardShellScripts(const ['/static/whatsapp.js']),
+  );
 }

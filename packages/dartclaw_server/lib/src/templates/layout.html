@@ -25,10 +25,6 @@
 </head>
 <body tl:attr="data-app-name=${appName}">
 <tl:block tl:utext="${body}"></tl:block>
-<script defer="defer" src="/static/app.js"></script>
-<script defer="defer" src="/static/settings.js"></script>
-<script defer="defer" src="/static/scheduling.js"></script>
-<script defer="defer" src="/static/memory.js"></script>
-<script defer="defer" src="/static/whatsapp.js"></script>
+<tl:block tl:utext="${scriptsHtml}"></tl:block>
 </body>
 </html>

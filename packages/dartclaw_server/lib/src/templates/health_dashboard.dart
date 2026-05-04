@@ -53,7 +53,7 @@ String healthDashboardTemplate({
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
-  final topbar = pageTopbarTemplate(title: 'System Health', backHref: '/', backLabel: 'Back to Chat');
+  final topbar = pageTopbarTemplate(title: 'System Health');
 
   final cardDefs = <Map<String, dynamic>>[
     {
@@ -178,7 +178,7 @@ String healthDashboardTemplate({
     'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
-  return layoutTemplate(title: 'Health', body: body, appName: appName);
+  return layoutTemplate(title: 'Health', body: body, appName: appName, scripts: standardShellScripts());
 }
 
 String _formatLastPull(String? isoTimestamp) {

@@ -11,31 +11,31 @@ void main() {
   group('PromptAugmenter.augment', () {
     test('returns prompt unchanged when outputs is null', () {
       const prompt = 'Do something useful';
-      expect(augmenter.augment(prompt, null), prompt);
+      expect(augmenter.augment(prompt, outputs: null), prompt);
     });
 
     test('returns prompt unchanged when outputs is empty', () {
       const prompt = 'Do something useful';
-      expect(augmenter.augment(prompt, {}), prompt);
+      expect(augmenter.augment(prompt, outputs: {}), prompt);
     });
 
     test('returns prompt unchanged when all outputs are text format', () {
       const prompt = 'Do something useful';
       final outputs = {'result': const OutputConfig(format: OutputFormat.text)};
-      expect(augmenter.augment(prompt, outputs), prompt);
+      expect(augmenter.augment(prompt, outputs: outputs), prompt);
     });
 
     test('returns prompt unchanged for lines format (no schema)', () {
       const prompt = 'List things';
       final outputs = {'items': const OutputConfig(format: OutputFormat.lines)};
-      expect(augmenter.augment(prompt, outputs), prompt);
+      expect(augmenter.augment(prompt, outputs: outputs), prompt);
     });
 
     group('preset schema augmentation', () {
       test('appends Required Output Format section for verdict preset', () {
         const prompt = 'Review this code';
         final outputs = {'review': const OutputConfig(format: OutputFormat.json, schema: 'verdict')};
-        final result = augmenter.augment(prompt, outputs);
+        final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
         expect(result, startsWith('Review this code'));
         expect(result, contains('pass'));
@@ -45,23 +45,37 @@ void main() {
       test('appends section for story-plan preset', () {
         const prompt = 'Plan the work';
         final outputs = {'stories': const OutputConfig(format: OutputFormat.json, schema: 'story-plan')};
-        final result = augmenter.augment(prompt, outputs);
+        final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
-        expect(result, contains('dependencies'));
+        expect(result, contains('id (string)'));
+        expect(result, contains('title (string)'));
+        expect(result, contains('Short unique identifier'));
       });
 
       test('appends section for checklist preset', () {
         const prompt = 'Check these items';
         final outputs = {'items': const OutputConfig(format: OutputFormat.json, schema: 'checklist')};
-        final result = augmenter.augment(prompt, outputs);
+        final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
         expect(result, contains('all_pass'));
+      });
+
+      test('appends section for story-specs preset', () {
+        const prompt = 'Spec the stories';
+        final outputs = {'story_specs': const OutputConfig(format: OutputFormat.json, schema: 'story-specs')};
+        final result = augmenter.augment(prompt, outputs: outputs);
+        expect(result, contains('## Required Output Format'));
+        expect(result, contains('spec_path'));
+        expect(result, contains('id'));
+        expect(result, contains('title'));
+        // AC lives in the FIS body on disk, not in the structured record.
+        expect(result, isNot(contains('acceptance_criteria')));
       });
 
       test('appends section for file-list preset', () {
         const prompt = 'List files';
         final outputs = {'files': const OutputConfig(format: OutputFormat.json, schema: 'file-list')};
-        final result = augmenter.augment(prompt, outputs);
+        final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
         expect(result, contains('path'));
       });
@@ -80,11 +94,33 @@ void main() {
           },
         };
         final outputs = {'result': OutputConfig(format: OutputFormat.json, schema: schema)};
-        final result = augmenter.augment(prompt, outputs);
+        final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
         expect(result, contains('name (string)'));
         expect(result, contains('value (integer)'));
         expect(result, contains('note (string, optional)'));
+      });
+
+      test('renders nullable property type lists without throwing', () {
+        const prompt = 'Describe the project layout';
+        final schema = {
+          'type': 'object',
+          'required': ['document_locations'],
+          'properties': {
+            'document_locations': {
+              'type': 'object',
+              'required': ['product'],
+              'properties': {
+                'product': {
+                  'type': ['string', 'null'],
+                },
+              },
+            },
+          },
+        };
+        final outputs = {'project_index': OutputConfig(format: OutputFormat.json, schema: schema)};
+        final result = augmenter.augment(prompt, outputs: outputs);
+        expect(result, contains('document_locations (object)'));
       });
 
       test('generates item list from inline array schema', () {
@@ -101,7 +137,7 @@ void main() {
           },
         };
         final outputs = {'items': OutputConfig(format: OutputFormat.json, schema: schema)};
-        final result = augmenter.augment(prompt, outputs);
+        final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
         expect(result, contains('id (string)'));
         expect(result, contains('label (string, optional)'));
@@ -115,7 +151,7 @@ void main() {
           'verdict': const OutputConfig(format: OutputFormat.json, schema: 'verdict'),
           'files': const OutputConfig(format: OutputFormat.json, schema: 'file-list'),
         };
-        final result = augmenter.augment(prompt, outputs);
+        final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('findings'));
         expect(result, contains('path'));
       });
@@ -124,8 +160,77 @@ void main() {
     test('prompt is separator before Required Output Format section', () {
       const prompt = 'Do work';
       final outputs = {'r': const OutputConfig(format: OutputFormat.json, schema: 'verdict')};
-      final result = augmenter.augment(prompt, outputs);
+      final result = augmenter.augment(prompt, outputs: outputs);
       expect(result, startsWith('Do work\n\n## Required Output Format'));
+    });
+
+    test('context outputs append workflow-context contract', () {
+      const prompt = 'Do work';
+      final outputs = {
+        'review_summary': const OutputConfig(format: OutputFormat.json, schema: 'verdict'),
+        'findings_count': const OutputConfig(format: OutputFormat.text),
+      };
+      final result = augmenter.augment(
+        prompt,
+        outputs: outputs,
+        outputKeys: const ['review_summary', 'findings_count'],
+      );
+      expect(result, contains('## Workflow Output Contract'));
+      expect(result, contains('<workflow-context>'));
+      expect(result, contains('"review_summary"'));
+      expect(result, contains('"findings_count"'));
+      expect(result, isNot(contains('## Required Output Format')));
+    });
+
+    test('path output contract leaves path locality to the field description', () {
+      const prompt = 'Review this code';
+      final outputs = {
+        'review_findings': OutputConfig(
+          format: OutputFormat.path,
+          description: 'Absolute report path under the workflow runtime artifacts directory.',
+        ),
+      };
+      final result = augmenter.augment(prompt, outputs: outputs, outputKeys: const ['review_findings']);
+
+      expect(result, contains('"review_findings": file path string'));
+      expect(result, isNot(contains('workspace-relative file path string')));
+      expect(result, contains('Absolute report path under the workflow runtime artifacts directory.'));
+    });
+
+    group('step outcome protocol (S36)', () {
+      test('appends Step Outcome Protocol section when flag is true', () {
+        const prompt = 'Do the thing';
+        final result = augmenter.augment(prompt, emitStepOutcomeProtocol: true);
+        expect(result, startsWith('Do the thing'));
+        expect(result, contains('## Step Outcome Protocol'));
+        expect(result, contains('<step-outcome>'));
+        expect(result, contains('succeeded'));
+        expect(result, contains('failed'));
+        expect(result, contains('needsInput'));
+      });
+
+      test('omits Step Outcome Protocol section when flag is false', () {
+        const prompt = 'Do the thing';
+        final result = augmenter.augment(prompt);
+        expect(result, equals(prompt));
+      });
+
+      test('omits Step Outcome Protocol section when flag defaulted', () {
+        const prompt = 'Do the thing';
+        final outputs = {'r': const OutputConfig(format: OutputFormat.json, schema: 'verdict')};
+        final result = augmenter.augment(prompt, outputs: outputs);
+        expect(result, isNot(contains('## Step Outcome Protocol')));
+      });
+
+      test('Step Outcome Protocol appears after output contract sections', () {
+        const prompt = 'Do work';
+        final outputs = {'r': const OutputConfig(format: OutputFormat.json, schema: 'verdict')};
+        final result = augmenter.augment(prompt, outputs: outputs, emitStepOutcomeProtocol: true);
+        final outcomeIdx = result.indexOf('## Step Outcome Protocol');
+        final schemaIdx = result.indexOf('## Required Output Format');
+        expect(schemaIdx, greaterThan(0));
+        expect(outcomeIdx, greaterThan(schemaIdx));
+      });
     });
   });
 }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
@@ -17,11 +16,20 @@ import '../turn_runner.dart';
 import 'agent_observer.dart';
 import 'artifact_collector.dart';
 import 'goal_service.dart';
+import 'task_budget_policy.dart';
+import 'task_config_view.dart';
 import 'task_event_recorder.dart';
 import 'task_file_guard.dart';
 import 'task_project_ref.dart';
+import 'task_read_only_guard.dart';
+import 'task_runner_pool_coordinator.dart';
 import 'task_service.dart';
+import 'workflow_cli_runner.dart';
+import 'workflow_one_shot_runner.dart';
+import 'workflow_worktree_binder.dart';
 import 'worktree_manager.dart';
+
+part 'task_executor_helpers.dart';
 
 /// Executes queued tasks against the harness pool.
 ///
@@ -41,6 +49,9 @@ class TaskExecutor {
     AgentObserver? observer,
     TurnTraceService? traceService,
     TaskEventRecorder? eventRecorder,
+    WorkflowCliRunner? workflowCliRunner,
+    WorkflowStepExecutionRepository? workflowStepExecutionRepository,
+    SqliteWorkflowRunRepository? workflowRunRepository,
     Future<void> Function()? onSpawnNeeded,
     Future<void> Function(String taskId)? onAutoAccept,
     ProjectService? projectService,
@@ -66,6 +77,9 @@ class TaskExecutor {
        _observer = observer,
        _traceService = traceService,
        _eventRecorder = eventRecorder,
+       _workflowCliRunner = workflowCliRunner,
+       _workflowStepExecutionRepository = workflowStepExecutionRepository,
+       _workflowRunRepository = workflowRunRepository,
        _onSpawnNeeded = onSpawnNeeded,
        _onAutoAccept = onAutoAccept,
        _projectService = projectService,
@@ -94,6 +108,9 @@ class TaskExecutor {
   final AgentObserver? _observer;
   final TurnTraceService? _traceService;
   final TaskEventRecorder? _eventRecorder;
+  final WorkflowCliRunner? _workflowCliRunner;
+  final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
+  final SqliteWorkflowRunRepository? _workflowRunRepository;
   final Future<void> Function()? _onSpawnNeeded;
   final Future<void> Function(String taskId)? _onAutoAccept;
   final ProjectService? _projectService;
@@ -107,10 +124,47 @@ class TaskExecutor {
   final EventBus? _eventBus;
   final String? _dataDir;
   final Duration pollInterval;
+  late final TaskRunnerPoolCoordinator _runnerPoolCoordinator = TaskRunnerPoolCoordinator(
+    pool: _pool,
+    onSpawnNeeded: _onSpawnNeeded,
+    log: _log,
+  );
+  late final TaskFailureHandler _failureHandler = TaskFailureHandler(
+    tasks: _tasks,
+    eventRecorder: _eventRecorder,
+    log: _log,
+  );
+  late final TaskBudgetPolicy _budgetPolicy = TaskBudgetPolicy(
+    tasks: _tasks,
+    kv: _kv,
+    budgetConfig: _budgetConfig,
+    eventBus: _eventBus,
+    dataDir: _dataDir,
+    failTask: _failureHandler.markFailedOrRetry,
+    log: _log,
+  );
+  late final WorkflowWorktreeBinder _worktreeBinder = WorkflowWorktreeBinder(
+    worktreeManager: _worktreeManager,
+    workflowRunRepository: _workflowRunRepository,
+    failTask: _failureHandler.markFailedOrRetry,
+  );
+  late final WorkflowOneShotRunner _workflowOneShotRunner = WorkflowOneShotRunner(
+    runner: _workflowCliRunner,
+    workflowStepExecutionRepository: _workflowStepExecutionRepository,
+    messages: _messages,
+    kv: _kv,
+    budgetPolicy: _budgetPolicy,
+    tasks: _tasks,
+    eventRecorder: _eventRecorder,
+    log: _log,
+  );
 
   Timer? _timer;
   Future<bool>? _inFlightPoll;
-  bool _isSpawning = false;
+
+  void hydrateWorkflowSharedWorktreeBinding(WorkflowWorktreeBinding binding, {required String workflowRunId}) {
+    _worktreeBinder.hydrateWorkflowSharedWorktreeBinding(binding, workflowRunId: workflowRunId);
+  }
 
   void start() {
     if (_timer != null) return;
@@ -146,10 +200,7 @@ class TaskExecutor {
       final queued = await _tasks.list(status: TaskStatus.queued);
       if (queued.isEmpty) return false;
 
-      // Lazy pool growth: spawn a runner if tasks are waiting but none available.
-      if (_pool.availableCount == 0 && _pool.spawnableCount > 0 && !_isSpawning) {
-        _triggerSpawn();
-      }
+      _runnerPoolCoordinator.triggerSpawnIfNeeded();
 
       queued.sort((a, b) {
         final createdAtCompare = a.createdAt.compareTo(b.createdAt);
@@ -169,10 +220,11 @@ class TaskExecutor {
         }
 
         final profile = resolveProfile(task.type);
-        final runner = _acquirePoolRunner(profile, provider: task.provider);
+        final runner = _runnerPoolCoordinator.acquireRunnerForTask(task, profile);
         if (runner == null) {
           continue;
         }
+        _runnerPoolCoordinator.clearWaitLog(task.id);
 
         final runnerIndex = _pool.indexOf(runner);
         final runningTask = await _checkout(task);
@@ -231,114 +283,6 @@ class TaskExecutor {
     return didWork;
   }
 
-  Future<void> _runPoolTask(Task runningTask, TurnRunner runner, {required int runnerIndex}) async {
-    try {
-      await _executeWithRunner(runningTask, runner, runnerIndex: runnerIndex);
-    } finally {
-      _observer?.markIdle(runnerIndex);
-      _pool.release(runner);
-    }
-  }
-
-  Future<Task?> _checkout(Task queuedTask) async {
-    try {
-      return await _tasks.transition(queuedTask.id, TaskStatus.running, trigger: 'system');
-    } on StateError {
-      return null;
-    }
-  }
-
-  Future<_QueuedTaskDisposition> _prepareQueuedTask(Task task) async {
-    final projectService = _projectService;
-    if (projectService == null) {
-      return _QueuedTaskDisposition.ready;
-    }
-
-    final projectId = taskProjectId(task);
-    if (projectId == null) {
-      return _QueuedTaskDisposition.ready;
-    }
-
-    final project = await projectService.get(projectId);
-    if (project == null) {
-      await _markFailedOrRetry(task, errorSummary: 'Project "$projectId" not found', retryable: false);
-      return _QueuedTaskDisposition.handled;
-    }
-
-    if (project.status == ProjectStatus.cloning) {
-      return _QueuedTaskDisposition.waiting;
-    }
-
-    if (project.status == ProjectStatus.error) {
-      final detail = project.errorMessage?.trim();
-      final summary = (detail == null || detail.isEmpty)
-          ? 'Project "${project.name}" failed to clone'
-          : 'Project "${project.name}" failed to clone: $detail';
-      await _markFailedOrRetry(task, errorSummary: summary, retryable: false);
-      return _QueuedTaskDisposition.handled;
-    }
-
-    return _QueuedTaskDisposition.ready;
-  }
-
-  /// Pool-mode execution: uses a specific acquired [runner].
-  Future<void> _executeWithRunner(Task runningTask, TurnRunner runner, {required int runnerIndex}) async {
-    return _executeCore(
-      runningTask,
-      runnerIndex: runnerIndex,
-      provider: runner.providerId,
-      runnerProfileId: runner.profileId,
-      reserveTurn:
-          (
-            sessionId, {
-            String? directory,
-            String? model,
-            String? effort,
-            BehaviorFileService? behaviorOverride,
-            PromptScope? promptScope,
-          }) => runner.reserveTurn(
-            sessionId,
-            agentName: 'task',
-            directory: directory,
-            model: model,
-            effort: effort,
-            behaviorOverride: behaviorOverride,
-            promptScope: promptScope,
-          ),
-      executeTurn: runner.executeTurn,
-      waitForOutcome: runner.waitForOutcome,
-      setTaskToolFilter: runner.setTaskToolFilter,
-    );
-  }
-
-  /// Single-harness fallback execution: uses TurnManager (primary runner).
-  Future<void> _execute(Task runningTask) async {
-    return _executeCore(
-      runningTask,
-      runnerIndex: 0,
-      runnerProfileId: resolveProfile(runningTask.type),
-      reserveTurn:
-          (
-            sessionId, {
-            String? directory,
-            String? model,
-            String? effort,
-            BehaviorFileService? behaviorOverride,
-            PromptScope? promptScope,
-          }) => _reserveSharedTurn(
-            sessionId,
-            directory: directory,
-            model: model,
-            effort: effort,
-            behaviorOverride: behaviorOverride,
-            promptScope: promptScope,
-          ),
-      executeTurn: _turns.executeTurn,
-      waitForOutcome: _turns.waitForOutcome,
-      setTaskToolFilter: _turns.setTaskToolFilter,
-    );
-  }
-
   /// Shared task execution logic for both pool-mode and single-harness paths.
   Future<void> _executeCore(
     Task runningTask, {
@@ -364,10 +308,17 @@ class TaskExecutor {
     executeTurn,
     required Future<TurnOutcome> Function(String sessionId, String turnId) waitForOutcome,
     void Function(List<String>?)? setTaskToolFilter,
+    void Function(bool)? setTaskReadOnly,
   }) async {
-    var task = runningTask;
+    var task = await _hydrateWorkflowStepExecution(runningTask);
+    _log.info(
+      'Task execution start: ${task.id} "${task.title}" '
+      'type=${task.type.name}, provider=${provider ?? "default"}, '
+      'profile=${runnerProfileId ?? "none"}',
+    );
     WorktreeInfo? worktreeInfo;
     Project? project;
+    GitStatusSnapshot? readOnlyProjectStatusBeforeTurn;
     try {
       // Resolve project for this task.
       final projectService = _projectService;
@@ -376,11 +327,15 @@ class TaskExecutor {
         if (projectId != null) {
           project = await projectService.get(projectId);
           if (project == null) {
-            await _markFailedOrRetry(task, errorSummary: 'Project "$projectId" not found', retryable: false);
+            await _failureHandler.markFailedOrRetry(
+              task,
+              errorSummary: 'Project "$projectId" not found',
+              retryable: false,
+            );
             return;
           }
           if (project.status == ProjectStatus.error) {
-            await _markFailedOrRetry(
+            await _failureHandler.markFailedOrRetry(
               task,
               errorSummary: project.errorMessage?.trim().isNotEmpty == true
                   ? 'Project "${project.name}" failed to clone: ${project.errorMessage!.trim()}'
@@ -390,7 +345,7 @@ class TaskExecutor {
             return;
           }
           if (project.status == ProjectStatus.cloning) {
-            await _markFailedOrRetry(
+            await _failureHandler.markFailedOrRetry(
               task,
               errorSummary: 'Project "${project.name}" is still cloning',
               retryable: false,
@@ -400,26 +355,128 @@ class TaskExecutor {
         } else {
           project = await projectService.getDefaultProject();
         }
-        // Auto-fetch — best-effort; never throws.
-        await projectService.ensureFresh(project);
+        final explicitBaseRef = _taskBaseRef(task);
+        final effectiveBaseRef = await _resolveEffectiveBaseRef(task, project, explicitBaseRef: explicitBaseRef);
+        final workflowOwnedBranchTask = await _worktreeBinder.workflowOwnedWorktreeKey(task) != null;
+        final workflowOwnedLocalBaseRef = _isWorkflowOwnedLocalRef(effectiveBaseRef);
+        final worktreeBaseRef = await _worktreeBaseRefFor(task, project, effectiveBaseRef);
+        final strictGitValidation =
+            _isWorkflowOrchestrated(task) && !workflowOwnedBranchTask && !workflowOwnedLocalBaseRef;
+        final freshnessRef = (workflowOwnedBranchTask || workflowOwnedLocalBaseRef)
+            ? null
+            : _freshnessRefFor(project, effectiveBaseRef);
+        if (strictGitValidation || freshnessRef != null) {
+          try {
+            await projectService.ensureFresh(project, ref: freshnessRef, strict: strictGitValidation);
+          } catch (e) {
+            await _failureHandler.markFailedOrRetry(
+              task,
+              errorSummary: 'Git reference validation failed for project "${project.name}": $e',
+              retryable: false,
+            );
+            return;
+          }
+        } else if (workflowOwnedLocalBaseRef) {
+          _log.fine(
+            'Task ${task.id}: skipping freshness fetch for local workflow-owned ref "$effectiveBaseRef" '
+            'in project "${project.name}"',
+          );
+        }
+        if (worktreeBaseRef != null && worktreeBaseRef.isNotEmpty) {
+          final nextConfig = Map<String, dynamic>.from(task.configJson)..['_baseRef'] = worktreeBaseRef;
+          task = await _tasks.updateFields(task.id, configJson: nextConfig);
+        }
+      }
+
+      final usesInlineWorkflowCheckout = await _worktreeBinder.usesInlineProjectCheckout(task);
+      if (_taskNeedsWorktree(task) && usesInlineWorkflowCheckout && project != null) {
+        final inlineBaseRef = _taskBaseRef(task);
+        if (inlineBaseRef != null && inlineBaseRef.isNotEmpty) {
+          final prepared = await _worktreeBinder.ensureInlineWorkflowBranchCheckedOut(task, project, inlineBaseRef);
+          if (!prepared) {
+            return;
+          }
+        }
       }
 
       // Worktree setup for coding tasks
-      if (task.type == TaskType.coding && _worktreeManager != null) {
-        // Pass project only when it's not the implicit _local project.
-        final worktreeProject = (project != null && project.id != '_local') ? project : null;
-        worktreeInfo = await _worktreeManager.create(task.id, project: worktreeProject);
+      if (_taskNeedsWorktree(task) && _worktreeManager != null && !usesInlineWorkflowCheckout) {
+        final workflowWorktreeKey = await _worktreeBinder.workflowOwnedWorktreeKey(task);
+        final workflowWorktreeTaskId = await _worktreeBinder.workflowOwnedWorktreeTaskId(task);
+        final requiresStoryBranch = await _worktreeBinder.workflowMapIterationOwnsBranch(task);
+        if (workflowWorktreeKey != null && workflowWorktreeTaskId != null) {
+          worktreeInfo = await _worktreeBinder.resolveWorkflowSharedWorktree(
+            task,
+            workflowWorktreeKey: workflowWorktreeKey,
+            workflowWorktreeTaskId: workflowWorktreeTaskId,
+            project: project,
+            createBranch: requiresStoryBranch,
+            baseRef: _taskBaseRef(task),
+          );
+        } else {
+          // Pass project only when it's not the implicit _local project.
+          final worktreeProject = (project != null && project.id != '_local') ? project : null;
+          worktreeInfo = await _worktreeManager.create(
+            task.id,
+            project: worktreeProject,
+            baseRef: _taskBaseRef(task),
+            existingWorktreeJson: task.worktreeJson,
+          );
+        }
         _taskFileGuard?.register(task.id, worktreeInfo.path);
         task = await _tasks.updateFields(task.id, worktreeJson: worktreeInfo.toJson());
+
+        // Apply workflow externalArtifactMount (per-story file copy) when the
+        // enclosing workflow resolved a source file for this map iteration.
+        final mountJson = _worktreeBinder.externalArtifactMount(task);
+        if (mountJson != null) {
+          final fromProjectDir = mountJson['fromProjectDir'] as String?;
+          final relativeSource = mountJson['source'] as String?;
+          final mountMode = (mountJson['mode'] as String?) ?? 'per-story-copy';
+          if (fromProjectDir != null &&
+              relativeSource != null &&
+              fromProjectDir.isNotEmpty &&
+              relativeSource.isNotEmpty) {
+            try {
+              await _worktreeManager.applyExternalArtifactMount(
+                worktree: worktreeInfo,
+                fromProjectDir: fromProjectDir,
+                relativeSourcePath: relativeSource,
+                mode: mountMode,
+              );
+            } on WorktreeException catch (e) {
+              _log.warning('externalArtifactMount failed for task ${task.id}: $e');
+            }
+          }
+        }
       }
 
+      final requiredInputPath = TaskConfigView(task, log: _log).requiredInputPath;
+      if (requiredInputPath != null) {
+        final effectiveWorktreePath = worktreeInfo?.path;
+        final fallbackProjectPath = (project != null && project.id != '_local') ? project.localPath : null;
+        final rootPath = (effectiveWorktreePath?.isNotEmpty ?? false) ? effectiveWorktreePath : fallbackProjectPath;
+        final exists = rootPath != null && File(p.join(rootPath, requiredInputPath)).existsSync();
+        if (!exists) {
+          final rootLabel = rootPath == null || rootPath.isEmpty ? 'task worktree' : rootPath;
+          await _failureHandler.markFailedOrRetry(
+            task,
+            errorSummary: 'artifact-propagation: required input path "$requiredInputPath" is missing in "$rootLabel"',
+            retryable: false,
+          );
+          return;
+        }
+      }
+
+      readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(task, project);
+
       // continueSession: reuse the root session from the preceding agent step.
-      final continueSessionId = task.configJson['_continueSessionId'] as String?;
+      final continueSessionId = TaskConfigView(task, log: _log).continueSessionId;
       final Session session;
       if (continueSessionId != null) {
         final existing = await _sessions.getSession(continueSessionId);
         if (existing == null || existing.type == SessionType.archive) {
-          await _markFailedOrRetry(
+          await _failureHandler.markFailedOrRetry(
             task,
             errorSummary:
                 'continueSession: session "$continueSessionId" not found or archived. '
@@ -442,22 +499,81 @@ class TaskExecutor {
 
       // Pre-turn budget check — fail-safe open policy.
       final goalForBudget = task.goalId != null ? await _goals?.get(task.goalId!) : null;
-      final (budgetVerdict, budgetWarningMessage) = await _checkBudget(task, session.id, goal: goalForBudget);
-      if (budgetVerdict == _BudgetVerdict.exceeded) return;
+      final (budgetVerdict, budgetWarningMessage) = await _budgetPolicy.checkBudget(
+        task,
+        session.id,
+        goal: goalForBudget,
+      );
+      if (budgetVerdict == BudgetVerdict.exceeded) return;
 
       final pendingMessage = await _composePendingMessage(task, session.id, workingDirectory: worktreeInfo?.path);
       if (pendingMessage == null) {
         _log.warning('Task ${task.id} had no message to execute; marking failed');
-        await _markFailedOrRetry(task, errorSummary: 'Task had no executable prompt', retryable: false);
+        await _failureHandler.markFailedOrRetry(task, errorSummary: 'Task had no executable prompt', retryable: false);
         return;
       }
       final modelOverride = _modelOverride(task);
       final effortOverride = _effortOverride(task);
       final tokenBudget = _tokenBudget(task);
+      final projectDirForTask = (project != null && project.id != '_local') ? project.localPath : null;
 
       if (budgetWarningMessage != null) {
         await _messages.insertMessage(sessionId: session.id, role: 'system', content: budgetWarningMessage);
       }
+
+      if (_isWorkflowOrchestrated(task)) {
+        final outcome = await _workflowOneShotRunner.execute(
+          task,
+          sessionId: session.id,
+          pendingMessage: pendingMessage,
+          provider: provider ?? task.provider ?? 'claude',
+          profileId: runnerProfileId ?? resolveProfile(task.type),
+          workingDirectory: worktreeInfo?.path ?? projectDirForTask,
+          modelOverride: modelOverride,
+          effortOverride: effortOverride,
+          sandboxOverride: _isReadOnlyTask(task) ? 'read-only' : null,
+        );
+        _observer?.recordTurn(
+          runnerIndex,
+          inputTokens: outcome.inputTokens,
+          outputTokens: outcome.outputTokens,
+          isError: outcome.status != TurnStatus.completed,
+          turnDuration: outcome.turnDuration,
+          cacheReadTokens: outcome.cacheReadTokens,
+          cacheWriteTokens: outcome.cacheWriteTokens,
+          toolCalls: outcome.toolCalls,
+        );
+        if (outcome.status != TurnStatus.completed) {
+          await _failureHandler.markFailedOrRetry(
+            task,
+            errorSummary: outcome.errorMessage ?? 'Workflow one-shot execution failed',
+          );
+          return;
+        }
+        final refreshedTask = await _tasks.get(task.id) ?? task;
+        final readOnlyMutationSummary = await _readOnlyMutationSummary(
+          refreshedTask,
+          project,
+          readOnlyProjectStatusBeforeTurn,
+        );
+        if (readOnlyMutationSummary != null) {
+          _log.warning('Task ${task.id}: $readOnlyMutationSummary');
+          await _failureHandler.markFailedOrRetry(task, errorSummary: readOnlyMutationSummary, retryable: false);
+          return;
+        }
+        final artifacts = await _artifactCollector.collect(refreshedTask);
+        for (final artifact in artifacts) {
+          _eventRecorder?.recordArtifactCreated(task.id, name: artifact.name, kind: artifact.kind.name);
+        }
+        final postStatus = _resolvePostCompletionStatus(refreshedTask);
+        await _tasks.transition(task.id, postStatus, trigger: 'system');
+        final onAutoAccept = _onAutoAccept;
+        if (onAutoAccept != null && postStatus == TaskStatus.review && !_isWorkflowOrchestrated(task)) {
+          await onAutoAccept(task.id);
+        }
+        return;
+      }
+
       await _messages.insertMessage(sessionId: session.id, role: 'user', content: pendingMessage);
 
       final clearedConfig = _clearPushBackComment(task.configJson);
@@ -480,22 +596,25 @@ class TaskExecutor {
           )
           .toList(growable: false);
 
+      final turnDirectory = worktreeInfo?.path ?? projectDirForTask;
+
       // Create task-scoped BehaviorFileService for workflow tasks first.
       BehaviorFileService? taskBehavior;
-      final workflowWorkspaceDir = task.configJson['_workflowWorkspaceDir'] as String?;
+      final workflowWorkspaceDir = _worktreeBinder.workflowWorkspaceDir(task);
       final workspaceDir = _workspaceDir;
       if (workflowWorkspaceDir != null && workflowWorkspaceDir.trim().isNotEmpty) {
         taskBehavior = BehaviorFileService(
           workspaceDir: workflowWorkspaceDir,
+          projectDir: projectDirForTask,
           maxMemoryBytes: _maxMemoryBytes,
           compactInstructions: _compactInstructions,
           identifierPreservation: _identifierPreservation,
           identifierInstructions: _identifierInstructions,
         );
-      } else if (project != null && project.id != '_local' && workspaceDir != null) {
+      } else if (projectDirForTask != null && workspaceDir != null) {
         taskBehavior = BehaviorFileService(
           workspaceDir: workspaceDir,
-          projectDir: project.localPath,
+          projectDir: projectDirForTask,
           maxMemoryBytes: _maxMemoryBytes,
           compactInstructions: _compactInstructions,
           identifierPreservation: _identifierPreservation,
@@ -504,6 +623,7 @@ class TaskExecutor {
       }
 
       setTaskToolFilter?.call(_allowedTools(task));
+      setTaskReadOnly?.call(_isReadOnlyTask(task));
 
       // Determine prompt scope for this task turn.
       // Restricted profile gets tools-only; all other tasks get the lean task
@@ -519,7 +639,7 @@ class TaskExecutor {
 
       final turnId = await reserveTurn(
         session.id,
-        directory: worktreeInfo?.path,
+        directory: turnDirectory,
         model: modelOverride,
         effort: effortOverride,
         behaviorOverride: taskBehavior,
@@ -576,6 +696,12 @@ class TaskExecutor {
       }
 
       if (outcome.status == TurnStatus.completed) {
+        final readOnlyMutationSummary = await _readOnlyMutationSummary(task, project, readOnlyProjectStatusBeforeTurn);
+        if (readOnlyMutationSummary != null) {
+          _log.warning('Task ${task.id}: $readOnlyMutationSummary');
+          await _failureHandler.markFailedOrRetry(task, errorSummary: readOnlyMutationSummary, retryable: false);
+          return;
+        }
         final refreshed = await _tasks.get(task.id) ?? task;
         if (refreshed.status == TaskStatus.cancelled) {
           return;
@@ -586,7 +712,7 @@ class TaskExecutor {
         }
         if (tokenBudget != null && outcome.totalTokens > tokenBudget) {
           _log.warning('Task ${task.id} exceeded token budget ($tokenBudget < ${outcome.totalTokens}); marking failed');
-          await _markFailedOrRetry(
+          await _failureHandler.markFailedOrRetry(
             task,
             errorSummary: 'Token budget exceeded: used ${outcome.totalTokens} tokens against a limit of $tokenBudget',
             retryable: false,
@@ -596,12 +722,26 @@ class TaskExecutor {
         final postStatus = _resolvePostCompletionStatus(task);
         await _tasks.transition(task.id, postStatus, trigger: 'system');
         final onAutoAccept = _onAutoAccept;
-        if (onAutoAccept != null) {
+        if (onAutoAccept != null && postStatus == TaskStatus.review) {
+          if (_isWorkflowOrchestrated(task)) {
+            _log.fine(
+              'Task ${task.id}: skipping task-level auto-accept because workflow git promotion '
+              'owns publish/merge for this task',
+            );
+            return;
+          }
           _log.info('Auto-accepting completed task ${task.id} after review transition');
           try {
             await onAutoAccept(task.id);
           } catch (error, stackTrace) {
             _log.warning('Auto-accept failed for task ${task.id}: $error', error, stackTrace);
+            if (_isWorkflowOrchestrated(task)) {
+              await _failureHandler.markFailedOrRetry(
+                task,
+                errorSummary: _failureHandler.sanitizeErrorSummary(error.toString()),
+                retryable: false,
+              );
+            }
           }
         }
         return;
@@ -610,7 +750,7 @@ class TaskExecutor {
       // Mid-turn loop detection (tool fingerprinting) sets loopDetection on outcome.
       if (outcome.loopDetection != null) {
         _log.warning('Loop detected during task ${task.id}: ${outcome.loopDetection!.message}');
-        await _markFailedOrRetry(
+        await _failureHandler.markFailedOrRetry(
           task,
           errorSummary: 'Loop detected: ${outcome.loopDetection!.message}',
           retryable: false,
@@ -618,12 +758,15 @@ class TaskExecutor {
         return;
       }
 
-      await _markFailedOrRetry(task, errorSummary: outcome.errorMessage ?? _defaultTurnFailureSummary(outcome.status));
+      await _failureHandler.markFailedOrRetry(
+        task,
+        errorSummary: outcome.errorMessage ?? _defaultTurnFailureSummary(outcome.status),
+      );
       return;
     } on LoopDetectedException catch (e) {
       // Pre-turn loop detection (turn chain depth or token velocity).
       _log.warning('Loop detected during task ${task.id}: ${e.message}');
-      await _markFailedOrRetry(task, errorSummary: 'Loop detected: ${e.message}', retryable: false);
+      await _failureHandler.markFailedOrRetry(task, errorSummary: 'Loop detected: ${e.message}', retryable: false);
       return;
     } catch (error, stackTrace) {
       if (error is GitNotFoundException || error is WorktreeException) {
@@ -631,557 +774,17 @@ class TaskExecutor {
       } else {
         _log.warning('Task execution failed for ${task.id}: $error', error, stackTrace);
       }
-      await _markFailedOrRetry(task, errorSummary: _sanitizeErrorSummary(error.toString()));
+      await _failureHandler.markFailedOrRetry(
+        task,
+        errorSummary: _failureHandler.sanitizeErrorSummary(error.toString()),
+      );
       return;
     } finally {
       // Clear per-task tool filter to prevent stale state on the next task.
       setTaskToolFilter?.call(null);
+      setTaskReadOnly?.call(false);
     }
-  }
-
-  Future<String> _reserveSharedTurn(
-    String sessionId, {
-    String? directory,
-    String? model,
-    String? effort,
-    BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
-  }) async {
-    while (true) {
-      try {
-        return await _turns.reserveTurn(
-          sessionId,
-          agentName: 'task',
-          directory: directory,
-          model: model,
-          effort: effort,
-          behaviorOverride: behaviorOverride,
-          promptScope: promptScope,
-        );
-      } on BusyTurnException {
-        await Future<void>.delayed(pollInterval);
-      }
-    }
-  }
-
-  TurnRunner? _acquirePoolRunner(String profile, {String? provider}) {
-    if (provider != null) {
-      if (!_pool.hasTaskRunnerForProvider(provider)) {
-        return null;
-      }
-      return _pool.tryAcquireForProviderAndProfile(provider, profile);
-    }
-    if (_pool.hasTaskRunnerForProfile(profile)) {
-      return _pool.tryAcquireForProfile(profile);
-    }
-    if (_pool.taskProfiles.length <= 1) {
-      return _pool.tryAcquire();
-    }
-    return null;
-  }
-
-  void _triggerSpawn() {
-    final callback = _onSpawnNeeded;
-    if (callback == null) return;
-    _isSpawning = true;
-    unawaited(
-      callback().whenComplete(() {
-        _isSpawning = false;
-      }),
-    );
-  }
-
-  Future<String?> _composePendingMessage(Task task, String sessionId, {String? workingDirectory}) async {
-    final goalContext = await _goalContextFor(task);
-    final pushBackComment = task.configJson['pushBackComment'];
-    if (pushBackComment is String && pushBackComment.trim().isNotEmpty) {
-      return _pushBackPrompt(pushBackComment.trim(), goalContext: goalContext, workingDirectory: workingDirectory);
-    }
-
-    return _initialPrompt(task, goalContext: goalContext, workingDirectory: workingDirectory);
-  }
-
-  String _initialPrompt(Task task, {String? goalContext, String? workingDirectory}) {
-    final buffer = StringBuffer();
-
-    // Inject retry context when this is a retry attempt.
-    if (task.retryCount > 0) {
-      final lastError = task.configJson['lastError'] as String?;
-      buffer
-        ..writeln('## Retry Context')
-        ..writeln()
-        ..writeln('Previous attempt failed: ${lastError ?? "unknown error"}')
-        ..writeln('This is retry ${task.retryCount} of ${task.maxRetries}.')
-        ..writeln('Approach the task differently — avoid the strategy that caused the previous failure.')
-        ..writeln();
-    }
-
-    buffer
-      ..writeln('## Task: ${task.title}')
-      ..writeln()
-      ..writeln(task.description.trim());
-
-    if (workingDirectory != null && workingDirectory.trim().isNotEmpty) {
-      buffer
-        ..writeln()
-        ..writeln('### Working Directory')
-        ..writeln('Use the reserved task worktree as the only workspace for this task.');
-    }
-
-    if (goalContext != null && goalContext.isNotEmpty) {
-      buffer
-        ..writeln()
-        ..writeln(goalContext);
-    }
-
-    final acceptanceCriteria = task.acceptanceCriteria?.trim();
-    if (acceptanceCriteria != null && acceptanceCriteria.isNotEmpty) {
-      buffer
-        ..writeln()
-        ..writeln('### Acceptance Criteria')
-        ..writeln(acceptanceCriteria);
-    }
-
-    return buffer.toString().trimRight();
-  }
-
-  Future<String?> _goalContextFor(Task task) async {
-    final goalId = task.goalId;
-    if (goalId == null || goalId.isEmpty) return null;
-    return _goals?.resolveGoalContext(goalId);
-  }
-
-  String _pushBackPrompt(String comment, {String? goalContext, String? workingDirectory}) {
-    final lines = <String>[
-      '## Push-back Feedback',
-      '',
-      'The previous output was reviewed and pushed back with the following feedback:',
-      '',
-      comment,
-    ];
-
-    if (workingDirectory != null && workingDirectory.trim().isNotEmpty) {
-      lines
-        ..add('')
-        ..add('### Working Directory')
-        ..add('Continue using `$workingDirectory` as the only workspace for this task.');
-    }
-
-    if (goalContext != null && goalContext.isNotEmpty) {
-      lines
-        ..add('')
-        ..add(goalContext);
-    }
-
-    lines
-      ..add('')
-      ..add('Please address the feedback and try again.');
-    return lines.join('\n');
-  }
-
-  Map<String, dynamic>? _clearPushBackComment(Map<String, dynamic> configJson) {
-    if (!configJson.containsKey('pushBackComment')) return null;
-    final next = Map<String, dynamic>.from(configJson)..remove('pushBackComment');
-    return next;
-  }
-
-  List<String>? _allowedTools(Task task) {
-    final raw = task.configJson['allowedTools'];
-    if (raw is! List) return null;
-    try {
-      return raw.cast<String>().toList(growable: false);
-    } catch (e) {
-      _log.warning('Task ${task.id}: malformed allowedTools in configJson, ignoring: $e');
-      return null;
-    }
-  }
-
-  String? _reviewMode(Task task) {
-    final raw = task.configJson['reviewMode'];
-    if (raw is! String) return null;
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) return null;
-    if (!const {'auto-accept', 'mandatory', 'coding-only'}.contains(trimmed)) {
-      _log.warning('Task ${task.id}: unknown reviewMode "$trimmed", using default');
-      return null;
-    }
-    return trimmed;
-  }
-
-  TaskStatus _resolvePostCompletionStatus(Task task) {
-    final mode = _reviewMode(task);
-    return switch (mode) {
-      'auto-accept' => TaskStatus.accepted,
-      'mandatory' => TaskStatus.review,
-      'coding-only' => task.type == TaskType.coding ? TaskStatus.review : TaskStatus.accepted,
-      _ => TaskStatus.review, // null = current default (all tasks go to review)
-    };
-  }
-
-  String? _modelOverride(Task task) {
-    final raw = task.configJson['model'];
-    if (raw is! String) return null;
-    final trimmed = raw.trim();
-    return trimmed.isEmpty ? null : trimmed;
-  }
-
-  String? _effortOverride(Task task) {
-    final raw = task.configJson['effort'];
-    if (raw is! String) return null;
-    final trimmed = raw.trim();
-    return trimmed.isEmpty ? null : trimmed;
-  }
-
-  int? _tokenBudget(Task task) {
-    // Prefer first-class maxTokens field over configJson entries.
-    if (task.maxTokens != null && task.maxTokens! > 0) return task.maxTokens;
-    final primary = task.configJson['tokenBudget'];
-    if (primary != null) {
-      if (primary is int && primary > 0) return primary;
-      if (primary is num) {
-        final intValue = primary.toInt();
-        return intValue > 0 ? intValue : null;
-      }
-      return null;
-    }
-    final legacy = task.configJson['budget'];
-    if (legacy != null) {
-      _log.warning('Task ${task.id}: "budget" config key is deprecated — use "tokenBudget"');
-      if (legacy is int && legacy > 0) return legacy;
-      if (legacy is num) {
-        final intValue = legacy.toInt();
-        return intValue > 0 ? intValue : null;
-      }
-    }
-    return null;
-  }
-
-  /// Pre-turn budget check. Returns verdict and optional warning message to inject.
-  ///
-  /// Fail-safe: any exception returns [_BudgetVerdict.proceed] (open policy).
-  Future<(_BudgetVerdict, String?)> _checkBudget(Task task, String sessionId, {Goal? goal}) async {
-    try {
-      final effectiveBudget = _resolveTokenBudget(task, goal: goal);
-      if (effectiveBudget == null) return (_BudgetVerdict.proceed, null);
-
-      final costData = await _readSessionCost(sessionId);
-      if (costData == null) return (_BudgetVerdict.proceed, null);
-
-      final warningThreshold = _budgetConfig?.warningThreshold ?? 0.8;
-      final totalTokens = costData.totalTokens;
-      final ratio = totalTokens / effectiveBudget;
-
-      if (ratio >= 1.0) {
-        await _failBudgetExceeded(task, totalTokens, effectiveBudget, costData);
-        return (_BudgetVerdict.exceeded, null);
-      }
-
-      if (ratio >= warningThreshold && !_budgetWarningFired(task)) {
-        final warningMsg = _fireBudgetWarning(task, ratio, totalTokens, effectiveBudget);
-        task = await _markBudgetWarningFired(task);
-        return (_BudgetVerdict.proceed, warningMsg);
-      }
-
-      return (_BudgetVerdict.proceed, null);
-    } catch (e, st) {
-      _log.warning('Budget check failed for task ${task.id}, proceeding (fail-safe): $e', e, st);
-      return (_BudgetVerdict.proceed, null);
-    }
-  }
-
-  /// Resolves the effective token budget: task > legacy configJson > goal > global default.
-  int? _resolveTokenBudget(Task task, {Goal? goal}) {
-    if (task.maxTokens != null && task.maxTokens! > 0) return task.maxTokens;
-
-    // Legacy configJson fallback for backward compatibility.
-    final legacy = _legacyTokenBudgetFromConfig(task);
-    if (legacy != null) return legacy;
-
-    if (goal?.maxTokens != null && goal!.maxTokens! > 0) return goal.maxTokens;
-
-    return _budgetConfig?.defaultMaxTokens;
-  }
-
-  int? _legacyTokenBudgetFromConfig(Task task) {
-    final primary = task.configJson['tokenBudget'];
-    if (primary is num && primary.toInt() > 0) return primary.toInt();
-    final legacy = task.configJson['budget'];
-    if (legacy is num && legacy.toInt() > 0) return legacy.toInt();
-    return null;
-  }
-
-  Future<_SessionCostSnapshot?> _readSessionCost(String sessionId) async {
-    final raw = await _kv?.get('session_cost:$sessionId');
-    if (raw == null) return null;
-    final json = jsonDecode(raw) as Map<String, dynamic>;
-    return _SessionCostSnapshot(
-      totalTokens: (json['total_tokens'] as num?)?.toInt() ?? 0,
-      turnCount: (json['turn_count'] as num?)?.toInt() ?? 0,
-    );
-  }
-
-  bool _budgetWarningFired(Task task) => task.configJson['_tokenBudgetWarningFired'] == true;
-
-  Future<Task> _markBudgetWarningFired(Task task) async {
-    final next = Map<String, dynamic>.from(task.configJson)..['_tokenBudgetWarningFired'] = true;
-    return _tasks.updateFields(task.id, configJson: next);
-  }
-
-  String _fireBudgetWarning(Task task, double ratio, int consumed, int limit) {
-    final percent = (ratio * 100).toStringAsFixed(0);
-    _eventBus?.fire(
-      BudgetWarningEvent(
-        taskId: task.id,
-        consumedPercent: ratio,
-        consumed: consumed,
-        limit: limit,
-        timestamp: DateTime.now(),
-      ),
-    );
-    return 'You have used $percent% of your token budget ($consumed of $limit tokens). '
-        'Wrap up your current work and provide a summary of progress.';
-  }
-
-  Future<void> _failBudgetExceeded(Task task, int consumed, int limit, _SessionCostSnapshot costData) async {
-    final artifactContent = jsonEncode({
-      'consumed': consumed,
-      'limit': limit,
-      'totalTokens': costData.totalTokens,
-      'turnCount': costData.turnCount,
-      'exceededAt': DateTime.now().toIso8601String(),
-    });
-    await _createBudgetArtifact(task, artifactContent);
-    _log.warning('Task ${task.id} exceeded token budget ($limit < $consumed tokens); marking failed');
-    await _markFailedOrRetry(
-      task,
-      errorSummary: 'Budget exceeded: used $consumed tokens against a limit of $limit tokens',
-      retryable: false,
-    );
-  }
-
-  Future<void> _createBudgetArtifact(Task task, String content) async {
-    try {
-      final dataDir = _dataDir;
-      String artifactPath;
-      if (dataDir != null) {
-        // Write JSON to a real file so the API and web UI can read it via File(path).
-        final artifactFile = File(p.join(dataDir, 'tasks', task.id, 'artifacts', 'budget-exceeded.json'));
-        await artifactFile.parent.create(recursive: true);
-        await artifactFile.writeAsString(content);
-        artifactPath = artifactFile.path;
-      } else {
-        // No dataDir configured — fall back to inline content (content unreadable via API).
-        artifactPath = content;
-      }
-      await _tasks.addArtifact(
-        id: _uuid.v4(),
-        taskId: task.id,
-        name: 'budget-exceeded',
-        kind: ArtifactKind.data,
-        path: artifactPath,
-      );
-    } catch (e, st) {
-      _log.warning('Failed to create budget artifact for task ${task.id}', e, st);
-    }
-  }
-
-  Future<void> _markFailed(Task task, {String? errorSummary}) async {
-    if (errorSummary != null) {
-      _eventRecorder?.recordError(task.id, message: errorSummary);
-    }
-    try {
-      final current = await _tasks.get(task.id);
-      if (current == null || current.status.terminal) {
-        return;
-      }
-      await _tasks.transition(
-        task.id,
-        TaskStatus.failed,
-        configJson: errorSummary == null ? null : _withErrorSummary(current.configJson, errorSummary),
-        trigger: 'system',
-      );
-    } on StateError catch (error, stackTrace) {
-      _log.warning('Failed to mark task ${task.id} as failed: $error', error, stackTrace);
-    }
-  }
-
-  /// Attempts to retry the task or marks it permanently failed.
-  ///
-  /// Retry conditions (all must hold):
-  /// 1. [retryable] is true (budget exceeded and loop detected are not retryable)
-  /// 2. task.maxRetries > 0 and task.retryCount < task.maxRetries
-  /// 3. Error class differs from configJson['lastError'] (loop detection)
-  ///
-  /// On retry: stores lastError, increments retryCount, clears sessionId,
-  /// transitions running → failed → queued.
-  /// On no retry: delegates to [_markFailed].
-  Future<void> _markFailedOrRetry(Task task, {required String errorSummary, bool retryable = true}) async {
-    if (errorSummary.isNotEmpty) {
-      _eventRecorder?.recordError(task.id, message: errorSummary);
-    }
-    try {
-      final current = await _tasks.get(task.id);
-      if (current == null || current.status.terminal) {
-        return;
-      }
-
-      if (retryable && current.maxRetries > 0 && current.retryCount < current.maxRetries) {
-        // Error class loop detection.
-        final lastError = current.configJson['lastError'] as String?;
-        if (lastError != null) {
-          final currentClass = _extractErrorClass(errorSummary);
-          final previousClass = _extractErrorClass(lastError);
-          if (currentClass == previousClass) {
-            _log.info(
-              'Task ${task.id}: same error class on retry '
-              '(${current.retryCount + 1}/${current.maxRetries}), '
-              'failing permanently: "$currentClass"',
-            );
-            await _markFailed(task, errorSummary: errorSummary);
-            return;
-          }
-        }
-
-        // Proceed with retry.
-        _log.info(
-          'Task ${task.id}: retry ${current.retryCount + 1}/${current.maxRetries} '
-          '(error: "${_truncate(errorSummary, 80)}")',
-        );
-
-        final retryConfigJson = Map<String, dynamic>.from(current.configJson)
-          ..['lastError'] = _sanitizeErrorSummary(errorSummary);
-
-        // Update retryCount and clear sessionId while task is still running
-        // (before transitioning to terminal state — updateFields rejects terminal tasks).
-        await _tasks.updateFields(
-          task.id,
-          retryCount: current.retryCount + 1,
-          sessionId: null,
-          configJson: retryConfigJson,
-        );
-
-        // Transition: running → failed (records the failure with lastError in configJson).
-        await _tasks.transition(task.id, TaskStatus.failed, trigger: 'system');
-
-        // Transition: failed → queued (retry path).
-        await _tasks.transition(task.id, TaskStatus.queued, trigger: 'retry');
-        return;
-      }
-
-      // No retry — permanent failure.
-      await _markFailed(task, errorSummary: errorSummary);
-    } on StateError catch (error, stackTrace) {
-      _log.warning('Failed to process retry/failure for task ${task.id}: $error', error, stackTrace);
-    }
-  }
-
-  /// Extracts the "error class" from an error summary for loop detection.
-  ///
-  /// Normalizes to lowercase, strips common exception prefixes, extracts the
-  /// leading segment before the first `:` or `(`, and truncates to 80 chars.
-  String _extractErrorClass(String errorSummary) {
-    var normalized = errorSummary.toLowerCase().trim();
-    for (final prefix in const [
-      'exception: ',
-      'stateerror: ',
-      'bad state: ',
-      'argumenterror: ',
-      'invalid argument(s): ',
-    ]) {
-      if (normalized.startsWith(prefix)) {
-        normalized = normalized.substring(prefix.length).trim();
-        break;
-      }
-    }
-    final classEnd = normalized.indexOf(RegExp(r'[:(\[]'));
-    if (classEnd > 0) {
-      normalized = normalized.substring(0, classEnd).trim();
-    }
-    if (normalized.length > 80) {
-      normalized = normalized.substring(0, 80);
-    }
-    return normalized;
-  }
-
-  String _truncate(String s, int maxLength) => s.length <= maxLength ? s : '${s.substring(0, maxLength - 3)}...';
-
-  Map<String, dynamic> _withErrorSummary(Map<String, dynamic> configJson, String errorSummary) =>
-      Map<String, dynamic>.from(configJson)..['errorSummary'] = _sanitizeErrorSummary(errorSummary);
-
-  String _defaultTurnFailureSummary(TurnStatus status) =>
-      status == TurnStatus.cancelled ? 'Turn cancelled' : 'Turn execution failed';
-
-  Future<void> _persistTrace(
-    TurnTraceService traceService, {
-    required TurnOutcome outcome,
-    required String taskId,
-    required int runnerId,
-    String? model,
-    String? provider,
-  }) async {
-    try {
-      final endedAt = outcome.completedAt;
-      final startedAt = endedAt.subtract(outcome.turnDuration);
-      await traceService.insert(
-        TurnTrace(
-          id: _uuid.v4(),
-          sessionId: outcome.sessionId,
-          taskId: taskId,
-          runnerId: runnerId,
-          model: model,
-          provider: provider,
-          startedAt: startedAt,
-          endedAt: endedAt,
-          inputTokens: outcome.inputTokens,
-          outputTokens: outcome.outputTokens,
-          cacheReadTokens: outcome.cacheReadTokens,
-          cacheWriteTokens: outcome.cacheWriteTokens,
-          isError: outcome.status != TurnStatus.completed,
-          errorType: outcome.status != TurnStatus.completed ? outcome.errorMessage : null,
-          toolCalls: outcome.toolCalls,
-        ),
-      );
-    } catch (e, st) {
-      _log.warning('Failed to persist turn trace for task $taskId', e, st);
-    }
-  }
-
-  String _sanitizeErrorSummary(String message) {
-    final firstLine = message
-        .split('\n')
-        .map((line) => line.trim())
-        .firstWhere((line) => line.isNotEmpty, orElse: () => 'Task execution failed');
-    var normalized = firstLine;
-    for (final prefix in const [
-      'Exception: ',
-      'StateError: ',
-      'Bad state: ',
-      'ArgumentError: ',
-      'Invalid argument(s): ',
-    ]) {
-      if (normalized.startsWith(prefix)) {
-        normalized = normalized.substring(prefix.length).trim();
-        break;
-      }
-    }
-    normalized = normalized.replaceFirst(RegExp(r'[.]+$'), '').trim();
-    if (normalized.isEmpty) {
-      normalized = 'Task execution failed';
-    }
-    if (normalized.length <= 200) {
-      return normalized;
-    }
-    return '${normalized.substring(0, 197).trimRight()}...';
   }
 }
 
 enum _QueuedTaskDisposition { ready, waiting, handled }
-
-enum _BudgetVerdict { proceed, exceeded }
-
-class _SessionCostSnapshot {
-  final int totalTokens;
-  final int turnCount;
-
-  const _SessionCostSnapshot({required this.totalTokens, required this.turnCount});
-}

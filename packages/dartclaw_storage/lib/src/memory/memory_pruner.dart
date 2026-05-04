@@ -1,19 +1,13 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show MemoryEntry, parseMemoryEntries;
+import 'package:dartclaw_core/dartclaw_core.dart' show MemoryEntry, parseMemoryEntries;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../storage/memory_service.dart';
 
 /// Result of a pruning operation.
-typedef PruneResult = ({
-  int entriesArchived,
-  int duplicatesRemoved,
-  int entriesRemaining,
-  int finalSizeBytes,
-});
+typedef PruneResult = ({int entriesArchived, int duplicatesRemoved, int entriesRemaining, int finalSizeBytes});
 
 /// Manages MEMORY.md size through timestamp-based archival and deduplication.
 ///
@@ -28,11 +22,7 @@ class MemoryPruner {
   final MemoryService memoryService;
   final int archiveAfterDays;
 
-  MemoryPruner({
-    required this.workspaceDir,
-    required this.memoryService,
-    this.archiveAfterDays = 90,
-  });
+  MemoryPruner({required this.workspaceDir, required this.memoryService, this.archiveAfterDays = 90});
 
   String get _memoryPath => p.join(workspaceDir, 'MEMORY.md');
   String get _archivePath => p.join(workspaceDir, 'MEMORY.archive.md');
@@ -78,11 +68,7 @@ class MemoryPruner {
       // Step 4: Index archived entries in FTS5
       for (final entry in archive) {
         try {
-          memoryService.insertChunk(
-            text: entry.rawText,
-            source: 'archive',
-            category: entry.category,
-          );
+          memoryService.insertChunk(text: entry.rawText, source: 'archive', category: entry.category);
         } catch (e) {
           _log.warning('Failed to index archived entry: $e');
         }

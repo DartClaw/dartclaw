@@ -57,6 +57,26 @@ class TaskEventRecorder {
     _record(taskId, const ArtifactCreated(), {'name': name, 'kind': kind});
   }
 
+  /// Records that structured output was promoted directly from inline workflow context.
+  void recordStructuredOutputInlineUsed(String taskId, {required String stepId, required String outputKey}) {
+    _record(taskId, const StructuredOutputInlineUsed(), {'stepId': stepId, 'outputKey': outputKey});
+  }
+
+  /// Records that structured-output extraction fell back to heuristic parsing.
+  void recordStructuredOutputFallbackUsed(
+    String taskId, {
+    required String stepId,
+    required String outputKey,
+    required String failureReason,
+    String? providerSubtype,
+  }) {
+    final details = <String, dynamic>{'stepId': stepId, 'outputKey': outputKey, 'failureReason': failureReason};
+    if (providerSubtype case final value?) {
+      details['providerSubtype'] = value;
+    }
+    _record(taskId, const StructuredOutputFallbackUsed(), details);
+  }
+
   /// Records a push-back from review with a comment.
   void recordPushBack(String taskId, {required String comment}) {
     _record(taskId, const PushBack(), {'comment': comment});

@@ -1,45 +1,78 @@
+import 'dart:io';
+
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:test/test.dart';
 
 void main() {
+  late Directory tempDir;
+  late Directory gitRepoDir;
+  late Directory nonRepoDir;
+  late String missingPath;
+
+  setUp(() {
+    tempDir = Directory.systemTemp.createTempSync('project_config_test_');
+    gitRepoDir = Directory('${tempDir.path}/git-repo')..createSync(recursive: true);
+    Directory('${gitRepoDir.path}/.git').createSync(recursive: true);
+    nonRepoDir = Directory('${tempDir.path}/not-a-repo')..createSync(recursive: true);
+    missingPath = '${tempDir.path}/missing-repo';
+  });
+
+  tearDown(() {
+    if (tempDir.existsSync()) {
+      tempDir.deleteSync(recursive: true);
+    }
+  });
+
+  group('validateProjectLocalPath', () {
+    test('rejects relative paths', () {
+      final result = validateProjectLocalPath('relative/path');
+
+      expect(result.isValid, isFalse);
+      expect(result.errorCode, 'relative');
+    });
+
+    test('rejects traversal segments before normalization', () {
+      final result = validateProjectLocalPath('${tempDir.path}/allowed/../etc');
+
+      expect(result.isValid, isFalse);
+      expect(result.errorCode, 'traversal');
+    });
+
+    test('rejects paths outside the allowlist', () {
+      final result = validateProjectLocalPath(gitRepoDir.path, allowlist: [nonRepoDir.path]);
+
+      expect(result.isValid, isFalse);
+      expect(result.errorCode, 'outside-allowlist');
+    });
+
+    test('reports existence and git-shape metadata for valid paths', () {
+      final result = validateProjectLocalPath(gitRepoDir.path, allowlist: [tempDir.path]);
+
+      expect(result.isValid, isTrue);
+      expect(result.normalizedPath, gitRepoDir.path);
+      expect(result.pathExists, isTrue);
+      expect(result.gitRepository, isTrue);
+    });
+  });
+
   group('parseProjectConfig', () {
     test('returns defaults for null input', () {
       final warns = <String>[];
       final config = parseProjectConfig(null, warns);
-      expect(config.isEmpty, isTrue);
+
+      expect(config, const ProjectConfig.defaults());
       expect(warns, isEmpty);
     });
 
     test('returns defaults for empty map', () {
       final warns = <String>[];
       final config = parseProjectConfig({}, warns);
-      expect(config.isEmpty, isTrue);
+
+      expect(config, const ProjectConfig.defaults());
       expect(warns, isEmpty);
     });
 
-    test('parses minimal project definition (remote only)', () {
-      final warns = <String>[];
-      final config = parseProjectConfig({
-        'my-app': {'remote': 'git@github.com:user/my-app.git'},
-      }, warns);
-
-      expect(warns, isEmpty);
-      expect(config.isEmpty, isFalse);
-      expect(config.definitions.containsKey('my-app'), isTrue);
-
-      final def = config.definitions['my-app']!;
-      expect(def.id, equals('my-app'));
-      expect(def.remote, equals('git@github.com:user/my-app.git'));
-      expect(def.branch, equals('main'));
-      expect(def.credentials, isNull);
-      expect(def.cloneStrategy, equals(CloneStrategy.shallow));
-      expect(def.pr.strategy, equals(PrStrategy.branchOnly));
-      expect(def.pr.draft, isFalse);
-      expect(def.pr.labels, isEmpty);
-      expect(def.isDefault, isFalse);
-    });
-
-    test('parses full project definition with all fields', () {
+    test('parses remote-backed project definitions unchanged', () {
       final warns = <String>[];
       final config = parseProjectConfig({
         'my-app': {
@@ -56,27 +89,86 @@ void main() {
         },
       }, warns);
 
-      expect(warns, isEmpty);
       final def = config.definitions['my-app']!;
-      expect(def.branch, equals('develop'));
-      expect(def.credentials, equals('github-ssh'));
+      expect(warns, isEmpty);
+      expect(def.remote, 'git@github.com:user/my-app.git');
+      expect(def.localPath, isNull);
+      expect(def.branch, 'develop');
+      expect(def.credentials, 'github-ssh');
       expect(def.isDefault, isTrue);
-      expect(def.cloneStrategy, equals(CloneStrategy.full));
-      expect(def.pr.strategy, equals(PrStrategy.githubPr));
+      expect(def.cloneStrategy, CloneStrategy.full);
+      expect(def.pr.strategy, PrStrategy.githubPr);
       expect(def.pr.draft, isTrue);
-      expect(def.pr.labels, equals(['agent', 'automated']));
+      expect(def.pr.labels, ['agent', 'automated']);
     });
 
-    test('parses multiple project definitions', () {
+    test('parses localPath-backed project definitions', () {
       final warns = <String>[];
       final config = parseProjectConfig({
-        'app-one': {'remote': 'https://github.com/u/app-one.git'},
-        'app-two': {'remote': 'git@github.com:u/app-two.git', 'branch': 'main'},
+        'local-app': {'localPath': gitRepoDir.path, 'branch': 'main'},
       }, warns);
 
-      expect(config.definitions.length, equals(2));
-      expect(config.definitions.containsKey('app-one'), isTrue);
-      expect(config.definitions.containsKey('app-two'), isTrue);
+      final def = config.definitions['local-app']!;
+      expect(warns, isEmpty);
+      expect(def.remote, isNull);
+      expect(def.localPath, gitRepoDir.path);
+      expect(def.branch, 'main');
+    });
+
+    test('localPath-backed project definitions default branch to empty for HEAD inference', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'local-app': {'localPath': gitRepoDir.path},
+      }, warns);
+
+      final def = config.definitions['local-app']!;
+      expect(warns, isEmpty);
+      expect(def.localPath, gitRepoDir.path);
+      expect(def.branch, isEmpty);
+    });
+
+    test('remote-backed project definitions still default branch to main', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'remote-app': {'remote': 'git@github.com:user/remote-app.git'},
+      }, warns);
+
+      final def = config.definitions['remote-app']!;
+      expect(warns, isEmpty);
+      expect(def.remote, 'git@github.com:user/remote-app.git');
+      expect(def.branch, 'main');
+    });
+
+    test('trims explicit branch values for both remote and localPath projects', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'remote-app': {'remote': 'git@github.com:user/remote-app.git', 'branch': '  develop  '},
+        'local-app': {'localPath': gitRepoDir.path, 'branch': '  feature/live  '},
+      }, warns);
+
+      expect(warns, isEmpty);
+      expect(config.definitions['remote-app']!.branch, 'develop');
+      expect(config.definitions['local-app']!.branch, 'feature/live');
+    });
+
+    test('warns and skips entries supplying both remote and localPath', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'bad': {'remote': 'git@github.com:user/repo.git', 'localPath': gitRepoDir.path},
+      }, warns);
+
+      expect(config.isEmpty, isTrue);
+      expect(warns.single, contains('exactly one of "remote" or "localPath"'));
+    });
+
+    test('warns and skips entries supplying neither remote nor localPath', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'bad': {'branch': 'main'},
+      }, warns);
+
+      expect(config.isEmpty, isTrue);
+      expect(warns.single, contains('exactly one of "remote" or "localPath"'));
     });
 
     test('warns and skips _local key', () {
@@ -92,23 +184,56 @@ void main() {
       expect(config.definitions.containsKey('valid-project'), isTrue);
     });
 
-    test('warns and skips entry with missing remote', () {
+    test('rejects relative localPath values', () {
       final warns = <String>[];
       final config = parseProjectConfig({
-        'no-remote': {'branch': 'main'},
+        'bad': {'localPath': 'relative/path'},
       }, warns);
 
-      expect(warns, anyElement(contains('no-remote')));
-      expect(warns, anyElement(contains('remote')));
       expect(config.isEmpty, isTrue);
+      expect(warns.single, contains('must be absolute'));
     });
 
-    test('warns and skips entry with non-map value', () {
+    test('rejects traversal localPath values before allowlist evaluation', () {
       final warns = <String>[];
-      final config = parseProjectConfig({'invalid': 'not-a-map'}, warns);
+      final config = parseProjectConfig({
+        'localPathAllowlist': [tempDir.path],
+        'bad': {'localPath': '${tempDir.path}/allowed/../etc'},
+      }, warns);
 
-      expect(warns, anyElement(contains('invalid')));
       expect(config.isEmpty, isTrue);
+      expect(warns.single, contains('local-path traversal'));
+    });
+
+    test('rejects localPath values outside the configured allowlist', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'localPathAllowlist': [gitRepoDir.path],
+        'bad': {'localPath': nonRepoDir.path},
+      }, warns);
+
+      expect(config.isEmpty, isTrue);
+      expect(warns.single, contains('outside allowlist'));
+    });
+
+    test('warns but accepts non-existent localPath values', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'missing-repo': {'localPath': missingPath},
+      }, warns);
+
+      expect(config.definitions['missing-repo']?.localPath, missingPath);
+      expect(warns.single, contains('does not exist at config-load time'));
+    });
+
+    test('warns but accepts non-git directories at config-load time', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'non-repo': {'localPath': nonRepoDir.path},
+      }, warns);
+
+      expect(config.definitions['non-repo']?.localPath, nonRepoDir.path);
+      expect(warns.single, contains('is not a git repository at config-load time'));
     });
 
     test('warns on unknown clone strategy but uses default', () {
@@ -121,8 +246,7 @@ void main() {
       }, warns);
 
       expect(warns, anyElement(contains('invalid-strategy')));
-      final def = config.definitions['my-app']!;
-      expect(def.cloneStrategy, equals(CloneStrategy.shallow));
+      expect(config.definitions['my-app']!.cloneStrategy, CloneStrategy.shallow);
     });
 
     test('sparse clone strategy is parsed', () {
@@ -135,26 +259,17 @@ void main() {
       }, warns);
 
       expect(warns, isEmpty);
-      expect(config.definitions['my-app']!.cloneStrategy, equals(CloneStrategy.sparse));
+      expect(config.definitions['my-app']!.cloneStrategy, CloneStrategy.sparse);
     });
   });
 
-  group('fetchCooldownMinutes', () {
-    test('defaults to 5 when not specified', () {
+  group('project scalar settings', () {
+    test('fetchCooldownMinutes defaults to 5', () {
       final config = parseProjectConfig({
         'my-app': {'remote': 'git@github.com:u/r.git'},
       }, []);
-      expect(config.fetchCooldownMinutes, equals(5));
-    });
 
-    test('defaults to 5 for null input', () {
-      final config = parseProjectConfig(null, []);
-      expect(config.fetchCooldownMinutes, equals(5));
-    });
-
-    test('defaults to 5 for empty map', () {
-      final config = parseProjectConfig({}, []);
-      expect(config.fetchCooldownMinutes, equals(5));
+      expect(config.fetchCooldownMinutes, 5);
     });
 
     test('parses fetchCooldownMinutes alongside project definitions', () {
@@ -163,8 +278,8 @@ void main() {
         'fetchCooldownMinutes': 10,
         'my-app': {'remote': 'git@github.com:u/r.git'},
       }, warns);
-      expect(config.fetchCooldownMinutes, equals(10));
-      expect(config.definitions.containsKey('my-app'), isTrue);
+
+      expect(config.fetchCooldownMinutes, 10);
       expect(warns, isEmpty);
     });
 
@@ -174,14 +289,29 @@ void main() {
         'fetchCooldownMinutes': 'not-an-int',
         'my-app': {'remote': 'git@github.com:u/r.git'},
       }, warns);
-      expect(config.fetchCooldownMinutes, equals(5));
+
+      expect(config.fetchCooldownMinutes, 5);
       expect(warns, anyElement(contains('fetchCooldownMinutes')));
     });
 
-    test('fetchCooldownMinutes key is not treated as a project definition', () {
+    test('allowApiLocalPath defaults to false', () {
+      final config = parseProjectConfig({
+        'my-app': {'remote': 'git@github.com:u/r.git'},
+      }, []);
+
+      expect(config.allowApiLocalPath, isFalse);
+    });
+
+    test('parses allowApiLocalPath and localPathAllowlist', () {
       final warns = <String>[];
-      final config = parseProjectConfig({'fetchCooldownMinutes': 15}, warns);
-      expect(config.definitions.containsKey('fetchCooldownMinutes'), isFalse);
+      final config = parseProjectConfig({
+        'allowApiLocalPath': true,
+        'localPathAllowlist': [gitRepoDir.path, nonRepoDir.path],
+        'my-app': {'remote': 'git@github.com:u/r.git'},
+      }, warns);
+
+      expect(config.allowApiLocalPath, isTrue);
+      expect(config.localPathAllowlist, [gitRepoDir.path, nonRepoDir.path]);
       expect(warns, isEmpty);
     });
   });
@@ -196,12 +326,14 @@ void main() {
       final config = ProjectConfig(
         definitions: {'x': const ProjectDefinition(id: 'x', remote: 'git@h:u/x')},
       );
+
       expect(config.isEmpty, isFalse);
     });
 
-    test('fetchCooldownMinutes defaults to 5', () {
-      expect(const ProjectConfig().fetchCooldownMinutes, equals(5));
-      expect(const ProjectConfig.defaults().fetchCooldownMinutes, equals(5));
+    test('defaults are preserved in the const constructor', () {
+      expect(const ProjectConfig().fetchCooldownMinutes, 5);
+      expect(const ProjectConfig().allowApiLocalPath, isFalse);
+      expect(const ProjectConfig().localPathAllowlist, isEmpty);
     });
   });
 }

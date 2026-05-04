@@ -1,15 +1,29 @@
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'codex_config_generator.dart';
 
-/// Manages an isolated Codex worker home directory and its config files.
+final _log = Logger('CodexEnvironment');
+
+/// Manages a Codex worker home directory and its config files.
+///
+/// By default ([useSystemCodexHome] = `true`), the worker subprocess inherits
+/// the user's standard `~/.codex/` — no temp dir, no config mutation. Set
+/// [useSystemCodexHome] to `false` to opt into the isolated-temp-dir model
+/// that seeds from `~/.codex/` and injects DartClaw-specific
+/// `developer_instructions` + MCP server entries into a per-worker `config.toml`.
 class CodexEnvironment {
   final String developerInstructions;
   final String? mcpServerUrl;
   final String? mcpGatewayToken;
   final String? agentsMdContent;
+
+  /// When `true` (default), the harness does not override `CODEX_HOME` and the
+  /// Codex subprocess reads the user's `~/.codex/` directly. When `false`, an
+  /// isolated temp `CODEX_HOME` is created and seeded from `~/.codex/`.
+  final bool useSystemCodexHome;
 
   Directory? _tempDirectory;
 
@@ -18,12 +32,33 @@ class CodexEnvironment {
     this.mcpServerUrl,
     this.mcpGatewayToken,
     this.agentsMdContent,
+    this.useSystemCodexHome = true,
   });
 
-  bool get isSetup => _tempDirectory != null;
+  bool get isSetup => useSystemCodexHome || _tempDirectory != null;
 
-  /// Creates the isolated `CODEX_HOME` directory and writes static config files.
+  /// Prepares the Codex worker home.
+  ///
+  /// - [useSystemCodexHome] = `true`: returns `$HOME/.codex` without mutating
+  ///   anything; the subprocess inherits it via the parent env.
+  /// - [useSystemCodexHome] = `false`: creates an isolated temp dir, seeds it
+  ///   from `~/.codex/`, and writes a DartClaw-specific `config.toml`.
   Future<String> setup() async {
+    if (useSystemCodexHome) {
+      final home = Platform.environment['HOME'];
+      if (home == null || home.trim().isEmpty) {
+        throw StateError('HOME env var is not set; cannot resolve system CODEX_HOME');
+      }
+      if (mcpServerUrl != null && mcpServerUrl!.trim().isNotEmpty) {
+        _log.warning(
+          'CodexEnvironment: useSystemCodexHome=true but mcpServerUrl is set — DartClaw will NOT inject '
+          'the MCP server into the user\'s ~/.codex/config.toml. Configure the MCP server manually or '
+          'set providers.codex.use_system_codex_home: false to restore isolated injection.',
+        );
+      }
+      return p.join(home, '.codex');
+    }
+
     final existingDirectory = _tempDirectory;
     if (existingDirectory != null) {
       return existingDirectory.path;
@@ -66,20 +101,31 @@ class CodexEnvironment {
   }
 
   /// Returns environment variables required for the Codex subprocess.
+  ///
+  /// When [useSystemCodexHome] is `true`, `CODEX_HOME` is NOT overridden — the
+  /// subprocess inherits the parent's `HOME` and reads `~/.codex/` directly.
+  /// The MCP bearer token env var is still exported when configured, since it
+  /// is consumed by whatever MCP entry the user has already placed in their
+  /// `~/.codex/config.toml`.
   Map<String, String> environmentOverrides() {
+    final mcpBearerEntry = (mcpGatewayToken != null && mcpGatewayToken!.trim().isNotEmpty)
+        ? <String, String>{CodexConfigGenerator.defaultMcpBearerTokenEnvVar: mcpGatewayToken!}
+        : const <String, String>{};
+
+    if (useSystemCodexHome) {
+      return mcpBearerEntry;
+    }
+
     final tempDirectory = _tempDirectory;
     if (tempDirectory == null) {
       return const {};
     }
 
-    return {
-      'CODEX_HOME': tempDirectory.path,
-      if (mcpGatewayToken != null && mcpGatewayToken!.trim().isNotEmpty)
-        CodexConfigGenerator.defaultMcpBearerTokenEnvVar: mcpGatewayToken!,
-    };
+    return {'CODEX_HOME': tempDirectory.path, ...mcpBearerEntry};
   }
 
   /// Deletes the isolated temp directory. Safe to call repeatedly.
+  /// No-op when [useSystemCodexHome] is `true`.
   Future<void> cleanup() async {
     final tempDirectory = _tempDirectory;
     _tempDirectory = null;

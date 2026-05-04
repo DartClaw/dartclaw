@@ -1,4 +1,0 @@
-interface:
-  display_name: "DartClaw Review Doc"
-  short_description: "Review specs and plans for readiness"
-  default_prompt: "Use $dartclaw-review-doc to review requirements documents for clarity, completeness, technical accuracy, and implementation readiness."

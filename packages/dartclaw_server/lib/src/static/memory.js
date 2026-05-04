@@ -1,5 +1,11 @@
-// memory.js - DartClaw memory dashboard logic
-'use strict';
+(() => {
+  'use strict';
+
+  // memory.js - DartClaw memory dashboard logic
+  const dartclaw = window.dartclaw = window.dartclaw || {};
+  dartclaw.pages = dartclaw.pages || {};
+
+  const memoryPage = dartclaw.pages.memory = dartclaw.pages.memory || {};
 
 // === Memory dashboard: auto-load default tab on first render ===
 
@@ -135,3 +141,14 @@ function initMemoryViewToggle() {
     });
   }
 }
+
+memoryPage.confirmPrune = confirmPrune;
+memoryPage.switchTab = switchMemoryTab;
+memoryPage.toggleView = toggleMemoryView;
+memoryPage.onLoad = function () {
+  initMemoryViewToggle();
+  initMemoryDefaultTab();
+};
+memoryPage.onAfterSwap = memoryPage.onLoad;
+memoryPage.onHistoryRestore = memoryPage.onLoad;
+})();

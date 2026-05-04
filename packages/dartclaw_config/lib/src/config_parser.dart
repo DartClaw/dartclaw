@@ -1,9 +1,28 @@
 part of 'dartclaw_config.dart';
 
 const _validAdvisorTriggers = <String>{'turn_depth', 'token_velocity', 'periodic', 'task_review', 'explicit'};
-const _recognizedEfforts = <String>{'low', 'medium', 'high', 'max'};
-final _recognizedClaudeModels = RegExp(r'^(haiku|sonnet|opus)(\[[^\]]+\])?$', caseSensitive: false);
-const _recognizedCodexModels = <String>{'gpt-4o', 'gpt-5', 'gpt-5-mini', 'o1', 'o3', 'o4-mini'};
+final _recognizedClaudeModels = RegExp(
+  r'^(default|haiku|sonnet|opus|opusplan)(\[[^\]]+\])?$|^(claude-[a-z0-9][a-z0-9.\-]*|anthropic\.claude-[a-z0-9.\-]+(@[a-z0-9.\-]+)?)$',
+  caseSensitive: false,
+);
+const _recognizedCodexModels = <String>{
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.4-nano',
+  'gpt-5',
+  'gpt-5-mini',
+  'gpt-5-nano',
+  'gpt-5-codex',
+  'gpt-5.3-codex',
+  'gpt-5.2-codex',
+  'gpt-5.1-codex',
+  'gpt-5.1-codex-max',
+  'gpt-5.1-codex-mini',
+  'codex-mini-latest',
+  'o1',
+  'o3',
+  'o4-mini',
+};
 
 const _knownKeys = {
   'port',
@@ -44,6 +63,8 @@ const _knownKeys = {
   'projects',
   'advisor',
   'alerts',
+  'security',
+  'andthen',
 };
 
 String? _defaultFileReader(String path) {
@@ -280,7 +301,20 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
     }
     final modelVal = agentMap['model'];
     if (modelVal is String) {
-      model = modelVal;
+      final shorthand = ProviderIdentity.parseProviderModelShorthand(modelVal);
+      if (shorthand != null) {
+        model = shorthand.model;
+        if (providerVal == null) {
+          provider = shorthand.provider;
+        } else if (ProviderIdentity.normalize(provider) != shorthand.provider) {
+          warns.add(
+            'agent.model shorthand provider "${shorthand.provider}" conflicts with agent.provider '
+            '"${ProviderIdentity.normalize(provider)}" — using agent.provider',
+          );
+        }
+      } else {
+        model = modelVal;
+      }
     } else if (modelVal != null) {
       warns.add('Invalid type for agent.model: "${modelVal.runtimeType}" — ignoring');
     }
@@ -354,13 +388,6 @@ void _warnIfUnrecognizedModel(List<String> warns, String field, String? value) {
   warns.add('Unrecognized $field: "$trimmed" — keeping value as configured');
 }
 
-void _warnIfUnrecognizedEffort(List<String> warns, String field, String? value) {
-  final trimmed = value?.trim().toLowerCase();
-  if (trimmed == null || trimmed.isEmpty) return;
-  if (_recognizedEfforts.contains(trimmed)) return;
-  warns.add('Unrecognized $field: "$value" — keeping value as configured');
-}
-
 AdvisorConfig _parseAdvisor(Map<String, dynamic> yaml, AdvisorConfig defaults, List<String> warns) {
   final advisorMap = _sectionMap('advisor', yaml, warns);
   if (advisorMap == null) return defaults;
@@ -388,7 +415,6 @@ AdvisorConfig _parseAdvisor(Map<String, dynamic> yaml, AdvisorConfig defaults, L
   if (effortRaw is String) {
     final trimmed = effortRaw.trim();
     effort = trimmed.isEmpty ? null : trimmed;
-    _warnIfUnrecognizedEffort(warns, 'advisor.effort', effort);
   } else if (effortRaw != null) {
     warns.add('Invalid type for advisor.effort: "${effortRaw.runtimeType}" — using default');
   }
@@ -622,7 +648,6 @@ SessionScopeConfig _parseSessionScope(
   final effortRaw = sessionsRaw['effort'];
   if (effortRaw is String) {
     effort = effortRaw;
-    _warnIfUnrecognizedEffort(warns, 'sessions.effort', effort);
   } else if (effortRaw != null) {
     warns.add('Invalid type for sessions.effort: "${effortRaw.runtimeType}" — using default');
   }
@@ -670,7 +695,6 @@ SessionScopeConfig _parseSessionScope(
       final chEffortRaw = channelMap['effort'];
       if (chEffortRaw is String) {
         chEffort = chEffortRaw;
-        _warnIfUnrecognizedEffort(warns, 'sessions.channels.$channelName.effort', chEffort);
       } else if (chEffortRaw != null) {
         warns.add('Invalid type for sessions.channels.$channelName.effort: "${chEffortRaw.runtimeType}" — ignoring');
       }
@@ -1100,13 +1124,45 @@ CredentialsConfig _parseCredentials(
     }
 
     final credentialMap = Map<String, dynamic>.from(value);
-    final apiKeyRaw = credentialMap['api_key'];
-    if (apiKeyRaw is! String) {
-      warns.add('credentials.$credentialName missing "api_key" — skipping');
+    final credentialTypeRaw = credentialMap['type'];
+    final credentialType = switch (credentialTypeRaw) {
+      null => null,
+      'api-key' || 'apiKey' => CredentialType.apiKey,
+      'github-token' || 'githubToken' => CredentialType.githubToken,
+      _ => null,
+    };
+
+    if (credentialTypeRaw != null && credentialType == null) {
+      warns.add('credentials.$credentialName has unknown "type" "$credentialTypeRaw" — skipping');
       continue;
     }
 
-    entries[credentialName] = CredentialEntry(apiKey: envSubstitute(apiKeyRaw, env: env));
+    switch (credentialType ?? CredentialType.apiKey) {
+      case CredentialType.apiKey:
+        final apiKeyRaw = credentialMap['api_key'];
+        if (apiKeyRaw is! String) {
+          warns.add('credentials.$credentialName missing "api_key" — skipping');
+          continue;
+        }
+        entries[credentialName] = CredentialEntry(
+          apiKey: envSubstitute(apiKeyRaw, env: env),
+          envVars: envReferences(apiKeyRaw),
+        );
+
+      case CredentialType.githubToken:
+        final tokenRaw = credentialMap['token'];
+        if (tokenRaw is! String) {
+          warns.add('credentials.$credentialName missing "token" — skipping');
+          continue;
+        }
+        final repositoryRaw = credentialMap['repository'];
+        final repository = repositoryRaw is String ? repositoryRaw.trim() : null;
+        entries[credentialName] = CredentialEntry.githubToken(
+          token: envSubstitute(tokenRaw, env: env),
+          repository: repository == null || repository.isEmpty ? null : repository,
+          envVars: envReferences(tokenRaw),
+        );
+    }
   }
 
   return CredentialsConfig(entries: entries);
@@ -1115,6 +1171,7 @@ CredentialsConfig _parseCredentials(
 SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults, List<String> warns) {
   final guardsRaw = yaml['guards'];
   final guardsYaml = guardsRaw is Map ? Map<String, dynamic>.from(guardsRaw) : <String, dynamic>{};
+  final securityRaw = yaml['security'];
   GuardConfig guards;
   if (guardsRaw is Map) {
     try {
@@ -1171,6 +1228,49 @@ SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults
     }
   }
 
+  var bashStepEnvAllowlist = List<String>.from(defaults.bashStep.envAllowlist);
+  var bashStepExtraStripPatterns = List<String>.from(defaults.bashStep.extraStripPatterns);
+  if (securityRaw is Map) {
+    final bashStepRaw = securityRaw['bash_step'];
+    if (bashStepRaw is Map) {
+      final allowlistRaw = bashStepRaw['env_allowlist'];
+      if (allowlistRaw is List) {
+        final extensions = <String>[];
+        for (final entry in allowlistRaw) {
+          if (entry is! String || entry.trim().isEmpty) {
+            warns.add('Invalid value for security.bash_step.env_allowlist entry: "$entry" — ignoring');
+            continue;
+          }
+          extensions.add(entry.trim());
+        }
+        bashStepEnvAllowlist = {...defaults.bashStep.envAllowlist, ...extensions}.toList()..sort();
+      } else if (allowlistRaw != null) {
+        warns.add('Invalid type for security.bash_step.env_allowlist: "${allowlistRaw.runtimeType}" — using defaults');
+      }
+
+      final extraStripRaw = bashStepRaw['extra_strip_patterns'];
+      if (extraStripRaw is List) {
+        final patterns = <String>[];
+        for (final entry in extraStripRaw) {
+          if (entry is! String || entry.trim().isEmpty) {
+            warns.add('Invalid value for security.bash_step.extra_strip_patterns entry: "$entry" — ignoring');
+            continue;
+          }
+          patterns.add(entry.trim());
+        }
+        bashStepExtraStripPatterns = patterns;
+      } else if (extraStripRaw != null) {
+        warns.add(
+          'Invalid type for security.bash_step.extra_strip_patterns: "${extraStripRaw.runtimeType}" — using defaults',
+        );
+      }
+    } else if (bashStepRaw != null) {
+      warns.add('Invalid type for security.bash_step: "${bashStepRaw.runtimeType}" — using defaults');
+    }
+  } else if (securityRaw != null) {
+    warns.add('Invalid type for security: "${securityRaw.runtimeType}" — using defaults');
+  }
+
   final guardAuditRaw = yaml['guard_audit'];
   if (guardAuditRaw is Map && guardAuditRaw.containsKey('max_entries')) {
     warns.add(
@@ -1189,6 +1289,10 @@ SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults
   return SecurityConfig(
     guards: guards,
     guardsYaml: guardsYaml,
+    bashStep: SecurityBashStepConfig(
+      envAllowlist: bashStepEnvAllowlist,
+      extraStripPatterns: bashStepExtraStripPatterns,
+    ),
     contentGuardEnabled: contentGuardEnabled,
     contentGuardClassifier: contentGuardClassifier,
     contentGuardModel: contentGuardModel,
@@ -1430,6 +1534,56 @@ FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {
     return FeaturesConfig.fromYaml(Map<String, dynamic>.from(raw));
   }
   return const FeaturesConfig();
+}
+
+const _knownAndthenKeys = {'git_url', 'ref', 'network'};
+
+AndthenConfig _parseAndthen(Map<String, dynamic> yaml, AndthenConfig defaults, List<String> warns) {
+  var gitUrl = defaults.gitUrl;
+  var ref = defaults.ref;
+  var network = defaults.network;
+
+  final atMap = _sectionMap('andthen', yaml, warns);
+  if (atMap == null) return defaults;
+
+  for (final key in atMap.keys) {
+    if (key == 'install_scope') {
+      warns.add(
+        'andthen.install_scope is no longer supported (skills always install user-tier); '
+        'remove it from your config to silence this warning',
+      );
+      continue;
+    }
+    if (!_knownAndthenKeys.contains(key)) {
+      warns.add('Unknown andthen config key: "$key" — ignoring');
+    }
+  }
+
+  final gitUrlVal = atMap['git_url'];
+  if (gitUrlVal is String && gitUrlVal.isNotEmpty) {
+    gitUrl = gitUrlVal;
+  } else if (gitUrlVal != null) {
+    warns.add('Invalid type for andthen.git_url: "${gitUrlVal.runtimeType}" — using default');
+  }
+
+  final refVal = atMap['ref'];
+  if (refVal is String && refVal.isNotEmpty) {
+    ref = refVal;
+  } else if (refVal != null) {
+    warns.add('Invalid type for andthen.ref: "${refVal.runtimeType}" — using default');
+  }
+
+  final networkVal = atMap['network'];
+  if (networkVal != null) {
+    final parsed = parseAndthenNetworkPolicy(networkVal);
+    if (parsed != null) {
+      network = parsed;
+    } else {
+      warns.add('Invalid andthen.network: "$networkVal" — using default "${defaults.network.yamlValue}"');
+    }
+  }
+
+  return AndthenConfig(gitUrl: gitUrl, ref: ref, network: network);
 }
 
 int _parseInt(String key, String? cliValue, Object? yamlValue, int defaultValue, List<String> warns) {

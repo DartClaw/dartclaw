@@ -86,11 +86,24 @@ ToolResult codexBuildJsonFieldToolResult(Map<String, dynamic> item, {required St
 }
 
 TurnComplete codexBuildTurnComplete(Map<String, dynamic> usage, {required String stopReason}) {
+  // OpenAI/Codex reports input_tokens as TOTAL input (cached included). Anthropic
+  // reports it as FRESH-only with cache_read_input_tokens as a separate bucket.
+  // Normalize to the Anthropic convention so downstream sums mean the same thing
+  // across harnesses.
+  final rawInput = intValue(usage['input_tokens']);
+  final rawCached = intValue(usage['cached_input_tokens']);
+  final int? freshInput;
+  if (rawInput == null) {
+    freshInput = null;
+  } else {
+    final diff = rawInput - (rawCached ?? 0);
+    freshInput = diff < 0 ? 0 : diff;
+  }
   return TurnComplete(
     stopReason: stopReason,
-    inputTokens: intValue(usage['input_tokens']),
+    inputTokens: freshInput,
     outputTokens: intValue(usage['output_tokens']),
-    cacheReadTokens: intValue(usage['cached_input_tokens']),
+    cacheReadTokens: rawCached,
     cacheWriteTokens: 0,
   );
 }

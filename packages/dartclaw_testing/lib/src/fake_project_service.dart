@@ -3,7 +3,8 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 typedef FakeProjectCreateCallback =
     Future<Project> Function({
       required String name,
-      required String remoteUrl,
+      String? remoteUrl,
+      String? localPath,
       String defaultBranch,
       String? credentialsRef,
       CloneStrategy cloneStrategy,
@@ -22,11 +23,13 @@ typedef FakeProjectUpdateCallback =
 
 typedef FakeProjectFetchCallback = Future<Project> Function(String id);
 typedef FakeProjectDeleteCallback = Future<void> Function(String id);
-typedef FakeProjectEnsureFreshCallback = Future<void> Function(Project project);
+typedef FakeProjectEnsureFreshCallback = Future<void> Function(Project project, {String? ref, bool strict});
+typedef FakeProjectResolveWorkflowBaseRefCallback = Future<String> Function(Project project, {String? requestedBranch});
 
 typedef RecordedProjectCreate = ({
   String name,
-  String remoteUrl,
+  String? remoteUrl,
+  String? localPath,
   String defaultBranch,
   String? credentialsRef,
   CloneStrategy cloneStrategy,
@@ -55,6 +58,7 @@ class FakeProjectService implements ProjectService {
     this.onFetch,
     this.onDelete,
     this.onEnsureFresh,
+    this.onResolveWorkflowBaseRef,
   }) : _localProject =
            localProject ??
            Project(
@@ -80,6 +84,7 @@ class FakeProjectService implements ProjectService {
   final FakeProjectFetchCallback? onFetch;
   final FakeProjectDeleteCallback? onDelete;
   final FakeProjectEnsureFreshCallback? onEnsureFresh;
+  final FakeProjectResolveWorkflowBaseRefCallback? onResolveWorkflowBaseRef;
 
   final Project _localProject;
   final Map<String, Project> _projects = {};
@@ -90,7 +95,8 @@ class FakeProjectService implements ProjectService {
   final List<String> getCalls = [];
   final List<String> fetchCalls = [];
   final List<String> deleteCalls = [];
-  final List<Project> ensureFreshCalls = [];
+  final List<({Project project, String? ref, bool strict})> ensureFreshCalls = [];
+  final List<({Project project, String? requestedBranch})> resolveWorkflowBaseRefCalls = [];
   final List<RecordedProjectCreate> createCalls = [];
   final List<RecordedProjectUpdate> updateCalls = [];
 
@@ -149,7 +155,8 @@ class FakeProjectService implements ProjectService {
   @override
   Future<Project> create({
     required String name,
-    required String remoteUrl,
+    String? remoteUrl,
+    String? localPath,
     String defaultBranch = 'main',
     String? credentialsRef,
     CloneStrategy cloneStrategy = CloneStrategy.shallow,
@@ -158,6 +165,7 @@ class FakeProjectService implements ProjectService {
     createCalls.add((
       name: name,
       remoteUrl: remoteUrl,
+      localPath: localPath,
       defaultBranch: defaultBranch,
       credentialsRef: credentialsRef,
       cloneStrategy: cloneStrategy,
@@ -168,6 +176,7 @@ class FakeProjectService implements ProjectService {
       final project = await callback(
         name: name,
         remoteUrl: remoteUrl,
+        localPath: localPath,
         defaultBranch: defaultBranch,
         credentialsRef: credentialsRef,
         cloneStrategy: cloneStrategy,
@@ -184,16 +193,21 @@ class FakeProjectService implements ProjectService {
     if (_projects.containsKey(id)) {
       throw ArgumentError('Project "$id" already exists');
     }
+    final hasRemote = remoteUrl != null && remoteUrl.isNotEmpty;
+    final hasLocalPath = localPath != null && localPath.isNotEmpty;
+    if (hasRemote == hasLocalPath) {
+      throw ArgumentError('Exactly one of remoteUrl or localPath must be provided');
+    }
     final project = Project(
       id: id,
       name: name,
-      remoteUrl: remoteUrl,
-      localPath: '/data/projects/$id',
+      remoteUrl: remoteUrl ?? '',
+      localPath: localPath ?? '/data/projects/$id',
       defaultBranch: defaultBranch,
       credentialsRef: credentialsRef,
       cloneStrategy: cloneStrategy,
       pr: pr,
-      status: ProjectStatus.cloning,
+      status: hasLocalPath ? ProjectStatus.ready : ProjectStatus.cloning,
       createdAt: _now(),
     );
     _projects[id] = project;
@@ -268,9 +282,28 @@ class FakeProjectService implements ProjectService {
   }
 
   @override
-  Future<void> ensureFresh(Project project) async {
-    ensureFreshCalls.add(project);
-    await onEnsureFresh?.call(project);
+  Future<void> ensureFresh(Project project, {String? ref, bool strict = false}) async {
+    ensureFreshCalls.add((project: project, ref: ref, strict: strict));
+    await onEnsureFresh?.call(project, ref: ref, strict: strict);
+  }
+
+  @override
+  Future<String> resolveWorkflowBaseRef(Project project, {String? requestedBranch}) async {
+    resolveWorkflowBaseRefCalls.add((project: project, requestedBranch: requestedBranch));
+    final callback = onResolveWorkflowBaseRef;
+    if (callback != null) {
+      return callback(project, requestedBranch: requestedBranch);
+    }
+
+    final requested = requestedBranch?.trim();
+    if (requested != null && requested.isNotEmpty) {
+      return requested;
+    }
+    final configured = project.defaultBranch.trim();
+    if (configured.isNotEmpty) {
+      return configured;
+    }
+    return 'main';
   }
 
   @override

@@ -1,7 +1,7 @@
 name: dartclaw_testing
 description: Shared test doubles and test helpers for DartClaw packages.
 publish_to: none
-version: 0.9.0
+version: 0.16.4
 repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_testing
 homepage: https://github.com/DartClaw/dartclaw
 issue_tracker: https://github.com/DartClaw/dartclaw/issues
@@ -26,8 +26,13 @@ dependencies:
     path: ../dartclaw_security
   dartclaw_server:
     path: ../dartclaw_server
+  dartclaw_workflow:
+    path: ../dartclaw_workflow
   http: ^1.6.0
+  path: ^1.9.0
 
 dev_dependencies:
+  dartclaw_storage:
+    path: ../dartclaw_storage
   test: ^1.31.0
   lints: ^6.1.0

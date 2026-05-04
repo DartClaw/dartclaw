@@ -24,10 +24,17 @@ class ConfigSerializer {
     ensureDartclawGoogleChatRegistered();
     ensureDartclawSignalRegistered();
     ensureDartclawWhatsappRegistered();
+    ensureGitHubWebhookConfigRegistered();
 
     final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
     final signalConfig = config.getChannelConfig<SignalConfig>(ChannelType.signal);
     final whatsAppConfig = config.getChannelConfig<WhatsAppConfig>(ChannelType.whatsapp);
+    GitHubWebhookConfig? githubConfig;
+    try {
+      githubConfig = config.extension<GitHubWebhookConfig>('github');
+    } catch (_) {
+      githubConfig = null;
+    }
     return {
       'port': config.server.port,
       'host': config.server.host,
@@ -36,7 +43,12 @@ class ConfigSerializer {
       'baseUrl': config.server.baseUrl,
       'workerTimeout': config.server.workerTimeout,
       'memoryMaxBytes': config.memory.maxBytes,
-      'agent': {'model': config.agent.model, 'effort': config.agent.effort, 'maxTurns': config.agent.maxTurns},
+      'agent': {
+        'provider': config.agent.provider,
+        'model': config.agent.model,
+        'effort': config.agent.effort,
+        'maxTurns': config.agent.maxTurns,
+      },
       'advisor': {
         'enabled': config.advisor.enabled,
         'model': config.advisor.model,
@@ -115,6 +127,12 @@ class ConfigSerializer {
           'channelsOnly': config.security.inputSanitizerChannelsOnly,
         },
       },
+      'security': {
+        'bashStep': {
+          'envAllowlist': config.security.bashStep.envAllowlist,
+          'extraStripPatterns': config.security.bashStep.extraStripPatterns,
+        },
+      },
       'memory': {
         'maxBytes': config.memory.maxBytes,
         'pruning': {
@@ -147,6 +165,27 @@ class ConfigSerializer {
           'taskBoard': config.canvas.workshopMode.taskBoard,
           'showContributorStats': config.canvas.workshopMode.showContributorStats,
           'showBudgetBar': config.canvas.workshopMode.showBudgetBar,
+        },
+      },
+      'workflow': {
+        'workspaceDir': config.workflow.workspaceDir,
+        'defaults': {
+          'workflow': {
+            'provider': config.workflow.defaults.workflow.provider,
+            'model': config.workflow.defaults.workflow.model,
+          },
+          'planner': {
+            'provider': config.workflow.defaults.planner.provider,
+            'model': config.workflow.defaults.planner.model,
+          },
+          'executor': {
+            'provider': config.workflow.defaults.executor.provider,
+            'model': config.workflow.defaults.executor.model,
+          },
+          'reviewer': {
+            'provider': config.workflow.defaults.reviewer.provider,
+            'model': config.workflow.defaults.reviewer.model,
+          },
         },
       },
       'channels': {
@@ -198,6 +237,21 @@ class ConfigSerializer {
         'token': config.gateway.token != null ? '***' : null,
         'hsts': config.gateway.hsts,
       },
+      if (githubConfig != null)
+        'github': {
+          'enabled': githubConfig.enabled,
+          'webhookSecret': githubConfig.webhookSecret == null ? null : '***',
+          'webhookPath': githubConfig.webhookPath,
+          'triggers': [
+            for (final trigger in githubConfig.triggers)
+              {
+                'event': trigger.event,
+                'actions': trigger.actions,
+                'labels': trigger.labels,
+                'workflow': trigger.workflow,
+              },
+          ],
+        },
       'governance': {
         'adminSenders': config.governance.adminSenders,
         'queueStrategy': config.governance.queueStrategy.name,
@@ -241,6 +295,11 @@ class ConfigSerializer {
         ],
         'routes': config.alerts.routes,
       },
+      'andthen': {
+        'gitUrl': config.andthen.gitUrl,
+        'ref': config.andthen.ref,
+        'network': config.andthen.network.yamlValue,
+      },
     };
   }
 
@@ -268,6 +327,7 @@ class ConfigSerializer {
     ConfigFieldType.bool_ => 'bool',
     ConfigFieldType.enum_ => 'enum',
     ConfigFieldType.stringList => 'string[]',
+    ConfigFieldType.objectList => 'object[]',
   };
 
   static String _googleChatAudienceMode(GoogleChatAudienceMode mode) => switch (mode) {

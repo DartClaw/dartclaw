@@ -167,12 +167,7 @@ class GuardAuditLogger {
   ///
   /// Log level: WARNING. When [dataDir] is set, appends an NDJSON audit entry
   /// with `guard: 'PermissionDenied'` and `verdict: 'denied'`.
-  void logPermissionDenied({
-    required String toolName,
-    String? reason,
-    String? sessionId,
-    required DateTime timestamp,
-  }) {
+  void logPermissionDenied({required String toolName, String? reason, String? sessionId, required DateTime timestamp}) {
     final msg =
         '[PermissionDenied][permission][PreToolUse] '
         'tool=$toolName'

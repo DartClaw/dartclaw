@@ -1,8 +1,0 @@
-interface:
-  display_name: "DartClaw - Review Gap"
-  short_description: "Requirements-to-implementation gap analysis"
-  default_prompt: "Compare the implementation to the requirements baseline and produce a strict gap-analysis report. Requirements baseline: "
-
-policy:
-  allow_implicit_invocation: true
-

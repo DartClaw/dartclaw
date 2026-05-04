@@ -75,6 +75,82 @@ void main() {
     expect(frame, contains('"reviewCount":1'));
   });
 
+  test('agent execution SSE stream emits status change payloads', () async {
+    final response = await handler(Request('GET', Uri.parse('http://localhost/api/agent-executions/events')));
+    final iterator = StreamIterator(response.read().transform(utf8.decoder));
+    addTearDown(iterator.cancel);
+
+    final connectedPayload = await nextFramePayload(iterator);
+    expect(connectedPayload['type'], 'connected');
+
+    eventBus.fire(
+      AgentExecutionStatusChangedEvent(
+        agentExecutionId: 'ae-1',
+        oldStatus: 'running',
+        newStatus: 'completed',
+        trigger: 'system',
+        timestamp: DateTime.parse('2026-03-10T10:15:00Z'),
+      ),
+    );
+
+    final payload = await nextFramePayload(iterator);
+    expect(payload['type'], 'agent_execution_status_changed');
+    expect(payload['agentExecutionId'], 'ae-1');
+    expect(payload['oldStatus'], 'running');
+    expect(payload['newStatus'], 'completed');
+    expect(payload['timestamp'], '2026-03-10T10:15:00.000Z');
+  });
+
+  test('initial frame excludes workflow-owned review tasks from the default review count', () async {
+    await tasks.create(
+      id: 'task-workflow-review',
+      title: 'Workflow review task',
+      description: 'Workflow-owned review artifact',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: 'run-123',
+      configJson: const {
+        '_workflowGit': {'worktree': 'per-map-item', 'promotion': 'merge'},
+      },
+    );
+    await tasks.transition('task-workflow-review', TaskStatus.running);
+    await tasks.transition('task-workflow-review', TaskStatus.review);
+
+    final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
+    final iterator = StreamIterator(response.read().transform(utf8.decoder));
+    addTearDown(iterator.cancel);
+
+    final payload = await nextFramePayload(iterator);
+    expect(payload['type'], 'connected');
+    expect(payload['reviewCount'], 0);
+    expect(payload['activeTasks'], isEmpty);
+  });
+
+  test('sidebar-state endpoint returns review count and active tasks as json', () async {
+    await tasks.create(
+      id: 'task-running',
+      title: 'Running task',
+      description: 'Do work',
+      type: TaskType.coding,
+      autoStart: true,
+      provider: ProviderIdentity.codex,
+      now: DateTime.parse('2026-03-10T08:00:00Z'),
+    );
+    await tasks.transition('task-running', TaskStatus.running, now: DateTime.parse('2026-03-10T08:05:00Z'));
+
+    final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/sidebar-state')));
+    final payload = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+    expect(response.statusCode, 200);
+    expect(response.headers['content-type'], 'application/json');
+    expect(payload['reviewCount'], 0);
+    expect(payload['activeTasks'], isA<List<dynamic>>());
+    final activeTasks = (payload['activeTasks'] as List<dynamic>).cast<Map<String, dynamic>>();
+    expect(activeTasks, hasLength(1));
+    expect(activeTasks.single['id'], 'task-running');
+    expect(activeTasks.single['status'], 'running');
+  });
+
   test('connected frame includes activeTasks with running and review tasks', () async {
     await tasks.create(
       id: 'task-running',
@@ -201,6 +277,7 @@ void main() {
     final frame = iterator.current;
     expect(frame, contains('"type":"task_status_changed"'));
     expect(frame, contains('"taskId":"task-1"'));
+    expect(frame, contains('"timestamp":"2026-03-10T10:15:00.000Z"'));
     expect(frame, contains('"reviewCount":1'));
   });
 
@@ -211,7 +288,7 @@ void main() {
       description: 'Do work',
       type: TaskType.coding,
       autoStart: true,
-      provider: ProviderIdentity.codexExec,
+      provider: ProviderIdentity.codex,
       now: DateTime.parse('2026-03-10T10:00:00Z'),
     );
     await tasks.transition('task-1', TaskStatus.running, now: DateTime.parse('2026-03-10T10:05:00Z'));
@@ -244,7 +321,7 @@ void main() {
     expect(activeTasks.single['id'], 'task-1');
     expect(activeTasks.single['status'], 'review');
     expect(activeTasks.single['startedAt'], isA<String>());
-    expect(activeTasks.single['provider'], ProviderIdentity.codexExec);
+    expect(activeTasks.single['provider'], ProviderIdentity.codex);
     expect(activeTasks.single['providerLabel'], 'Codex');
     expect(DateTime.parse(activeTasks.single['startedAt'] as String), isA<DateTime>());
   });

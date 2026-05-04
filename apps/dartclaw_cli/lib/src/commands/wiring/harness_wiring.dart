@@ -507,17 +507,16 @@ GuardChain _buildTaskGuardChain(GuardChain? base, TaskToolFilterGuard filter) {
 }
 
 Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
-  // Preserve the normal execution environment, but ensure only the selected
-  // provider credential is passed through to the subprocess.
-  final environment = Map<String, String>.from(Platform.environment)
-    ..remove('ANTHROPIC_API_KEY')
-    ..remove('OPENAI_API_KEY')
-    ..remove('CLAUDE_CODE_SUBAGENT_MODEL')
-    ..addAll(claudeHardeningEnvVars);
+  final environment = SafeProcess.sanitize(
+    baseEnvironment: Platform.environment,
+    sensitivePatterns: [...kDefaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
+    extraEnvironment: claudeHardeningEnvVars,
+  );
   final apiKey = registry.getApiKey(providerId);
-  final envVar = CredentialRegistry.envVarFor(providerId);
-  if (apiKey != null && envVar != null) {
-    environment[envVar] = apiKey;
+  if (apiKey != null) {
+    for (final envVar in CredentialRegistry.envVarsFor(providerId)) {
+      environment[envVar] = apiKey;
+    }
   }
   return environment;
 }

@@ -2,6 +2,13 @@
 
 DartClaw offers five levels of customization, from zero-code to full source modification.
 
+1. **L1 — Behavior files** (no code): Edit `SOUL.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `HEARTBEAT.md` in `~/.dartclaw/workspace/`
+2. **L2 — Config YAML** (no code): Tune `dartclaw.yaml` — guards, channels, scheduling, session scoping
+3. **L3 — Skills** (no code): Prompt templates in `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for other agents
+4. **L4 — MCP servers** (minimal code): Tool integrations via `.mcp.json`
+5. **L5 — Dart source**: Custom guards, channels, templates, MCP tools
+
+
 ## L1: Behavior Files (No Code)
 
 Edit markdown files in `~/.dartclaw/workspace/`. Changes take effect on the next turn.

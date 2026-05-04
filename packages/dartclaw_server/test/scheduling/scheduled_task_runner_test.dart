@@ -211,7 +211,7 @@ void main() {
     });
 
     group('configJson override merging', () {
-      test('configJson contains model/effort/tokenBudget when set', () async {
+      test('model is captured on AgentExecution while effort/tokenBudget stay in configJson', () async {
         final def = _makeDef(id: 'override-sched', model: 'claude-haiku-4-5', effort: 'low', tokenBudget: 50000);
         final runner = ScheduledTaskRunner(taskService: taskService, definitions: [def]);
         final jobs = runner.buildJobs();
@@ -219,7 +219,10 @@ void main() {
 
         final task = (await taskService.list()).first;
         expect(task.configJson['scheduleId'], 'override-sched');
-        expect(task.configJson['model'], 'claude-haiku-4-5');
+        // Per S34, `model` is canonical on AgentExecution and no longer persisted
+        // in Task.configJson; it surfaces via the task.model accessor instead.
+        expect(task.model, 'claude-haiku-4-5');
+        expect(task.configJson.containsKey('model'), isFalse);
         expect(task.configJson['effort'], 'low');
         expect(task.configJson['tokenBudget'], 50000);
       });

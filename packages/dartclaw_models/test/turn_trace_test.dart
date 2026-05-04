@@ -172,4 +172,87 @@ void main() {
     expect(a.hashCode, equals(b.hashCode));
     expect(a, isNot(equals(c)));
   });
+
+  group('computeEffectiveTokens', () {
+    test('returns input+output when no cache', () {
+      expect(computeEffectiveTokens(inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0), 150);
+    });
+
+    test('weights cache reads at 0.1x (integer-truncated)', () {
+      // 1000 * 10 / 100 = 100
+      expect(computeEffectiveTokens(inputTokens: 0, outputTokens: 0, cacheReadTokens: 1000, cacheWriteTokens: 0), 100);
+    });
+
+    test('weights cache writes at 1.25x (integer-truncated)', () {
+      // 1000 * 125 / 100 = 1250
+      expect(computeEffectiveTokens(inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 1000), 1250);
+    });
+
+    test('combines all four buckets additively', () {
+      // 100 + 50 + (1000 * 10 ~/ 100) + (200 * 125 ~/ 100)
+      // = 100 + 50 + 100 + 250 = 500
+      expect(
+        computeEffectiveTokens(inputTokens: 100, outputTokens: 50, cacheReadTokens: 1000, cacheWriteTokens: 200),
+        500,
+      );
+    });
+
+    test('small cache-read counts truncate to zero (known integer-math loss)', () {
+      // 9 * 10 / 100 = 0 (truncating)
+      expect(computeEffectiveTokens(inputTokens: 0, outputTokens: 0, cacheReadTokens: 9, cacheWriteTokens: 0), 0);
+    });
+
+    test('zero in all buckets returns zero', () {
+      expect(computeEffectiveTokens(inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0), 0);
+    });
+  });
+
+  test('TurnTrace.effectiveTokens delegates to computeEffectiveTokens', () {
+    final trace = TurnTrace(
+      id: 'id-eff',
+      sessionId: 'sess-eff',
+      startedAt: start,
+      endedAt: end,
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheReadTokens: 1000,
+      cacheWriteTokens: 200,
+    );
+    expect(trace.effectiveTokens, 500);
+  });
+
+  test('toJson includes effectiveTokens as a read-only convenience', () {
+    final trace = TurnTrace(
+      id: 'id-eff-json',
+      sessionId: 'sess-eff-json',
+      startedAt: start,
+      endedAt: end,
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheReadTokens: 1000,
+      cacheWriteTokens: 200,
+    );
+    final json = trace.toJson();
+    expect(json['effectiveTokens'], 500);
+    expect(json['totalTokens'], 150);
+  });
+
+  test('fromJson ignores serialized effectiveTokens and recomputes from raw fields', () {
+    // Simulate a payload where the stored effectiveTokens is stale/wrong.
+    final json = <String, dynamic>{
+      'id': 'id-eff-recompute',
+      'sessionId': 'sess-eff-recompute',
+      'startedAt': start.toIso8601String(),
+      'endedAt': end.toIso8601String(),
+      'inputTokens': 100,
+      'outputTokens': 50,
+      'cacheReadTokens': 1000,
+      'cacheWriteTokens': 200,
+      'effectiveTokens': 999999, // intentionally wrong
+      'isError': false,
+      'toolCalls': <dynamic>[],
+    };
+    final restored = TurnTrace.fromJson(json);
+    expect(restored.effectiveTokens, 500); // recomputed, not 999999
+  });
 }

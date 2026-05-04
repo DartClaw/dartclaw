@@ -74,7 +74,7 @@ scheduling:
       prompt: "Summarize today's activity"
       delivery: announce
       model: claude-haiku-3   # override model for cost savings
-      effort: low             # override effort level (low | medium | high | max)
+      effort: low             # override effort level — passed verbatim to provider (Claude: low|medium|high|xhigh|max; Codex: low|medium|high|xhigh)
 ```
 
 If not specified, the job inherits the global `agent.model` and `agent.effort` values.
@@ -94,8 +94,8 @@ scheduling:
       enabled: true
       task:
         title: Daily maintenance review
+        task_type: "coding"
         description: Review maintenance items and prepare a coding task if changes are needed.
-        type: coding
         acceptance_criteria: Tests stay green and the worktree is ready for review.
         auto_start: true
 ```

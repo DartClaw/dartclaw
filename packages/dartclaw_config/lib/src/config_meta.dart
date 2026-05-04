@@ -14,7 +14,7 @@ enum ConfigMutability {
 }
 
 /// Type of a config field.
-enum ConfigFieldType { int_, string, bool_, enum_, stringList }
+enum ConfigFieldType { int_, string, bool_, enum_, stringList, objectList }
 
 /// Metadata describing a single config field.
 class FieldMeta {
@@ -146,6 +146,62 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       nullable: true,
     ),
+    'workflow.defaults.workflow.provider': FieldMeta(
+      yamlPath: 'workflow.defaults.workflow.provider',
+      jsonKey: 'workflow.defaults.workflow.provider',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'workflow.defaults.workflow.model': FieldMeta(
+      yamlPath: 'workflow.defaults.workflow.model',
+      jsonKey: 'workflow.defaults.workflow.model',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'workflow.defaults.planner.provider': FieldMeta(
+      yamlPath: 'workflow.defaults.planner.provider',
+      jsonKey: 'workflow.defaults.planner.provider',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'workflow.defaults.planner.model': FieldMeta(
+      yamlPath: 'workflow.defaults.planner.model',
+      jsonKey: 'workflow.defaults.planner.model',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'workflow.defaults.executor.provider': FieldMeta(
+      yamlPath: 'workflow.defaults.executor.provider',
+      jsonKey: 'workflow.defaults.executor.provider',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'workflow.defaults.executor.model': FieldMeta(
+      yamlPath: 'workflow.defaults.executor.model',
+      jsonKey: 'workflow.defaults.executor.model',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'workflow.defaults.reviewer.provider': FieldMeta(
+      yamlPath: 'workflow.defaults.reviewer.provider',
+      jsonKey: 'workflow.defaults.reviewer.provider',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'workflow.defaults.reviewer.model': FieldMeta(
+      yamlPath: 'workflow.defaults.reviewer.model',
+      jsonKey: 'workflow.defaults.reviewer.model',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
     'worker_timeout': FieldMeta(
       yamlPath: 'worker_timeout',
       jsonKey: 'workerTimeout',
@@ -169,13 +225,18 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       nullable: true,
     ),
+    'agent.provider': FieldMeta(
+      yamlPath: 'agent.provider',
+      jsonKey: 'agent.provider',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
     'agent.effort': FieldMeta(
       yamlPath: 'agent.effort',
       jsonKey: 'agent.effort',
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
       nullable: true,
-      allowedValues: ['', 'low', 'medium', 'high', 'max'],
     ),
     'agent.max_turns': FieldMeta(
       yamlPath: 'agent.max_turns',
@@ -197,6 +258,43 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.stringList,
       mutability: ConfigMutability.restart,
       nullable: true,
+    ),
+    'security.bash_step.env_allowlist': FieldMeta(
+      yamlPath: 'security.bash_step.env_allowlist',
+      jsonKey: 'security.bashStep.envAllowlist',
+      type: ConfigFieldType.stringList,
+      mutability: ConfigMutability.restart,
+    ),
+    'security.bash_step.extra_strip_patterns': FieldMeta(
+      yamlPath: 'security.bash_step.extra_strip_patterns',
+      jsonKey: 'security.bashStep.extraStripPatterns',
+      type: ConfigFieldType.stringList,
+      mutability: ConfigMutability.restart,
+    ),
+    'github.enabled': FieldMeta(
+      yamlPath: 'github.enabled',
+      jsonKey: 'github.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'github.webhook_secret': FieldMeta(
+      yamlPath: 'github.webhook_secret',
+      jsonKey: 'github.webhookSecret',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'github.webhook_path': FieldMeta(
+      yamlPath: 'github.webhook_path',
+      jsonKey: 'github.webhookPath',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'github.triggers': FieldMeta(
+      yamlPath: 'github.triggers',
+      jsonKey: 'github.triggers',
+      type: ConfigFieldType.objectList,
+      mutability: ConfigMutability.restart,
     ),
 
     // Tasks
@@ -928,7 +1026,6 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
       nullable: true,
-      allowedValues: ['', 'low', 'medium', 'high', 'max'],
     ),
     'governance.rate_limits.per_sender.messages': FieldMeta(
       yamlPath: 'governance.rate_limits.per_sender.messages',
@@ -1111,7 +1208,6 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
       nullable: true,
-      allowedValues: ['', 'low', 'medium', 'high', 'max'],
     ),
     'advisor.triggers': FieldMeta(
       yamlPath: 'advisor.triggers',
@@ -1179,6 +1275,28 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.int_,
       mutability: ConfigMutability.reloadable,
       min: 1,
+    ),
+
+    // --- AndThen runtime-skill provisioning ---
+    // All four restart-required: changing them implies re-clone / re-install.
+    'andthen.git_url': FieldMeta(
+      yamlPath: 'andthen.git_url',
+      jsonKey: 'andthen.gitUrl',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'andthen.ref': FieldMeta(
+      yamlPath: 'andthen.ref',
+      jsonKey: 'andthen.ref',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'andthen.network': FieldMeta(
+      yamlPath: 'andthen.network',
+      jsonKey: 'andthen.network',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['auto', 'required', 'disabled'],
     ),
   };
 

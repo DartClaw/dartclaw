@@ -1,3 +1,5 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowDefinition;
+
 /// Adapter for the turn execution capabilities used by workflow follow-up prompts.
 ///
 /// This keeps the workflow package independent from the concrete server-side
@@ -8,6 +10,95 @@ class WorkflowTurnOutcome {
   final String status;
 
   const WorkflowTurnOutcome({required this.status});
+}
+
+/// Branch bootstrap result for workflow-owned git state.
+class WorkflowGitBootstrapResult {
+  /// Feature/integration branch that map-item branches promote into.
+  final String integrationBranch;
+
+  /// Optional human-readable note about bootstrap behavior.
+  final String? note;
+
+  const WorkflowGitBootstrapResult({required this.integrationBranch, this.note});
+}
+
+/// Result of promoting a story/task branch into the integration branch.
+sealed class WorkflowGitPromotionResult {
+  const WorkflowGitPromotionResult();
+}
+
+class WorkflowGitPromotionSuccess extends WorkflowGitPromotionResult {
+  final String commitSha;
+
+  const WorkflowGitPromotionSuccess({required this.commitSha});
+}
+
+class WorkflowGitPromotionConflict extends WorkflowGitPromotionResult {
+  final List<String> conflictingFiles;
+  final String details;
+
+  const WorkflowGitPromotionConflict({required this.conflictingFiles, required this.details});
+}
+
+class WorkflowGitPromotionError extends WorkflowGitPromotionResult {
+  final String message;
+
+  const WorkflowGitPromotionError(this.message);
+}
+
+/// Sentinel returned by `_handleMergeResolveEscalation` when `serializeRemaining`
+/// fires. The outer loop observes this to drain siblings and re-queue.
+class WorkflowGitPromotionSerializeRemaining extends WorkflowGitPromotionResult {
+  const WorkflowGitPromotionSerializeRemaining();
+}
+
+/// Workflow publish status.
+enum WorkflowPublishStatus {
+  success,
+  manual,
+  failed;
+
+  String toJson() => name;
+
+  static WorkflowPublishStatus fromJson(String value) => WorkflowPublishStatus.values.byName(value);
+}
+
+/// Result of deterministic workflow publish.
+class WorkflowGitPublishResult {
+  /// `success`, `manual`, or `failed`.
+  final WorkflowPublishStatus status;
+
+  /// Branch that was published.
+  final String branch;
+
+  /// Remote used for publish (typically `origin`).
+  final String remote;
+
+  /// PR URL when available; empty for branch-only publish.
+  final String prUrl;
+
+  /// Error detail for failed publish.
+  final String? error;
+
+  const WorkflowGitPublishResult({
+    required this.status,
+    required this.branch,
+    required this.remote,
+    required this.prUrl,
+    this.error,
+  });
+}
+
+/// Resolved workflow start contract values produced by host-side preflight.
+class WorkflowStartResolution {
+  /// Effective project id to use for this run.
+  final String? projectId;
+
+  /// Effective branch/ref to use for this run.
+  final String? branch;
+
+  const WorkflowStartResolution({this.projectId, this.branch});
 }
 
 typedef WorkflowExecuteTurn =
@@ -28,6 +119,81 @@ class WorkflowTurnAdapter {
   final Future<WorkflowTurnOutcome> Function(String sessionId, String turnId) waitForOutcome;
   final int? Function()? availableRunnerCount;
   final String? workflowWorkspaceDir;
+  final Future<WorkflowStartResolution> Function(
+    WorkflowDefinition definition,
+    Map<String, String> variables, {
+    String? projectId,
+    bool allowDirtyLocalPath,
+  })?
+  resolveStartContext;
+  final Future<WorkflowGitBootstrapResult> Function({
+    required String runId,
+    required String projectId,
+    required String baseRef,
+    required bool perMapItem,
+  })?
+  bootstrapWorkflowGit;
+  final Future<WorkflowGitPromotionResult> Function({
+    required String runId,
+    required String projectId,
+    required String branch,
+    required String integrationBranch,
+    required String strategy,
+    String? storyId,
+  })?
+  promoteWorkflowBranch;
+  final Future<WorkflowGitPublishResult> Function({
+    required String runId,
+    required String projectId,
+    required String branch,
+  })?
+  publishWorkflowBranch;
+  final Future<void> Function({
+    required String runId,
+    required String projectId,
+    required String status,
+    required bool preserveWorktrees,
+  })?
+  cleanupWorkflowGit;
+
+  /// Cleanup triple for merge-resolve retry: `git merge --abort` (best-effort)
+  /// + `git reset --hard <sha>` + `git clean -fd`, inside `_workflowGitRepoLock`.
+  ///
+  /// Returns null on success. Returns an error string when any non-best-effort
+  /// step fails; callers must treat that as a hard workflow failure.
+  final Future<String?> Function({required String projectId, required String branch, required String preAttemptSha})?
+  cleanupWorktreeForRetry;
+
+  /// Returns the current HEAD SHA of [branch] in [projectId]'s worktree via
+  /// `git rev-parse <branch>`. Returns null when the ref cannot be resolved.
+  final Future<String?> Function({required String projectId, required String branch})? captureWorkflowBranchSha;
+
+  /// Atomically captures HEAD SHA, checks dirty state, and (if dirty) runs
+  /// the cleanup triple — all under a single repo lock.
+  ///
+  /// Returns `({sha, isDirty, cleanupError})`. Use this instead of calling
+  /// [captureWorkflowBranchSha] + [cleanupWorktreeForRetry] separately to
+  /// avoid a mutation window between the two lock acquisitions.
+  final Future<({String? sha, bool isDirty, String? cleanupError})> Function({
+    required String projectId,
+    required String branch,
+    String? preAttemptSha,
+  })?
+  captureAndCleanWorktreeForRetry;
+
+  /// Runs [body] under the same repo lock that protects this project's git
+  /// metadata, holding the lock for the full duration of [body].
+  ///
+  /// Used by the merge-resolve attempt loop to wrap one attempt's
+  /// `capture+clean → skill invocation → outcome read → promotion retry`
+  /// chain so no concurrent sibling promotion can mutate the integration
+  /// branch mid-resolution (PRD Lifecycle & Recovery; S60 acceptance).
+  ///
+  /// The lock is reentrant within the body's zone, so inner primitives
+  /// (e.g. [captureAndCleanWorktreeForRetry], [promoteWorkflowBranch]) that
+  /// take the same lock on their own continue to work without modification.
+  final Future<T> Function<T>({required String projectId, required Future<T> Function() body})?
+  runResolverAttemptUnderLock;
 
   const WorkflowTurnAdapter({
     required this.reserveTurn,
@@ -36,5 +202,14 @@ class WorkflowTurnAdapter {
     required this.waitForOutcome,
     this.availableRunnerCount,
     this.workflowWorkspaceDir,
+    this.resolveStartContext,
+    this.bootstrapWorkflowGit,
+    this.promoteWorkflowBranch,
+    this.publishWorkflowBranch,
+    this.cleanupWorkflowGit,
+    this.cleanupWorktreeForRetry,
+    this.captureWorkflowBranchSha,
+    this.captureAndCleanWorktreeForRetry,
+    this.runResolverAttemptUnderLock,
   });
 }

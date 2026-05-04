@@ -12,5 +12,15 @@ class DartclawRunner extends CommandRunner<void> {
       help: 'Path to dartclaw.yaml config file (overrides DARTCLAW_CONFIG env var and default search)',
       valueHelp: 'path',
     );
+    argParser.addOption(
+      'server',
+      help: 'Server address override for connected commands (for example: 3333, localhost:4000, or https://host)',
+      valueHelp: 'host:port',
+    );
+    argParser.addOption(
+      'token',
+      help: 'Gateway bearer token override for connected commands, useful with remote --server targets',
+      valueHelp: 'token',
+    );
   }
 }

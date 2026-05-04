@@ -1,11 +1,10 @@
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SkillInfo, SkillSource;
+import 'package:dartclaw_models/dartclaw_models.dart' show OutputConfig, SkillInfo, SkillSource;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
-import '../embedded_skills.dart';
 import 'skill_registry.dart';
 
 /// Filesystem-backed implementation of [SkillRegistry].
@@ -38,8 +37,8 @@ class SkillRegistryImpl implements SkillRegistry {
   /// P1-P2 resolution).
   /// [projectDirs] — project directories to scan in priority order for P1-P2.
   /// [workspaceDir] — DartClaw workspace directory (for P3).
-  /// [dataDir] — DartClaw data directory (for P5).
-  /// [pluginDirs] — additional plugin skill directories (for P6).
+  /// [dataDir] — DartClaw data directory (for P6).
+  /// [pluginDirs] — additional plugin skill directories (for P8).
   void discover({
     String? projectDir,
     Iterable<String> projectDirs = const [],
@@ -86,10 +85,6 @@ class SkillRegistryImpl implements SkillRegistry {
 
     for (final (dirPath, source, harnesses) in sources) {
       _scanDirectory(dirPath, source, harnesses);
-    }
-
-    if (builtInSkillsDir == null && embeddedSkills.isNotEmpty) {
-      _scanEmbeddedSkills();
     }
 
     stopwatch.stop();
@@ -187,47 +182,6 @@ class SkillRegistryImpl implements SkillRegistry {
     }
   }
 
-  void _scanEmbeddedSkills() {
-    final entries = embeddedSkills.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
-    for (final entry in entries) {
-      final skillMd = entry.value['SKILL.md'];
-      if (skillMd == null) {
-        _log.fine('No embedded SKILL.md for ${entry.key}, skipping');
-        continue;
-      }
-
-      final info = _parseFrontmatterContent(
-        skillMd,
-        'embedded',
-        entry.key,
-        SkillSource.dartclaw,
-        _embeddedNativeHarnesses(entry.value),
-      );
-      if (info == null) continue;
-
-      final existing = _skills[info.name];
-      if (existing != null) {
-        _skills[info.name] = existing.mergeHarnesses(info.nativeHarnesses);
-        _log.fine(
-          'Skill "${info.name}" already discovered from '
-          '${existing.source.displayName}, merging harnesses from embedded built-ins',
-        );
-      } else {
-        _skills[info.name] = info;
-      }
-    }
-  }
-
-  Set<String> _embeddedNativeHarnesses(Map<String, String> files) {
-    // Embedded built-ins are shipped with agent manifests under `agents/`.
-    // In the standalone build they are materialized for the first-class
-    // Claude and Codex harness roots, so discovery should preserve both IDs.
-    if (files.keys.any((path) => path.startsWith('agents/'))) {
-      return <String>{'claude', 'codex'};
-    }
-    return const <String>{};
-  }
-
   bool _skipsManagedCopies(SkillSource source) => switch (source) {
     SkillSource.projectClaude || SkillSource.projectAgents || SkillSource.userClaude || SkillSource.userAgents => true,
     _ => false,
@@ -255,7 +209,10 @@ class SkillRegistryImpl implements SkillRegistry {
   /// Parses YAML frontmatter from a SKILL.md file or in-memory content.
   ///
   /// Frontmatter is delimited by `---` lines at the start of the file.
-  /// Extracts `name` and `description` fields per Agent Skills spec.
+  /// Extracts `name` and `description` fields per Agent Skills spec plus the
+  /// optional `workflow:` block carrying `default_prompt`, `default_outputs`,
+  /// and `emits_own_outcome`
+  /// (DartClaw extension — third-party skills without the block are unaffected).
   /// Falls back to directory name for `name` if missing.
   SkillInfo? _parseFrontmatterContent(
     String content,
@@ -267,6 +224,9 @@ class SkillRegistryImpl implements SkillRegistry {
     try {
       String? name;
       String description = '';
+      String? defaultPrompt;
+      Map<String, OutputConfig>? defaultOutputs;
+      bool emitsOwnOutcome = false;
 
       if (content.startsWith('---')) {
         final endIndex = content.indexOf('\n---', 3);
@@ -276,6 +236,15 @@ class SkillRegistryImpl implements SkillRegistry {
           if (yaml is YamlMap) {
             name = yaml['name'] as String?;
             description = (yaml['description'] as String?) ?? '';
+            final workflowBlock = yaml['workflow'];
+            if (workflowBlock is YamlMap) {
+              (defaultPrompt, defaultOutputs, emitsOwnOutcome) = _parseWorkflowFrontmatterBlock(
+                workflowBlock,
+                skillPath,
+              );
+            } else if (workflowBlock != null) {
+              _log.warning('SKILL.md `workflow:` block is not a map in $skillPath; ignoring');
+            }
           }
         }
       }
@@ -289,11 +258,79 @@ class SkillRegistryImpl implements SkillRegistry {
         source: source,
         path: skillPath,
         nativeHarnesses: harnesses,
+        defaultPrompt: defaultPrompt,
+        defaultOutputs: defaultOutputs,
+        emitsOwnOutcome: emitsOwnOutcome,
       );
     } catch (e) {
       _log.warning('Failed to parse SKILL.md in $skillPath: $e');
       return null;
     }
+  }
+
+  /// Parses the optional `workflow:` frontmatter block.
+  ///
+  /// Returns `(defaultPrompt, defaultOutputs, emitsOwnOutcome)`. Malformed entries are logged at
+  /// warning level and yield null for that field so skill discovery keeps
+  /// working for minimally-declared third-party skills.
+  (String?, Map<String, OutputConfig>?, bool) _parseWorkflowFrontmatterBlock(YamlMap block, String skillPath) {
+    String? defaultPrompt;
+    Map<String, OutputConfig>? defaultOutputs;
+    var emitsOwnOutcome = false;
+
+    final rawPrompt = block['default_prompt'];
+    if (rawPrompt is String) {
+      defaultPrompt = rawPrompt;
+    } else if (rawPrompt != null) {
+      _log.warning('SKILL.md `workflow.default_prompt` is not a string in $skillPath; ignoring');
+    }
+
+    final rawOutputs = block['default_outputs'];
+    if (rawOutputs is YamlMap) {
+      final parsed = <String, OutputConfig>{};
+      for (final entry in rawOutputs.entries) {
+        final key = entry.key;
+        final value = entry.value;
+        if (key is! String) {
+          _log.warning('SKILL.md `workflow.default_outputs` has non-string key in $skillPath; skipping');
+          continue;
+        }
+        if (value is! YamlMap) {
+          _log.warning('SKILL.md `workflow.default_outputs.$key` is not a map in $skillPath; skipping');
+          continue;
+        }
+        try {
+          parsed[key] = OutputConfig.fromJson(_yamlToDart(value) as Map<String, dynamic>);
+        } catch (e) {
+          _log.warning('SKILL.md `workflow.default_outputs.$key` is invalid in $skillPath: $e');
+        }
+      }
+      if (parsed.isNotEmpty) defaultOutputs = parsed;
+    } else if (rawOutputs != null) {
+      _log.warning('SKILL.md `workflow.default_outputs` is not a map in $skillPath; ignoring');
+    }
+
+    final rawEmitsOwnOutcome = block['emits_own_outcome'];
+    if (rawEmitsOwnOutcome is bool) {
+      emitsOwnOutcome = rawEmitsOwnOutcome;
+    } else if (rawEmitsOwnOutcome != null) {
+      _log.warning('SKILL.md `workflow.emits_own_outcome` is not a boolean in $skillPath; ignoring');
+    }
+
+    return (defaultPrompt, defaultOutputs, emitsOwnOutcome);
+  }
+
+  /// Recursively converts YAML-native nodes to plain Dart types so they plug
+  /// into `OutputConfig.fromJson` (which expects `Map<String, dynamic>` /
+  /// `List<dynamic>` rather than `YamlMap` / `YamlList`).
+  Object? _yamlToDart(Object? node) {
+    if (node is YamlMap) {
+      return <String, dynamic>{for (final entry in node.entries) entry.key.toString(): _yamlToDart(entry.value)};
+    }
+    if (node is YamlList) {
+      return [for (final item in node) _yamlToDart(item)];
+    }
+    return node;
   }
 
   // ── SkillRegistry interface ──────────────────────────────────────────────
@@ -304,14 +341,32 @@ class SkillRegistryImpl implements SkillRegistry {
   @override
   SkillInfo? getByName(String name) => _skills[name];
 
+  // Recovery hint appended when a DartClaw-managed AndThen-derived skill ref is missing.
+  // Operators land here after `SkillProvisioner` failed to populate the destination
+  // (network unreachable, partial install, marker drift).
+  // Point them at the runtime-provisioning surface they actually own, not at a
+  // manual `install-skills.sh` invocation that would produce `andthen-*` skills
+  // DartClaw will not resolve.
+  static const _andthenInstallHint =
+      'AndThen-derived `dartclaw-*` skills are provisioned at `dartclaw serve` startup '
+      'and before standalone workflow runs. '
+      'If they are missing, check the SkillProvisioner logs and your '
+      '`andthen.network` / `andthen.git_url` / `andthen.ref` config, then restart `dartclaw serve` '
+      'or rerun the standalone workflow. '
+      'See dartclaw-public/docs/guide/andthen-skills.md.';
+
   @override
   String? validateRef(String skillRef) {
     if (_skills.containsKey(skillRef)) return null;
 
     // Build suggestion list from available skills.
     final available = _skills.keys.toList()..sort();
+
+    final isDartclawAndthenRef = skillRef.startsWith('dartclaw-');
+    final installSuffix = isDartclawAndthenRef ? ' $_andthenInstallHint' : '';
+
     if (available.isEmpty) {
-      return 'Skill "$skillRef" not found. No skills discovered.';
+      return 'Skill "$skillRef" not found. No skills discovered.$installSuffix';
     }
 
     // Simple prefix/substring match for suggestions.
@@ -320,11 +375,11 @@ class SkillRegistryImpl implements SkillRegistry {
     if (suggestions.isNotEmpty) {
       return 'Skill "$skillRef" not found. '
           'Did you mean: ${suggestions.join(', ')}? '
-          'Available: ${available.join(', ')}';
+          'Available: ${available.join(', ')}$installSuffix';
     }
 
     return 'Skill "$skillRef" not found. '
-        'Available skills: ${available.join(', ')}';
+        'Available skills: ${available.join(', ')}$installSuffix';
   }
 
   @override

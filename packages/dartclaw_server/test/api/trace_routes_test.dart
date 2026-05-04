@@ -171,4 +171,26 @@ void main() {
       expect((body['error'] as Map<String, dynamic>)['code'], 'INVALID_PARAM');
     });
   });
+
+  group('GET /api/traces/<id>', () {
+    test('returns 200 with the trace payload', () async {
+      await traceService.insert(_makeTrace(id: 'trace-detail', taskId: 'task-1', provider: 'claude'));
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces/trace-detail')));
+
+      expect(response.statusCode, 200);
+      final body = _decodeObject(await response.readAsString());
+      expect(body['id'], 'trace-detail');
+      expect(body['taskId'], 'task-1');
+      expect(body['provider'], 'claude');
+    });
+
+    test('returns 404 when the trace does not exist', () async {
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces/missing')));
+
+      expect(response.statusCode, 404);
+      final body = _decodeObject(await response.readAsString());
+      expect((body['error'] as Map<String, dynamic>)['code'], 'TRACE_NOT_FOUND');
+    });
+  });
 }

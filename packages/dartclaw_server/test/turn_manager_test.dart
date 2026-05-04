@@ -40,6 +40,9 @@ class FakeGuard extends Guard {
 // ---------------------------------------------------------------------------
 
 class FakeWorkerService implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   Completer<Map<String, dynamic>>? _turnCompleter;
   Completer<void> _turnInvoked = Completer<void>();
@@ -131,6 +134,9 @@ class FakeWorkerService implements AgentHarness {
 // ---------------------------------------------------------------------------
 
 class _AppendStrategyWorker implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   Completer<Map<String, dynamic>>? _turnCompleter;
   Completer<void> _turnInvoked = Completer<void>();

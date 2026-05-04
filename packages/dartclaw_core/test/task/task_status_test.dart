@@ -49,7 +49,6 @@ void main() {
         expect(TaskStatus.queued.canTransitionTo(TaskStatus.review), isFalse);
         expect(TaskStatus.queued.canTransitionTo(TaskStatus.accepted), isFalse);
         expect(TaskStatus.running.canTransitionTo(TaskStatus.queued), isFalse);
-        expect(TaskStatus.running.canTransitionTo(TaskStatus.accepted), isFalse);
         expect(TaskStatus.review.canTransitionTo(TaskStatus.interrupted), isFalse);
       });
 
@@ -72,7 +71,13 @@ void main() {
         final expected = <TaskStatus, Set<TaskStatus>>{
           TaskStatus.draft: {TaskStatus.queued, TaskStatus.cancelled},
           TaskStatus.queued: {TaskStatus.running, TaskStatus.cancelled, TaskStatus.failed},
-          TaskStatus.running: {TaskStatus.review, TaskStatus.interrupted, TaskStatus.failed, TaskStatus.cancelled},
+          TaskStatus.running: {
+            TaskStatus.review,
+            TaskStatus.accepted,
+            TaskStatus.interrupted,
+            TaskStatus.failed,
+            TaskStatus.cancelled,
+          },
           TaskStatus.interrupted: {TaskStatus.queued, TaskStatus.cancelled},
           TaskStatus.review: {
             TaskStatus.accepted,

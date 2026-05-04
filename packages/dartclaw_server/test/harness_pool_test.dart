@@ -216,6 +216,9 @@ List<TurnRunner> _createRunners(int count) {
 }
 
 class _FakeWorker implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   bool stopped = false;
   bool disposed = false;

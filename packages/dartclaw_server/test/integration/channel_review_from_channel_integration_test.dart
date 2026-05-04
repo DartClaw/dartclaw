@@ -122,6 +122,7 @@ class _RecordingMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     callCount += 1;

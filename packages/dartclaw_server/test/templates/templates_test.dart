@@ -16,12 +16,14 @@ void main() {
   // are covered by render_test.dart which tests the underlying .html templates directly.
 
   group('channelDetailTemplate', () {
-    const sidebarData = (
+    final sidebarData = (
       main: null,
       dmChannels: <SidebarSession>[],
       groupChannels: <SidebarSession>[],
       activeEntries: <SidebarSession>[],
       archivedEntries: <SidebarSession>[],
+      activeTasks: <SidebarActiveTask>[],
+      activeWorkflows: <SidebarActiveWorkflow>[],
       showChannels: true,
       tasksEnabled: false,
     );

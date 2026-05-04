@@ -45,6 +45,7 @@ Router configApiRoutes({
 }) {
   ensureDartclawGoogleChatRegistered();
   ensureDartclawWhatsappRegistered();
+  ensureGitHubWebhookConfigRegistered();
 
   final router = Router();
   const serializer = ConfigSerializer();
@@ -69,6 +70,33 @@ Router configApiRoutes({
       return jsonResponse(200, json);
     } catch (e) {
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to read config: $e');
+    }
+  });
+
+  // GET /api/scheduling/jobs — list jobs from the current YAML config
+  router.get('/api/scheduling/jobs', (Request request) async {
+    try {
+      final jobs = await writer.readSchedulingJobs();
+      return jsonResponse(200, jobs);
+    } catch (e) {
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to read scheduled jobs: $e');
+    }
+  });
+
+  // GET /api/scheduling/jobs/<name> — fetch a single job by name
+  router.get('/api/scheduling/jobs/<name>', (Request request, String name) async {
+    try {
+      final jobs = await writer.readSchedulingJobs();
+      final job = jobs.firstWhere(
+        (entry) => entry['name'] == name || entry['id'] == name,
+        orElse: () => const <String, dynamic>{},
+      );
+      if (job.isEmpty) {
+        return errorResponse(404, 'JOB_NOT_FOUND', 'Scheduled job not found: $name');
+      }
+      return jsonResponse(200, job);
+    } catch (e) {
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to read scheduled job: $e');
     }
   });
 
@@ -903,6 +931,12 @@ Router configApiRoutes({
 Map<String, dynamic> _currentConfigValues(DartclawConfig config) {
   final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
   final audience = googleChatConfig.audience;
+  GitHubWebhookConfig? githubConfig;
+  try {
+    githubConfig = config.extension<GitHubWebhookConfig>('github');
+  } catch (_) {
+    githubConfig = null;
+  }
   return {
     'channels.google_chat.enabled': googleChatConfig.enabled,
     'channels.google_chat.service_account': googleChatConfig.serviceAccount,
@@ -915,6 +949,9 @@ Map<String, dynamic> _currentConfigValues(DartclawConfig config) {
     'channels.google_chat.dm_access': googleChatConfig.dmAccess.name,
     'channels.google_chat.group_access': googleChatConfig.groupAccess.name,
     'channels.google_chat.require_mention': googleChatConfig.requireMention,
+    'github.enabled': githubConfig?.enabled,
+    'github.webhook_secret': githubConfig?.webhookSecret,
+    'github.webhook_path': githubConfig?.webhookPath,
   };
 }
 
@@ -979,13 +1016,48 @@ Future<Map<String, dynamic>?> _parseJsonBody(Request request) async {
   }
 }
 
-Map<String, dynamic> _normalizeConfigPatch(Map<String, dynamic> body) => {
-  for (final entry in body.entries) entry.key: _normalizeConfigPatchValue(entry.key, entry.value),
-};
+Map<String, dynamic> _normalizeConfigPatch(Map<String, dynamic> body) {
+  final normalized = <String, dynamic>{};
+  for (final entry in body.entries) {
+    normalized.addAll(_normalizeConfigPatchEntry(entry.key, entry.value, body));
+  }
+  return normalized;
+}
+
+Map<String, dynamic> _normalizeConfigPatchEntry(String path, Object? value, Map<String, dynamic> rawBody) {
+  final normalizedValue = _normalizeConfigPatchValue(path, value);
+  final normalized = <String, dynamic>{path: normalizedValue};
+  final providerPath = _providerSiblingPath(path);
+  if (providerPath == null || rawBody.containsKey(providerPath) || normalizedValue is! String) {
+    return normalized;
+  }
+
+  final shorthand = ProviderIdentity.parseProviderModelShorthand(normalizedValue);
+  if (shorthand == null) {
+    return normalized;
+  }
+
+  normalized[path] = shorthand.model;
+  normalized[providerPath] = shorthand.provider;
+  return normalized;
+}
 
 Object? _normalizeConfigPatchValue(String path, Object? value) {
+  final meta = ConfigMeta.fields[path];
+  if (meta != null && meta.nullable && value is String && value.trim().isEmpty) {
+    return null;
+  }
   if (path.endsWith('.task_trigger.default_type') && value is String) {
     return TaskTriggerConfig.normalizeDefaultType(value);
   }
   return value;
 }
+
+String? _providerSiblingPath(String path) => switch (path) {
+  'agent.model' => 'agent.provider',
+  'workflow.defaults.workflow.model' => 'workflow.defaults.workflow.provider',
+  'workflow.defaults.planner.model' => 'workflow.defaults.planner.provider',
+  'workflow.defaults.executor.model' => 'workflow.defaults.executor.provider',
+  'workflow.defaults.reviewer.model' => 'workflow.defaults.reviewer.provider',
+  _ => null,
+};

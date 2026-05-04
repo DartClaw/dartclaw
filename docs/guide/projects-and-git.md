@@ -1,6 +1,6 @@
 # Projects and Git
 
-> Current through: **0.14**
+> Current through: **0.16.4**
 
 DartClaw manages git repositories as **projects** -- first-class entities that coding tasks branch from, work in, and push results back to. A single DartClaw instance can manage multiple projects simultaneously.
 
@@ -41,13 +41,19 @@ Register external projects in two ways:
 **Via `dartclaw.yaml`** (seeded at startup, read-only via API):
 
 ```yaml
+credentials:
+  github-main:
+    type: github-token
+    token: ${GITHUB_TOKEN}
+    repository: org/my-app
+
 projects:
   fetchCooldownMinutes: 5       # global fetch cooldown (default: 5)
 
   my-app:
     remote: git@github.com:org/my-app.git
     branch: main                # default branch (default: main)
-    credentials: github-ssh     # reference to credential store entry
+    credentials: github-main    # typed GitHub token credential
     default: true               # make this the default project
     clone:
       strategy: shallow         # shallow | full | sparse (default: shallow)
@@ -71,7 +77,7 @@ Content-Type: application/json
   "name": "my-app",
   "remoteUrl": "git@github.com:org/my-app.git",
   "defaultBranch": "main",
-  "credentialsRef": "github-ssh",
+  "credentialsRef": "github-main",
   "cloneStrategy": "shallow",
   "pr": {
     "strategy": "github-pr",
@@ -144,7 +150,7 @@ When a coding task executes, DartClaw creates an isolated git worktree so the ag
 For **external projects**, the worktree is created from the project's clone directory:
 
 ```
-Task queued (type: coding, projectId: my-app)
+Task queued (coding task, projectId: my-app)
   |
   v
 TaskExecutor picks up task
@@ -201,11 +207,11 @@ The accept flow depends on whether the task targets an external project or `_loc
 
 ### External Projects: Push and PR
 
-1. **Branch push** -- `RemotePushService` pushes the task branch to the remote. Runs in an isolate. Credentials are injected via `GIT_SSH_COMMAND` (SSH) or `GIT_ASKPASS` (HTTPS token).
+1. **Branch push** -- `RemotePushService` pushes the task branch to the remote. Runs in an isolate. GitHub token credentials force non-interactive auth (`GIT_TERMINAL_PROMPT=0`) and normalize GitHub SSH remotes onto canonical HTTPS transport for the git subprocess.
 
-2. **PR creation** (if `pr.strategy: github-pr`) -- `PrCreator` runs `gh pr create` as a subprocess (outpost pattern). Applies `--draft` and `--label` flags from config. The PR URL is stored as a task artifact.
+2. **PR creation** (if `pr.strategy: github-pr`) -- `PrCreator` calls the GitHub REST API with the same project credential reference used for git transport. Draft and label settings are preserved, and the PR URL is stored as a task artifact.
 
-3. **Graceful degradation** -- If `gh` is not installed, the push succeeds and a warning artifact explains how to create the PR manually. If `gh pr create` fails, the push has already succeeded and the error is recorded as an artifact.
+3. **Deterministic failures** -- Missing, mismatched, or unauthorized GitHub credentials fail fast with structured auth errors instead of waiting on interactive git prompts. If the branch push succeeds but PR creation fails, the branch remains on the remote and the error is recorded as an artifact.
 
 | PR Strategy | On Accept |
 |-------------|-----------|
@@ -231,15 +237,38 @@ tasks:
 
 **State restoration**: MergeExecutor always restores the repository to its pre-merge state (original branch + stashed changes) regardless of success or failure.
 
+## Workflow-Owned Promotion and Publish
+
+Workflow runs with `gitStrategy.publish.enabled: true` now publish deterministically from workflow runtime state, instead of only from manual task acceptance flows.
+
+For project-backed workflows:
+
+- Bootstrap can create a workflow integration branch from `BRANCH` (or the project default branch).
+- Mapped story branches can be promoted into that integration branch through runtime-controlled merge operations.
+- Dependency-aware map execution blocks dependent stories until prerequisite promotion succeeds.
+- Publish pushes the workflow branch and optionally creates a PR (`pr.strategy: github-pr`), writing machine-readable workflow outputs:
+  - `publish.status` (`success`, `manual`, `failed`)
+  - `publish.branch`
+  - `publish.remote`
+  - `publish.pr_url`
+
+Publish failures leave inspectable git state and surface structured failure details in workflow context.
+
 ## Credential Handling
 
 External projects reference credentials by name -- keys and tokens are never stored in project config or `projects.json`.
 
 ```yaml
+credentials:
+  github-main:
+    type: github-token
+    token: ${GITHUB_TOKEN}
+    repository: org/my-app
+
 projects:
   my-app:
     remote: git@github.com:org/my-app.git
-    credentials: github-ssh    # references a credential store entry
+    credentials: github-main   # references a github-token credential entry
 ```
 
 At clone, fetch, and push time, the credential is resolved from the credential store and injected into the git subprocess environment:
@@ -247,7 +276,7 @@ At clone, fetch, and push time, the credential is resolved from the credential s
 | Credential Type | Environment Variable |
 |-----------------|---------------------|
 | SSH key | `GIT_SSH_COMMAND=/usr/bin/ssh -i /path/to/key` |
-| HTTPS token | `GIT_ASKPASS` helper script |
+| GitHub token | `GIT_ASKPASS` helper script + `GIT_TERMINAL_PROMPT=0` |
 
 Credential paths are redacted in logs by `MessageRedactor`. See [Security](security.md) for the broader credential isolation model.
 
@@ -331,7 +360,7 @@ projects:
   my-app:                              # project ID (any string except _local)
     remote: git@github.com:org/app.git # required: SSH or HTTPS URL
     branch: main                       # default branch (default: main)
-    credentials: github-ssh            # credential store reference (optional)
+    credentials: github-main           # github-token credential reference for GitHub automation
     default: true                      # default project for new tasks (optional)
     clone:
       strategy: shallow               # shallow | full | sparse (default: shallow)
@@ -353,7 +382,7 @@ tasks:
 ## Limitations and Future Considerations
 
 - **No `--project-dir` CLI flag**: The `_local` project is always `Directory.current.path` -- there is no config option or CLI flag to override it. This can create friction when running DartClaw from source, where `cwd` must be the pub workspace root for package resolution but you want `_local` to point elsewhere. **Workaround**: register the target repo as an external project (even if it's local on disk -- use a `file://` or SSH URL to a local bare clone), or use `cd <dir> && dartclaw serve` when running a compiled binary.
-- **GitHub PRs only**: PR creation currently supports GitHub (`gh pr create`). GitLab MR and Bitbucket PR support is planned.
+- **GitHub PRs only**: PR creation currently supports GitHub through DartClaw-owned REST API calls. GitLab MR and Bitbucket PR support is planned.
 - **No startup validation**: A missing `.git/` directory or base ref on `_local` is only caught when a coding task runs.
 - **No automatic push for `_local`**: Accepted `_local` task merges stay local. Push to remote manually or via external automation.
 - **`_local` does not auto-fetch**: The local base ref must be kept current externally (see [Keeping the `_local` Project Current](#keeping-the-_local-project-current)).

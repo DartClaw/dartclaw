@@ -1,4 +1,4 @@
-name: CI
+name: Checks
 
 on:
   push:
@@ -25,39 +25,10 @@ jobs:
         run: dart analyze --fatal-infos
 
       - name: Test
-        run: dart test --reporter=failures-only
+        run: bash dev/tools/test_workspace.sh
 
       - name: Architecture check
-        run: dart run tool/arch_check.dart
+        run: dart run dev/tools/arch_check.dart
 
-  build:
-    name: Build (${{ matrix.os }})
-    needs: check
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact_name: dartclaw-linux-x64
-          - os: macos-latest
-            artifact_name: dartclaw-macos-arm64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Dart
-        uses: dart-lang/setup-dart@v1
-
-      - name: Install dependencies
-        run: dart pub get
-
-      - name: Build standalone binary
-        run: bash tool/build.sh
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: build/dartclaw
-          if-no-files-found: error
+      - name: Fitness functions
+        run: bash dev/tools/fitness/run_all.sh

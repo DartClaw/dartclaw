@@ -83,6 +83,9 @@ class _FakeRunner extends TurnRunner {
 
 class _MinimalHarness implements AgentHarness {
   @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
+  @override
   bool get supportsCostReporting => true;
 
   @override

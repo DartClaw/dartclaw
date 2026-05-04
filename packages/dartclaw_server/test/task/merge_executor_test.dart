@@ -22,12 +22,93 @@ void main() {
 
     setUp(() {
       calls = [];
-      responses = {};
+      responses = {'status --porcelain': pr('')};
+    });
+
+    test('throws PreMergeInvariantException when the index is already dirty', () async {
+      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+
+      responses['status --porcelain'] = pr(' M lib/main.dart\n');
+
+      await expectLater(
+        () => executor.merge(branch: 'dartclaw/task-t1', baseRef: 'main', taskId: 't1', taskTitle: 'Fix bug'),
+        throwsA(
+          isA<PreMergeInvariantException>()
+              .having((error) => error.reason, 'reason', isA<UncleanIndex>())
+              .having((error) => error.detail, 'detail', contains('clean index')),
+        ),
+      );
+
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, ['status --porcelain']);
+    });
+
+    test('throws PreMergeInvariantException when untracked files overlap with stash', () async {
+      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+
+      responses['status --porcelain'] = pr('?? foo.md\n');
+      responses['stash show --name-only stash@{0}'] = pr('foo.md\nbar.md\n');
+
+      await expectLater(
+        () => executor.merge(branch: 'dartclaw/task-t1', baseRef: 'main', taskId: 't1', taskTitle: 'Fix bug'),
+        throwsA(
+          isA<PreMergeInvariantException>().having((error) => error.reason, 'reason', isA<UntrackedOverlap>()).having(
+            (error) => (error.reason as UntrackedOverlap).paths,
+            'paths',
+            ['foo.md'],
+          ),
+        ),
+      );
+
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, ['status --porcelain', 'stash show --name-only stash@{0}']);
+    });
+
+    test('throws PreMergeInvariantException when target branch SHA drifted', () async {
+      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+
+      responses['rev-parse main'] = pr('new-sha\n');
+
+      await expectLater(
+        () => executor.merge(
+          branch: 'dartclaw/task-t1',
+          baseRef: 'main',
+          taskId: 't1',
+          taskTitle: 'Fix bug',
+          expectedBaseSha: 'old-sha',
+        ),
+        throwsA(
+          isA<PreMergeInvariantException>()
+              .having((error) => error.reason, 'reason', isA<TargetShaMismatch>())
+              .having((error) => (error.reason as TargetShaMismatch).expected, 'expected', 'old-sha')
+              .having((error) => (error.reason as TargetShaMismatch).actual, 'actual', 'new-sha'),
+        ),
+      );
+
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, ['status --porcelain', 'rev-parse main']);
+    });
+
+    test('PreMergeInvariantException reason is switch-exhaustive', () {
+      const error = PreMergeInvariantException(
+        reason: UncleanIndex(modified: ['lib/main.dart']),
+        detail: 'index dirty',
+      );
+
+      final label = switch (error.reason) {
+        UncleanIndex() => 'unclean-index',
+        UntrackedOverlap() => 'untracked-overlap',
+        TargetShaMismatch() => 'target-sha-mismatch',
+      };
+
+      expect(label, 'unclean-index');
+      expect(error.detail, 'index dirty');
     });
 
     test('squash merge calls correct git commands in order', () async {
       executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
 
+      responses['status --porcelain'] = pr('');
       // rev-parse HEAD (record original)
       responses['rev-parse HEAD'] = pr('original-sha\n');
       responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
@@ -42,19 +123,21 @@ void main() {
       final gitArgs = calls.map((c) => c.args.join(' ')).toList();
 
       // Verify the order of git commands
-      expect(gitArgs[0], 'rev-parse HEAD'); // record original HEAD
-      expect(gitArgs[1], 'rev-parse --abbrev-ref HEAD'); // record original branch
-      expect(gitArgs[2], 'stash --include-untracked'); // stash
-      expect(gitArgs[3], 'checkout main'); // checkout base ref
-      expect(gitArgs[4], 'merge --squash dartclaw/task-t1'); // squash merge
-      expect(gitArgs[5], 'commit -m task(t1): Fix bug'); // commit
-      expect(gitArgs[6], 'rev-parse HEAD'); // get commit SHA
-      expect(gitArgs[7], 'checkout main'); // restore original branch
+      expect(gitArgs[0], 'status --porcelain'); // pre-merge invariant
+      expect(gitArgs[1], 'rev-parse HEAD'); // record original HEAD
+      expect(gitArgs[2], 'rev-parse --abbrev-ref HEAD'); // record original branch
+      expect(gitArgs[3], 'stash --include-untracked'); // stash
+      expect(gitArgs[4], 'checkout main'); // checkout base ref
+      expect(gitArgs[5], 'merge --squash dartclaw/task-t1'); // squash merge
+      expect(gitArgs[6], 'commit -m task(t1): Fix bug'); // commit
+      expect(gitArgs[7], 'rev-parse HEAD'); // get commit SHA
+      expect(gitArgs[8], 'checkout main'); // restore original branch
     });
 
     test('squash merge returns MergeSuccess with commit SHA', () async {
       executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
 
+      responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('abc123\n');
       responses['rev-parse --abbrev-ref HEAD'] = pr('develop\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
@@ -79,6 +162,7 @@ void main() {
     test('merge strategy calls git merge --no-ff', () async {
       executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
 
+      responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
       responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
@@ -103,6 +187,7 @@ void main() {
     test('merge conflict detected and returned with conflicting file list', () async {
       executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
 
+      responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
       responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
@@ -132,6 +217,7 @@ void main() {
     test('squash conflict restores clean state with reset --hard', () async {
       executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
 
+      responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
       responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
@@ -151,6 +237,7 @@ void main() {
     test('non-squash conflict still aborts the merge', () async {
       executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
 
+      responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
       responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');
@@ -175,6 +262,7 @@ void main() {
     test('uncommitted changes stashed before merge and restored after', () async {
       executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
 
+      responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
       responses['rev-parse --abbrev-ref HEAD'] = pr('develop\n');
       responses['stash --include-untracked'] = pr('Saved working directory and index state\n');
@@ -197,9 +285,62 @@ void main() {
       expect(gitArgs.last, 'stash pop');
     });
 
+    test('stash pop "already exists" overlap drops the stash entry', () async {
+      // Repro for the map/fan-in case: stashed untracked files collide with
+      // the merge-introduced files. `git stash pop` fails and leaves the stash
+      // in place unless we drop it.
+      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+
+      responses['status --porcelain'] = pr('');
+      responses['rev-parse HEAD'] = pr('original-sha\n');
+      responses['rev-parse --abbrev-ref HEAD'] = pr('integration\n');
+      responses['stash --include-untracked'] = pr('Saved working directory and index state\n');
+      responses['checkout main'] = pr('');
+      responses['merge --squash dartclaw/task-t1'] = pr('');
+      responses['commit -m task(t1): Fix bug'] = pr('');
+      responses['checkout integration'] = pr('');
+      responses['stash pop'] = pr(
+        '',
+        exitCode: 1,
+        stderr:
+            'notes/e2e-plan-a.md already exists, no checkout\n'
+            'notes/e2e-plan-b.md already exists, no checkout\n',
+      );
+      responses['stash drop'] = pr('Dropped refs/stash@{0}\n');
+
+      await executor.merge(branch: 'dartclaw/task-t1', baseRef: 'main', taskId: 't1', taskTitle: 'Fix bug');
+
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, contains('stash pop'));
+      expect(gitArgs, contains('stash drop'));
+      // Drop must follow pop, not precede it.
+      expect(gitArgs.indexOf('stash drop'), greaterThan(gitArgs.indexOf('stash pop')));
+    });
+
+    test('stash pop failure for unrelated reason keeps the stash entry', () async {
+      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+
+      responses['status --porcelain'] = pr('');
+      responses['rev-parse HEAD'] = pr('original-sha\n');
+      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['stash --include-untracked'] = pr('Saved working directory and index state\n');
+      responses['checkout main'] = pr('');
+      responses['merge --squash dartclaw/task-t1'] = pr('');
+      responses['commit -m task(t1): Fix bug'] = pr('');
+      responses['checkout main'] = pr('');
+      responses['stash pop'] = pr('', exitCode: 1, stderr: 'CONFLICT (content): Merge conflict in lib/main.dart\n');
+
+      await executor.merge(branch: 'dartclaw/task-t1', baseRef: 'main', taskId: 't1', taskTitle: 'Fix bug');
+
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, contains('stash pop'));
+      expect(gitArgs, isNot(contains('stash drop')));
+    });
+
     test('no stash pop when there were no uncommitted changes', () async {
       executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
 
+      responses['status --porcelain'] = pr('');
       responses['rev-parse HEAD'] = pr('original-sha\n');
       responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
       responses['stash --include-untracked'] = pr('No local changes to save\n');

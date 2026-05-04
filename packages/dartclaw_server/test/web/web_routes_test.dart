@@ -50,6 +50,7 @@ String _sessionCostPayload({
   required int turnCount,
   String? provider,
   int? cachedInputTokens,
+  int? effectiveTokens,
 }) {
   final payload = <String, dynamic>{
     'input_tokens': inputTokens,
@@ -63,6 +64,9 @@ String _sessionCostPayload({
   }
   if (cachedInputTokens != null) {
     payload['cached_input_tokens'] = cachedInputTokens;
+  }
+  if (effectiveTokens != null) {
+    payload['effective_tokens'] = effectiveTokens;
   }
   return jsonEncode(payload);
 }
@@ -341,6 +345,7 @@ void main() {
           turnCount: 2,
           provider: 'codex',
           cachedInputTokens: 17,
+          effectiveTokens: 34,
         ),
       );
 
@@ -349,11 +354,15 @@ void main() {
 
       expect(res.statusCode, equals(200));
       expect(body, contains('cost unavailable'));
+      expect(body, contains('Input (fresh)'));
+      expect(body, contains('Fresh input tokens only. Cached input is tracked separately below.'));
       expect(
         body,
         contains('This provider does not report USD cost. Token counts are tracked for governance budgets.'),
       );
       expect(body, contains('Cached Input'));
+      expect(body, contains('Effective Tokens'));
+      expect(body, contains('34'));
       expect(body, contains('17'));
     });
 

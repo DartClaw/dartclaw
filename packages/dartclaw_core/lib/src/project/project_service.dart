@@ -16,16 +16,20 @@ abstract class ProjectService {
   /// Returns all registered projects (config-defined + runtime-created + implicit `_local`).
   Future<List<Project>> getAll();
 
-  /// Creates a new project and initiates clone. Returns the project in [ProjectStatus.cloning].
+  /// Creates a new project from either a remote URL or an existing local path.
   ///
-  /// Clone runs in an Isolate — the returned project's status transitions
-  /// to [ProjectStatus.ready] or [ProjectStatus.error] asynchronously.
+  /// Remote-backed projects begin in [ProjectStatus.cloning] and transition to
+  /// [ProjectStatus.ready] or [ProjectStatus.error] asynchronously once the
+  /// clone completes. Local-path projects are created in
+  /// [ProjectStatus.ready] immediately.
   ///
-  /// Throws [ArgumentError] if the derived ID conflicts with an existing project
-  /// or uses the reserved `_local` ID.
+  /// Throws [ArgumentError] if the derived ID conflicts with an existing
+  /// project, uses the reserved `_local` ID, or violates the remote/localPath
+  /// XOR contract.
   Future<Project> create({
     required String name,
-    required String remoteUrl,
+    String? remoteUrl,
+    String? localPath,
     String defaultBranch = 'main',
     String? credentialsRef,
     CloneStrategy cloneStrategy = CloneStrategy.shallow,
@@ -60,12 +64,23 @@ abstract class ProjectService {
   /// same project are serialized: the second caller waits for the first
   /// fetch to complete rather than triggering a parallel fetch.
   ///
-  /// For the implicit _local project: runs `git fetch` + `git merge --ff-only`.
-  /// For external projects: runs `git fetch origin <defaultBranch>`.
+  /// For projects with `remoteUrl.isEmpty` (the implicit `_local` project and
+  /// named local-path projects), this is a no-op.
+  /// For external projects: runs `git fetch origin <ref>` when provided,
+  /// otherwise fetches `origin <defaultBranch>`.
   ///
-  /// Network failures are best-effort: logs a warning, does not throw.
-  /// The caller should proceed with the local state.
-  Future<void> ensureFresh(Project project);
+  /// Network failures are best-effort by default: logs a warning, does not throw.
+  /// When [strict] is true, fetch/validation failures are surfaced to the caller.
+  Future<void> ensureFresh(Project project, {String? ref, bool strict = false});
+
+  /// Resolves the effective workflow base ref for [project].
+  ///
+  /// Resolution order:
+  /// 1. Non-empty [requestedBranch]
+  /// 2. Non-empty [project.defaultBranch]
+  /// 3. Current symbolic `HEAD` for local-path projects
+  /// 4. `'main'` as a last resort
+  Future<String> resolveWorkflowBaseRef(Project project, {String? requestedBranch});
 
   /// Deletes a runtime-created project.
   ///

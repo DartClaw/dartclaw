@@ -21,3 +21,20 @@ String envSubstitute(String input, {Map<String, String>? env}) {
     return value;
   });
 }
+
+/// Returns the list of `${VAR}` names referenced in [input], in order of
+/// appearance and deduplicated.
+///
+/// Used to preserve env-var provenance for downstream diagnostics (e.g.
+/// startup credential preflight) after [envSubstitute] resolves the value.
+List<String> envReferences(String input) {
+  final seen = <String>{};
+  final refs = <String>[];
+  for (final match in _envPattern.allMatches(input)) {
+    final name = match.group(1)!;
+    if (seen.add(name)) {
+      refs.add(name);
+    }
+  }
+  return refs;
+}

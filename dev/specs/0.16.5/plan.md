@@ -52,37 +52,37 @@ The 0.16.4 milestone-level consolidated review at `../0.16.4/0.16.4-consolidated
 
 | ID | Name | Phase | Wave | Dependencies | Parallel | Risk | Status | FIS |
 |----|------|-------|------|--------------|----------|------|--------|-----|
-| S01 | AlertClassifier Safety Fix + Event Exhaustiveness Test | A: Safety + Quick Wins | W1 | – | [P] | Low | Pending | – |
-| S02 | canvas_exports Advisor Re-export Cleanup | A: Safety + Quick Wins | W1 | – | [P] | Low | Pending | – |
-| S03 | Doc Currency Critical Pass (AGENTS.md + README + guide fixes + package trees) | A: Safety + Quick Wins | W1 | – | [P] | Low | Pending | Pending (`fis/s03-doc-currency-critical.md` planned) |
-| S05 | Wire 7 Orphan Sealed Events (SSE + Alert Mapping) | A: Safety + Quick Wins | W2 | S01 | No | Medium | Pending | – |
-| S09 | dartclaw_workflow Barrel Narrowing | B: Governance Rails | W1 | – | [P] | Medium | Pending | – |
-| S10 | Level-1 Governance Checks (6 tests + format gate) | B: Governance Rails | W3 | S01, S09 | No | Medium | Pending | – |
-| S11 | Turn/Pool/Harness Interface Extraction to dartclaw_core | C: Interface Extraction | W3 | – | [P] | High | Pending | – |
-| S12 | WorkflowRunRepository Interface in dartclaw_core | C: Interface Extraction | W3 | – | [P] | Low | Pending | – |
-| S13 | Pre-Decomposition DRY Helpers (context-merge, fire-step, truncate, YamlTypeSafeReader) | D: Helpers | W3 | – | [P] | Low | Pending | Pending (`fis/s13-pre-decomposition-helpers.md` planned) |
-| S15 | Workflow Executor Logical-Library Reduction (post-0.16.4-S45 hotspots) | E: Structural Decomposition | W4 | S13 | No | Medium | Pending — re-scoped 2026-04-30 | – |
-| S16 | Task Executor Residual Cleanup (ctor params + binding handoff) | E: Structural Decomposition | W4 | S33 | No | Low | Pending — re-scoped 2026-04-30 | – |
-| S17 | service_wiring.dart#wire() Per-Subsystem Split | E: Structural Decomposition | W4 | – | [P] | Low | Pending | – |
-| S18 | DartclawServer Dep-Group Structs + Builder Collapse | E: Structural Decomposition | W4 | – | [P] | Low | Pending | – |
-| S19 | Doc + Hygiene Closeout (SDK framing, configuration.md schema, package READMEs) | F: Doc + Hygiene Closeout | W5 | – | [P] | Low | Pending | Pending (`fis/s19-doc-closeout.md` planned) |
-| S22 | dartclaw_models Grab-Bag Migration | G: Model & Observability Closeout | W5 | S10 | No | High | Pending | – |
-| S23 | Housekeeping Sweep (format/deps/catch/tests/exceptions/super-params) | G: Model & Observability Closeout | W5 | – | [P] | Low | Pending | – |
-| S24 | SidebarDataBuilder Extraction | G: Model & Observability Closeout | W5 | – | [P] | Low | Pending | – |
-| S25 | Level-2 Fitness Functions (6 tests) | G: Model & Observability Closeout | W6 | S10, S11 | No | Medium | Pending | – |
-| S26 | Docs Gap-Fill (pick 2 of 5 pages) | H: Stretch Docs | W7 | Blocks A–G complete (see note) | No | Low | Pending | – |
-| S27 | Workflow↔Task Boundary ADR (ADR-023) | B: Governance Rails | W1 | – | [P] | Low | Implemented | – |
-| S28 | Workflow↔Task Import Fitness Test | B: Governance Rails | W1 | – | [P] | Low | Implemented | – |
-| S29 | Workflow CLI Run-ID Command Base Class | A: Safety + Quick Wins | W1 | – | [P] | Low | Pending | – |
+| S01 | AlertClassifier Safety Fix + Event Exhaustiveness Test | A: Safety + Quick Wins | W1 | – | [P] | Low | Spec Ready | `fis/s01-alert-classifier-safety.md` |
+| S02 | canvas_exports Advisor Re-export Cleanup | A: Safety + Quick Wins | W1 | – | [P] | Low | Spec Ready | `fis/s02-canvas-exports-advisor-cleanup.md` |
+| S03 | Doc Currency Critical Pass (AGENTS.md + README + guide fixes + package trees) | A: Safety + Quick Wins | W1 | – | [P] | Low | Spec Ready | `fis/s03-doc-currency-critical.md` |
+| S05 | Wire 7 Orphan Sealed Events (SSE + Alert Mapping) | A: Safety + Quick Wins | W2 | S01 | No | Medium | Spec Ready | `fis/s05-wire-orphan-sealed-events.md` |
+| S09 | dartclaw_workflow Barrel Narrowing | B: Governance Rails | W1 | – | [P] | Medium | Spec Ready | `fis/s09-dartclaw-workflow-barrel-narrowing.md` |
+| S10 | Level-1 Governance Checks (6 tests + format gate) | B: Governance Rails | W3 | S01, S09 | No | Medium | Spec Ready | `fis/s10-level-1-governance-checks.md` |
+| S11 | Turn/Pool/Harness Interface Extraction to dartclaw_core | C: Interface Extraction | W3 | – | [P] | High | Spec Ready | `fis/s11-turn-pool-harness-interface-extraction.md` |
+| S12 | WorkflowRunRepository Interface in dartclaw_core | C: Interface Extraction | W3 | – | [P] | Low | Spec Ready | `fis/s12-workflow-run-repository-interface.md` |
+| S13 | Pre-Decomposition DRY Helpers (context-merge, fire-step, truncate, YamlTypeSafeReader) | D: Helpers | W3 | – | [P] | Low | Spec Ready | `fis/s13-pre-decomposition-helpers.md` |
+| S15 | Workflow Executor Logical-Library Reduction (post-0.16.4-S45 hotspots) | E: Structural Decomposition | W4 | S13 | No | Medium | Spec Ready (re-scoped 2026-04-30) | `fis/s15-workflow-executor-logical-library-reduction.md` |
+| S16 | Task Executor Residual Cleanup (ctor params + binding handoff) | E: Structural Decomposition | W4 | S33 | No | Low | Spec Ready (re-scoped 2026-04-30) | `fis/s16-task-executor-residual-cleanup.md` |
+| S17 | service_wiring.dart#wire() Per-Subsystem Split | E: Structural Decomposition | W4 | – | [P] | Low | Spec Ready | fis/s17-service-wiring-per-subsystem-split.md |
+| S18 | DartclawServer Dep-Group Structs + Builder Collapse | E: Structural Decomposition | W4 | – | [P] | Low | Spec Ready | `fis/s18-dartclaw-server-dep-group-structs.md` |
+| S19 | Doc + Hygiene Closeout (SDK framing, configuration.md schema, package READMEs) | F: Doc + Hygiene Closeout | W5 | – | [P] | Low | Spec Ready | `fis/s19-doc-closeout.md` |
+| S22 | dartclaw_models Grab-Bag Migration | G: Model & Observability Closeout | W5 | S10 | No | High | Spec Ready | fis/s22-dartclaw-models-grab-bag-migration.md |
+| S23 | Housekeeping Sweep (format/deps/catch/tests/exceptions/super-params) | G: Model & Observability Closeout | W5 | – | [P] | Low | Spec Ready | `fis/s23-housekeeping-sweep-and-td-mop-up.md` |
+| S24 | SidebarDataBuilder Extraction | G: Model & Observability Closeout | W5 | – | [P] | Low | Spec Ready | `fis/s24-sidebar-data-builder-extraction.md` |
+| S25 | Level-2 Fitness Functions (6 tests) | G: Model & Observability Closeout | W6 | S10, S11 | No | Medium | Spec Ready | `fis/s25-level-2-fitness-functions.md` |
+| S26 | Docs Gap-Fill (pick 2 of 5 pages) | H: Stretch Docs | W7 | Blocks A–G complete (see note) | No | Low | Spec Ready | `fis/s26-docs-gap-fill.md` |
+| S27 | Workflow↔Task Boundary ADR (ADR-023) | B: Governance Rails | W1 | – | [P] | Low | Spec Ready (awaiting commit) | `fis/s27-workflow-task-boundary-adr.md` |
+| S28 | Workflow↔Task Import Fitness Test | B: Governance Rails | W1 | – | [P] | Low | Spec Ready (awaiting commit) | `fis/s28-workflow-task-import-fitness-test.md` |
+| S29 | Workflow CLI Run-ID Command Base Class | A: Safety + Quick Wins | W1 | – | [P] | Low | Spec Ready | `fis/s29-workflow-cli-run-id-command-base.md` |
 | S30 | ~~Workflow Validator Rule Extraction~~ — **retired 2026-04-30** (closed by 0.16.4 S44; error-builder helper residue folded into S23) | D: Pre-decomposition Helpers | W3 | – | – | – | Retired | – |
-| S31 | CliProvider Interface for WorkflowCliRunner | C: Interface Extraction | W3 | – | [P] | Low | Pending | – |
-| S32 | Promote `ProcessEnvironmentPlan.empty` + `InlineProcessEnvironmentPlan` to `dartclaw_security` | C: Interface Extraction | W3 | – | [P] | Low | Pending | – |
-| S33 | WorkflowTaskBindingCoordinator Extraction (interface + fake; concrete already extracted in 0.16.4) | D: Pre-decomposition Helpers | W3 | – | [P] | Low | Pending — re-scoped 2026-05-04 | – |
-| S34 | Extract `ClaudeSettingsBuilder` + token-parse helper consolidation | D: Pre-decomposition Helpers | W3 | – | [P] | Low | Pending | – |
-| S35 | Stringly-typed Workflow Flags → Enums | G: Model & Observability Closeout | W5 | – | [P] | Low | Pending | – |
-| S36 | Public API Naming Batch (`k`-prefix + `get*` renames) | G: Model & Observability Closeout | W5 | S22 | No | Low | Pending | – |
-| S37 | Dartdoc Sweep + `public_member_api_docs` Lint Flip + Internal Dartdoc Trim | B: Governance Rails | W3 | – | [P] | Low | Pending | – |
-| S38 | Readability Pack (logRun helper, typed Task.worktree, taskType rename, dir naming) | G: Model & Observability Closeout | W5 | S35 | No | Low | Pending | – |
+| S31 | CliProvider Interface for WorkflowCliRunner | C: Interface Extraction | W3 | – | [P] | Low | Spec Ready | `fis/s31-cli-provider-interface.md` |
+| S32 | Promote `ProcessEnvironmentPlan.empty` + `InlineProcessEnvironmentPlan` to `dartclaw_security` | C: Interface Extraction | W3 | – | [P] | Low | Spec Ready | `fis/s32-process-environment-plan-promotion.md` |
+| S33 | WorkflowTaskBindingCoordinator Extraction (interface + fake; concrete already extracted in 0.16.4) | D: Pre-decomposition Helpers | W3 | – | [P] | Low | Spec Ready (re-scoped 2026-05-04) | `fis/s33-workflow-task-binding-coordinator-extraction.md` |
+| S34 | Extract `ClaudeSettingsBuilder` + token-parse helper consolidation | D: Pre-decomposition Helpers | W3 | – | [P] | Low | Spec Ready | fis/s34-claude-settings-builder-and-token-parse.md |
+| S35 | Stringly-typed Workflow Flags → Enums | G: Model & Observability Closeout | W5 | S22 | No | Low | Spec Ready | `fis/s35-workflow-flags-to-enums.md` |
+| S36 | Public API Naming Batch (`k`-prefix + `get*` renames) | G: Model & Observability Closeout | W5 | S22 | No | Low | Spec Ready | `fis/s36-public-api-naming-batch.md` |
+| S37 | Dartdoc Sweep + `public_member_api_docs` Lint Flip + Internal Dartdoc Trim | B: Governance Rails | W3 | – | [P] | Low | Spec Ready | `fis/s37-dartdoc-sweep-and-lint-flip.md` |
+| S38 | Readability Pack (logRun helper, typed Task.worktree, taskType rename, dir naming) | G: Model & Observability Closeout | W5 | S22, S35 | No | Low | Spec Ready | `fis/s38-readability-pack.md` |
 
 ## Phase Breakdown
 
@@ -91,8 +91,8 @@ The 0.16.4 milestone-level consolidated review at `../0.16.4/0.16.4-consolidated
 _Parallel-friendly W1 cluster — each quick-win story is independent and can execute concurrently. S05 (event wiring) waits for S01 (classifier + exhaustiveness test) so the test harness is ready when S05's new mappings land._
 
 #### [P] S01: AlertClassifier Safety Fix + Event Exhaustiveness Test
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s01-alert-classifier-safety.md`
 **Phase**: Block A: Safety + Quick Wins
 **Wave**: W1
 **Dependencies**: –
@@ -112,8 +112,8 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 **Asset refs**: safety alerting rows (Unified C-1, Gaps C-1, Effective Dart C1; switch-expression replaces custom exhaustiveness test)
 
 #### [P] S02: canvas_exports Advisor Re-export Cleanup
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: fis/s02-canvas-exports-advisor-cleanup.md
 **Phase**: Block A: Safety + Quick Wins
 **Wave**: W1
 **Dependencies**: –
@@ -128,8 +128,8 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 **Asset refs**: H-1 finding
 
 #### [P] S03: Doc Currency Critical Pass
-**Status**: Pending
-**FIS**: Pending (`fis/s03-doc-currency-critical.md` planned)
+**Status**: Spec Ready
+**FIS**: `fis/s03-doc-currency-critical.md`
 **Phase**: Block A: Safety + Quick Wins
 **Wave**: W1
 **Dependencies**: –
@@ -163,8 +163,8 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 **Asset refs**: C1, C2, H4, H5, H6, H7, H9, M6 findings; `CLAUDE.md` as AGENTS.md mirror source; TD-072 item 2 (UBIQUITOUS_LANGUAGE.md drift)
 
 #### S05: Wire 7 Orphan Sealed Events (SSE + Alert Mapping)
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s05-wire-orphan-sealed-events.md`
 **Phase**: Block A: Safety + Quick Wins
 **Wave**: W2
 **Dependencies**: S01
@@ -188,8 +188,8 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 > **S08 removed (2026-04-20)** — the CHANGELOG corrections this story proposed were fixed inline as part of the 0.16.4 closure pass: the 0.16.4 entry skill count reflects the 11-skill end state (S30 unified `review-code` / `review-doc` / `review-gap` into `dartclaw-review`; `spec-plan` was absorbed into `plan`) and the 0.16.3 entry gained the workflow-pack consolidation note. No remaining action for 0.16.5.
 
 #### [P] S29: Workflow CLI Run-ID Command Base Class
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s29-workflow-cli-run-id-command-base.md`
 **Phase**: Block A: Safety + Quick Wins
 **Wave**: W1
 **Dependencies**: –
@@ -222,8 +222,8 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 _Sequential — S10 (fitness functions) waits for S01 (sets up the alertable-events test baseline) and S09 (establishes the barrel-show allowlist baseline). S09 itself has no deps._
 
 #### [P] S09: dartclaw_workflow Barrel Narrowing
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s09-dartclaw-workflow-barrel-narrowing.md`
 **Phase**: Block B: Governance Rails
 **Wave**: W1 (promoted from W2 — mechanical, no deps, unblocks S10 sooner)
 **Dependencies**: –
@@ -238,8 +238,8 @@ _Sequential — S10 (fitness functions) waits for S01 (sets up the alertable-eve
 **Asset refs**: ARCH-001 finding
 
 #### S10: Level-1 Governance Checks (6 tests + format gate)
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s10-level-1-governance-checks.md`
 **Phase**: Block B: Governance Rails
 **Wave**: W3
 **Dependencies**: S01, S09
@@ -259,8 +259,8 @@ _Sequential — S10 (fitness functions) waits for S01 (sets up the alertable-eve
 **Asset refs**: governance rails rows (architecture fitness proposals; PRD/plan H2 count correction)
 
 #### [P] S37: Dartdoc Sweep + `public_member_api_docs` Lint Flip + Internal Dartdoc Trim
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s37-dartdoc-sweep-and-lint-flip.md`
 **Phase**: Block B: Governance Rails
 **Wave**: W3
 **Dependencies**: –
@@ -289,8 +289,8 @@ _Sequential — S10 (fitness functions) waits for S01 (sets up the alertable-eve
 **Asset refs**: Effective Dart B1 row; Part C illustrative example: `packages/dartclaw_workflow/lib/src/workflow/skill_prompt_builder.dart` (30-line class dartdoc + "(S01 integration)" planning leak)
 
 #### [P] S27: Workflow↔Task Boundary ADR (ADR-023)
-**Status**: Implemented (awaiting review + commit)
-**FIS**: –
+**Status**: Spec Ready (awaiting commit)
+**FIS**: `fis/s27-workflow-task-boundary-adr.md`
 **Phase**: Block B: Governance Rails
 **Wave**: W1 (docs-only, no deps)
 **Dependencies**: –
@@ -307,8 +307,8 @@ _Sequential — S10 (fitness functions) waits for S01 (sets up the alertable-eve
 **Asset refs**: ADR-021 · ADR-022 · private repo `docs/architecture/workflow-architecture.md` §13 · doc review private repo `docs/adrs/023-workflow-task-boundary-doc-review-codex-2026-04-21.md`
 
 #### [P] S28: Workflow↔Task Import Fitness Test
-**Status**: Implemented (awaiting review + commit)
-**FIS**: –
+**Status**: Spec Ready (awaiting commit)
+**FIS**: `fis/s28-workflow-task-import-fitness-test.md`
 **Phase**: Block B: Governance Rails
 **Wave**: W1 (independent of S10; uses simpler self-contained approach — no `package:analyzer` dep)
 **Dependencies**: –
@@ -334,8 +334,8 @@ _Sequential — S10 (fitness functions) waits for S01 (sets up the alertable-eve
 _Parallel-friendly W3 — both stories are independent but benefit from landing before the Block E decomposition so extracted interfaces are available for downstream refactors to depend on._
 
 #### [P] S11: Turn/Pool/Harness Interface Extraction to dartclaw_core
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s11-turn-pool-harness-interface-extraction.md`
 **Phase**: Block C: Interface Extraction
 **Wave**: W3
 **Dependencies**: –
@@ -354,8 +354,8 @@ _Parallel-friendly W3 — both stories are independent but benefit from landing 
 **Asset refs**: ARCH-002 row
 
 #### [P] S12: WorkflowRunRepository Interface in dartclaw_core
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: dev/specs/0.16.5/fis/s12-workflow-run-repository-interface.md
 **Phase**: Block C: Interface Extraction
 **Wave**: W3
 **Dependencies**: –
@@ -374,8 +374,8 @@ _Parallel-friendly W3 — both stories are independent but benefit from landing 
 **Asset refs**: ARCH-009 finding; 0.16.4 refactor-review finding H2; ADX-01; ARCH-002
 
 #### [P] S32: Promote `ProcessEnvironmentPlan.empty` + `InlineProcessEnvironmentPlan` to `dartclaw_security`
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s32-process-environment-plan-promotion.md`
 **Phase**: Block C: Interface Extraction
 **Wave**: W3
 **Dependencies**: –
@@ -395,8 +395,8 @@ _Parallel-friendly W3 — both stories are independent but benefit from landing 
 **Asset refs**: ADX-02 and Seam A; H-D3
 
 #### [P] S31: CliProvider Interface for WorkflowCliRunner
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: fis/s31-cli-provider-interface.md
 **Phase**: Block C: Interface Extraction
 **Wave**: W3
 **Dependencies**: –
@@ -419,8 +419,8 @@ _Parallel-friendly W3 — both stories are independent but benefit from landing 
 _Parallel-friendly W3 — these helper passes (S13 consolidated, plus S30/S33/S34) ship before Block E so the decomposition has less duplication to carry across the split._
 
 #### [P] S13: Pre-Decomposition DRY Helpers + YamlTypeSafeReader
-**Status**: Pending
-**FIS**: Pending (`fis/s13-pre-decomposition-helpers.md` planned)
+**Status**: Spec Ready
+**FIS**: `fis/s13-pre-decomposition-helpers.md`
 **Phase**: Block D: Pre-decomposition Helpers
 **Wave**: W3
 **Dependencies**: –
@@ -447,8 +447,8 @@ _Parallel-friendly W3 — these helper passes (S13 consolidated, plus S30/S33/S3
 > **S14 consolidated into S13 (2026-04-21)** — previously shared composite FIS `s13-s14-pre-decomposition-helpers.md`. Consolidated under the 1:1 story↔FIS invariant enforced by `dartclaw-plan`. FIS renamed to `s13-pre-decomposition-helpers.md`.
 
 #### [P] S33: WorkflowTaskBindingCoordinator Extraction
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: dev/specs/0.16.5/fis/s33-workflow-task-binding-coordinator-extraction.md
 **Phase**: Block D: Pre-decomposition Helpers
 **Wave**: W3
 **Dependencies**: –
@@ -478,8 +478,8 @@ This extraction is what ARCH-004 anticipated; the unblock-S16 framing remains ac
 **Asset refs**: ADX-01 + ADX-03 + Seam B/C; M-D5 (growth vector of `TaskExecutor`)
 
 #### [P] S34: Extract `ClaudeSettingsBuilder` + Token-Parse Helper Consolidation
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: fis/s34-claude-settings-builder-and-token-parse.md
 **Phase**: Block D: Pre-decomposition Helpers
 **Wave**: W3
 **Dependencies**: –
@@ -522,8 +522,8 @@ This extraction is what ARCH-004 anticipated; the unblock-S16 framing remains ac
 _Parallel-friendly W4 — S16, S17, S18 are independent files. S15 depends on S13 (its helper). Engineers/agents can take one each; merges collide only if two touch `server.dart` (S18 only)._
 
 #### S15: Workflow Executor Logical-Library Reduction (post-0.16.4-S45 hotspots)
-**Status**: Pending — re-scoped 2026-04-30
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: dev/specs/0.16.5/fis/s15-workflow-executor-logical-library-reduction.md
 **Phase**: Block E: Structural Decomposition
 **Wave**: W4
 **Dependencies**: S13
@@ -568,8 +568,8 @@ Uses S13 helpers. Preserves all call sites and public API. **File code-freeze on
 **Asset refs**: ARCH-003 finding; H1 finding; Theme 1; ARCH-003; 2026-04-30 deeper workflow review findings H1, H2, H4, H5, H8, H10, H11, H12, H28, M40 (folded post-S78 hotfix); TECH-DEBT-BACKLOG.md TD-082 and TD-088; private repo `docs/specs/0.16.4/fis/s78-pre-tag-control-flow-correctness.md` (predecessor — S78 closes the four directly-shippable defects; S15 closes the structural tail)
 
 #### S16: Task Executor Residual Cleanup (ctor params + binding handoff)
-**Status**: Pending — re-scoped 2026-04-30
-**FIS**: –
+**Status**: Spec Ready (re-scoped 2026-04-30)
+**FIS**: `fis/s16-task-executor-residual-cleanup.md`
 **Phase**: Block E: Structural Decomposition
 **Wave**: W4
 **Dependencies**: S33 (binding-coordinator extraction lifts the `_workflowSharedWorktrees*` maps out)
@@ -593,8 +593,8 @@ Preserves all call sites and public API.
 **Asset refs**: ARCH-004 finding; 0.16.4 S46 closure (`workflow-robustness-refactor/s46-task-executor-decomposition.md`); pairs with S33 (binding coordinator) and S38 (`TaskExecutorLimits` record)
 
 #### [P] S17: service_wiring.dart + cli_workflow_wiring.dart Per-Subsystem Split
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: fis/s17-service-wiring-per-subsystem-split.md
 **Phase**: Block E: Structural Decomposition
 **Wave**: W4
 **Dependencies**: –
@@ -615,8 +615,8 @@ Preserves all call sites and public API.
 **Asset refs**: ARCH-007 finding; H3 finding (SR-10); M-D4 (cli_workflow_wiring twin)
 
 #### [P] S18: DartclawServer Dep-Group Structs + Builder Collapse
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: fis/s18-dartclaw-server-dep-group-structs.md
 **Phase**: Block E: Structural Decomposition
 **Wave**: W4
 **Dependencies**: –
@@ -639,8 +639,8 @@ Preserves all call sites and public API.
 _Parallel-friendly W5 — S19 (doc closeout) is a single consolidated story touching disjoint doc files. It lands after all code changes so the documentation reflects the shipped structural work._
 
 #### [P] S19: Doc + Hygiene Closeout
-**Status**: Pending
-**FIS**: Pending (`fis/s19-doc-closeout.md` planned)
+**Status**: Spec Ready
+**FIS**: fis/s19-doc-closeout.md
 **Phase**: Block F: Doc + Hygiene Closeout
 **Wave**: W5
 **Dependencies**: –
@@ -683,8 +683,8 @@ _Parallel-friendly W5 — S19 (doc closeout) is a single consolidated story touc
 _Parallel-friendly W5 for S23 and S24 (hygiene + sidebar are independent). S22 depends on S10 (fitness tests catch regressions during model move). S25 (Level-2 fitness) depends on S10 + S11._
 
 #### S22: dartclaw_models Grab-Bag Migration
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: fis/s22-dartclaw-models-grab-bag-migration.md
 **Phase**: Block G: Model & Observability Closeout
 **Wave**: W5
 **Dependencies**: S10
@@ -704,8 +704,8 @@ _Parallel-friendly W5 for S23 and S24 (hygiene + sidebar are independent). S22 d
 **Asset refs**: ARCH-005 finding; TD-102 (dartclaw_core ratchet)
 
 #### [P] S23: Housekeeping Sweep + Tech-Debt Mop-Up
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s23-housekeeping-sweep-and-td-mop-up.md`
 **Phase**: Block G: Model & Observability Closeout
 **Wave**: W5
 **Dependencies**: –
@@ -784,8 +784,8 @@ _Parallel-friendly W5 for S23 and S24 (hygiene + sidebar are independent). S22 d
 **Asset refs**: SR-1..SR-5, L-2 findings; M-5 finding; public [`TECH-DEBT-BACKLOG.md`](../../state/TECH-DEBT-BACKLOG.md) TD-029, TD-054, TD-055, TD-056, TD-060, TD-061, TD-069, TD-073, TD-085, TD-086, TD-089, TD-090; 0.16.4 refactor-review findings L1, L2, L6, M7, M8, H4; M-D3, M-D2, L-D2; 0.16.4 closure ledger (TD-069 advisory cluster); 0.16.4 S44 (S30 residue); 2026-04-30 deeper workflow review (H17, H19-H23, H25, M20, M22, M25, H30, H31)
 
 #### [P] S35: Stringly-typed Workflow Flags → Enums
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: dev/specs/0.16.5/fis/s35-workflow-flags-to-enums.md
 **Phase**: Block G: Model & Observability Closeout
 **Wave**: W5
 **Dependencies**: –
@@ -807,8 +807,8 @@ _Parallel-friendly W5 for S23 and S24 (hygiene + sidebar are independent). S22 d
 **Asset refs**: Readability 1.1 row; S38 depends on this story for the `taskType` rename (order: S35 introduces enum and types the existing field; S38 renames the field); batch-ship with S22's migration wave for one coherent CHANGELOG entry
 
 #### [P] S36: Public API Naming Batch (`k`-prefix + `get*` renames)
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s36-public-api-naming-batch.md`
 **Phase**: Block G: Model & Observability Closeout
 **Wave**: W5
 **Dependencies**: S22 (batch the breaking-change CHANGELOG entry with the model migration)
@@ -829,8 +829,8 @@ _Parallel-friendly W5 for S23 and S24 (hygiene + sidebar are independent). S22 d
 **Asset refs**: Effective Dart A1/A2 rows
 
 #### S38: Readability Pack
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s38-readability-pack.md`
 **Phase**: Block G: Model & Observability Closeout
 **Wave**: W5
 **Dependencies**: S35
@@ -854,8 +854,8 @@ _Parallel-friendly W5 for S23 and S24 (hygiene + sidebar are independent). S22 d
 **Asset refs**: Readability 1.2/1.3/2.1/2.2/3.2/3.3 rows; TD-070 (workflow architecture and fitness carry-overs)
 
 #### [P] S24: SidebarDataBuilder Extraction
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s24-sidebar-data-builder-extraction.md`
 **Phase**: Block G: Model & Observability Closeout
 **Wave**: W5
 **Dependencies**: –
@@ -869,8 +869,8 @@ _Parallel-friendly W5 for S23 and S24 (hygiene + sidebar are independent). S22 d
 **Asset refs**: M5 finding (SR-14)
 
 #### S25: Level-2 Fitness Functions (6 tests)
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: dev/specs/0.16.5/fis/s25-level-2-fitness-functions.md
 **Phase**: Block G: Model & Observability Closeout
 **Wave**: W6
 **Dependencies**: S10, S11
@@ -903,8 +903,8 @@ _Parallel-friendly W5 for S23 and S24 (hygiene + sidebar are independent). S22 d
 _Stretch W7 — only if capacity remains after Blocks A–G. The user guide has real gaps but closing them is orthogonal to the stabilisation work._
 
 #### S26: Docs Gap-Fill (pick 2 of 5)
-**Status**: Pending
-**FIS**: –
+**Status**: Spec Ready
+**FIS**: `fis/s26-docs-gap-fill.md`
 **Phase**: Block H: Stretch Docs
 **Wave**: W7
 **Dependencies**: Blocks A–G complete. Concretely: depends on S03 (doc-currency pass including AGENTS.md / CLAUDE.md current), S05 (events wired — skills page would otherwise describe orphan events), S19 (doc closeout including configuration schema reconciliation — governance + workflows pages reference config keys), S22 (model migration done — skills page references `SkillInfo` import path). The wider range previously listed was a proxy for "sprint is done"; W7 placement after S25 encodes this as wave ordering.
@@ -931,6 +931,8 @@ S10 + S11 ──→ S25 (L2 fitness — dep-direction + testing-pkg-deps need st
 S13 ──→ S15 (workflow executor decomposition uses DRY helpers)
 S22 ──→ S36 (naming batch ships with model migration for one CHANGELOG break)
 S33 ──→ S16 (WorkflowTaskBindingCoordinator extraction enables task_executor ctor reduction + map removal)
+S22 ──→ S35 (added per cross-cutting review F4: S22 moves WorkflowDefinition + WorkflowStep to dartclaw_workflow; S35 enum-types the migrated field)
+S22 ──→ S38 (added per cross-cutting review F4: S38's field rename + dir-naming + TaskExecutorLimits all touch post-S22 file locations)
 S35 ──→ S38 (S35 introduces enum and types existing field; S38 renames field to taskType)
 Blocks A–G ──→ S26 (stretch docs need current reality — encoded as W7 placement)
 
@@ -947,7 +949,7 @@ W1: S01 [P], S02 [P], S03 [P], S09 [P] (barrel narrowing — promoted from W2), 
 W2: S05 (depends on S01)
 W3: S10 (depends on S01 + S09), S11 [P], S12 [P], S13 [P], S31 [P], S32 [P], S33 [P], S34 [P], S37 [P]   (~~S30~~ retired)
 W4: S15 (depends on S13 — re-scoped to foreach_iteration_runner + context_extractor + helpers), S16 (depends on S33 — re-scoped to ctor reduction + map removal), S17 [P], S18 [P]
-W5: S19 [P], S22 (depends on S10), S23 [P], S24 [P], S35 [P], S38 (depends on S35), S36 (depends on S22)
+W5: S19 [P], S22 (depends on S10), S23 [P], S24 [P], S35 (depends on S22 — wave-internal ordering per F4), S38 (depends on S22 + S35), S36 (depends on S22)
 W6: S25 (depends on S10 + S11)
 W7: S26 (stretch — Blocks A–G complete)
 ```

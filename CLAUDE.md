@@ -114,6 +114,8 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Ubiquitous language | `dev/state/UBIQUITOUS_LANGUAGE.md` | Domain glossary — use these terms in code, docs, naming |
 | Tech debt backlog | `dev/state/TECH-DEBT-BACKLOG.md` | Known debt requiring requirements input or architecture decision |
 | Spec lifecycle | `dev/state/SPEC-LIFECYCLE.md` | When `dev/specs/` files appear or disappear |
+| Specs (active milestone) | `dev/specs/<version>/` | PRD/plan/FIS for the in-flight milestone — transient on the feature branch, removed before squash-merge |
+| Changelog | `CHANGELOG.md` | Shipped history per release |
 | Built-in workflows | `dev/tools/dartclaw-workflows/README.md` (+ § below) | Running shipped workflows against this checkout |
 | Dart style | `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` | Before writing Dart |
 | Package boundaries | `dev/guidelines/DART-PACKAGE-GUIDELINES.md` | When touching pubspec or workspace packages |
@@ -130,7 +132,7 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 
 DartClaw ships three end-to-end YAML workflows — `spec-and-implement`, `plan-and-implement`, `code-review` — in `packages/dartclaw_workflow/lib/src/workflow/definitions/`, executed by `WorkflowExecutor`. They are **not** wrappers around `andthen:*` plugin skills: they orchestrate the **`dartclaw-*` skill namespace** (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-exec-spec`, …) — a distinct surface. Never assume `dartclaw-foo` and `andthen:foo` are interchangeable.
 
-`plan-and-implement` short-circuits PRD/plan/FIS synthesis when artefacts already exist under `docs/specs/<version>/` — this is also the cross-repo handoff seam (see `dev/state/SPEC-LIFECYCLE.md`).
+`plan-and-implement` short-circuits PRD/plan/FIS synthesis when artefacts already exist under `dev/specs/<version>/` — this is also the cross-repo handoff seam (see `dev/state/SPEC-LIFECYCLE.md`).
 
 To run from this checkout: `dev/tools/dartclaw-workflows/run.sh` — see `dev/tools/dartclaw-workflows/README.md` for the full surface (workflow inventory, injected variables, worktree isolation, AOT host isolation, escape hatches). The profile is intentionally maintainer-permissive (Codex `sandbox: danger-full-access`, `approval: never`, auto-accept) — **not** a hardened operator profile. Engine internals: `packages/dartclaw_workflow/CLAUDE.md`.
 
@@ -177,7 +179,9 @@ Read relevant guidelines before coding, architecture, UX/UI, or review work:
 
 ## Visual Validation Workflow
 
-- `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` — conventions for visual validation (referenced from the `## Visual Validation Workflow` section above, which `andthen:visual-validation` auto-reads)
+The `andthen:visual-validation` skill auto-reads this `## Visual Validation Workflow` section first; follow the linked references.
+
+- `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` — full conventions for visual validation
 - `dev/testing/UI-SMOKE-TEST.md` — test cases TC-01…TC-31. Run via `bash dev/testing/profiles/smoke-test/run.sh`. Trigger: _"Run the UI smoke test"_
 
 

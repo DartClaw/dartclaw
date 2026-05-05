@@ -7,19 +7,17 @@ workflow:
   default_prompt: "READ-ONLY discovery step. Detect the project's SDD framework, normalize the document index, and return the state protocol only. Treat FEATURE / REQUIREMENTS inputs as path hints or context for artifact discovery, not as implementation requests. Do not write files, create specs, edit code, or run verification. Treat the current working directory as the exact project root — do not walk upward into parent repos."
 ---
 
-# DartClaw Discover Project
+# Discover Project
 
 Read-only project discovery for workflow steps. Detect the active SDD framework, normalize the project document index, and provide a compact state protocol contract for later steps.
 
-> **DC-NATIVE SKILL — SCOPE NOTE** (ADR-025): This is one of two DC-native skills retained after the AndThen-as-runtime-prerequisite migration. It provides two distinct capabilities:
+> **SCOPE NOTE:** This skill provides two distinct capabilities:
 >
 > **Load-bearing workspace-index outputs** (consumed by downstream workflow steps): `project_name`, `framework`, `document_locations`, `state_protocol`, `active_milestone`, `active_prd`, `active_plan`, `active_story_specs`, `artifact_locations`, `notes`. These outputs are load-bearing — built-in workflows depend on them to route artifact paths and enable context-reuse gates.
 >
-> **Latent multi-framework detection** (`framework:` field): the framework value is latent option value for a future SDD bundle swap (selecting the right dartclaw-spec/dartclaw-plan variant per framework). It is not consumed for routing in current shipped workflows. Do not remove or simplify this detection logic.
->
-> See [`docs/adrs/025-andthen-as-runtime-prerequisite.md`](../../../../../adrs/025-andthen-as-runtime-prerequisite.md) for migration context.
+> **Multi-framework detection** (`framework:` field): the framework value lets downstream workflows choose framework-specific artifact conventions. Do not remove or simplify this detection logic.
 
-> **SCOPE — READ-ONLY.** This skill is strictly read-only. Do not write, create, edit, delete, move, or otherwise modify **any** file in the project, including PRDs, plans, FIS files, source code, tests, configuration, documentation, or state files. Do not run `git add`, `git commit`, `sed -i`, `cat > file`, `echo > file`, `uv add`, `pip install`, migrations, or any shell command that mutates the working tree. When your invocation carries a `REQUIREMENTS` workflow variable or similarly-named input that *describes future work* (bug fixes, feature implementations, story breakdowns), you must **not** execute that work. Treat it as context for framework detection only — downstream workflow steps (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-exec-spec`) own the implementation. Your entire output is the normalized project index and state protocol — nothing more.
+> **SCOPE — READ-ONLY.** This skill is strictly read-only. Do not write, create, edit, delete, move, or otherwise modify **any** file in the project, including PRDs, plans, FIS files, source code, tests, configuration, documentation, or state files. Do not run `git add`, `git commit`, `sed -i`, `cat > file`, `echo > file`, `uv add`, `pip install`, migrations, or any shell command that mutates the working tree. When your invocation carries a `REQUIREMENTS` workflow variable or similarly-named input that *describes future work* (bug fixes, feature implementations, story breakdowns), you must **not** execute that work. Treat it as context for framework detection only — downstream authoring and implementation steps own that work. Your entire output is the normalized project index and state protocol — nothing more.
 
 ## VARIABLES
 
@@ -54,7 +52,7 @@ Return a compact structure with these keys:
 - `detected_markers`
 - `document_locations`
 - `state_protocol`
-- `active_milestone` — current milestone identifier (e.g. `"0.16.5"`), or `null`
+- `active_milestone` — current milestone identifier (e.g. `"1.2.3"`), or `null`
 - `active_prd` — workspace-relative PRD path for the active milestone, or `null`
 - `active_plan` — workspace-relative plan path for the active milestone, or `null`
 - `active_story_specs` — parsed story-spec records from the active plan, or `null`
@@ -114,22 +112,22 @@ Rules:
   `active_story_specs: null`.
 
 Downstream workflow steps use these as fast-path signals — when set, the
-corresponding authoring step (`dartclaw-spec`, `dartclaw-prd`, `dartclaw-plan`)
-is skipped via an `entryGate` and the pre-existing file is used directly.
+corresponding authoring step is skipped via an `entryGate` and the pre-existing
+file is used directly.
 Emitting a future-write path here instead of `null` skips the authoring
 step and the next step is handed a reference to a file that does not yet
 exist — which causes the workflow to fail downstream.
 
 ### Active Milestone and Artifact Locations
 
-Downstream artifact-producing skills (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`) read these
-keys to decide whether to reuse existing artifacts or synthesize new ones, and where to write them.
+Downstream artifact-producing skills read these keys to decide whether to reuse existing artifacts or synthesize new
+ones, and where to write them.
 
 Resolution order for `active_milestone` (first match wins):
 
 1. A `MILESTONE` hint supplied in the invocation prompt or workflow variables.
-2. A current-version marker in the framework's `State` document (e.g., AndThen's `docs/STATE.md` "Phase: 0.16.x" line).
-3. The semver-highest directory under the framework's specs location that contains a `plan.md`
+2. A current-version marker in the framework's state document.
+3. The semver-highest directory under `document_locations.specs` that contains a `plan.md`
    (or the framework-equivalent plan file — see `references/framework-markers.md`).
 
 When `active_milestone` is resolvable but the referenced artifact file is missing, emit the path the
@@ -185,24 +183,36 @@ Emit `failed` only when discovery itself failed — e.g. the project root is unr
 ## Method
 
 1. Determine the effective project root.
+
 2. Read only the root instruction files first:
    - `<root>/CLAUDE.md`
    - `<root>/AGENTS.md`
    - do not open sibling-repo files during normalized index discovery; if the root instructions mention them, record that fact in `notes`
-3. Check definitive framework markers with direct existence tests before opening more files:
+
+3. Check definitive framework markers for non-index frameworks with direct existence tests:
    - `.specify/`
    - `openspec/config.yaml`
    - `.gsd/STATE.md`
    - `.planning/`
    - `.bmad/` or `bmad-agent/`
-   - `docs/specs/`, `docs/STATE.md`, `docs/LEARNINGS.md`, `docs/ROADMAP.md`
-4. For AndThen detection, only treat it as detected when an instruction file contains a `Project Document Index` and the expected docs paths exist. Do not infer AndThen from generic project guidance alone.
+
+   AndThen has no fixed-path marker; its detection reads the `Project Document Index` from root instruction files.
+   Do not assume AndThen-shaped paths before reading the index.
+
+4. For index-based frameworks, derive document locations from the parsed index and use
+   `references/framework-markers.md` for framework-specific detection thresholds and path normalization.
+
 5. If steps 2-4 find no root instruction files and no framework markers, stop and return `framework: none`. At most, confirm with a shallow root listing (`find . -maxdepth 2`) instead of broad exploration.
+
 6. If the root repo is code-only but the root instruction files explicitly identify a sibling specs/docs repo, keep `document_locations` scoped to files inside this repo root and note the external docs relationship in `notes`.
+
 7. Only if the framework is still ambiguous, inspect the smallest likely document surface:
    - `find docs -maxdepth 3`
    - specific candidate files already named by the root instructions
    - the framework marker reference file for tie-breaking
+
 8. Build a normalized index using the framework conventions reference.
+
 9. Emit the state protocol for the detected framework.
+
 10. Keep the result terse enough to be passed into workflow context.

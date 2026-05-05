@@ -110,6 +110,12 @@ Rules:
   references, with one item per story: `id`, `title`, `spec_path`, and
   `dependencies`. If no executable active plan exists, emit
   `active_story_specs: null`.
+- `active_story_specs.items[].dependencies` must contain only concrete story
+  IDs that appear in the same emitted `items` list. When a Markdown plan uses
+  prose gates such as "Blocks A-G complete", wave labels, or explanatory
+  parentheticals, do not emit that prose as a dependency ID. Resolve to the
+  concrete story IDs listed nearby; if no concrete IDs are unambiguous, omit
+  `active_story_specs` by emitting `null` and explain the ambiguity in `notes`.
 
 Downstream workflow steps use these as fast-path signals — when set, the
 corresponding authoring step is skipped via an `entryGate` and the pre-existing

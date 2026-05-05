@@ -45,10 +45,10 @@ Author six Level-2 fitness test files at `packages/dartclaw_testing/test/fitness
 > - [ ] CI pipeline runs Level-2 suite on every PR (can be separate job from Level-1 for parallelism)
 > - [ ] Level-2 suite total runtime ≤5 min
 
-### From `.technical-research.md` — Shared Architectural Decision #4 (S10 + S11 → S25)
+### From `.technical-research.md` — Shared Architectural Decision #4 (S10 + S11 + S12 → S25)
 <!-- source: ../.technical-research.md#shared-architectural-decisions -->
 <!-- extracted: e670c47 -->
-> **4. S10 + S11 → S25 — L2 fitness contract** — 6 L2 tests at the same fitness directory. `dependency_direction_test.dart` encodes allowed pkg edges as committed data with rationale; accepts surgical `dartclaw_workflow → dartclaw_security` edge, rejects `dartclaw_workflow → dartclaw_storage` post-S12. `testing_package_deps_test.dart` enforces `dartclaw_testing/pubspec.yaml` lists only core/models/security (+ http if needed). `barrel_export_count_test.dart` per-pkg soft caps: core ≤80, config ≤50, workflow ≤35, others ≤25. PRODUCERS: S10 (test directory + allowlist conventions); S11 (final post-extraction `dartclaw_testing` deps shape). CONSUMER: S25.
+> **4. S10 + S11 + S12 → S25 — L2 fitness contract** — 6 L2 tests at the same fitness directory. `dependency_direction_test.dart` encodes allowed pkg edges as committed data with rationale; accepts surgical `dartclaw_workflow → dartclaw_security` edge, rejects `dartclaw_workflow → dartclaw_storage` post-S12. `testing_package_deps_test.dart` enforces `dartclaw_testing/pubspec.yaml` lists only core/models/security (+ http if needed). `barrel_export_count_test.dart` per-pkg soft caps: core ≤80, config ≤50, workflow ≤35, others ≤25. PRODUCERS: S10 (test directory + allowlist conventions); S11 (final post-extraction `dartclaw_testing` deps shape); S12 (removes the workflow→storage runtime edge that S25 freezes). CONSUMER: S25.
 
 ### From `.technical-research.md` — Binding PRD Constraints (S25-applicable)
 <!-- source: ../.technical-research.md#binding-prd-constraints -->

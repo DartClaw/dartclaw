@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'dependency_graph.dart';
 import 'produced_artifact_resolver.dart';
 import 'workflow_runner_types.dart';
 
@@ -130,6 +131,14 @@ StorySpecOutputValidation validateStorySpecOutputs(
     }
 
     normalizedItems.add(normalizedItem);
+  }
+
+  if (errors.isEmpty) {
+    try {
+      DependencyGraph(normalizedItems).validate();
+    } on ArgumentError catch (e) {
+      errors.add(e.message.toString());
+    }
   }
 
   if (errors.isNotEmpty) {

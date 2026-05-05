@@ -108,14 +108,38 @@ void main() {
       expect(handoff.outputs, isEmpty);
     });
 
+    test('rejects story_specs dependencies that are not story ids', () {
+      final handoff = normalizeOutputs({
+        'plan': 'docs/plans/foo/plan.md',
+        'story_specs': {
+          'items': [
+            {
+              'id': 'S26',
+              'title': 'Docs Gap-Fill',
+              'spec_path': 'fis/s26-docs-gap-fill.md',
+              'dependencies': ['Blocks A-G complete'],
+            },
+          ],
+        },
+      }, const StepOutputNormalizationContext(planDir: 'docs/plans/foo'));
+
+      expect(handoff, isA<StepHandoffValidationFailed>());
+      expect(handoff.validationFailure?.reason, contains('Unknown dependency IDs: Blocks A-G complete'));
+      expect(handoff.validationFailure?.missingPaths, isEmpty);
+      expect(handoff.outputs, isEmpty);
+    });
+
     test('normalizes nested story_specs items and succeeds when files exist', () {
       final fisPath = p.join(tempDir.path, 'docs/plans/foo/fis/a.md');
       File(fisPath).createSync(recursive: true);
+      final dependencyFisPath = p.join(tempDir.path, 'docs/plans/foo/fis/dependency.md');
+      File(dependencyFisPath).createSync(recursive: true);
 
       final handoff = normalizeOutputs({
         'plan': 'docs/plans/foo/plan.md',
         'story_specs': {
           'items': [
+            {'id': 'S00', 'title': 'Dependency', 'dependencies': <String>[], 'spec_path': 'fis/dependency.md'},
             {
               'id': ' S01 ',
               'title': 'One',
@@ -129,9 +153,9 @@ void main() {
       expect(handoff, isA<StepHandoffSuccess>());
       final storySpecs = handoff.outputs['story_specs'] as Map<String, Object?>;
       final items = storySpecs['items'] as List;
-      expect(items.single, containsPair('id', 'S01'));
-      expect(items.single, containsPair('spec_path', 'docs/plans/foo/fis/a.md'));
-      expect(items.single, containsPair('dependencies', <String>['S00']));
+      expect(items.last, containsPair('id', 'S01'));
+      expect(items.last, containsPair('spec_path', 'docs/plans/foo/fis/a.md'));
+      expect(items.last, containsPair('dependencies', <String>['S00']));
     });
 
     test('empty outputs pass through as success', () {

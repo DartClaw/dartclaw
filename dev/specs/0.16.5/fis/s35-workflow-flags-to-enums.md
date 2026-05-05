@@ -147,7 +147,7 @@ _Every scope item is covered by a scenario or a task with a behavioral Verify li
 
 **We will**: Type the existing field name (`WorkflowStep.type`, not `taskType`) with a new `WorkflowTaskType` enum, plus the three sibling enums. S38 owns the later rename to `taskType` — Two-phase enum-then-rename ordering avoids simultaneous rename+retype churn (over a single big-bang change). Each enum exposes `fromJsonString(String)` throwing `FormatException` listing all valid values, and emits exact wire strings via `name` (where the Dart-name and wire-string match) or via an explicit `toJson()` switch (where they differ — kebab-case worktree/mount modes). JSON wire format stays byte-compatible per binding #1.
 
-**Pattern reference**: An existing precedent lives in `packages/dartclaw_models/lib/src/workflow_definition.dart:914-928` — `MergeResolveEscalation` enum with `tryParse(...)` + `toYamlString()`. S35's enums use a stricter contract (throw vs `null`-on-unknown) per acceptance criterion + binding #56, but the dual-mapping shape (enum value ↔ kebab wire string) is the same.
+**Pattern reference**: After S22, the existing precedent lives in `packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart` — `MergeResolveEscalation` enum with `tryParse(...)` + `toYamlString()`. S35's enums use a stricter contract (throw vs `null`-on-unknown) per acceptance criterion + binding #56, but the dual-mapping shape (enum value ↔ kebab wire string) is the same.
 
 
 ## Technical Overview
@@ -161,7 +161,7 @@ Four new enums plus four typed fields:
 - **`WorkflowGitWorktreeMode`** alongside `WorkflowGitWorktreeStrategy`. Values: `shared` (wire `shared`), `perTask` (wire `per-task`), `perMapItem` (wire `per-map-item`), `inline` (wire `inline`), `auto` (wire `auto`). Mixed; explicit `toJson()` switch.
 - **`IdentifierPreservationMode`** in `dartclaw_config` (so `ContextConfig.identifierPreservation` can be typed without lifting the field's home package). Values: `strict`, `off`, `custom` — wire-string == enum `name`; `toJson()` returns `name`.
 
-**Owning-package note**: `WorkflowStep`, `WorkflowGitExternalArtifactMount`, and `WorkflowGitWorktreeStrategy` currently live in `dartclaw_models/lib/src/workflow_definition.dart` (S22 will move them later). S35 places `WorkflowTaskType`, `WorkflowExternalArtifactMountMode`, `WorkflowGitWorktreeMode` co-located with the model in `dartclaw_models` for now — this is wire-format-neutral; S22 carries them along when the model moves to `dartclaw_workflow`. Plan acceptance criterion text says "in `dartclaw_workflow`" — this is forward-looking phrasing; placing in `dartclaw_models` today and migrating with the host model in S22 satisfies the same intent without breaking package-boundary rules. **Document this nuance in the FIS NOT-doing list (above) and in the CHANGELOG note.**
+**Owning-package note**: S35 depends on S22. `WorkflowStep`, `WorkflowGitExternalArtifactMount`, and `WorkflowGitWorktreeStrategy` therefore live in `dartclaw_workflow/lib/src/workflow/workflow_definition.dart` before this story starts. S35 places `WorkflowTaskType`, `WorkflowExternalArtifactMountMode`, and `WorkflowGitWorktreeMode` co-located with those models in `dartclaw_workflow`; if S22 has not landed, stop with `BLOCKED: S22 prerequisite not yet landed`.
 
 ### Integration Points
 - `WorkflowDefinitionParser._parseSteps` (line ~306) reads `raw['type'] as String?`; replace with `WorkflowTaskType.fromJsonString(raw['type'] as String? ?? 'agent')` and assign the enum to `WorkflowStep.type`.
@@ -177,10 +177,10 @@ Four new enums plus four typed fields:
 
 ```
 # type | path/url | why needed
-file   | packages/dartclaw_models/lib/src/workflow_definition.dart:471 | WorkflowStep.type — target field for WorkflowTaskType
-file   | packages/dartclaw_models/lib/src/workflow_definition.dart:825-871 | WorkflowGitExternalArtifactMount — target for WorkflowExternalArtifactMountMode
-file   | packages/dartclaw_models/lib/src/workflow_definition.dart:994-1024 | WorkflowGitWorktreeStrategy — target for WorkflowGitWorktreeMode
-file   | packages/dartclaw_models/lib/src/workflow_definition.dart:914-928 | MergeResolveEscalation — existing enum + dual-mapping pattern (tryParse/toYamlString); S35 uses a strict variant (throw on unknown)
+file   | packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart | WorkflowStep.type — target field for WorkflowTaskType
+file   | packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart | WorkflowGitExternalArtifactMount — target for WorkflowExternalArtifactMountMode
+file   | packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart | WorkflowGitWorktreeStrategy — target for WorkflowGitWorktreeMode
+file   | packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart | MergeResolveEscalation — existing enum + dual-mapping pattern (tryParse/toYamlString); S35 uses a strict variant (throw on unknown)
 file   | packages/dartclaw_workflow/lib/src/workflow/workflow_definition_parser.dart:305-355 | step type parsing (raw['type'] read)
 file   | packages/dartclaw_workflow/lib/src/workflow/workflow_definition_parser.dart:683-756 | git-strategy worktree + external-artifact-mount parsing
 file   | packages/dartclaw_workflow/lib/src/workflow/validation/workflow_step_type_rules.dart:91-115 | _knownTypes set + step.type usage in validator
@@ -214,11 +214,11 @@ file   | packages/dartclaw_models/lib/src/session_key.dart:27 | Existing FormatE
 ### Implementation Tasks
 
 - [ ] **TI01** `WorkflowTaskType` enum exists with `fromJsonString` (throws `FormatException` listing valid values) and wire-string emission
-  - Place in `packages/dartclaw_models/lib/src/workflow_task_type.dart` (or co-locate in `workflow_definition.dart` if smaller); export from `dartclaw_models.dart` barrel. Pattern: see `MergeResolveEscalation` at `workflow_definition.dart:914-928` but throw vs return-null on unknown. Values: `agent, bash, approval, foreach, loop` — Dart `name` matches wire string, so `String toJson() => name` is sufficient.
+  - Place in `packages/dartclaw_workflow/lib/src/workflow/workflow_task_type.dart` (or co-locate in `workflow_definition.dart` if smaller); export from the `dartclaw_workflow.dart` barrel. Pattern: see `MergeResolveEscalation` in `workflow_definition.dart` but throw vs return-null on unknown. Values: `agent, bash, approval, foreach, loop` — Dart `name` matches wire string, so `String toJson() => name` is sufficient.
   - **Verify**: Test asserts `WorkflowTaskType.fromJsonString('bash') == WorkflowTaskType.bash`; `WorkflowTaskType.fromJsonString('xyz')` throws `FormatException` whose message contains every wire string `agent`, `bash`, `approval`, `foreach`, `loop`; `WorkflowTaskType.bash.toJson() == 'bash'`.
 
 - [ ] **TI02** `WorkflowStep.type` field is typed `WorkflowTaskType` (field name unchanged)
-  - Edit `packages/dartclaw_models/lib/src/workflow_definition.dart:471-477`. Update constructor, `copyWith`, `toJson` (`'type': type.toJson()`), `fromJson` (`type: WorkflowTaskType.fromJsonString(json['type'] as String)`). DO NOT rename to `taskType` (S38 owns that). Update `WorkflowStep` dartdoc.
+  - Edit `packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart`. Update constructor, `copyWith`, `toJson` (`'type': type.toJson()`), `fromJson` (`type: WorkflowTaskType.fromJsonString(json['type'] as String)`). DO NOT rename to `taskType` (S38 owns that). Update `WorkflowStep` dartdoc.
   - **Verify**: `WorkflowStep(type: WorkflowTaskType.bash, ...).toJson()['type'] == 'bash'`; `WorkflowStep.fromJson({...'type': 'agent'}).type == WorkflowTaskType.agent`; round-trip on a fixture step with `type: foreach` re-emits `'type': 'foreach'`.
 
 - [ ] **TI03** `WorkflowDefinitionParser` step parsing uses `WorkflowTaskType` end-to-end
@@ -230,19 +230,19 @@ file   | packages/dartclaw_models/lib/src/session_key.dart:27 | Existing FormatE
   - **Verify**: `dart analyze` clean across `packages/dartclaw_workflow`; existing validator tests pass without fixture changes; `rg "step\.type\s*==\s*'(agent|bash|approval|foreach|loop)'" packages apps` returns empty.
 
 - [ ] **TI05** `WorkflowExternalArtifactMountMode` enum exists with `fromJsonString` + kebab-case wire emission
-  - Add enum next to `WorkflowGitExternalArtifactMount` in `packages/dartclaw_models/lib/src/workflow_definition.dart`. Values: `perStoryCopy`, `bindMount`. `String toJson() => switch (this) { perStoryCopy => 'per-story-copy', bindMount => 'bind-mount' };`. `static fromJsonString(String value) => switch (value) { 'per-story-copy' => perStoryCopy, 'bind-mount' => bindMount, _ => throw FormatException('Unknown WorkflowExternalArtifactMountMode "$value"; valid values: per-story-copy, bind-mount') };`.
+  - Add enum next to `WorkflowGitExternalArtifactMount` in `packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart`. Values: `perStoryCopy`, `bindMount`. `String toJson() => switch (this) { perStoryCopy => 'per-story-copy', bindMount => 'bind-mount' };`. `static fromJsonString(String value) => switch (value) { 'per-story-copy' => perStoryCopy, 'bind-mount' => bindMount, _ => throw FormatException('Unknown WorkflowExternalArtifactMountMode "$value"; valid values: per-story-copy, bind-mount') };`.
   - **Verify**: `fromJsonString('per-story-copy') == perStoryCopy`; `fromJsonString('bogus')` throws `FormatException` whose message contains `per-story-copy` AND `bind-mount`; `bindMount.toJson() == 'bind-mount'`.
 
 - [ ] **TI06** `WorkflowGitExternalArtifactMount.mode` is typed with the enum
-  - Edit `packages/dartclaw_models/lib/src/workflow_definition.dart:825-871`. Update field type, default value (`mode: WorkflowExternalArtifactMountMode.perStoryCopy` — same wire string), constructor, `toJson` (`'mode': mode.toJson()`), `fromJson` (`mode: json['mode'] == null ? WorkflowExternalArtifactMountMode.perStoryCopy : WorkflowExternalArtifactMountMode.fromJsonString(json['mode'] as String)`). Update `WorkflowDefinitionParser._parseExternalArtifactMount` (`workflow_definition_parser.dart:732-756`) to use the enum factory; the existing inline mode-validity `FormatException` branch is replaced by the factory's exception (preserve the `_at(sourcePath)` source-context suffix in the rethrow if behaviour-equivalent — wrap and rethrow).
+  - Edit `packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart`. Update field type, default value (`mode: WorkflowExternalArtifactMountMode.perStoryCopy` — same wire string), constructor, `toJson` (`'mode': mode.toJson()`), `fromJson` (`mode: json['mode'] == null ? WorkflowExternalArtifactMountMode.perStoryCopy : WorkflowExternalArtifactMountMode.fromJsonString(json['mode'] as String)`). Update `WorkflowDefinitionParser._parseExternalArtifactMount` (`workflow_definition_parser.dart`) to use the enum factory; the existing inline mode-validity `FormatException` branch is replaced by the factory's exception (preserve the `_at(sourcePath)` source-context suffix in the rethrow if behaviour-equivalent — wrap and rethrow).
   - **Verify**: Round-trip assertion on fixture mount with `mode: bind-mount` re-emits `'mode': 'bind-mount'`; round-trip with `mode: per-story-copy` re-emits identically; YAML with `mode: typo` raises `FormatException` listing both valid values.
 
 - [ ] **TI07** `WorkflowGitWorktreeMode` enum exists with `fromJsonString` + mixed wire emission
-  - Add enum next to `WorkflowGitWorktreeStrategy` in `packages/dartclaw_models/lib/src/workflow_definition.dart`. Values: `shared`, `perTask`, `perMapItem`, `inline`, `auto`. `String toJson() => switch (this) { shared => 'shared', perTask => 'per-task', perMapItem => 'per-map-item', inline => 'inline', auto => 'auto' };`.
+  - Add enum next to `WorkflowGitWorktreeStrategy` in `packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart`. Values: `shared`, `perTask`, `perMapItem`, `inline`, `auto`. `String toJson() => switch (this) { shared => 'shared', perTask => 'per-task', perMapItem => 'per-map-item', inline => 'inline', auto => 'auto' };`.
   - **Verify**: `fromJsonString('per-map-item') == perMapItem`; `fromJsonString('inline').toJson() == 'inline'`; `fromJsonString('typo')` throws `FormatException` listing all 5 wire strings.
 
 - [ ] **TI08** `WorkflowGitWorktreeStrategy.mode` is typed `WorkflowGitWorktreeMode?`
-  - Edit `packages/dartclaw_models/lib/src/workflow_definition.dart:994-1024`. Update field type to `WorkflowGitWorktreeMode?`. `toJsonValue()` (line ~1004) preserves the existing asymmetric shape: when only `mode` set, return `mode!.toJson()` (bare string); when map-shaped, write `'mode': mode!.toJson()`. `fromJson` switch: `String mode => WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.fromJsonString(mode))`; `Map ... mode: map['mode'] == null ? null : WorkflowGitWorktreeMode.fromJsonString(map['mode'] as String)`. Update `WorkflowDefinitionParser._parseGitStrategy` (`workflow_definition_parser.dart:683-702`) to call the enum factory (string and map branches).
+  - Edit `packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart`. Update field type to `WorkflowGitWorktreeMode?`. `toJsonValue()` preserves the existing asymmetric shape: when only `mode` set, return `mode!.toJson()` (bare string); when map-shaped, write `'mode': mode!.toJson()`. `fromJson` switch: `String mode => WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.fromJsonString(mode))`; `Map ... mode: map['mode'] == null ? null : WorkflowGitWorktreeMode.fromJsonString(map['mode'] as String)`. Update `WorkflowDefinitionParser._parseGitStrategy` to call the enum factory (string and map branches).
   - **Verify**: Fixture round-trip on YAML `worktree: per-task` and `worktree: { mode: per-map-item }` both emit byte-identical output. `WorkflowGitStrategy.effectiveWorktreeMode(...)` continues to return `String` (call existing `.toJson()` internally) so callers that compare against literal strings keep working until S38 widens the contract.
 
 - [ ] **TI09** `IdentifierPreservationMode` enum exists in `dartclaw_config` with `fromJsonString` + wire emission
@@ -266,7 +266,7 @@ file   | packages/dartclaw_models/lib/src/session_key.dart:27 | Existing FormatE
   - **Verify**: Resolved-YAML baseline test under `packages/dartclaw_workflow/test/` round-trips byte-identically (run the entire `dart test packages/dartclaw_workflow` suite and inspect any `--resolved` fixture comparisons).
 
 - [ ] **TI14** Byte-stable JSON contract assertion test
-  - Add a single test (in `packages/dartclaw_models/test/workflow_definition_test.dart` or a new `workflow_enum_wire_compat_test.dart`) that constructs a `WorkflowStep` / `WorkflowGitExternalArtifactMount` / `WorkflowGitWorktreeStrategy` from each previously-valid wire-string input, calls `toJson()`, and asserts the emitted map values exactly equal the input wire strings. Cover all four enums.
+  - Add a single test (in `packages/dartclaw_workflow/test/workflow/workflow_definition_test.dart` or a new `workflow_enum_wire_compat_test.dart`) that constructs a `WorkflowStep` / `WorkflowGitExternalArtifactMount` / `WorkflowGitWorktreeStrategy` from each previously-valid wire-string input, calls `toJson()`, and asserts the emitted map values exactly equal the input wire strings. Cover all four enums.
   - **Verify**: Test passes; running it after TI02/TI06/TI08 confirms binding #1 (wire format unchanged) is enforced from the model layer.
 
 - [ ] **TI15** Resolved-YAML baseline + workflow scenario round-trip verified

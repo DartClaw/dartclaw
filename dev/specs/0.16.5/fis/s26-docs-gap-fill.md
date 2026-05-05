@@ -30,7 +30,7 @@ Pick **2 of 5** candidate user-guide pages and either author or promote them so 
 ### From `dev/specs/0.16.5/plan.md` — "S26 Dependencies"
 <!-- source: dev/specs/0.16.5/plan.md#s26-docs-gap-fill-pick-2-of-5 -->
 <!-- extracted: e670c47 -->
-> **Dependencies**: Blocks A–G complete. Concretely: depends on S03 (doc-currency pass including AGENTS.md / CLAUDE.md current), S05 (events wired — skills page would otherwise describe orphan events), S19 (doc closeout including configuration schema reconciliation — governance + workflows pages reference config keys), S22 (model migration done — skills page references `SkillInfo` import path). The wider range previously listed was a proxy for "sprint is done"; W7 placement after S25 encodes this as wave ordering.
+> **Dependencies**: S01, S02, S03, S05, S09, S10, S11, S12, S13, S15, S16, S17, S18, S19, S22, S23, S24, S25, S27, S28, S29, S31, S32, S33, S34, S35, S36, S37, S38. This is the concrete dependency set behind the wider "Blocks A–G complete" intent. S03, S05, S19, and S22 are the substantive doc-content prerequisites; the full non-retired Block A–G list is also included so dependency-aware workflow fan-out cannot start the W7 stretch story before the sprint implementation state is current.
 
 ### From `dev/specs/0.16.5/prd.md` — "FR9 (Stretch): Documentation Gap-Fill"
 <!-- source: dev/specs/0.16.5/prd.md#fr9-stretch-documentation-gap-fill -->

@@ -35,6 +35,7 @@ service-account*.json
 .dartclaw-dev/
 .dartclaw-dev-test-*/
 dev/tools/dartclaw-workflows/.data/
+dev/tools/dartclaw-workflows/.cache/
 storages
 statics
 

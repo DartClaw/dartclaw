@@ -6,7 +6,7 @@ enum AndthenNetworkPolicy {
   /// Fail startup if the network clone/pull cannot complete.
   required,
 
-  /// Skip clone/pull entirely; require a pre-staged `<dataDir>/andthen-src/`.
+  /// Skip clone/pull entirely; require a pre-staged source cache.
   disabled,
 }
 
@@ -17,7 +17,7 @@ enum AndthenNetworkPolicy {
 /// --prefix dartclaw- --claude-user`, and copy the DC-native skills into the
 /// same user-tier native skill roots.
 ///
-/// All three fields require a server restart to change — see
+/// All fields require a server restart to change — see
 /// `ConfigNotifier.nonReloadableKeys`.
 class AndthenConfig {
   /// Upstream git URL to clone.
@@ -31,33 +31,54 @@ class AndthenConfig {
   /// How the source clone is acquired/refreshed at startup.
   final AndthenNetworkPolicy network;
 
+  /// Optional directory where the AndThen source clone is cached.
+  ///
+  /// When unset, the provisioner uses its legacy data-dir scoped cache path.
+  final String? sourceCacheDir;
+
   const AndthenConfig({
     this.gitUrl = 'https://github.com/IT-HUSET/andthen',
     this.ref = 'latest',
     this.network = AndthenNetworkPolicy.auto,
+    this.sourceCacheDir,
   });
 
   /// All defaults.
   const AndthenConfig.defaults() : this();
 
-  AndthenConfig copyWith({String? gitUrl, String? ref, AndthenNetworkPolicy? network}) =>
-      AndthenConfig(gitUrl: gitUrl ?? this.gitUrl, ref: ref ?? this.ref, network: network ?? this.network);
+  AndthenConfig copyWith({String? gitUrl, String? ref, AndthenNetworkPolicy? network, String? sourceCacheDir}) =>
+      AndthenConfig(
+        gitUrl: gitUrl ?? this.gitUrl,
+        ref: ref ?? this.ref,
+        network: network ?? this.network,
+        sourceCacheDir: sourceCacheDir ?? this.sourceCacheDir,
+      );
 
-  Map<String, Object?> toJson() => {'git_url': gitUrl, 'ref': ref, 'network': network.yamlValue};
+  Map<String, Object?> toJson() => {
+    'git_url': gitUrl,
+    'ref': ref,
+    'network': network.yamlValue,
+    if (sourceCacheDir != null) 'source_cache_dir': sourceCacheDir,
+  };
 
   factory AndthenConfig.fromJson(Map<String, Object?> json) => AndthenConfig(
     gitUrl: (json['git_url'] as String?) ?? const AndthenConfig().gitUrl,
     ref: (json['ref'] as String?) ?? const AndthenConfig().ref,
     network: parseAndthenNetworkPolicy(json['network']) ?? AndthenNetworkPolicy.auto,
+    sourceCacheDir: (json['source_cache_dir'] ?? json['sourceCacheDir']) as String?,
   );
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is AndthenConfig && gitUrl == other.gitUrl && ref == other.ref && network == other.network;
+      other is AndthenConfig &&
+          gitUrl == other.gitUrl &&
+          ref == other.ref &&
+          network == other.network &&
+          sourceCacheDir == other.sourceCacheDir;
 
   @override
-  int get hashCode => Object.hash(gitUrl, ref, network);
+  int get hashCode => Object.hash(gitUrl, ref, network, sourceCacheDir);
 }
 
 /// YAML keys for the `network` enum.

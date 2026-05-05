@@ -771,7 +771,7 @@ class WorkflowService {
   Future<void> _invokeWorkflowGitCleanup(WorkflowRun run) async {
     final cleanup = _turnAdapter?.cleanupWorkflowGit;
     if (cleanup == null) return;
-    final projectId = run.variablesJson['PROJECT']?.trim();
+    final projectId = _cleanupProjectId(run);
     if (projectId == null || projectId.isEmpty) return;
     final preserveWorktrees = !_resolveCleanupEnabled(run);
     try {
@@ -790,6 +790,20 @@ class WorkflowService {
       _log.warning("Workflow '${run.id}': failed to resolve cleanup config; preserving worktrees", e, st);
       return false;
     }
+  }
+
+  String? _cleanupProjectId(WorkflowRun run) {
+    final fromRun = run.variablesJson['PROJECT']?.trim();
+    if (fromRun != null && fromRun.isNotEmpty) return fromRun;
+
+    final variables = run.contextJson['variables'];
+    if (variables is Map) {
+      final fromContext = variables['PROJECT'];
+      if (fromContext is String && fromContext.trim().isNotEmpty) {
+        return fromContext.trim();
+      }
+    }
+    return null;
   }
 
   Future<WorkflowContext?> _loadContext(String runId) async {
@@ -896,6 +910,7 @@ class WorkflowService {
       ),
     );
     await _repository.update(cancelled);
+    await _invokeWorkflowGitCleanup(cancelled);
     _fireStatusChanged(
       runId: run.id,
       definitionName: run.definitionName,

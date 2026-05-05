@@ -16,10 +16,15 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowApprovalRequestedEvent,
         WorkflowContext,
+        WorkflowDefinition,
+        WorkflowGitCleanupStrategy,
+        WorkflowGitStrategy,
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowStep,
-        WorkflowTemplateEngine;
+        WorkflowTemplateEngine,
+        WorkflowTurnAdapter,
+        WorkflowTurnOutcome;
 import 'package:dartclaw_workflow/src/workflow/approval_step_runner.dart'
     show ApprovalStepDependencies, executeApprovalStep;
 import 'package:test/test.dart';
@@ -248,6 +253,43 @@ void main() {
       expect(cancelledStatus, equals(WorkflowRunStatus.cancelled));
       expect(cancelReason, equals('timeout'));
     });
+
+    test('approval timeout runs workflow git cleanup', () async {
+      final cleanupCalls = <({String runId, String projectId, String status, bool preserveWorktrees})>[];
+      final executor = h.makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((
+                  runId: runId,
+                  projectId: projectId,
+                  status: status,
+                  preserveWorktrees: preserveWorktrees,
+                ));
+              },
+        ),
+      );
+      final definition = WorkflowDefinition(
+        name: 'approval-cleanup',
+        description: 'Approval timeout cleanup test',
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        steps: const [
+          WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?'], timeoutSeconds: 1),
+        ],
+      );
+      final run = h.makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'alpha'});
+      final context = WorkflowContext(variables: const {'PROJECT': 'alpha'});
+
+      await h.repository.insert(run);
+      await executor.execute(run, definition, context);
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+
+      expect(cleanupCalls, hasLength(1));
+      expect(cleanupCalls.single, (runId: 'run-1', projectId: 'alpha', status: 'cancelled', preserveWorktrees: false));
+    }, timeout: const Timeout(Duration(seconds: 10)));
 
     test('approval step resolves prompt template from context', () async {
       final definition = h.makeDefinition(

@@ -17,6 +17,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowDefinitionParser,
+        WorkflowGitCleanupStrategy,
         WorkflowGitBootstrapResult,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
@@ -760,6 +761,176 @@ void main() {
       expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('maxItems'));
       expect(updatedRun?.errorMessage, contains('decompos'));
+    });
+
+    test('failure invokes workflow git cleanup when cleanup is enabled', () async {
+      final cleanupCalls = <({String runId, String projectId, String status, bool preserveWorktrees})>[];
+      final cleanupExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((
+                  runId: runId,
+                  projectId: projectId,
+                  status: status,
+                  preserveWorktrees: preserveWorktrees,
+                ));
+              },
+        ),
+      );
+      final collection = List.generate(5, (i) => 'item$i');
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Map test',
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxItems: 3,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'alpha'});
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = collection;
+
+      await cleanupExecutor.execute(run, definition, context, startFromStepIndex: 1);
+
+      expect(cleanupCalls, hasLength(1));
+      expect(cleanupCalls.single, (runId: 'run-1', projectId: 'alpha', status: 'failed', preserveWorktrees: false));
+    });
+
+    test('failure preserves workflow git worktrees when cleanup is disabled', () async {
+      final cleanupCalls = <({bool preserveWorktrees})>[];
+      final cleanupExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((preserveWorktrees: preserveWorktrees));
+              },
+        ),
+      );
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Map test',
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false)),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxItems: 1,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'alpha'});
+      await repository.insert(run);
+      final context = WorkflowContext(variables: const {'PROJECT': 'context-project'})..['items'] = ['a', 'b'];
+
+      await cleanupExecutor.execute(run, definition, context, startFromStepIndex: 1);
+
+      expect(cleanupCalls, hasLength(1));
+      expect(cleanupCalls.single.preserveWorktrees, isTrue);
+    });
+
+    test('failure preserves worktrees when cleanup policy cannot be parsed', () async {
+      final cleanupCalls = <({bool preserveWorktrees})>[];
+      final cleanupExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((preserveWorktrees: preserveWorktrees));
+              },
+        ),
+      );
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Map test',
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxItems: 1,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(
+        definition,
+      ).copyWith(variablesJson: const {'PROJECT': 'alpha'}, definitionJson: const {'steps': 'not-a-list'});
+      await repository.insert(run);
+      final context = WorkflowContext(variables: const {'PROJECT': 'context-project'})..['items'] = ['a', 'b'];
+
+      await cleanupExecutor.execute(run, definition, context, startFromStepIndex: 1);
+
+      expect(cleanupCalls, hasLength(1));
+      expect(cleanupCalls.single.preserveWorktrees, isTrue);
+    });
+
+    test('failure cleanup resolves project from persisted context variables', () async {
+      final cleanupCalls = <({String projectId})>[];
+      final cleanupExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((projectId: projectId));
+              },
+        ),
+      );
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Map test',
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxItems: 1,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(
+        definition,
+      ).copyWith(contextJson: WorkflowContext(variables: const {'PROJECT': 'context-project'}).toJson());
+      await repository.insert(run);
+      final context = WorkflowContext(variables: const {'PROJECT': 'context-project'})..['items'] = ['a', 'b'];
+
+      await cleanupExecutor.execute(run, definition, context, startFromStepIndex: 1);
+
+      expect(cleanupCalls, hasLength(1));
+      expect(cleanupCalls.single.projectId, 'context-project');
     });
 
     test('collection above 20 succeeds when maxItems is unset', () async {

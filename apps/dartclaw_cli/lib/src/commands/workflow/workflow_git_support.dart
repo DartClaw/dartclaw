@@ -22,9 +22,11 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionSuccess,
         WorkflowPublishStatus,
         WorkflowGitPublishResult;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 final _workflowGitRepoLock = RepoLock();
+final _workflowGitSupportLog = Logger('WorkflowGitSupport');
 
 Future<ProcessResult> _workflowGit(List<String> args, {required String workingDirectory}) {
   return SafeProcess.git(
@@ -33,6 +35,69 @@ Future<ProcessResult> _workflowGit(List<String> args, {required String workingDi
     workingDirectory: workingDirectory,
     noSystemConfig: true,
   );
+}
+
+Future<String?> restoreCheckoutBeforeWorkflowBranchDeletion({
+  required String projectDir,
+  required Set<String> workflowBranches,
+  required String? restoreRef,
+}) async {
+  final current = await _workflowGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], workingDirectory: projectDir);
+  if (current.exitCode != 0) return null;
+
+  final currentBranch = (current.stdout as String).trim();
+  if (currentBranch.isEmpty || !workflowBranches.contains(currentBranch)) return null;
+
+  final target = restoreRef?.trim();
+  if (target == null || target.isEmpty) {
+    return 'project checkout is on workflow branch "$currentBranch" but no restore ref was available';
+  }
+  if (target == currentBranch) {
+    return 'project checkout is on workflow branch "$currentBranch" and restore ref points to the same branch';
+  }
+
+  final dirty = await _workflowGit(['status', '--porcelain', '--untracked-files=all'], workingDirectory: projectDir);
+  if (dirty.exitCode != 0) {
+    return 'failed to inspect project checkout before restoring from workflow branch "$currentBranch": '
+        '${_processFailureDetail(dirty)}';
+  }
+  if ((dirty.stdout as String).trim().isNotEmpty) {
+    return 'project checkout is on workflow branch "$currentBranch" with uncommitted changes; '
+        'leaving checkout in place to avoid data loss';
+  }
+
+  final switched = await _switchToRestoreRef(projectDir: projectDir, target: target);
+  if (switched.exitCode == 0) {
+    _workflowGitSupportLog.info('Restored project checkout from workflow branch "$currentBranch" to "$target"');
+    return null;
+  }
+
+  final stderr = (switched.stderr as String).trim();
+  final stdout = (switched.stdout as String).trim();
+  final detail = stderr.isNotEmpty ? stderr : stdout;
+  return 'failed to restore project checkout from "$currentBranch" to "$target": $detail';
+}
+
+Future<ProcessResult> _switchToRestoreRef({required String projectDir, required String target}) async {
+  final direct = await _workflowGit(['switch', target], workingDirectory: projectDir);
+  if (direct.exitCode == 0) return direct;
+
+  if (_isRemoteTrackingRef(target)) {
+    return _workflowGit(['switch', '--detach', target], workingDirectory: projectDir);
+  }
+
+  return direct;
+}
+
+bool _isRemoteTrackingRef(String ref) {
+  return ref.startsWith('origin/') || ref.startsWith('refs/remotes/origin/');
+}
+
+String _processFailureDetail(ProcessResult result) {
+  final stderr = (result.stderr as String).trim();
+  final stdout = (result.stdout as String).trim();
+  final detail = stderr.isNotEmpty ? stderr : stdout;
+  return detail.isEmpty ? 'exit=${result.exitCode}' : 'exit=${result.exitCode}: $detail';
 }
 
 String _repoLockKey(String projectDir) {

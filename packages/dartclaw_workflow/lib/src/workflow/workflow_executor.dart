@@ -820,9 +820,10 @@ class WorkflowExecutor {
         }
       }
     }
+    await _cleanupWorkflowGit(cancelled, preserveWorktrees: !_cleanupEnabledForRun(cancelled));
   }
 
-  Future<void> _failRun(WorkflowRun run, String reason) async {
+  Future<void> _failRun(WorkflowRun run, String reason, {bool cleanupWorkflowGit = true}) async {
     final failed = run.copyWith(status: WorkflowRunStatus.failed, errorMessage: reason, updatedAt: DateTime.now());
     await _repository.update(failed);
     _eventBus.fire(
@@ -835,6 +836,9 @@ class WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
+    if (cleanupWorkflowGit) {
+      await _cleanupWorkflowGit(failed, preserveWorktrees: !_cleanupEnabledForRun(failed));
+    }
   }
 
   Future<void> _completeRun(WorkflowRun run, WorkflowDefinition definition, WorkflowContext context) async {
@@ -842,7 +846,7 @@ class WorkflowExecutor {
     if (publishStrategy?.enabled == true) {
       final publishError = await _runDeterministicPublish(run, definition, context);
       if (publishError != null) {
-        await _failRun(run, publishError);
+        await _failRun(run, publishError, cleanupWorkflowGit: false);
         return;
       }
       final refreshed = await _repository.getById(run.id);
@@ -887,5 +891,15 @@ class WorkflowExecutor {
       turnAdapter: _turnAdapter,
       preserveWorktrees: preserveWorktrees,
     );
+  }
+
+  bool _cleanupEnabledForRun(WorkflowRun run) {
+    try {
+      final definition = WorkflowDefinition.fromJson(run.definitionJson);
+      return definition.gitStrategy?.cleanupEnabled ?? true;
+    } catch (e, st) {
+      _log.warning("Workflow '${run.id}': failed to resolve cleanup config; preserving worktrees", e, st);
+      return false;
+    }
   }
 }

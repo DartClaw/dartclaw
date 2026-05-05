@@ -7,6 +7,9 @@ port: 3334
 data_dir: "__DATA_DIR__"
 dev_mode: true
 
+andthen:
+  source_cache_dir: "__CACHE_DIR__/andthen-src"
+
 agent:
   provider: codex
   model: gpt-5.4

@@ -2,7 +2,7 @@
 
 Run the built-in `spec-and-implement`, `plan-and-implement`, and `code-review` workflows directly against this `dartclaw-public` checkout.
 
-This is maintainer tooling, not an end-user example profile. It is for day-to-day DartClaw development when you want DartClaw to implement public-repo specs and plans without launching it from the private testing profile. It registers the current checkout as the `dartclaw-public` project and keeps workflow runtime state under `dev/tools/dartclaw-workflows/.data/`.
+This is maintainer tooling, not an end-user example profile. It is for day-to-day DartClaw development when you want DartClaw to implement public-repo specs and plans without launching it from the private testing profile. It registers the current checkout as the `dartclaw-public` project, keeps workflow runtime state under `dev/tools/dartclaw-workflows/.data/`, and keeps the AndThen source checkout cache under `dev/tools/dartclaw-workflows/.cache/`.
 
 ## What you can run
 
@@ -94,7 +94,7 @@ By default `run.sh` AOT-compiles the host CLI to a content-addressed file under 
 
 The cache key combines: HEAD sha, `pubspec.lock` hash, the diff hash of `apps/`+`packages/`+`pubspec.{yaml,lock}`, the contents of any untracked files in that scope, and the local `dart --version` output. Edits outside that scope (docs, CI, this script itself) do not trigger a rebuild; edits inside it — including untracked-file additions and dart SDK upgrades — do. A stable `.data/bin/dartclaw` symlink points at the most recently produced versioned binary for operator convenience.
 
-**Scope of isolation.** AOT pins the *statically compiled host code*. Anything the running host loads from the source tree at runtime (e.g. user-scope provisioned skill files, vendored assets, `<data_dir>/andthen-src/`) is *not* frozen by this mechanism; isolate those by running workflows in worktrees (the default) rather than `--allow-dirty-localpath` on the live checkout.
+**Scope of isolation.** AOT pins the *statically compiled host code*. Anything the running host loads from the source tree at runtime (e.g. user-scope provisioned skill files, vendored assets, the configured AndThen source cache) is *not* frozen by this mechanism; isolate those by running workflows in worktrees (the default) rather than `--allow-dirty-localpath` on the live checkout.
 
 Escape hatches:
 
@@ -102,6 +102,8 @@ Escape hatches:
 - `DARTCLAW_WORKFLOWS_REBUILD=1` — force a rebuild even when the cache key matches.
 
 To wipe the cached binaries: `rm -rf dev/tools/dartclaw-workflows/.data/bin`.
+
+To force a fresh AndThen source checkout for this maintainer profile: `rm -rf dev/tools/dartclaw-workflows/.cache/andthen-src`.
 
 ## Runtime Files
 
@@ -112,3 +114,5 @@ dev/tools/dartclaw-workflows/.data/dartclaw.runtime.yaml
 ```
 
 Delete `.data/` to reset DartClaw runtime state (including the cached AOT binary). This does not delete or rewrite the public checkout itself.
+
+Delete `.cache/andthen-src/` only when you want the maintainer profile to re-clone AndThen. The cache location can be overridden with `DARTCLAW_WORKFLOWS_CACHE_DIR`.

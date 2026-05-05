@@ -87,7 +87,7 @@ class _InstallDestination {
 /// Runtime provisioner for AndThen-derived workflow skills.
 ///
 /// At `dartclaw serve` startup, [ensureCacheCurrent] clones AndThen into
-/// `<dataDir>/andthen-src/`, runs AndThen's own `scripts/install-skills.sh
+/// its configured source cache, runs AndThen's own `scripts/install-skills.sh
 /// --prefix dartclaw- --display-brand DartClaw --claude-user`, and copies the
 /// DC-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`,
 /// `dartclaw-merge-resolve`) into the same user-tier skill trees. The upstream
@@ -123,7 +123,9 @@ class SkillProvisioner {
   /// whose tree is incomplete. Idempotent within a single process.
   Future<void> ensureCacheCurrent() async {
     final destinations = _resolveDestinations();
-    final srcDir = p.join(dataDir, 'andthen-src');
+    final srcDir = config.sourceCacheDir?.trim().isNotEmpty == true
+        ? config.sourceCacheDir!.trim()
+        : p.join(dataDir, 'andthen-src');
 
     await _cloneOrPull(srcDir);
 

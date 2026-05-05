@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
+import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart'
+    show restoreCheckoutBeforeWorkflowBranchDeletion;
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
@@ -653,6 +655,124 @@ steps:
     ], workingDirectory: repoDir.path);
     expect(branchResult.exitCode, 0);
     expect((branchResult.stdout as String).trim(), isEmpty);
+  });
+
+  test('workflow cleanup restores checkout before deleting current workflow branch', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+
+    _runGit(repoDir.path, ['init', '-b', 'main']);
+    _runGit(repoDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(repoDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# test\n');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'initial']);
+    _runGit(repoDir.path, ['checkout', '-b', 'feat/0.16.5']);
+    _runGit(repoDir.path, ['checkout', '-b', 'dartclaw/workflow/run123/integration']);
+
+    final restoreError = await restoreCheckoutBeforeWorkflowBranchDeletion(
+      projectDir: repoDir.path,
+      workflowBranches: const {'dartclaw/workflow/run123/integration'},
+      restoreRef: 'feat/0.16.5',
+    );
+
+    expect(restoreError, isNull);
+    final currentBranch = Process.runSync('git', ['branch', '--show-current'], workingDirectory: repoDir.path);
+    expect(currentBranch.exitCode, 0);
+    expect((currentBranch.stdout as String).trim(), 'feat/0.16.5');
+    _runGit(repoDir.path, ['branch', '--delete', '--force', 'dartclaw/workflow/run123/integration']);
+  });
+
+  test('workflow cleanup can restore from remote-tracking branch ref', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+
+    _runGit(repoDir.path, ['init', '-b', 'main']);
+    _runGit(repoDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(repoDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# test\n');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'initial']);
+    _runGit(repoDir.path, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+    _runGit(repoDir.path, ['checkout', '-b', 'dartclaw/workflow/run123/integration']);
+
+    final restoreError = await restoreCheckoutBeforeWorkflowBranchDeletion(
+      projectDir: repoDir.path,
+      workflowBranches: const {'dartclaw/workflow/run123/integration'},
+      restoreRef: 'origin/main',
+    );
+
+    expect(restoreError, isNull);
+    final currentBranch = Process.runSync('git', ['branch', '--show-current'], workingDirectory: repoDir.path);
+    expect(currentBranch.exitCode, 0);
+    expect((currentBranch.stdout as String).trim(), isEmpty);
+    final head = Process.runSync('git', ['rev-parse', 'HEAD'], workingDirectory: repoDir.path);
+    final remoteHead = Process.runSync('git', ['rev-parse', 'origin/main'], workingDirectory: repoDir.path);
+    expect(head.exitCode, 0);
+    expect(remoteHead.exitCode, 0);
+    expect((head.stdout as String).trim(), (remoteHead.stdout as String).trim());
+    _runGit(repoDir.path, ['branch', '--delete', '--force', 'dartclaw/workflow/run123/integration']);
+  });
+
+  test('workflow cleanup restores remote-tracking ref exactly when local branch is stale', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+
+    _runGit(repoDir.path, ['init', '-b', 'main']);
+    _runGit(repoDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(repoDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# local main\n');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'local-main']);
+    final localMain = Process.runSync('git', ['rev-parse', 'HEAD'], workingDirectory: repoDir.path);
+    _runGit(repoDir.path, ['checkout', '--orphan', 'remote-state']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# remote main\n');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'remote-main']);
+    _runGit(repoDir.path, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+    final remoteMain = Process.runSync('git', ['rev-parse', 'HEAD'], workingDirectory: repoDir.path);
+    _runGit(repoDir.path, ['checkout', 'main']);
+    _runGit(repoDir.path, ['checkout', '-b', 'dartclaw/workflow/run123/integration']);
+
+    final restoreError = await restoreCheckoutBeforeWorkflowBranchDeletion(
+      projectDir: repoDir.path,
+      workflowBranches: const {'dartclaw/workflow/run123/integration'},
+      restoreRef: 'origin/main',
+    );
+
+    expect(restoreError, isNull);
+    final currentBranch = Process.runSync('git', ['branch', '--show-current'], workingDirectory: repoDir.path);
+    final head = Process.runSync('git', ['rev-parse', 'HEAD'], workingDirectory: repoDir.path);
+    expect(currentBranch.exitCode, 0);
+    expect((currentBranch.stdout as String).trim(), isEmpty);
+    expect(head.exitCode, 0);
+    expect((head.stdout as String).trim(), (remoteMain.stdout as String).trim());
+    expect((head.stdout as String).trim(), isNot((localMain.stdout as String).trim()));
+    _runGit(repoDir.path, ['branch', '--delete', '--force', 'dartclaw/workflow/run123/integration']);
+    _runGit(repoDir.path, ['branch', '--delete', '--force', 'remote-state']);
+  });
+
+  test('workflow cleanup does not switch away from dirty workflow branch', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+
+    _runGit(repoDir.path, ['init', '-b', 'main']);
+    _runGit(repoDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(repoDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# test\n');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'initial']);
+    _runGit(repoDir.path, ['checkout', '-b', 'feat/0.16.5']);
+    _runGit(repoDir.path, ['checkout', '-b', 'dartclaw/workflow/run123/integration']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# dirty workflow edit\n');
+
+    final restoreError = await restoreCheckoutBeforeWorkflowBranchDeletion(
+      projectDir: repoDir.path,
+      workflowBranches: const {'dartclaw/workflow/run123/integration'},
+      restoreRef: 'feat/0.16.5',
+    );
+
+    expect(restoreError, contains('uncommitted changes'));
+    final currentBranch = Process.runSync('git', ['branch', '--show-current'], workingDirectory: repoDir.path);
+    expect(currentBranch.exitCode, 0);
+    expect((currentBranch.stdout as String).trim(), 'dartclaw/workflow/run123/integration');
+    expect(File(p.join(repoDir.path, 'README.md')).readAsStringSync(), '# dirty workflow edit\n');
   });
 
   test('local project fallback resolves against runtime cwd instead of launch cwd', () async {

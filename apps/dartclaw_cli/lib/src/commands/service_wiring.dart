@@ -132,7 +132,7 @@ class ServiceWiring {
 
   /// When `false`, [wire] skips the [SkillProvisioner] bootstrap. Production
   /// callers leave the default. Tests opt out when they don't pre-stage a fake
-  /// `<dataDir>/andthen-src/` and don't want network/clone cost.
+  /// AndThen source cache and don't want network/clone cost.
   final bool runAndthenSkillsBootstrap;
 
   /// Environment passed to [SkillProvisioner] when [runAndthenSkillsBootstrap]
@@ -581,27 +581,55 @@ class ServiceWiring {
           if (preserveWorktrees) return;
           final resolvedProject = await project.projectService.get(projectId);
           if (resolvedProject == null) return;
+          final workflowRun = await storage.workflowRunRepository.getById(runId);
+          final restoreRef = workflowRun?.variablesJson['BRANCH']?.trim();
           final runTasks = (await storage.taskService.list())
               .where((candidate) => candidate.workflowRunId == runId)
               .toList();
           final cleanupPlan = buildWorkflowCleanupPlan(runId, runTasks);
           final gitDir = resolvedProject.localPath;
+          final cleanupLog = Logger('ServiceWiring');
 
           if (config.workflow.cleanup.deleteRemoteBranchOnFailure && status == 'failed') {
             final pushedBranches = await pushedWorkflowBranches(storage.taskService, runTasks);
             for (final branch in pushedBranches) {
               final result = await _workflowGit(['push', 'origin', '--delete', branch], workingDirectory: gitDir);
               final detail = result.exitCode == 0 ? 'succeeded' : 'failed: ${(result.stderr as String).trim()}';
-              Logger('ServiceWiring').info('Remote workflow branch cleanup for "$branch" $detail');
+              cleanupLog.info('Remote workflow branch cleanup for "$branch" $detail');
             }
           }
 
           for (final worktreePath in cleanupPlan.worktreePaths) {
-            await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: gitDir);
+            final result = await _workflowGit([
+              'worktree',
+              'remove',
+              '--force',
+              worktreePath,
+            ], workingDirectory: gitDir);
+            if (result.exitCode != 0) {
+              cleanupLog.warning(
+                'Workflow worktree cleanup for "$worktreePath" failed: ${_processFailureDetail(result)}',
+              );
+            }
           }
-          for (final branch in cleanupPlan.branches) {
-            if (branch.startsWith('origin/')) continue;
-            await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: gitDir);
+          final localBranches = cleanupPlan.branches.where((branch) => !branch.startsWith('origin/')).toSet();
+          if (localBranches.isNotEmpty) {
+            final restoreError = await restoreCheckoutBeforeWorkflowBranchDeletion(
+              projectDir: gitDir,
+              workflowBranches: localBranches,
+              restoreRef: restoreRef,
+            );
+            if (restoreError != null) {
+              cleanupLog.warning(restoreError);
+            }
+          }
+          for (final branch in localBranches) {
+            final result = await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: gitDir);
+            if (result.exitCode != 0) {
+              cleanupLog.warning(
+                'Local workflow branch cleanup for "$branch" failed: ${_processFailureDetail(result)}',
+              );
+            }
           }
         },
         cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async {
@@ -1375,6 +1403,13 @@ Future<ProcessResult> _workflowGit(List<String> args, {required String workingDi
     workingDirectory: workingDirectory,
     noSystemConfig: true,
   );
+}
+
+String _processFailureDetail(ProcessResult result) {
+  final stderr = (result.stderr as String).trim();
+  final stdout = (result.stdout as String).trim();
+  final detail = stderr.isNotEmpty ? stderr : stdout;
+  return detail.isEmpty ? 'exit=${result.exitCode}' : 'exit=${result.exitCode}: $detail';
 }
 
 WorkflowGitCleanupPlan buildWorkflowCleanupPlan(String runId, List<Task> runTasks) {

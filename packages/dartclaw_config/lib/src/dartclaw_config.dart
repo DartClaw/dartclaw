@@ -240,7 +240,7 @@ class DartclawConfig {
     final features = _parseFeatures(yaml);
     final projects = parseProjectConfig(_sectionMap('projects', yaml, warns), warns);
     final alerts = _parseAlerts(yaml, const AlertsConfig.defaults(), warns);
-    final andthen = _parseAndthen(yaml, const AndthenConfig.defaults(), warns);
+    final andthen = _parseAndthen(yaml, const AndthenConfig.defaults(), environment, warns);
     final extensions = _parseExtensions(yaml, warns);
 
     final config = DartclawConfig(

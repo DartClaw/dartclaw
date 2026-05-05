@@ -89,6 +89,31 @@ void main() {
         }
       });
 
+      test('uses configured source cache dir instead of data dir when set', () async {
+        final sourceCacheDir = p.join(tempRoot.path, 'source-cache', 'andthen-src');
+        _seedAndthenSrc(sourceCacheDir, sha: 'cache-sha');
+        final runner = _FakeProcessRunner(environment: fakeEnv);
+        final provisioner = SkillProvisioner(
+          config: AndthenConfig(network: AndthenNetworkPolicy.disabled, sourceCacheDir: sourceCacheDir),
+          dataDir: dataDir,
+          dcNativeSkillsSourceDir: dcNativeSrc,
+          environment: fakeEnv,
+          processRunner: runner.run,
+        );
+
+        await provisioner.ensureCacheCurrent();
+
+        expect(Directory(p.join(dataDir, 'andthen-src')).existsSync(), isFalse);
+        expect(
+          runner.calls.where((call) => call.executable == 'git').map((call) => call.arguments).expand((args) => args),
+          contains(sourceCacheDir),
+        );
+        expect(
+          File(p.join(fakeHome.path, '.agents', 'skills', skillProvisionerMarkerFile)).readAsStringSync(),
+          'cache-sha',
+        );
+      });
+
       test('disabled network checks out the configured ref from the cached source', () async {
         _seedAndthenSrc(p.join(dataDir, 'andthen-src'), sha: 'develop-sha');
         final runner = _FakeProcessRunner(environment: fakeEnv)..remoteTrackingRefs.add('origin/develop');

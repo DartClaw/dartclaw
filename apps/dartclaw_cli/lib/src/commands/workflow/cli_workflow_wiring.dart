@@ -678,6 +678,7 @@ class CliWorkflowWiring {
   }
 
   Future<void> _cleanupWorkflowGitRun(String runId, {required String projectId, required String terminalStatus}) async {
+    final run = await workflowService.get(runId);
     final runTasks = (await taskService.list()).where((task) => task.workflowRunId == runId).toList();
     final cleanupPlan = _buildWorkflowCleanupPlan(runId, runTasks);
     final pushedBranches = config.workflow.cleanup.deleteRemoteBranchOnFailure && terminalStatus == 'failed'
@@ -687,6 +688,7 @@ class CliWorkflowWiring {
       cleanupPlan,
       projectDir: await _resolveWorkflowProjectDir(projectId),
       remoteBranchesToDelete: pushedBranches,
+      restoreRef: run?.variablesJson['BRANCH']?.trim(),
     );
   }
 
@@ -696,6 +698,8 @@ class CliWorkflowWiring {
 
     final runIds = workflowTasks.map((task) => task.workflowRunId).whereType<String>().toSet();
     for (final runId in runIds) {
+      final run = await workflowService.get(runId);
+      final restoreRef = run?.variablesJson['BRANCH']?.trim();
       final runTasks = workflowTasks.where((task) => task.workflowRunId == runId).toList();
       final projectIds = runTasks
           .map((task) => task.projectId?.trim())
@@ -706,7 +710,11 @@ class CliWorkflowWiring {
         return projectId == null || projectId.isEmpty || projectId == '_local';
       }).toList();
       if (localTasks.isNotEmpty) {
-        await _runWorkflowGitCleanupPlan(_buildWorkflowCleanupPlan(runId, localTasks), projectDir: runtimeCwd);
+        await _runWorkflowGitCleanupPlan(
+          _buildWorkflowCleanupPlan(runId, localTasks),
+          projectDir: runtimeCwd,
+          restoreRef: restoreRef,
+        );
       }
       if (projectIds.isEmpty) {
         continue;
@@ -715,6 +723,7 @@ class CliWorkflowWiring {
         await _runWorkflowGitCleanupPlan(
           _buildWorkflowCleanupPlan(runId, runTasks.where((task) => task.projectId?.trim() == projectId).toList()),
           projectDir: await _resolveWorkflowProjectDir(projectId),
+          restoreRef: restoreRef,
         );
       }
     }
@@ -737,20 +746,39 @@ class CliWorkflowWiring {
     _WorkflowGitCleanupPlan cleanupPlan, {
     String? projectDir,
     Set<String> remoteBranchesToDelete = const {},
+    String? restoreRef,
   }) async {
+    final cleanupLog = Logger('CliWorkflowWiring');
+    final gitDir = projectDir ?? runtimeCwd;
     if (projectDir != null) {
       for (final branch in remoteBranchesToDelete) {
         final result = await _workflowGit(['push', 'origin', '--delete', branch], workingDirectory: projectDir);
         final detail = result.exitCode == 0 ? 'succeeded' : 'failed: ${(result.stderr as String).trim()}';
-        Logger('CliWorkflowWiring').info('Remote workflow branch cleanup for "$branch" $detail');
+        cleanupLog.info('Remote workflow branch cleanup for "$branch" $detail');
       }
     }
     for (final worktreePath in cleanupPlan.worktreePaths) {
-      await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: projectDir ?? runtimeCwd);
+      final result = await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: gitDir);
+      if (result.exitCode != 0) {
+        cleanupLog.warning('Workflow worktree cleanup for "$worktreePath" failed: ${_processFailureDetail(result)}');
+      }
     }
-    for (final branch in cleanupPlan.branches) {
-      if (branch.startsWith('origin/')) continue;
-      await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: projectDir ?? runtimeCwd);
+    final localBranches = cleanupPlan.branches.where((branch) => !branch.startsWith('origin/')).toSet();
+    if (localBranches.isNotEmpty) {
+      final restoreError = await restoreCheckoutBeforeWorkflowBranchDeletion(
+        projectDir: gitDir,
+        workflowBranches: localBranches,
+        restoreRef: restoreRef,
+      );
+      if (restoreError != null) {
+        cleanupLog.warning(restoreError);
+      }
+    }
+    for (final branch in localBranches) {
+      final result = await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: gitDir);
+      if (result.exitCode != 0) {
+        cleanupLog.warning('Local workflow branch cleanup for "$branch" failed: ${_processFailureDetail(result)}');
+      }
     }
   }
 
@@ -863,6 +891,13 @@ Future<ProcessResult> _workflowGit(List<String> args, {required String workingDi
     workingDirectory: workingDirectory,
     noSystemConfig: true,
   );
+}
+
+String _processFailureDetail(ProcessResult result) {
+  final stderr = (result.stderr as String).trim();
+  final stdout = (result.stdout as String).trim();
+  final detail = stderr.isNotEmpty ? stderr : stdout;
+  return detail.isEmpty ? 'exit=${result.exitCode}' : 'exit=${result.exitCode}: $detail';
 }
 
 _WorkflowGitCleanupPlan _buildWorkflowCleanupPlan(String runId, List<Task> runTasks) {

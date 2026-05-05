@@ -1536,12 +1536,18 @@ FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {
   return const FeaturesConfig();
 }
 
-const _knownAndthenKeys = {'git_url', 'ref', 'network'};
+const _knownAndthenKeys = {'git_url', 'ref', 'network', 'source_cache_dir'};
 
-AndthenConfig _parseAndthen(Map<String, dynamic> yaml, AndthenConfig defaults, List<String> warns) {
+AndthenConfig _parseAndthen(
+  Map<String, dynamic> yaml,
+  AndthenConfig defaults,
+  Map<String, String> env,
+  List<String> warns,
+) {
   var gitUrl = defaults.gitUrl;
   var ref = defaults.ref;
   var network = defaults.network;
+  var sourceCacheDir = defaults.sourceCacheDir;
 
   final atMap = _sectionMap('andthen', yaml, warns);
   if (atMap == null) return defaults;
@@ -1583,7 +1589,19 @@ AndthenConfig _parseAndthen(Map<String, dynamic> yaml, AndthenConfig defaults, L
     }
   }
 
-  return AndthenConfig(gitUrl: gitUrl, ref: ref, network: network);
+  final sourceCacheDirVal = atMap['source_cache_dir'];
+  if (sourceCacheDirVal is String) {
+    final resolved = expandHome(envSubstitute(sourceCacheDirVal, env: env).trim(), env: env);
+    if (resolved.isNotEmpty) {
+      sourceCacheDir = resolved;
+    } else {
+      warns.add('Invalid empty value for andthen.source_cache_dir — using default');
+    }
+  } else if (sourceCacheDirVal != null) {
+    warns.add('Invalid type for andthen.source_cache_dir: "${sourceCacheDirVal.runtimeType}" — using default');
+  }
+
+  return AndthenConfig(gitUrl: gitUrl, ref: ref, network: network, sourceCacheDir: sourceCacheDir);
 }
 
 int _parseInt(String key, String? cliValue, Object? yamlValue, int defaultValue, List<String> warns) {

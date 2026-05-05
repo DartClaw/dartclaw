@@ -23,6 +23,7 @@ class ConfigNotifier {
     'andthen.git_url',
     'andthen.ref',
     'andthen.network',
+    'andthen.source_cache_dir',
   };
 
   DartclawConfig _current;

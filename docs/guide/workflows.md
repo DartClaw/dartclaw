@@ -916,7 +916,7 @@ DartClaw ships three DC-native skills and resolves all other workflow steps thro
 
 **Runtime provisioning — [AndThen](https://github.com/IT-HUSET/andthen) `>= 0.14.3`**:
 
-At `dartclaw serve` startup, and before `dartclaw workflow run --standalone`, `SkillProvisioner` clones AndThen into `<data_dir>/andthen-src/` and runs `install-skills.sh --prefix dartclaw- --display-brand DartClaw --claude-user`. The built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review`) resolve their AndThen-derived steps through these installed `dartclaw-*` names. Key skills used:
+At `dartclaw serve` startup, and before `dartclaw workflow run --standalone`, `SkillProvisioner` clones AndThen into the configured source cache (`<data_dir>/andthen-src/` by default) and runs `install-skills.sh --prefix dartclaw- --display-brand DartClaw --claude-user`. The built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review`) resolve their AndThen-derived steps through these installed `dartclaw-*` names. Key skills used:
 
 - `dartclaw-spec`, `dartclaw-prd`, `dartclaw-plan` — specification and planning
 - `dartclaw-exec-spec` — spec execution / implementation driver

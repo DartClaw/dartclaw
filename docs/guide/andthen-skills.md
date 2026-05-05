@@ -41,11 +41,15 @@ What to check out:
 
 ### `network`
 
-Controls how `<data_dir>/andthen-src/` is acquired or refreshed:
+Controls how the AndThen source cache is acquired or refreshed. By default the cache lives at `<data_dir>/andthen-src/`; set `andthen.source_cache_dir` to move it elsewhere.
 
 - `auto` (default) — try clone or fetch + fast-forward; on network failure, fall back to the cached source if one exists. Fails only when there is no cache and the network is unreachable.
 - `required` — same network call, no fallback. Fails startup on network failure. Use for deployments where stale skills are unacceptable.
-- `disabled` — no clone, no fetch. Requires a pre-staged `<data_dir>/andthen-src/`. Fails startup if the cache is absent.
+- `disabled` — no clone, no fetch. Requires a pre-staged source cache. Fails startup if the cache is absent.
+
+### `source_cache_dir`
+
+Optional filesystem path for the AndThen source checkout cache. When omitted, DartClaw uses the legacy `<data_dir>/andthen-src/` location.
 
 ### Offline / air-gapped install
 
@@ -56,9 +60,10 @@ For environments without outbound network:
 git clone https://github.com/IT-HUSET/andthen /tmp/andthen-src
 git -C /tmp/andthen-src checkout v0.16.0   # or the SHA you want to pin
 
-# Transfer /tmp/andthen-src/ into the air-gapped host as <data_dir>/andthen-src/
+# Transfer /tmp/andthen-src/ into the air-gapped host as the configured source cache.
 # Then in dartclaw.yaml:
 andthen:
+  source_cache_dir: /opt/dartclaw/cache/andthen-src
   ref: v0.16.0
   network: disabled
 ```
@@ -69,7 +74,7 @@ andthen:
 
 The Codex skill root (`~/.agents/skills`) carries a `.dartclaw-andthen-sha` marker containing the AndThen commit SHA the destination was last installed from. On each provisioning run `SkillProvisioner` skips the install only when:
 
-- the marker exists and matches the current `<data_dir>/andthen-src/` HEAD SHA, and
+- the marker exists and matches the current AndThen source cache HEAD SHA, and
 - `dartclaw-prd/SKILL.md` exists in both the Codex and Claude skill trees, and
 - the Codex and Claude agent directories exist, and
 - all three DartClaw-native skills exist in both Codex and Claude skill trees.
@@ -90,7 +95,7 @@ On the next `dartclaw serve` start, the provisioner sees the missing marker and 
 
 Note: if upstream drops a skill or agent between versions, the reinstall does not delete the stale entry — the installer only adds or overwrites. Remove the specific leftover directory or file manually if you need a clean state after a version that removed skills.
 
-If you also want to re-clone AndThen from scratch (e.g., after changing `andthen.git_url`), delete `<data_dir>/andthen-src/` in addition to the marker.
+If you also want to re-clone AndThen from scratch (e.g., after changing `andthen.git_url`), delete the configured source cache in addition to the marker.
 
 ## Namespace Contract
 

@@ -26,6 +26,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 DATA_DIR="${DARTCLAW_WORKFLOWS_DATA_DIR:-${SCRIPT_DIR}/.data}"
+CACHE_DIR="${DARTCLAW_WORKFLOWS_CACHE_DIR:-${SCRIPT_DIR}/.cache}"
 TEMPLATE_CONFIG="${SCRIPT_DIR}/dartclaw.yaml"
 RUNTIME_CONFIG="${DATA_DIR}/dartclaw.runtime.yaml"
 ENTRY="${REPO_ROOT}/apps/dartclaw_cli/bin/dartclaw.dart"
@@ -56,11 +57,14 @@ escape_sed() {
 }
 
 prepare_runtime_config() {
-  local data_dir_abs
+  local data_dir_abs cache_dir_abs
   mkdir -p "$DATA_DIR"
+  mkdir -p "$CACHE_DIR"
   data_dir_abs="$(cd "$DATA_DIR" && pwd)"
+  cache_dir_abs="$(cd "$CACHE_DIR" && pwd)"
 
   sed -e "s|__DATA_DIR__|$(escape_sed "$data_dir_abs")|g" \
+      -e "s|__CACHE_DIR__|$(escape_sed "$cache_dir_abs")|g" \
       -e "s|__REPO_ROOT__|$(escape_sed "$REPO_ROOT")|g" \
       "$TEMPLATE_CONFIG" > "$RUNTIME_CONFIG"
 }

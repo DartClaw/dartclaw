@@ -45,6 +45,50 @@ andthen:
       expect(config.andthen.network, AndthenNetworkPolicy.required);
     });
 
+    test('source_cache_dir parses as optional source checkout cache path', () {
+      final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
+        fileReader: (path) {
+          if (path != 'dartclaw.yaml') return null;
+          return '''
+andthen:
+  source_cache_dir: /var/cache/dartclaw/andthen-src
+''';
+        },
+        env: const {'HOME': '/home/user'},
+      );
+
+      expect(config.andthen.sourceCacheDir, '/var/cache/dartclaw/andthen-src');
+    });
+
+    test('source_cache_dir expands environment variables and home prefix', () {
+      final envConfig = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
+        fileReader: (path) {
+          if (path != 'dartclaw.yaml') return null;
+          return r'''
+andthen:
+  source_cache_dir: ${CACHE_ROOT}/andthen-src
+''';
+        },
+        env: const {'HOME': '/home/user', 'CACHE_ROOT': '/var/cache/dartclaw'},
+      );
+      final homeConfig = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
+        fileReader: (path) {
+          if (path != 'dartclaw.yaml') return null;
+          return '''
+andthen:
+  source_cache_dir: ~/andthen-src
+''';
+        },
+        env: const {'HOME': '/home/user'},
+      );
+
+      expect(envConfig.andthen.sourceCacheDir, '/var/cache/dartclaw/andthen-src');
+      expect(homeConfig.andthen.sourceCacheDir, '/home/user/andthen-src');
+    });
+
     test('network: bogus warns and falls back to auto', () {
       final config = DartclawConfig.load(
         configPath: 'dartclaw.yaml',
@@ -104,7 +148,7 @@ andthen:
     test('all keys appear in ConfigNotifier.nonReloadableKeys', () {
       expect(
         ConfigNotifier.nonReloadableKeys,
-        containsAll(<String>['andthen.git_url', 'andthen.ref', 'andthen.network']),
+        containsAll(<String>['andthen.git_url', 'andthen.ref', 'andthen.network', 'andthen.source_cache_dir']),
       );
     });
 
@@ -118,10 +162,12 @@ andthen:
       expect(ConfigMeta.fields.containsKey('andthen.git_url'), isTrue);
       expect(ConfigMeta.fields.containsKey('andthen.ref'), isTrue);
       expect(ConfigMeta.fields.containsKey('andthen.network'), isTrue);
+      expect(ConfigMeta.fields.containsKey('andthen.source_cache_dir'), isTrue);
       // All restart-mutability.
-      for (final k in const ['andthen.git_url', 'andthen.ref', 'andthen.network']) {
+      for (final k in const ['andthen.git_url', 'andthen.ref', 'andthen.network', 'andthen.source_cache_dir']) {
         expect(ConfigMeta.fields[k]!.mutability, ConfigMutability.restart);
       }
+      expect(ConfigMeta.fields['andthen.source_cache_dir']!.nullable, isTrue);
     });
   });
 }

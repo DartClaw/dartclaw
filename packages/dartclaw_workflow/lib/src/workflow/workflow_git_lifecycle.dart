@@ -127,11 +127,25 @@ Future<void> cleanupWorkflowGit({
 }) async {
   final cleanup = turnAdapter?.cleanupWorkflowGit;
   if (cleanup == null) return;
-  final projectId = run.variablesJson['PROJECT']?.trim();
+  final projectId = _cleanupProjectId(run);
   if (projectId == null || projectId.isEmpty) return;
   try {
     await cleanup(runId: run.id, projectId: projectId, status: run.status.name, preserveWorktrees: preserveWorktrees);
   } catch (e, st) {
     _log.warning("Workflow '${run.id}' cleanup callback failed: $e", e, st);
   }
+}
+
+String? _cleanupProjectId(WorkflowRun run) {
+  final fromRun = run.variablesJson['PROJECT']?.trim();
+  if (fromRun != null && fromRun.isNotEmpty) return fromRun;
+
+  final variables = run.contextJson['variables'];
+  if (variables is Map) {
+    final fromContext = variables['PROJECT'];
+    if (fromContext is String && fromContext.trim().isNotEmpty) {
+      return fromContext.trim();
+    }
+  }
+  return null;
 }

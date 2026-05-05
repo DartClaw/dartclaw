@@ -297,6 +297,34 @@ void main() {
       expect(stepCompleted.first['tokenCount'], 1000);
     });
 
+    test('forwards MapIterationCompletedEvent with display scope', () async {
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(
+            MapIterationCompletedEvent(
+              runId: 'run-001',
+              stepId: 'story-pipeline',
+              iterationIndex: 1,
+              totalIterations: 2,
+              itemId: 'S02',
+              taskId: '',
+              success: false,
+              tokenCount: 0,
+              timestamp: DateTime.now(),
+            ),
+          );
+        },
+      );
+      final mapIteration = frames.where((f) => f['type'] == 'map_iteration_completed').toList();
+      expect(mapIteration, isNotEmpty);
+      expect(mapIteration.first['itemId'], 'S02');
+      expect(mapIteration.first['displayScope'], 'S02');
+      expect(mapIteration.first['success'], false);
+    });
+
     test('forwards TaskStatusChangedEvent for known child tasks', () async {
       // Insert the task into the task repo directly so it's a known child.
       await taskRepo.insert(
@@ -332,6 +360,44 @@ void main() {
       expect(taskStatus, isNotEmpty);
       expect(taskStatus.first['taskId'], 'task-001');
       expect(taskStatus.first['newStatus'], 'running');
+    });
+
+    test('forwards TaskStatusChangedEvent for workflow child tasks created after subscription', () async {
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          await taskRepo.insert(
+            Task(
+              id: 'task-late',
+              title: 'Step 0',
+              description: 'desc',
+              type: TaskType.research,
+              status: TaskStatus.queued,
+              createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
+              workflowRunId: 'run-001',
+              stepIndex: 0,
+              configJson: const {'displayScope': 'S01'},
+            ),
+          );
+          eventBus.fire(
+            TaskStatusChangedEvent(
+              taskId: 'task-late',
+              oldStatus: TaskStatus.queued,
+              newStatus: TaskStatus.running,
+              trigger: 'executor',
+              timestamp: DateTime.now(),
+            ),
+          );
+        },
+      );
+
+      final taskStatus = frames.where((f) => f['type'] == 'task_status_changed').toList();
+      expect(taskStatus, isNotEmpty);
+      expect(taskStatus.first['taskId'], 'task-late');
+      expect(taskStatus.first['stepIndex'], 0);
+      expect(taskStatus.first['displayScope'], 'S01');
     });
 
     test('does NOT forward TaskStatusChangedEvent for unrelated tasks', () async {

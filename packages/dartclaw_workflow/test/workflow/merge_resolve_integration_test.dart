@@ -104,7 +104,7 @@ WorkflowDefinition _mergeResolveIntegrationDefinition() {
     },
     project: '{{PROJECT}}',
     gitStrategy: const WorkflowGitStrategy(
-      bootstrap: true,
+      integrationBranch: true,
       worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
       promotion: 'merge',
       publish: WorkflowGitPublishStrategy(enabled: false),

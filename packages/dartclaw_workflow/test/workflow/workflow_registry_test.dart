@@ -134,7 +134,7 @@ void main() {
         expect(
           definition.variables['BRANCH']?.defaultValue,
           anyOf(isNull, isEmpty),
-          reason: '$name should not hardcode main for workflow bootstrap',
+          reason: '$name should not hardcode main for workflow integration-branch creation',
         );
       }
 

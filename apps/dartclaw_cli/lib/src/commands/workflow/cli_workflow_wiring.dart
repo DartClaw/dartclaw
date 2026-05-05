@@ -47,7 +47,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowSource,
         WorkflowStepOutputTransformer,
         WorkflowService,
-        WorkflowGitBootstrapResult,
+        WorkflowGitIntegrationBranchResult,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
         WorkflowStartResolution,
@@ -449,7 +449,7 @@ class CliWorkflowWiring {
             branch: declaresBranch ? resolvedBranch : null,
           );
         },
-        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
           final resolvedProject = await projectService.get(projectId);
           final effectiveBaseRef = resolvedProject != null
               ? await projectService.resolveWorkflowBaseRef(resolvedProject, requestedBranch: baseRef)
@@ -464,7 +464,7 @@ class CliWorkflowWiring {
             branch: integrationBranch,
             baseRef: effectiveBaseRef,
           );
-          return WorkflowGitBootstrapResult(integrationBranch: integrationBranch);
+          return WorkflowGitIntegrationBranchResult(integrationBranch: integrationBranch);
         },
         promoteWorkflowBranch:
             ({

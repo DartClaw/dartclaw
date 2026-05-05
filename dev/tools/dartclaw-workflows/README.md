@@ -86,9 +86,9 @@ Workflow start refuses to mutate a dirty local-path checkout by default. Add `--
 
 ### Worktree isolation for parallel stories
 
-`plan-and-implement` runs the per-story pipeline as a `foreach` with `MAX_PARALLEL` (default `2`) and `gitStrategy.worktree: auto`. With `MAX_PARALLEL > 1` that resolves to **per-map-item worktrees** — each story implements in its own checkout rooted at the workflow branch, and the live `dartclaw-public` checkout is not mutated by story implementation. Authoring steps (`prd`, `plan`) and the workflow-level steps (`refactor`, `plan-review`, `architecture-review`, `remediation-loop`) run on the workflow branch itself; the `artifacts.commit: true` setting in the YAML auto-commits PRD / plan / per-story FIS so spawned worktrees inherit them.
+`plan-and-implement` runs the per-story pipeline as a `foreach` with `MAX_PARALLEL` (default `2`), `gitStrategy.integrationBranch: true`, and `gitStrategy.worktree: auto`. With `MAX_PARALLEL > 1`, story iterations resolve to **per-map-item worktrees**. Workflow-level branch edits resolve to a **shared workflow worktree** because `integrationBranch: true` is set. The integration branch is attached under `.data/workspace/.dartclaw/worktrees/`, and the live `dartclaw-public` checkout stays on the branch you launched from. The `artifacts.commit: true` setting in the YAML auto-commits PRD / plan / per-story FIS so spawned worktrees inherit them.
 
-Set `-v MAX_PARALLEL=1` to force inline mode (single worktree, sequential stories) when you want determinism over throughput.
+Set `-v MAX_PARALLEL=1` to make story execution inline and sequential when you want determinism over throughput. Workflow-level branch edits still use the shared workflow worktree; this setting does not make the workflow operate in the project checkout.
 
 ## Host Isolation (AOT Build)
 

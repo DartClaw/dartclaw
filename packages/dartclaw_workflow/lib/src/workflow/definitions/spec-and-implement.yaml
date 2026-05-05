@@ -11,13 +11,13 @@ variables:
     description: Target project for coding steps (omit for default project)
   BRANCH:
     required: false
-    description: Base branch/ref used for workflow bootstrap and comparisons
+    description: Base branch/ref used for workflow integration-branch creation and comparisons
     default: ""
 
 project: "{{PROJECT}}"
 
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree: shared
   promotion: merge
   publish:

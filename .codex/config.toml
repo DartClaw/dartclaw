@@ -1,14 +1,14 @@
 [mcp_servers.chrome-devtools]
-command = "npx"
 args = [
-  "chrome-devtools-mcp@latest",
-  "--headless",
-  "--isolated",
-  "--chromeArg=--no-sandbox",
-  "--chromeArg=--disable-setuid-sandbox",
-  "--chromeArg=--disable-dev-shm-usage",
+    "chrome-devtools-mcp@latest",
+    "--headless",
+    "--isolated",
+    "--chromeArg=--no-sandbox",
+    "--chromeArg=--disable-setuid-sandbox",
+    "--chromeArg=--disable-dev-shm-usage",
 ]
+command = "npx"
 
 [mcp_servers.dart]
-command = "dart"
 args = ["mcp-server"]
+command = "dart"

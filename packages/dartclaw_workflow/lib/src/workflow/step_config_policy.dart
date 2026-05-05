@@ -122,8 +122,8 @@ bool isPromotionAwareScope(
       effectivePromotion(strategy, resolvedWorktreeMode: resolvedWorktreeMode) != 'none';
 }
 
-/// Returns true when per-map-item git bootstrap is required.
-bool requiresPerMapItemBootstrap(
+/// Returns true when per-map-item git isolation is required.
+bool requiresPerMapItemGitIsolation(
   WorkflowDefinition definition,
   WorkflowContext context, {
   required WorkflowTemplateEngine templateEngine,
@@ -144,3 +144,10 @@ bool requiresPerMapItemBootstrap(
   }
   return false;
 }
+
+/// Legacy alias retained for callers using the previous name.
+bool requiresPerMapItemBootstrap(
+  WorkflowDefinition definition,
+  WorkflowContext context, {
+  required WorkflowTemplateEngine templateEngine,
+}) => requiresPerMapItemGitIsolation(definition, context, templateEngine: templateEngine);

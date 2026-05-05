@@ -93,7 +93,7 @@ void main() {
           WorkflowStep(id: 's', name: 'S', prompts: ['p']),
         ],
         gitStrategy: WorkflowGitStrategy(
-          bootstrap: true,
+          integrationBranch: true,
           worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
           promotion: 'merge',
           publish: WorkflowGitPublishStrategy(enabled: true),
@@ -103,7 +103,7 @@ void main() {
       expect(json.containsKey('gitStrategy'), true);
       final restored = WorkflowDefinition.fromJson(json);
       expect(restored.gitStrategy, isNotNull);
-      expect(restored.gitStrategy!.bootstrap, isTrue);
+      expect(restored.gitStrategy!.integrationBranch, isTrue);
       expect(restored.gitStrategy!.worktreeMode, 'shared');
       expect(restored.gitStrategy!.promotion, 'merge');
       expect(restored.gitStrategy!.publish?.enabled, isTrue);
@@ -119,12 +119,53 @@ void main() {
       expect(autoStrategy.effectiveWorktreeMode(maxParallel: null, isMap: true), 'per-map-item');
       expect(autoStrategy.effectiveWorktreeMode(maxParallel: null, isMap: false), 'inline');
       expect(
+        const WorkflowGitStrategy(
+          integrationBranch: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: 'auto'),
+        ).effectiveWorktreeMode(maxParallel: null, isMap: false),
+        'shared',
+        reason: 'integration-branch workflow-level steps should not switch the operator checkout',
+      );
+      expect(
         const WorkflowGitStrategy().effectiveWorktreeMode(maxParallel: 2, isMap: true),
         'per-map-item',
         reason: 'omitted worktree config should behave like auto',
       );
       expect(sharedStrategy.effectiveWorktreeMode(maxParallel: 3, isMap: true), 'shared');
       expect(perMapItemStrategy.effectiveWorktreeMode(maxParallel: 1, isMap: true), 'per-map-item');
+    });
+
+    test('legacy bootstrap key hydrates integrationBranch', () {
+      final strategy = WorkflowGitStrategy.fromJson({'bootstrap': true});
+      expect(strategy.integrationBranch, isTrue);
+      expect(strategy.legacyBootstrapKey, isTrue);
+      expect(strategy.toJson(), {'integrationBranch': true});
+    });
+
+    test('legacy bootstrap key must agree with integrationBranch in json', () {
+      expect(() => WorkflowGitStrategy.fromJson({'integrationBranch': false, 'bootstrap': true}), throwsArgumentError);
+    });
+
+    test('integrationBranch spellings must agree in json', () {
+      expect(
+        () => WorkflowGitStrategy.fromJson({'integrationBranch': true, 'integration_branch': false}),
+        throwsA(
+          isA<ArgumentError>()
+              .having(
+                (e) => e.message,
+                'message',
+                allOf(contains('gitStrategy.integrationBranch'), contains('gitStrategy.integration_branch')),
+              )
+              .having((e) => e.message, 'message', isNot(contains('gitStrategy.bootstrap'))),
+        ),
+      );
+    });
+
+    test('legacy bootstrap constructor value must agree with integrationBranch', () {
+      expect(
+        () => WorkflowGitStrategy(integrationBranch: false, bootstrap: true).integrationBranch,
+        throwsA(anyOf(isA<AssertionError>(), isA<StateError>())),
+      );
     });
   });
 

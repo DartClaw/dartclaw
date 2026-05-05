@@ -9,6 +9,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
     show
         EventBus,
         HarnessFactory,
+        MapIterationCompletedEvent,
+        Task,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowDefinition,
@@ -298,7 +300,7 @@ class WorkflowRunCommand extends Command<void> {
     }
 
     final completer = Completer<int>();
-    final startedSteps = <int, DateTime>{};
+    final startedSteps = <String, DateTime>{};
     var lastStatus = run.status;
     var lastError = run.errorMessage;
     var cancelRequested = false;
@@ -365,13 +367,16 @@ class WorkflowRunCommand extends Command<void> {
             }
             final step = definition.steps[stepIndex];
             final newStatus = event['newStatus']?.toString();
+            final displayScope = _eventDisplayScope(event);
+            final taskId = event['taskId']?.toString();
             if (newStatus == TaskStatus.running.name) {
-              startedSteps[stepIndex] = DateTime.now();
+              startedSteps[_progressStartKey(stepIndex: stepIndex, taskId: taskId, displayScope: displayScope)] =
+                  DateTime.now();
               if (!jsonOutput) {
-                printer.stepRunning(stepIndex, step.id, step.name, step.provider);
+                printer.stepRunning(stepIndex, step.id, step.name, step.provider, displayScope: displayScope);
               }
             } else if (newStatus == TaskStatus.review.name && !jsonOutput) {
-              printer.stepReview(stepIndex, step.id);
+              printer.stepReview(stepIndex, step.id, displayScope: displayScope);
             }
             break;
           case 'workflow_step_completed':
@@ -379,12 +384,41 @@ class WorkflowRunCommand extends Command<void> {
             final stepId = event['stepId']?.toString() ?? '';
             final success = event['success'] == true;
             final tokenCount = event['tokenCount'] as int? ?? 0;
-            final duration = startedSteps.remove(stepIndex)?.let(DateTime.now().difference) ?? Duration.zero;
+            final displayScope = _eventDisplayScope(event);
+            final taskId = event['taskId']?.toString();
+            final duration =
+                startedSteps
+                    .remove(_progressStartKey(stepIndex: stepIndex, taskId: taskId, displayScope: displayScope))
+                    ?.let(DateTime.now().difference) ??
+                Duration.zero;
             if (!jsonOutput) {
               if (success) {
-                printer.stepCompleted(stepIndex, stepId, duration, tokenCount);
+                printer.stepCompleted(stepIndex, stepId, duration, tokenCount, displayScope: displayScope);
               } else {
-                printer.stepFailed(stepIndex, stepId, null);
+                printer.stepFailed(stepIndex, stepId, null, displayScope: displayScope);
+              }
+            }
+            break;
+          case 'map_iteration_completed':
+            final stepId = event['stepId']?.toString();
+            if (stepId == null) break;
+            final stepIndex = definition.steps.indexWhere((step) => step.id == stepId);
+            final taskId = event['taskId']?.toString();
+            if (stepIndex < 0) break;
+            if (definition.steps[stepIndex].type == 'foreach' && (taskId?.trim().isNotEmpty ?? false)) break;
+            final success = event['success'] == true;
+            final tokenCount = event['tokenCount'] as int? ?? 0;
+            final displayScope = _eventDisplayScope(event);
+            final duration =
+                startedSteps
+                    .remove(_progressStartKey(stepIndex: stepIndex, taskId: taskId, displayScope: displayScope))
+                    ?.let(DateTime.now().difference) ??
+                Duration.zero;
+            if (!jsonOutput) {
+              if (success) {
+                printer.stepCompleted(stepIndex, stepId, duration, tokenCount, displayScope: displayScope);
+              } else {
+                printer.stepFailed(stepIndex, stepId, null, displayScope: displayScope);
               }
             }
             break;
@@ -466,7 +500,7 @@ class WorkflowRunCommand extends Command<void> {
   }) async {
     final runCompleter = Completer<WorkflowRun>();
     String? activeRunId;
-    final stepStartTimes = <int, DateTime>{};
+    final stepStartTimes = <String, DateTime>{};
     WorkflowApprovalRequestedEvent? lastApprovalEvent;
 
     final runSub = eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) {
@@ -515,7 +549,9 @@ class WorkflowRunCommand extends Command<void> {
 
     final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
       if (activeRunId != null && event.runId != activeRunId) return;
-      final startTime = stepStartTimes.remove(event.stepIndex);
+      final startTime = stepStartTimes.remove(
+        _progressStartKey(stepIndex: event.stepIndex, taskId: event.taskId, displayScope: event.displayScope),
+      );
       final duration = startTime != null ? DateTime.now().difference(startTime) : Duration.zero;
       if (jsonOutput) {
         _stdoutLine(
@@ -526,6 +562,7 @@ class WorkflowRunCommand extends Command<void> {
             'stepIndex': event.stepIndex,
             'totalSteps': event.totalSteps,
             'taskId': event.taskId,
+            if (event.displayScope != null) 'displayScope': event.displayScope,
             'success': event.success,
             'tokenCount': event.tokenCount,
             'durationMs': duration.inMilliseconds,
@@ -534,9 +571,50 @@ class WorkflowRunCommand extends Command<void> {
         return;
       }
       if (event.success) {
-        printer.stepCompleted(event.stepIndex, event.stepId, duration, event.tokenCount);
+        printer.stepCompleted(
+          event.stepIndex,
+          event.stepId,
+          duration,
+          event.tokenCount,
+          displayScope: event.displayScope,
+        );
       } else {
-        printer.stepFailed(event.stepIndex, event.stepId, null);
+        printer.stepFailed(event.stepIndex, event.stepId, null, displayScope: event.displayScope);
+      }
+    });
+
+    final mapIterationSub = eventBus.on<MapIterationCompletedEvent>().listen((event) {
+      if (activeRunId != null && event.runId != activeRunId) return;
+      final stepIndex = definition.steps.indexWhere((step) => step.id == event.stepId);
+      if (stepIndex < 0) return;
+      if (definition.steps[stepIndex].type == 'foreach' && event.taskId.trim().isNotEmpty) return;
+      final startTime = stepStartTimes.remove(
+        _progressStartKey(stepIndex: stepIndex, taskId: event.taskId, displayScope: event.itemId),
+      );
+      final duration = startTime != null ? DateTime.now().difference(startTime) : Duration.zero;
+      if (jsonOutput) {
+        _stdoutLine(
+          jsonEncode({
+            'type': 'map_iteration_completed',
+            'runId': event.runId,
+            'stepId': event.stepId,
+            'stepIndex': stepIndex,
+            'iterationIndex': event.iterationIndex,
+            'totalIterations': event.totalIterations,
+            if (event.itemId != null) 'itemId': event.itemId,
+            if (event.itemId != null) 'displayScope': event.itemId,
+            'taskId': event.taskId,
+            'success': event.success,
+            'tokenCount': event.tokenCount,
+            'durationMs': duration.inMilliseconds,
+          }),
+        );
+        return;
+      }
+      if (event.success) {
+        printer.stepCompleted(stepIndex, event.stepId, duration, event.tokenCount, displayScope: event.itemId);
+      } else {
+        printer.stepFailed(stepIndex, event.stepId, null, displayScope: event.itemId);
       }
     });
 
@@ -549,27 +627,37 @@ class WorkflowRunCommand extends Command<void> {
           final stepIndex = task.stepIndex;
           if (stepIndex == null) return;
           final stepId = definition.steps.length > stepIndex ? definition.steps[stepIndex].id : task.id;
+          final displayScope = _taskDisplayScope(task);
           if (event.newStatus == TaskStatus.running) {
-            stepStartTimes[stepIndex] = DateTime.now();
+            stepStartTimes[_progressStartKey(stepIndex: stepIndex, taskId: event.taskId, displayScope: displayScope)] =
+                DateTime.now();
           }
           if (jsonOutput) {
-            _stdoutLine(
-              jsonEncode({
-                'type': 'task_status_changed',
-                'runId': runId,
-                'taskId': event.taskId,
-                'stepIndex': stepIndex,
-                'stepId': stepId,
-                'oldStatus': event.oldStatus.name,
-                'newStatus': event.newStatus.name,
-              }),
-            );
+            final payload = {
+              'type': 'task_status_changed',
+              'runId': runId,
+              'taskId': event.taskId,
+              'stepIndex': stepIndex,
+              'stepId': stepId,
+              'oldStatus': event.oldStatus.name,
+              'newStatus': event.newStatus.name,
+            };
+            if (displayScope != null) {
+              payload['displayScope'] = displayScope;
+            }
+            _stdoutLine(jsonEncode(payload));
             return;
           }
           if (event.newStatus == TaskStatus.running) {
-            printer.stepRunning(stepIndex, stepId, task.title, task.provider ?? definition.steps[stepIndex].provider);
+            printer.stepRunning(
+              stepIndex,
+              stepId,
+              task.title,
+              task.provider ?? definition.steps[stepIndex].provider,
+              displayScope: displayScope,
+            );
           } else {
-            printer.stepReview(stepIndex, stepId);
+            printer.stepReview(stepIndex, stepId, displayScope: displayScope);
           }
         });
       }
@@ -643,6 +731,7 @@ class WorkflowRunCommand extends Command<void> {
     } finally {
       await runSub.cancel();
       await stepSub.cancel();
+      await mapIterationSub.cancel();
       await taskSub.cancel();
       await sigintSub.cancel();
       await approvalSub.cancel();
@@ -678,6 +767,32 @@ class WorkflowRunCommand extends Command<void> {
     }
     return variables;
   }
+}
+
+String? _eventDisplayScope(Map<String, dynamic> event) {
+  final scope = event['displayScope'] ?? event['itemId'];
+  if (scope is! String) return null;
+  final trimmed = scope.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+String? _taskDisplayScope(Task task) {
+  final scope = task.configJson['displayScope'];
+  if (scope is! String) return null;
+  final trimmed = scope.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+String _progressStartKey({required int stepIndex, String? taskId, String? displayScope}) {
+  final normalizedTaskId = taskId?.trim();
+  if (normalizedTaskId != null && normalizedTaskId.isNotEmpty) {
+    return 'task:$normalizedTaskId';
+  }
+  final normalizedScope = displayScope?.trim();
+  if (normalizedScope != null && normalizedScope.isNotEmpty) {
+    return 'step:$stepIndex:$normalizedScope';
+  }
+  return 'step:$stepIndex';
 }
 
 extension<T> on T {

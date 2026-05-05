@@ -12,16 +12,20 @@ class WorkflowTurnOutcome {
   const WorkflowTurnOutcome({required this.status});
 }
 
-/// Branch bootstrap result for workflow-owned git state.
-class WorkflowGitBootstrapResult {
+/// Result of creating or resolving workflow-owned integration branch state.
+class WorkflowGitIntegrationBranchResult {
   /// Feature/integration branch that map-item branches promote into.
   final String integrationBranch;
 
-  /// Optional human-readable note about bootstrap behavior.
+  /// Optional human-readable note about branch behavior.
   final String? note;
 
-  const WorkflowGitBootstrapResult({required this.integrationBranch, this.note});
+  const WorkflowGitIntegrationBranchResult({required this.integrationBranch, this.note});
 }
+
+/// Legacy alias retained for callers compiled against the old name.
+@Deprecated('Use WorkflowGitIntegrationBranchResult instead.')
+typedef WorkflowGitBootstrapResult = WorkflowGitIntegrationBranchResult;
 
 /// Result of promoting a story/task branch into the integration branch.
 sealed class WorkflowGitPromotionResult {
@@ -126,7 +130,17 @@ class WorkflowTurnAdapter {
     bool allowDirtyLocalPath,
   })?
   resolveStartContext;
-  final Future<WorkflowGitBootstrapResult> Function({
+  final Future<WorkflowGitIntegrationBranchResult> Function({
+    required String runId,
+    required String projectId,
+    required String baseRef,
+    required bool perMapItem,
+  })?
+  initializeWorkflowGit;
+
+  /// Legacy callback name retained for existing embeddings.
+  @Deprecated('Use initializeWorkflowGit instead.')
+  final Future<WorkflowGitIntegrationBranchResult> Function({
     required String runId,
     required String projectId,
     required String baseRef,
@@ -203,6 +217,7 @@ class WorkflowTurnAdapter {
     this.availableRunnerCount,
     this.workflowWorkspaceDir,
     this.resolveStartContext,
+    this.initializeWorkflowGit,
     this.bootstrapWorkflowGit,
     this.promoteWorkflowBranch,
     this.publishWorkflowBranch,

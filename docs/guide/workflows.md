@@ -521,7 +521,7 @@ Workflows can now own git promotion/publish semantics directly through `gitStrat
 
 ```yaml
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree:
     mode: auto             # or shared / per-task / per-map-item
     # optional — two-repo profiles only
@@ -540,9 +540,10 @@ gitStrategy:
 
 Key runtime behavior:
 
-- `bootstrap: true` initializes a workflow-owned integration branch from `BRANCH` (or project default branch).
+- `integrationBranch: true` creates a workflow-owned integration branch from `BRANCH` (or project default branch).
+- Existing workflow definitions that still use `bootstrap: true` continue to load as a deprecated alias, but new definitions should use `integrationBranch`.
 - Workflow-owned steps use task `reviewMode: auto-accept`; model human checkpoints with dedicated review or `approval` steps.
-- `worktree: auto` resolves to `per-map-item` only when the enclosing map/foreach actually runs with `max_parallel > 1`; otherwise it resolves to `inline`.
+- `worktree: auto` resolves to `per-map-item` for parallel map/foreach scopes, to `shared` for workflow-level steps when `integrationBranch: true`, and otherwise to `inline`.
 - Omitted `gitStrategy.promotion` is inferred from the resolved worktree mode: `merge` for per-map-item isolation, `none` for inline/shared execution.
 - `worktree: shared` reuses one workflow-owned coding worktree across serial coding phases.
 - `worktree: per-map-item` isolates mapped story implementation branches while enabling promotion into the integration branch.
@@ -584,7 +585,7 @@ When a `per-map-item` foreach runs multiple story branches in parallel, two stor
 
 ```yaml
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree:
     mode: per-map-item
   promotion: merge
@@ -984,7 +985,7 @@ Each container is documented in full in its own section above — [Parallel Step
 | `variables` | map | `{}` | Input variable declarations (see below) |
 | `steps` | list | required | Ordered step definitions |
 | `loops` | list | `[]` | Legacy loop definitions (supported for compatibility) |
-| `gitStrategy` | map | none | Workflow-owned git bootstrap, promotion, publish, and cleanup policy |
+| `gitStrategy` | map | none | Workflow-owned integration branch, promotion, publish, and cleanup policy |
 | `maxTokens` | int | none | Global per-workflow token budget |
 | `stepDefaults` | list | none | Default config entries applied by glob pattern |
 

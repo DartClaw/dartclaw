@@ -25,7 +25,7 @@ variables:
 project: "{{PROJECT}}"
 
 gitStrategy:
-  bootstrap: false
+  integrationBranch: false
   worktree: shared
   publish:
     enabled: false

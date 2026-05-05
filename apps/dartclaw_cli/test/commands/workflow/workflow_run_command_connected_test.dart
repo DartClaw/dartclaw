@@ -56,6 +56,130 @@ void main() {
       expect(transport.requests.last.uri.path, '/api/workflows/runs/run-1/events');
     });
 
+    test('connected text mode includes display scope from SSE events', () async {
+      final transport = _FakeTransport(
+        sendResponses: [_jsonResponse(201, _startedRunJson())],
+        streamResponses: [
+          ApiResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'text/event-stream'},
+            body: Stream.value(
+              utf8.encode(
+                'data: {"type":"task_status_changed","taskId":"task-1","stepIndex":0,"displayScope":"S01","oldStatus":"queued","newStatus":"running"}\n\n'
+                'data: {"type":"workflow_step_completed","runId":"run-1","stepId":"step-1","stepIndex":0,"totalSteps":1,"taskId":"task-1","displayScope":"S01","success":true,"tokenCount":12}\n\n'
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"completed"}\n\n',
+              ),
+            ),
+          ),
+        ],
+      );
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        stdoutLine: output.add,
+        exitFn: _fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'demo-workflow']),
+        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      expect(output, contains('[step 1/1] step-1[S01]: First step — running'));
+      expect(output, contains('[step 1/1] step-1[S01]: completed (0s, 12 tokens)'));
+    });
+
+    test('connected text mode renders direct map iteration completion with item id', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-workflow',
+        description: 'Map demo',
+        steps: const [
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Do {{map.item.id}}'], mapOver: 'stories'),
+        ],
+        variables: const {},
+      );
+      final transport = _FakeTransport(
+        sendResponses: [_jsonResponse(201, _startedRunJson(definition: definition))],
+        streamResponses: [
+          ApiResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'text/event-stream'},
+            body: Stream.value(
+              utf8.encode(
+                'data: {"type":"task_status_changed","taskId":"task-1","stepIndex":0,"displayScope":"S01","oldStatus":"queued","newStatus":"running"}\n\n'
+                'data: {"type":"map_iteration_completed","runId":"run-1","stepId":"implement","iterationIndex":0,"totalIterations":1,"itemId":"S01","taskId":"task-1","success":true,"tokenCount":42}\n\n'
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"completed"}\n\n',
+              ),
+            ),
+          ),
+        ],
+      );
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        stdoutLine: output.add,
+        exitFn: _fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'map-workflow']),
+        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      expect(output, contains('[step 1/1] implement[S01]: Implement — running'));
+      expect(output, contains('[step 1/1] implement[S01]: completed (0s, 42 tokens)'));
+    });
+
+    test('connected text mode renders taskless foreach iteration cancellation with item id', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-workflow',
+        description: 'Foreach demo',
+        steps: const [
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            type: 'foreach',
+            prompts: [],
+            mapOver: 'stories',
+            foreachSteps: ['implement'],
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Do {{map.item.id}}']),
+        ],
+        variables: const {},
+      );
+      final transport = _FakeTransport(
+        sendResponses: [_jsonResponse(201, _startedRunJson(definition: definition))],
+        streamResponses: [
+          ApiResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'text/event-stream'},
+            body: Stream.value(
+              utf8.encode(
+                'data: {"type":"map_iteration_completed","runId":"run-1","stepId":"story-pipeline","iterationIndex":1,"totalIterations":2,"itemId":"S02","taskId":"","success":false,"tokenCount":0}\n\n'
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"completed"}\n\n',
+              ),
+            ),
+          ),
+        ],
+      );
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        stdoutLine: output.add,
+        exitFn: _fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'foreach-workflow']),
+        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      expect(output, contains('[step 1/2] story-pipeline[S02]: failed'));
+    });
+
     test('standalone mode aborts when a server is reachable without --force', () async {
       final transport = _FakeTransport(
         sendResponses: [
@@ -154,19 +278,21 @@ void main() {
   });
 }
 
-Map<String, dynamic> _startedRunJson() {
-  final definition = WorkflowDefinition(
-    name: 'demo-workflow',
-    description: 'Demo',
-    steps: const [
-      WorkflowStep(id: 'step-1', name: 'First step', prompts: ['Do the work']),
-    ],
-    variables: const {},
-  );
+Map<String, dynamic> _startedRunJson({WorkflowDefinition? definition}) {
+  final resolvedDefinition =
+      definition ??
+      WorkflowDefinition(
+        name: 'demo-workflow',
+        description: 'Demo',
+        steps: const [
+          WorkflowStep(id: 'step-1', name: 'First step', prompts: ['Do the work']),
+        ],
+        variables: const {},
+      );
   final now = DateTime.utc(2026, 1, 1, 12).toIso8601String();
   return {
     'id': 'run-1',
-    'definitionName': definition.name,
+    'definitionName': resolvedDefinition.name,
     'status': 'running',
     'contextJson': <String, dynamic>{},
     'variablesJson': <String, String>{},
@@ -174,7 +300,7 @@ Map<String, dynamic> _startedRunJson() {
     'updatedAt': now,
     'totalTokens': 0,
     'currentStepIndex': 0,
-    'definitionJson': definition.toJson(),
+    'definitionJson': resolvedDefinition.toJson(),
   };
 }
 

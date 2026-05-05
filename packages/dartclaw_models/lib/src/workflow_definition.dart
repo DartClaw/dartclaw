@@ -1030,8 +1030,23 @@ class WorkflowGitWorktreeStrategy {
 /// This shape is intentionally declarative for S16b. Runtime enforcement is
 /// owned by later milestones.
 class WorkflowGitStrategy {
-  /// Whether workflow startup should bootstrap a workflow-owned feature branch.
-  final bool? bootstrap;
+  final bool? _integrationBranch;
+
+  final bool? _bootstrap;
+
+  /// Whether workflow startup should create a workflow-owned integration branch.
+  bool? get integrationBranch {
+    final integrationBranch = _integrationBranch;
+    final bootstrap = _bootstrap;
+    if (integrationBranch != null && bootstrap != null && integrationBranch != bootstrap) {
+      throw StateError('integrationBranch and bootstrap must not disagree.');
+    }
+    return integrationBranch ?? bootstrap;
+  }
+
+  /// Legacy alias for workflow definitions that still use `bootstrap:`.
+  @Deprecated('Use integrationBranch instead.')
+  bool? get bootstrap => integrationBranch;
 
   /// Worktree strategy (`shared`, `per-task`, `per-map-item`, `inline`,
   /// `auto`) plus nested worktree-only settings.
@@ -1054,6 +1069,11 @@ class WorkflowGitStrategy {
   /// at the deprecated flat level. Parser-only metadata so the validator can
   /// emit a migration hint while still hydrating the nested runtime surface.
   final bool legacyExternalArtifactMountLocation;
+
+  /// True when the definition authored deprecated `gitStrategy.bootstrap`.
+  /// Parser-only metadata so the validator can emit a migration hint while
+  /// the runtime uses the normalized [integrationBranch] surface.
+  final bool legacyBootstrapKey;
 
   /// Nullable backing field — null when `merge_resolve:` is absent from YAML
   /// so [toJson] omits the key for pre-feature definitions.
@@ -1078,10 +1098,12 @@ class WorkflowGitStrategy {
   /// Resolves the authored worktree mode to the runtime mode for a specific
   /// scope. Omitted worktree config is treated as `auto`.
   ///
-  /// `auto` resolves to `per-map-item` only for map/foreach scopes whose
-  /// effective `maxParallel` is greater than 1. Runtime callers also pass
-  /// `null` for the `"unlimited"` path, which is treated as parallel fan-out.
-  /// All other `auto` cases resolve to `inline`.
+  /// `auto` resolves to `per-map-item` for map/foreach scopes whose effective
+  /// `maxParallel` is greater than 1. Runtime callers also pass `null` for
+  /// the `"unlimited"` path, which is treated as parallel fan-out.
+  /// Integration-branch workflows resolve non-map scopes to `shared` so the
+  /// workflow-owned branch stays out of the operator's live checkout.
+  /// Remaining `auto` cases resolve to `inline`.
   String effectiveWorktreeMode({required int? maxParallel, required bool isMap}) {
     final authored = worktreeMode?.trim();
     if (authored == null || authored.isEmpty || authored == 'auto') {
@@ -1089,24 +1111,38 @@ class WorkflowGitStrategy {
         return 'per-map-item';
       }
       final effectiveMaxParallel = maxParallel ?? 1;
-      return isMap && effectiveMaxParallel > 1 ? 'per-map-item' : 'inline';
+      if (isMap && effectiveMaxParallel > 1) {
+        return 'per-map-item';
+      }
+      if (!isMap && integrationBranch == true) {
+        return 'shared';
+      }
+      return 'inline';
     }
     return authored;
   }
 
   const WorkflowGitStrategy({
-    this.bootstrap,
+    bool? integrationBranch,
+    @Deprecated('Use integrationBranch instead.') bool? bootstrap,
     this.worktree,
     this.promotion,
     this.publish,
     this.cleanup,
     this.artifacts,
     this.legacyExternalArtifactMountLocation = false,
+    this.legacyBootstrapKey = false,
     MergeResolveConfig? mergeResolve,
-  }) : _mergeResolve = mergeResolve;
+  }) : assert(
+         integrationBranch == null || bootstrap == null || integrationBranch == bootstrap,
+         'integrationBranch and bootstrap must not disagree.',
+       ),
+       _integrationBranch = integrationBranch,
+       _bootstrap = bootstrap,
+       _mergeResolve = mergeResolve;
 
   Map<String, dynamic> toJson() => {
-    if (bootstrap != null) 'bootstrap': bootstrap,
+    if (integrationBranch != null) 'integrationBranch': integrationBranch,
     if (worktree != null) 'worktree': worktree!.toJsonValue(),
     if (promotion != null) 'promotion': promotion,
     if (publish != null) 'publish': publish!.toJson(),
@@ -1115,35 +1151,70 @@ class WorkflowGitStrategy {
     if (_mergeResolve != null) 'merge_resolve': _mergeResolve.toJson(),
   };
 
-  factory WorkflowGitStrategy.fromJson(Map<String, dynamic> json) => WorkflowGitStrategy(
-    bootstrap: json['bootstrap'] as bool?,
-    worktree: switch (json['worktree']) {
-      null => null,
-      final value => WorkflowGitWorktreeStrategy.fromJson(value),
-    },
-    promotion: json['promotion'] as String?,
-    publish: switch (json['publish']) {
-      Map<String, dynamic> publish => WorkflowGitPublishStrategy.fromJson(publish),
-      Map<Object?, Object?> publish => WorkflowGitPublishStrategy.fromJson(Map<String, dynamic>.from(publish)),
-      _ => null,
-    },
-    cleanup: switch (json['cleanup']) {
-      Map<String, dynamic> cleanup => WorkflowGitCleanupStrategy.fromJson(cleanup),
-      Map<Object?, Object?> cleanup => WorkflowGitCleanupStrategy.fromJson(Map<String, dynamic>.from(cleanup)),
-      _ => null,
-    },
-    artifacts: switch (json['artifacts']) {
-      Map<String, dynamic> artifacts => WorkflowGitArtifactsStrategy.fromJson(artifacts),
-      Map<Object?, Object?> artifacts => WorkflowGitArtifactsStrategy.fromJson(Map<String, dynamic>.from(artifacts)),
-      _ => null,
-    },
-    legacyExternalArtifactMountLocation: json['legacyExternalArtifactMountLocation'] == true,
-    mergeResolve: switch (json['merge_resolve']) {
-      null => null,
-      final value => MergeResolveConfig.fromJson(value),
-    },
-  );
+  factory WorkflowGitStrategy.fromJson(Map<String, dynamic> json) {
+    final integrationBranchRaw = _resolveIntegrationBranchJsonValue(
+      json,
+      error: (message) => ArgumentError.value(json, 'json', message),
+    );
+    final bootstrapRaw = json['bootstrap'];
+
+    return WorkflowGitStrategy(
+      integrationBranch: integrationBranchRaw,
+      bootstrap: bootstrapRaw as bool?,
+      worktree: switch (json['worktree']) {
+        null => null,
+        final value => WorkflowGitWorktreeStrategy.fromJson(value),
+      },
+      promotion: json['promotion'] as String?,
+      publish: switch (json['publish']) {
+        Map<String, dynamic> publish => WorkflowGitPublishStrategy.fromJson(publish),
+        Map<Object?, Object?> publish => WorkflowGitPublishStrategy.fromJson(Map<String, dynamic>.from(publish)),
+        _ => null,
+      },
+      cleanup: switch (json['cleanup']) {
+        Map<String, dynamic> cleanup => WorkflowGitCleanupStrategy.fromJson(cleanup),
+        Map<Object?, Object?> cleanup => WorkflowGitCleanupStrategy.fromJson(Map<String, dynamic>.from(cleanup)),
+        _ => null,
+      },
+      artifacts: switch (json['artifacts']) {
+        Map<String, dynamic> artifacts => WorkflowGitArtifactsStrategy.fromJson(artifacts),
+        Map<Object?, Object?> artifacts => WorkflowGitArtifactsStrategy.fromJson(Map<String, dynamic>.from(artifacts)),
+        _ => null,
+      },
+      legacyExternalArtifactMountLocation: json['legacyExternalArtifactMountLocation'] == true,
+      legacyBootstrapKey: json.containsKey('bootstrap'),
+      mergeResolve: switch (json['merge_resolve']) {
+        null => null,
+        final value => MergeResolveConfig.fromJson(value),
+      },
+    );
+  }
 }
+
+bool? _resolveIntegrationBranchJsonValue(Map<String, dynamic> json, {required Object Function(String message) error}) {
+  final values = <String, bool>{};
+  for (final entry in const {
+    'integrationBranch': 'gitStrategy.integrationBranch',
+    'integration_branch': 'gitStrategy.integration_branch',
+    'bootstrap': 'gitStrategy.bootstrap',
+  }.entries) {
+    final value = json[entry.key];
+    if (value == null) continue;
+    if (value is! bool) {
+      throw error('${entry.value} must be a boolean.');
+    }
+    values[entry.value] = value;
+  }
+
+  if (values.isEmpty) return null;
+  final distinct = values.values.toSet();
+  if (distinct.length > 1) {
+    throw error('Fields ${_quotedFieldList(values.keys)} must not disagree.');
+  }
+  return distinct.single;
+}
+
+String _quotedFieldList(Iterable<String> fields) => fields.map((field) => '"$field"').join(', ');
 
 /// A workflow definition parsed from a YAML file.
 ///

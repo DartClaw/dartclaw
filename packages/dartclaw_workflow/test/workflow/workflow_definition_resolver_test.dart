@@ -101,7 +101,7 @@ void main() {
             maxParallel: 2,
           ),
         ],
-        gitStrategy: WorkflowGitStrategy(bootstrap: true, worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        gitStrategy: WorkflowGitStrategy(integrationBranch: true, worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
       );
 
       final yaml = resolver.emitYaml(resolver.resolve(def));

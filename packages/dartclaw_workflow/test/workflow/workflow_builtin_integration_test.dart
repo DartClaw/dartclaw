@@ -21,7 +21,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowExecutor,
-        WorkflowGitBootstrapResult,
+        WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
@@ -376,9 +376,9 @@ void main() {
               reserveTurn: (_) => Future.value('turn-1'),
               executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
               waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-              bootstrapWorkflowGit:
+              initializeWorkflowGit:
                   ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                      WorkflowGitBootstrapResult(
+                      WorkflowGitIntegrationBranchResult(
                         integrationBranch: perMapItem ? 'dartclaw/integration/$runId' : 'dartclaw/shared/$runId',
                       ),
               promoteWorkflowBranch:
@@ -935,10 +935,10 @@ void main() {
         reserveTurn: (_) async => 'turn-1',
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
         waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
           workflowBranch = 'workflow/$runId';
           runGit(['checkout', '-b', workflowBranch!, baseRef]);
-          return WorkflowGitBootstrapResult(integrationBranch: workflowBranch!);
+          return WorkflowGitIntegrationBranchResult(integrationBranch: workflowBranch!);
         },
         promoteWorkflowBranch:
             ({

@@ -11,7 +11,7 @@ variables:
     description: Project ID for worktree isolation
   BRANCH:
     required: false
-    description: Base branch/ref used for workflow bootstrap and comparisons
+    description: Base branch/ref used for workflow integration-branch creation and comparisons
     default: ""
   MAX_PARALLEL:
     required: false
@@ -21,7 +21,7 @@ variables:
 project: "{{PROJECT}}"
 
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree: auto
   promotion: merge
   publish:
@@ -167,6 +167,9 @@ steps:
     type: foreach
     map_over: story_specs
     max_parallel: "{{MAX_PARALLEL}}"
+    # Story failures are captured in story_results and reviewed later; they
+    # should not stop independent stories from running.
+    onFailure: continue
     # The foreach controller emits a single aggregate list under this name.
     outputs:
       story_results:
@@ -180,8 +183,9 @@ steps:
         skill: dartclaw-exec-spec
         # Transient Codex CLI exits (exit code 1 with only `thread.started`
         # on stdout, typically under memory pressure with parallel runners)
-        # have been observed mid-turn. Retry once before failing the story.
-        onFailure: retry
+        # have been observed mid-turn. Task-level retry stays enabled via
+        # maxRetries; explicit failed step outcomes are story results, not
+        # transient transport crashes.
         maxRetries: 1
         prompt: "--auto {{map.item.spec_path}}"
         inputs: [project_index, story_specs]
@@ -203,9 +207,7 @@ steps:
         model: "@executor"
         continueSession: true
         # Same transient-crash mitigation as `implement`; a dropped Codex
-        # process on the review turn shouldn't fail the story when a retry
-        # would succeed.
-        onFailure: retry
+        # process on the review turn gets one task-level retry.
         maxRetries: 1
         prompt: "--fix --auto"
         inputs: [project_index, story_result]

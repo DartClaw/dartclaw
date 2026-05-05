@@ -64,6 +64,9 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
   /// Identifier of the child task that executed the step.
   final String taskId;
 
+  /// Optional short label that scopes repeated step executions.
+  final String? displayScope;
+
   /// Whether the step completed successfully.
   final bool success;
 
@@ -80,6 +83,7 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
     required this.stepIndex,
     required this.totalSteps,
     required this.taskId,
+    this.displayScope,
     required this.success,
     required this.tokenCount,
     required this.timestamp,
@@ -88,7 +92,8 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
   @override
   String toString() =>
       'WorkflowStepCompletedEvent(run: $runId, step: $stepId [$stepIndex/$totalSteps], '
-      'task: $taskId, success: $success, tokens: $tokenCount)';
+      'task: $taskId${displayScope != null ? ', scope: $displayScope' : ''}, '
+      'success: $success, tokens: $tokenCount)';
 }
 
 /// Fired when a workflow-owned one-shot CLI provider finishes a turn.

@@ -100,7 +100,7 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
   final definition = policy.definition;
   final step = policy.step;
   if ((step.id == 'discover-project' || step.skill == 'dartclaw-discover-project') &&
-      !step_config_policy.requiresPerMapItemBootstrap(
+      !step_config_policy.requiresPerMapItemGitIsolation(
         definition,
         policy.context,
         templateEngine: policy.templateEngine,
@@ -295,7 +295,7 @@ Future<List<String>> _pathsMissingAtHead(WorkflowGitPort git, String projectDir,
 /// from inheriting artifacts through the workflow branch.
 bool artifactCommitFailureIsFatal(ArtifactCommitPolicy policy) {
   if (policy.definition.gitStrategy?.artifacts?.commit != true) return false;
-  return step_config_policy.requiresPerMapItemBootstrap(
+  return step_config_policy.requiresPerMapItemGitIsolation(
     policy.definition,
     policy.context,
     templateEngine: policy.templateEngine,

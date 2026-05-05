@@ -17,7 +17,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRoleDefaults,
         WorkflowSource,
         WorkflowService,
-        WorkflowGitBootstrapResult,
+        WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionError,
         WorkflowGitPromotionSuccess,
@@ -495,7 +495,7 @@ class ServiceWiring {
             branch: declaresBranch ? effectiveBranch : null,
           );
         },
-        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
           final resolvedProject = await project.projectService.get(projectId);
           if (resolvedProject == null) {
             throw ArgumentError('Project "$projectId" not found');
@@ -513,7 +513,7 @@ class ServiceWiring {
             baseRef: effectiveBaseRef,
             remoteBacked: resolvedProject.remoteUrl.isNotEmpty,
           );
-          return WorkflowGitBootstrapResult(integrationBranch: integrationBranch);
+          return WorkflowGitIntegrationBranchResult(integrationBranch: integrationBranch);
         },
         promoteWorkflowBranch:
             ({

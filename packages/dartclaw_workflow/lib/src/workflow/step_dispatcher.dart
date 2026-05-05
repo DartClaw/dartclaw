@@ -88,7 +88,11 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         : _resolveProjectId(definition, continuedRootStep ?? step, context, resolved: resolved);
 
     if (mapCtx != null) {
+      final displayScope = _mapItemDisplayScope(mapCtx);
       taskConfig = {...taskConfig, '_mapIterationIndex': mapCtx.index, '_mapIterationTotal': mapCtx.length};
+      if (displayScope != null) {
+        taskConfig = {...taskConfig, 'displayScope': displayScope};
+      }
       final requiredInputPath = _mapItemSpecPath(mapCtx);
       if (requiredInputPath != null) {
         taskConfig = {...taskConfig, 'requiredInputPath': requiredInputPath};

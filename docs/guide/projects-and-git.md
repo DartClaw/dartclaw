@@ -243,7 +243,7 @@ Workflow runs with `gitStrategy.publish.enabled: true` now publish deterministic
 
 For project-backed workflows:
 
-- Bootstrap can create a workflow integration branch from `BRANCH` (or the project default branch).
+- `gitStrategy.integrationBranch` can create a workflow integration branch from `BRANCH` (or the project default branch).
 - Mapped story branches can be promoted into that integration branch through runtime-controlled merge operations.
 - Dependency-aware map execution blocks dependent stories until prerequisite promotion succeeds.
 - Publish pushes the workflow branch and optionally creates a PR (`pr.strategy: github-pr`), writing machine-readable workflow outputs:

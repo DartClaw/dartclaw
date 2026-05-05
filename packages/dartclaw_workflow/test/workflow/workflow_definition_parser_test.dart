@@ -132,7 +132,7 @@ name: git-strategy-workflow
 description: Workflow with reusable git strategy
 project: "{{PROJECT}}"
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree:
     mode: shared
   promotion: merge
@@ -148,7 +148,7 @@ const _autoWorktreeYaml = '''
 name: auto-worktree-workflow
 description: Workflow with auto worktree mode
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree: auto
 steps:
   - id: stories
@@ -380,11 +380,56 @@ steps:
       expect(
         definition.toJson()['gitStrategy'],
         equals({
-          'bootstrap': true,
+          'integrationBranch': true,
           'worktree': 'shared',
           'promotion': 'merge',
           'publish': {'enabled': true},
         }),
+      );
+    });
+
+    test('parses deprecated gitStrategy.bootstrap as integrationBranch', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  bootstrap: true
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+
+      final definition = parser.parse(yaml);
+      expect(definition.gitStrategy?.integrationBranch, isTrue);
+      expect(definition.gitStrategy?.legacyBootstrapKey, isTrue);
+      expect(definition.toJson()['gitStrategy'], {'integrationBranch': true, 'worktree': null});
+    });
+
+    test('rejects conflicting gitStrategy.integrationBranch spellings', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  integrationBranch: true
+  integration_branch: false
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+
+      expect(
+        () => parser.parse(yaml),
+        throwsA(
+          isA<FormatException>()
+              .having(
+                (e) => e.message,
+                'message',
+                allOf(contains('gitStrategy.integrationBranch'), contains('gitStrategy.integration_branch')),
+              )
+              .having((e) => e.message, 'message', isNot(contains('gitStrategy.bootstrap'))),
+        ),
       );
     });
 
@@ -393,7 +438,7 @@ steps:
 name: wf
 description: d
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   finalReview: true
 steps:
   - id: s
@@ -411,7 +456,7 @@ steps:
 name: wf
 description: d
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   cleanup:
     enabled: false
 steps:
@@ -464,7 +509,7 @@ steps:
 name: wf
 description: d
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
 steps:
   - id: s
     name: S
@@ -2498,7 +2543,7 @@ steps:
 name: with-artifacts
 description: artifact block
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree:
     mode: per-map-item
     externalArtifactMount:

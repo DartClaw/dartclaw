@@ -833,7 +833,7 @@ steps:
           WorkflowStep(id: 's', name: 'S', prompts: ['p']),
         ],
         gitStrategy: const WorkflowGitStrategy(
-          bootstrap: true,
+          integrationBranch: true,
           worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
           promotion: 'merge',
           publish: WorkflowGitPublishStrategy(enabled: true),
@@ -842,7 +842,7 @@ steps:
       expect(validator.validate(def).errors, isEmpty);
     });
 
-    test('bootstrap workflows warn when BRANCH defaults to main', () {
+    test('integration branch workflows warn when BRANCH defaults to main', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
@@ -850,14 +850,31 @@ steps:
         steps: const [
           WorkflowStep(id: 's', name: 'S', prompts: ['p']),
         ],
-        gitStrategy: const WorkflowGitStrategy(bootstrap: true),
+        gitStrategy: const WorkflowGitStrategy(integrationBranch: true),
       );
 
       final report = validator.validate(def);
       expect(report.errors, isEmpty);
       expect(report.warnings, hasLength(1));
       expect(report.warnings.single.message, contains('variables.BRANCH.default: "main"'));
-      expect(report.warnings.single.message, contains('gitStrategy.bootstrap: true'));
+      expect(report.warnings.single.message, contains('gitStrategy.integrationBranch: true'));
+    });
+
+    test('legacy bootstrap key emits migration warning', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+        gitStrategy: const WorkflowGitStrategy(integrationBranch: true, legacyBootstrapKey: true),
+      );
+
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
+      expect(report.warnings, hasLength(1));
+      expect(report.warnings.single.message, contains('gitStrategy.bootstrap is deprecated'));
+      expect(report.warnings.single.message, contains('gitStrategy.integrationBranch'));
     });
 
     test('invalid gitStrategy enum-like values produce validation errors', () {

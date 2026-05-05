@@ -551,13 +551,30 @@ class WorkflowExecutor {
           if (!foreachResult.success) {
             final msg = foreachResult.error ?? "Foreach step '${foreachStep.id}' failed";
             _log.info("Workflow '${run.id}': $msg");
+            context['${foreachStep.id}.status'] = 'failed';
+            context['step.${foreachStep.id}.outcome'] = 'failed';
+            context['step.${foreachStep.id}.outcome.reason'] = msg;
             final refreshedRun = await _repository.getById(run.id) ?? run;
             final keepCursor =
                 foreachResult.error?.startsWith('promotion-conflict') == true ||
                 foreachResult.results.any((result) => result == null);
+            final hasCompleteItemResults =
+                foreachResult.results.isNotEmpty && !foreachResult.results.any((result) => result == null);
+            final isControllerFailure = foreachResult.error?.startsWith('foreach-controller-failure:') == true;
+            final isPromotionFailure = foreachResult.error?.startsWith('promotion-') == true;
+            final continueAfterFailure =
+                foreachStep.onFailure == OnFailurePolicy.continueWorkflow &&
+                hasCompleteItemResults &&
+                !isControllerFailure &&
+                !isPromotionFailure;
             run = refreshedRun.copyWith(
               totalTokens: refreshedRun.totalTokens + foreachResult.totalTokens,
-              executionCursor: keepCursor ? refreshedRun.executionCursor : null,
+              currentStepIndex: continueAfterFailure ? foreachStepIndex + 1 : refreshedRun.currentStepIndex,
+              executionCursor: continueAfterFailure
+                  ? null
+                  : keepCursor
+                  ? refreshedRun.executionCursor
+                  : null,
               contextJson: {
                 for (final e in refreshedRun.contextJson.entries)
                   if (e.key.startsWith('_') && !e.key.startsWith('_foreach.current')) e.key: e.value,
@@ -567,6 +584,23 @@ class WorkflowExecutor {
             );
             await _persistContext(run.id, context);
             await _repository.update(run);
+            _eventBus.fire(
+              WorkflowStepCompletedEvent(
+                runId: run.id,
+                stepId: foreachStep.id,
+                stepName: foreachStep.name,
+                stepIndex: foreachStepIndex,
+                totalSteps: totalSteps,
+                taskId: '',
+                success: false,
+                tokenCount: foreachResult.totalTokens,
+                timestamp: DateTime.now(),
+              ),
+            );
+            if (continueAfterFailure) {
+              nodeIndex++;
+              continue;
+            }
             await _failRun(run, msg);
             return;
           }

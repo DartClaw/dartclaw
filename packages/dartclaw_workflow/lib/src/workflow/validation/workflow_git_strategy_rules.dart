@@ -101,6 +101,15 @@ extension _WorkflowGitStrategyRules on WorkflowDefinitionValidator {
       );
     }
 
+    if (strategy.legacyBootstrapKey) {
+      warnings.add(
+        ValidationError(
+          message: 'gitStrategy.bootstrap is deprecated; use gitStrategy.integrationBranch instead.',
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
+    }
+
     final mount = strategy.externalArtifactMount;
     if (mount != null) {
       const allowedModes = {'per-story-copy', 'bind-mount'};
@@ -149,12 +158,12 @@ extension _WorkflowGitStrategyRules on WorkflowDefinitionValidator {
     }
 
     final branchDefault = definition.variables['BRANCH']?.defaultValue?.trim();
-    if (strategy.bootstrap == true && branchDefault == 'main') {
+    if (strategy.integrationBranch == true && branchDefault == 'main') {
       warnings.add(
         ValidationError(
           message:
-              'variables.BRANCH.default: "main" with gitStrategy.bootstrap: true '
-              'hardcodes workflow bootstrap to main for local-path projects. '
+              'variables.BRANCH.default: "main" with gitStrategy.integrationBranch: true '
+              'hardcodes workflow branch creation to main for local-path projects. '
               'Prefer leaving BRANCH empty and letting workflow start resolve '
               'the effective base ref from the project.',
           type: ValidationErrorType.invalidReference,

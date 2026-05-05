@@ -141,7 +141,7 @@ Map<String, dynamic> buildStepConfig(
     config['_baseRef'] = branch;
   }
   final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
-  if (integrationBranch != null && integrationBranch.isNotEmpty && definition.gitStrategy?.bootstrap == true) {
+  if (integrationBranch != null && integrationBranch.isNotEmpty && definition.gitStrategy?.integrationBranch == true) {
     config['_baseRef'] = integrationBranch;
   }
   final strategy = definition.gitStrategy;
@@ -149,7 +149,7 @@ Map<String, dynamic> buildStepConfig(
     config['_workflowGit'] = {
       'runId': run.id,
       'worktree': resolvedWorktreeMode,
-      'bootstrap': strategy.bootstrap,
+      'integrationBranch': strategy.integrationBranch,
       'promotion': effectivePromotion,
     };
   }

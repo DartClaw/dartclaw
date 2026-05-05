@@ -6,7 +6,7 @@ import 'workflow_turn_adapter.dart';
 
 final _log = Logger('WorkflowGitLifecycle');
 
-/// Bootstraps workflow-owned git state when configured.
+/// Initializes workflow-owned git state when configured.
 Future<String?> initializeWorkflowGit({
   required WorkflowRun run,
   required WorkflowDefinition definition,
@@ -15,23 +15,23 @@ Future<String?> initializeWorkflowGit({
   required dynamic repository,
   required Future<void> Function(String runId, WorkflowContext context) persistContext,
   required String? Function(WorkflowRun run, WorkflowContext context) workflowProjectId,
-  required bool Function(WorkflowDefinition definition, WorkflowContext context) requiresPerMapItemBootstrap,
+  required bool Function(WorkflowDefinition definition, WorkflowContext context) requiresPerMapItemGitIsolation,
 }) async {
   final strategy = definition.gitStrategy;
-  if (strategy == null || strategy.bootstrap != true) return null;
-  final bootstrap = turnAdapter?.bootstrapWorkflowGit;
-  if (bootstrap == null) return null;
+  if (strategy == null || strategy.integrationBranch != true) return null;
+  final initializeGit = turnAdapter?.initializeWorkflowGit ?? turnAdapter?.bootstrapWorkflowGit;
+  if (initializeGit == null) return null;
 
   final projectId = workflowProjectId(run, context);
   if (projectId == null || projectId.isEmpty) return null;
   final baseRef = (context.variables['BRANCH']?.trim().isNotEmpty ?? false) ? context.variables['BRANCH']!.trim() : '';
 
   try {
-    final result = await bootstrap(
+    final result = await initializeGit(
       runId: run.id,
       projectId: projectId,
       baseRef: baseRef,
-      perMapItem: requiresPerMapItemBootstrap(definition, context),
+      perMapItem: requiresPerMapItemGitIsolation(definition, context),
     );
     context['_workflow.git.integration_branch'] = result.integrationBranch;
     if (result.note != null && result.note!.isNotEmpty) {
@@ -51,7 +51,7 @@ Future<String?> initializeWorkflowGit({
     );
     return null;
   } catch (e) {
-    return 'workflow git bootstrap failed: $e';
+    return 'workflow git initialization failed: $e';
   }
 }
 

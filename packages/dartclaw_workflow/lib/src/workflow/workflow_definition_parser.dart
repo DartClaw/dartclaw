@@ -729,18 +729,50 @@ class WorkflowDefinitionParser {
       worktree = WorkflowGitWorktreeStrategy(mode: worktree.mode, externalArtifactMount: flatMount);
     }
 
+    final integrationBranchRaw = _resolveIntegrationBranchYamlValue(raw, sourcePath);
+    final bootstrapRaw = raw['bootstrap'];
+
     final rawMergeResolve = raw['merge_resolve'] ?? raw['mergeResolve'];
     return WorkflowGitStrategy(
-      bootstrap: raw['bootstrap'] as bool?,
+      integrationBranch: integrationBranchRaw,
+      // Intentional legacy YAML hydration path.
+      // ignore: deprecated_member_use
+      bootstrap: bootstrapRaw as bool?,
       worktree: worktree,
       promotion: raw['promotion'] as String?,
       publish: publish,
       cleanup: cleanup,
       artifacts: artifacts,
       legacyExternalArtifactMountLocation: legacyExternalArtifactMountLocation,
+      legacyBootstrapKey: raw.containsKey('bootstrap'),
       mergeResolve: rawMergeResolve != null ? MergeResolveConfig.fromJson(rawMergeResolve) : null,
     );
   }
+
+  bool? _resolveIntegrationBranchYamlValue(YamlMap raw, String? sourcePath) {
+    final values = <String, bool>{};
+    for (final entry in const {
+      'integrationBranch': 'gitStrategy.integrationBranch',
+      'integration_branch': 'gitStrategy.integration_branch',
+      'bootstrap': 'gitStrategy.bootstrap',
+    }.entries) {
+      final value = raw[entry.key];
+      if (value == null) continue;
+      if (value is! bool) {
+        throw FormatException('Field "${entry.value}" must be a boolean${_at(sourcePath)}.');
+      }
+      values[entry.value] = value;
+    }
+
+    if (values.isEmpty) return null;
+    final distinct = values.values.toSet();
+    if (distinct.length > 1) {
+      throw FormatException('Fields ${_quotedFieldList(values.keys)} must not disagree${_at(sourcePath)}.');
+    }
+    return distinct.single;
+  }
+
+  String _quotedFieldList(Iterable<String> fields) => fields.map((field) => '"$field"').join(', ');
 
   WorkflowGitExternalArtifactMount? _parseExternalArtifactMount(Object? raw, String? sourcePath, String fieldPath) {
     if (raw == null) return null;

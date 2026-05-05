@@ -154,6 +154,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     var totalTokens = 0;
     // Drain-failure message is set by the drain path; when non-null, abort loop.
     String? drainFailureMessage;
+    String? controllerFailureMessage;
     int? pendingSerializeRemainingIteration() {
       final serializeIter = context['_merge_resolve.${controllerStep.id}.serializing_iter_index'];
       if (serializeIter is! int ||
@@ -181,11 +182,33 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       }
     }
 
+    void emitCancelledIterationEvents(Iterable<int> indices) {
+      for (final index in indices) {
+        _eventBus.fire(
+          MapIterationCompletedEvent(
+            runId: run.id,
+            stepId: controllerStep.id,
+            iterationIndex: index,
+            totalIterations: mapCtx.collection.length,
+            itemId: mapCtx.itemId(index),
+            taskId: '',
+            success: false,
+            tokenCount: 0,
+            timestamp: DateTime.now(),
+          ),
+        );
+      }
+    }
+
     while (pending.isNotEmpty || inFlight.isNotEmpty || pendingSerializeRemainingIteration() != null) {
       if (drainFailureMessage != null) break;
       if (mapCtx.budgetExhausted) {
+        controllerFailureMessage ??= "foreach-controller-failure: foreach step '${controllerStep.id}' budget exhausted";
+        final cancelledIndices = <int>[];
         while (pending.isNotEmpty) {
-          mapCtx.recordCancelled(pending.removeFirst(), 'Cancelled: budget exhausted');
+          final cancelledIndex = pending.removeFirst();
+          mapCtx.recordCancelled(cancelledIndex, 'Cancelled: budget exhausted');
+          cancelledIndices.add(cancelledIndex);
         }
         await _persistForeachProgress(
           run,
@@ -195,6 +218,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           stepIndex: stepIndex,
           promotedIds: promotedIds,
         );
+        emitCancelledIterationEvents(cancelledIndices);
         break;
       }
       final isSerialMode = context['_merge_resolve.${controllerStep.id}.serialize_remaining_phase'] != null;
@@ -270,6 +294,8 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               st,
             );
             if (!mapCtx.completedIndices.contains(iterIndex)) {
+              controllerFailureMessage =
+                  "foreach-controller-failure: foreach step '${controllerStep.id}' iteration $iterIndex failed unexpectedly: $e";
               mapCtx.recordFailure(iterIndex, 'Unexpected iteration error: $e', iterTaskIds[iterIndex]);
               await _persistForeachProgress(
                 run,
@@ -318,10 +344,33 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       }
       if (inFlight.isEmpty && pending.isNotEmpty) {
         if (promotionAware && depGraph.hasDependencies && mapCtx.failedIndices.isNotEmpty) {
+          if (controllerStep.onFailure != OnFailurePolicy.continueWorkflow) {
+            WorkflowExecutor._log.warning(
+              "Workflow '${run.id}': foreach step '${controllerStep.id}' — "
+              '${pending.length} items remain blocked on unresolved promoted dependencies; leaving them pending for resume.',
+            );
+            break;
+          }
+
           WorkflowExecutor._log.warning(
             "Workflow '${run.id}': foreach step '${controllerStep.id}' — "
-            '${pending.length} items remain blocked on unresolved promoted dependencies; leaving them pending for resume.',
+            '${pending.length} items remain blocked by failed dependencies; cancelling them so the workflow can continue.',
           );
+          final cancelledIndices = <int>[];
+          while (pending.isNotEmpty) {
+            final cancelledIndex = pending.removeFirst();
+            mapCtx.recordCancelled(cancelledIndex, 'Cancelled: dependency failed');
+            cancelledIndices.add(cancelledIndex);
+          }
+          await _persistForeachProgress(
+            run,
+            controllerStep,
+            context,
+            mapCtx,
+            stepIndex: stepIndex,
+            promotedIds: promotedIds,
+          );
+          emitCancelledIterationEvents(cancelledIndices);
           break;
         }
 
@@ -332,8 +381,11 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           "Workflow '${run.id}': foreach step '${controllerStep.id}' — "
           '${pending.length} items stalled; cancelling.',
         );
+        final cancelledIndices = <int>[];
         while (pending.isNotEmpty) {
-          mapCtx.recordCancelled(pending.removeFirst(), cancellationMessage);
+          final cancelledIndex = pending.removeFirst();
+          mapCtx.recordCancelled(cancelledIndex, cancellationMessage);
+          cancelledIndices.add(cancelledIndex);
         }
         await _persistForeachProgress(
           run,
@@ -343,6 +395,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           stepIndex: stepIndex,
           promotedIds: promotedIds,
         );
+        emitCancelledIterationEvents(cancelledIndices);
         break;
       }
       if (inFlight.isEmpty) break;
@@ -358,6 +411,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       final refreshedRun = await _repository.getById(run.id) ?? run;
       run = refreshedRun;
       if (_workflowBudgetExceeded(run, definition)) {
+        controllerFailureMessage ??= "foreach-controller-failure: foreach step '${controllerStep.id}' budget exhausted";
         mapCtx.budgetExhausted = true;
       }
     }
@@ -386,6 +440,14 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
+    if (controllerFailureMessage != null) {
+      return MapStepResult(
+        results: List<dynamic>.from(mapCtx.results),
+        totalTokens: totalTokens,
+        success: false,
+        error: controllerFailureMessage,
+      );
+    }
     if (mapCtx.hasFailures) {
       for (final index in mapCtx.failedIndices) {
         final slot = mapCtx.results[index];
@@ -396,13 +458,22 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         final slot = mapCtx.results[index];
         return slot is Map && (slot['message'] as String?)?.startsWith('promotion-conflict') == true;
       });
+      final hasPromotionFailure = mapCtx.failedIndices.any((index) {
+        final slot = mapCtx.results[index];
+        final message = slot is Map ? slot['message'] as String? : null;
+        return message?.startsWith('promotion failed:') == true;
+      });
       return MapStepResult(
         results: List<dynamic>.from(mapCtx.results),
         totalTokens: totalTokens,
         success: false,
-        error: hasPromotionConflict
-            ? "promotion-conflict: foreach step '${controllerStep.id}' has unresolved promotion conflicts"
-            : "Foreach step '${controllerStep.id}': ${mapCtx.failedIndices.length} iteration(s) failed",
+        error:
+            controllerFailureMessage ??
+            (hasPromotionConflict
+                ? "promotion-conflict: foreach step '${controllerStep.id}' has unresolved promotion conflicts"
+                : hasPromotionFailure
+                ? "promotion-failure: foreach step '${controllerStep.id}' has unpromoted item failures"
+                : "Foreach step '${controllerStep.id}': ${mapCtx.failedIndices.length} iteration(s) failed"),
       );
     }
     return MapStepResult(results: List<dynamic>.from(mapCtx.results), totalTokens: totalTokens, success: true);
@@ -518,12 +589,13 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             stepIndex: childStepIndex,
             totalSteps: definition.steps.length,
             taskId: result.task?.id ?? '',
+            displayScope: mapCtx.itemId(iterIndex),
             success: false,
             tokenCount: tokenCount,
             timestamp: DateTime.now(),
           ),
         );
-        if (result.awaitingApproval) {
+        if (result.awaitingApproval && controllerStep.onFailure != OnFailurePolicy.continueWorkflow) {
           await _transitionStepAwaitingApproval(
             run,
             childStep,
@@ -568,6 +640,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           stepIndex: childStepIndex,
           totalSteps: definition.steps.length,
           taskId: result.task?.id ?? '',
+          displayScope: mapCtx.itemId(iterIndex),
           success: true,
           tokenCount: tokenCount,
           timestamp: DateTime.now(),

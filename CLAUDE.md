@@ -2,63 +2,38 @@
 
 ## Project Overview
 
-**DartClaw** — An experimental, security-conscious AI agent runtime built with Dart. Dart orchestrator (AOT-compiled, zero npm) + multiple agent harnesses (Claude Code, Codex, and potentially more). Lineage: openclaw → nanoclaw → dartclaw.
+**DartClaw** — An experimental, security-conscious AI agent runtime built with Dart. Dart orchestrator (AOT-compiled, zero npm) + multiple agent harnesses (Claude Code, Codex, and potentially more).
 
-Architecture: 2-layer model — Dart host (state/API/security) → agent harness binaries via control protocols. DartClaw is **multi-harness by design** — Claude Code (JSONL over stdin/stdout) and Codex (JSON-RPC) are both first-class primary harnesses; the `HarnessFactory` creates provider-specific harness instances, and the `HarnessPool` manages a heterogeneous pool of runners with different providers and security profiles. Each harness type has its own binary, protocol adapter, and native conventions.
+Read more in `dev/state/PRODUCT.md` for vision, development stage, and core philosophy.
 
-### Philosophy
-A ground-up agent runtime leveraging Dart's strengths. Guiding principles: security by design, security in depth, developer ergonomics, pragmatic lightweight architecture. DartClaw should not only be secure and efficient but also a joy to use and build upon.
 
-### Design Philosophy
+### Development Stage
 
-- **Minimal attack surface** — No Node.js/npm in the chain. Fewer dependencies = fewer supply chain vulnerabilities. Prefer capable standard libraries over third-party packages
-- **Dart as host** — AOT-compiled native binary, complete built-in toolchain (formatter, analyzer, linter, test runner), capable stdlib. No external toolchain dependencies
-- **Direct control protocol** — Dart spawns harness binaries (`claude`, `codex`) directly, no intermediate runtime. All state/storage/security lives in Dart
-- **Outpost pattern** — purpose-built CLI tools in the best language for the job (Python for ML/NLP, etc.), invoked as subprocesses with structured JSON I/O. No shared runtime, no dependency contamination
-- **Auditable** — codebase fits in a context window; dependencies stay minimal
+Early experimental (soft-published). Breaking changes acceptable — correctness and clean design over backward compat. See `dev/state/PRODUCT.md`.
+
 
 ### Repository Layout
 
+#### Documentation
+
 This repo splits **end-user-facing** docs from **dev-workflow / contributor** material at the top level:
 
-- `docs/` — end-user reference (`guide/`, `sdk/`). The user guide may legitimately link to `dev/tools/` paths where source-checkout instructions are unavoidable (e.g. `bash dev/tools/build.sh`); not everything users need is published-binary-only.
-- `dev/` — contributor and agent working knowledge: state, guidelines, specs, testing profiles, build/CI tooling. Read by humans building from source as well as by AI agents driving workflows.
+- `docs/` — end-user reference and guides (`guide/`, `sdk/`). 
+- `dev/` — contributor and agent working knowledge: state, guidelines, specs, testing profiles, build/CI tooling. 
 
-When in doubt, anything that isn't part of the published end-user reference belongs under `dev/`.
+#### Package Structure (Dart pub workspace)
 
-### Development Stage
-Early experimental (soft-published). Breaking changes acceptable — correctness and clean design over backward compat. See `dev/state/PRODUCT.md`.
-
-### Current State
-See `dev/state/STATE.md` for current version, phase, active stories, blockers, and session continuity notes. (Canonical home is the public repo — see "Public Repo Mirror — Sync Rules" below.)
-
-### Implemented Features
-
-See `dev/state/STATE.md`. For an architecture overview, see `docs/guide/architecture.md` (full deep-dives live in the private repo).
-
-
-### Package Structure (Dart pub workspace)
+The functionality is split into focused packages under `packages/` — core runtime, storage, security, config, channels, workflows, testing utilities, and the server. The `apps/` directory holds the CLI app. Each package has its own `lib/`, `test/`, and `pubspec.yaml` declaring its dependencies and version.
 
 ```
 /
   packages/
     dartclaw/            # Published umbrella — re-exports core + storage + channel packages
-    dartclaw_models/     # Shared data types and small cross-package enums/config DTOs
-    dartclaw_security/   # Guard framework, classifiers, redaction, audit primitives
-    dartclaw_config/     # Typed config loading, metadata, validation, and authoring utilities
-    dartclaw_core/       # sqlite3-free runtime primitives: harnesses, channels, events, governance, file services
-    dartclaw_storage/    # SQLite-backed repositories, search backends, pruning, trace/event stores
-    dartclaw_workflow/   # Workflow definitions, registry, parser/validator, and execution engine
-    dartclaw_whatsapp/   # WhatsApp channel integration
-    dartclaw_signal/     # Signal channel integration
-    dartclaw_google_chat/# Google Chat channel integration
-    dartclaw_testing/    # Shared test doubles and fixtures for workspace packages
-    dartclaw_server/     # HTTP API + HTMX web UI, task runtime, and container orchestration
+    ...
   apps/
     dartclaw_cli/        # CLI app (AOT-compilable): serve, status, deploy, rebuild-index commands
 ```
 
-Dart pub workspace — all packages resolve locally via `pubspec.yaml` workspace declaration.
 
 ### Package-Scoped Rules
 
@@ -69,30 +44,6 @@ Each `packages/<name>/` and `apps/<name>/` has an `AGENTS.md` (symlinked to a si
 **Keep these files current.** When you change code in a package, update its `AGENTS.md` in the same edit if the change invalidates a fact there (new/removed boundary, renamed key file, changed convention, retired gotcha). Drift makes the file actively misleading — agents will follow stale rules. Treat updates as part of the change, not a follow-up.
 
 Keep this root file lean — cross-cutting rules here, package-specific ones in the per-package files.
-
-
-### Documentation Map
-
-| Topic | Location | When to read |
-|-------|----------|--------------|
-| Getting started | `docs/guide/getting-started.md` | First setup |
-| Configuration | `docs/guide/configuration.md` | Editing `dartclaw.yaml` |
-| Workspace & behavior files | `docs/guide/workspace.md` | Customizing agent personality, safety rules, user context |
-| Security & guards | `docs/guide/security.md` | Hardening, container setup, credential proxy |
-| Deployment | `docs/guide/deployment.md` | LaunchDaemon, systemd, AOT compilation, production |
-| Customization ladder | `docs/guide/customization.md` | L1 (behavior files) through L5 (Dart source) |
-| Recipes | `docs/guide/recipes/` | Personal assistant, briefings, journaling, research, CRM, multi-user channel collaboration |
-| WhatsApp channel | `docs/guide/whatsapp.md` | GOWA setup, pairing, access control |
-| Signal channel | `docs/guide/signal.md` | signal-cli setup, registration |
-| Google Chat channel | `docs/guide/google-chat.md` | GCP service account, Chat app setup |
-| Tasks & orchestration | `docs/guide/tasks.md` | Background tasks, review workflow, coding tasks |
-| Scheduling | `docs/guide/scheduling.md` | Heartbeat, cron jobs |
-| Search & memory | `docs/guide/search.md` | FTS5/QMD search, memory consolidation |
-| SDK quick start | `docs/sdk/quick-start.md` | Building on DartClaw programmatically |
-| Package guide | `docs/sdk/packages.md` | Which package to depend on |
-| Example configs | `examples/` | dev, production, personal-assistant presets |
-| Architecture | `docs/guide/architecture.md` | Understanding the 2-layer model |
-| Full guide index | `docs/guide/README.md` | Everything else |
 
 
 ---
@@ -106,7 +57,7 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 
 | Topic | Location | When to read |
 |-------|----------|--------------|
-| Current state | `dev/state/STATE.md` | Check what's in flight before starting work |
+| Current state | `dev/state/STATE.md` | Current version, phase, active stories, blockers, and session continuity notes. Check what's in flight before starting work |
 | Learnings | `dev/state/LEARNINGS.md` | Before debugging unfamiliar subsystems; append non-obvious discoveries |
 | Product (summary) | `dev/state/PRODUCT.md` | Vision and principles |
 | Roadmap (current + next) | `dev/state/ROADMAP.md` | Active milestone and what's after |
@@ -131,11 +82,9 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 
 ## Built-in DartClaw Workflows
 
-DartClaw ships three end-to-end YAML workflows — `spec-and-implement`, `plan-and-implement`, `code-review` — in `packages/dartclaw_workflow/lib/src/workflow/definitions/`, executed by `WorkflowExecutor`. They are **not** wrappers around `andthen:*` plugin skills: they orchestrate the **`dartclaw-*` skill namespace** (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-exec-spec`, …) — a distinct surface. Never assume `dartclaw-foo` and `andthen:foo` are interchangeable.
+DartClaw ships three end-to-end YAML workflows — `spec-and-implement`, `plan-and-implement`, `code-review` — in `packages/dartclaw_workflow/lib/src/workflow/definitions/`. These workflows uses a branded version of AndThen, using the **`dartclaw-*` skill namespace**.
 
-`plan-and-implement` short-circuits PRD/plan/FIS synthesis when exported artefacts already exist under `dev/bundle/docs/specs/<version>/` — this is also the cross-repo handoff seam (see `dev/state/SPEC-LIFECYCLE.md`).
-
-To run from this checkout: `dev/tools/dartclaw-workflows/run.sh` — see `dev/tools/dartclaw-workflows/README.md` for the full surface (workflow inventory, injected variables, worktree isolation, AOT host isolation, escape hatches). The profile is intentionally maintainer-permissive (Codex `sandbox: danger-full-access`, `approval: never`, auto-accept) — **not** a hardened operator profile. Engine internals: `packages/dartclaw_workflow/CLAUDE.md`.
+To run from this checkout: `dev/tools/dartclaw-workflows/run.sh` — see `dev/tools/dartclaw-workflows/README.md` for the full documentation on running workflows.
 
 
 ---
@@ -147,7 +96,6 @@ To run from this checkout: `dev/tools/dartclaw-workflows/run.sh` — see `dev/to
 Adhere to system prompt "CRITICAL RULES and GUARDRAILS" before doing any work.
 
 ### Vital Conventions
-- Lean dependencies — only what's needed per package
 - Single-threaded (add isolates only if profiling shows bottleneck)
 - Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_server/lib/src/static/` — see `VENDORS.md` in that directory for versions and upgrade instructions
 - Never use references to specific story IDs or titles in code, filenames, documentation etc (project/development documents are the exception).
@@ -191,22 +139,7 @@ The `andthen:visual-validation` skill auto-reads this `## Visual Validation Work
 
 ## Release Preparation
 
-Run `bash dev/tools/release_check.sh` before tagging — it runs the automated gates as one command: exported bundle cleanup (`dev/bundle/` and legacy transient export paths must be empty; see `dev/state/SPEC-LIFECYCLE.md`), version pin lockstep (`check_versions.sh`), `dart format --set-exit-if-changed`, `dart analyze --fatal-warnings --fatal-infos`, and `dart test`. Use `--quick` to skip the test suite during iteration. The script's manual gates (still required before tagging) are:
-- `dart test -t integration`
-- UI smoke test: `bash dev/testing/profiles/smoke-test/run.sh` (requires a running dev server)
-
-Then bump in a single commit:
-- `dartclawVersion` in `packages/dartclaw_server/lib/src/version.dart`
-- **every** publishable `packages/*/pubspec.yaml` `version:` field plus `apps/dartclaw_cli/pubspec.yaml` (lockstep — see `dev/guidelines/DART-PACKAGE-GUIDELINES.md` § Workspace-Wide Versioning Policy)
-- CHANGELOG, `dev/state/STATE.md`, `dev/state/ROADMAP.md`, "Current through" markers in docs
-
-### Release sequence (squash-merge pattern)
-
-1. **Scope-frozen** commit on `feat/<version>` — final version pins, CHANGELOG entry, STATE.md says "release-ready, awaiting tag". Run `release_check.sh` here; manual gates pass.
-2. **Squash-merge** to `main` with the release-style message; that commit *is* the release.
-3. **Tag** annotated `v<version>` from the squash commit; push tag.
-4. **Delete remote** feature branch (keep local as archive if useful).
-5. **Branch `feat/<next>`** from the squash commit; first work-in-flight commit there flips STATE.md / ROADMAP.md to mark the previous version as tagged and open the new milestone as Active. No bookkeeping commit is needed on `main` itself — the tag is the source of truth for "released."
+See `dev/guidelines/RELEASE_PREPARATION.md` for the release preparation workflow, gates, and sequence.
 
 
 ---
@@ -214,17 +147,6 @@ Then bump in a single commit:
 
 ## Key Development Commands
 See `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` — read before/after modifying code.
-
-For local development only, if `dart test` is blocked by `package:sqlite3` failing to codesign its bundled native asset inside `.dart_tool/`, it is acceptable to temporarily point sqlite hooks at the host system library with an uncommitted `pubspec.yaml` edit:
-
-```yaml
-hooks:
-  user_defines:
-    sqlite3:
-      source: system
-```
-
-This is an escape hatch for local iteration, not the canonical verification path. Do not commit it as the default, and verify the host SQLite build supports the required features (at minimum FTS5) before trusting test results.
 
 #### Example configs
 Quick start: `bash examples/run.sh` — defaults to `dev.yaml` (no auth, guards off), stores data in `.dartclaw-dev/`.

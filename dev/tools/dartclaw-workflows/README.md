@@ -11,7 +11,7 @@ Three built-in workflows ship in `packages/dartclaw_workflow/lib/src/workflow/de
 | Workflow | Required variable | Purpose |
 |----------|-------------------|---------|
 | `spec-and-implement` | `FEATURE` | Single-feature pipeline. `FEATURE` accepts a free-text description **or** a path to an existing FIS file. |
-| `plan-and-implement` | `REQUIREMENTS` | Multi-story milestone pipeline. Authoring steps (`prd`, `plan`) are skipped when `dartclaw-discover-project` resolves pre-existing artefacts under `docs/specs/<version>/` — drop `prd.md` / `plan.md` / `fis/*.md` there to short-circuit synthesis. |
+| `plan-and-implement` | `REQUIREMENTS` | Multi-story milestone pipeline. Authoring steps (`prd`, `plan`) are skipped when `dartclaw-discover-project` resolves pre-existing exported artefacts under `dev/bundle/docs/specs/<version>/` — export `prd.md` / `plan.md` / `fis/*.md` there to short-circuit synthesis. |
 | `code-review` | `TARGET` | Single-methodology review of a PR / branch / module + bounded remediation loop. |
 
 For the conceptual overview (what these pipelines do, the `dartclaw-*` vs `andthen:*` skill-namespace distinction, and the cross-repo spec lifecycle), see the root `CLAUDE.md` § Built-in DartClaw Workflows.
@@ -63,7 +63,7 @@ Run `spec-and-implement` from an existing FIS:
 
 ```bash
 bash dev/tools/dartclaw-workflows/run.sh workflow run spec-and-implement \
-  -v 'FEATURE=dev/specs/0.16.5/fis/s13-pre-decomposition-helpers.md'
+  -v 'FEATURE=dev/bundle/docs/specs/0.16.5/fis/s13-pre-decomposition-helpers.md'
 ```
 
 Run `plan-and-implement`:
@@ -72,6 +72,8 @@ Run `plan-and-implement`:
 bash dev/tools/dartclaw-workflows/run.sh workflow run plan-and-implement \
   -v 'REQUIREMENTS=Implement the next planned DartClaw milestone from the active PRD and plan'
 ```
+
+For planned milestones authored in the companion private repo, first export the implementation bundle from `dartclaw-private` with `/dartclaw-export-implementation-bundle`. The exported `dev/bundle/` directory is disposable workflow input; remove it before squash-merging the public branch.
 
 ## Injected Variables
 

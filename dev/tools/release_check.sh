@@ -39,18 +39,30 @@ pass()    { printf "  %sPASS%s  %s\n" "$C_GRN" "$C_RST" "$1"; }
 fail()    { printf "  %sFAIL%s  %s\n" "$C_RED" "$C_RST" "$1"; FAILED+=("$1"); }
 skip()    { printf "  %sSKIP%s  %s\n" "$C_YLW" "$C_RST" "$1"; }
 
-section "1. Specs cleanup (dev/specs/ must be empty before merge to main)"
-if [[ -d dev/specs ]]; then
-  leaked=$(find dev/specs -type f ! -name '.gitkeep' 2>/dev/null)
-  if [[ -z "$leaked" ]]; then
-    pass "dev/specs/ contains no spec files"
-  else
-    leaked_count=$(printf '%s\n' "$leaked" | wc -l | tr -d ' ')
-    fail "dev/specs/ contains $leaked_count file(s) — remove before squash-merge (see dev/state/SPEC-LIFECYCLE.md)"
-    printf '%s\n' "$leaked" | sed 's/^/        /'
+section "1. Exported bundle cleanup (transient dev docs must be empty before merge to main)"
+leaked_bundle=""
+# dev/bundle is the current export root. The other dev/* directories and root
+# markdown files are legacy transient export paths; canonical public docs live
+# under dev/state/, dev/guidelines/, docs/, or package-specific directories.
+for exported_dir in dev/bundle dev/specs dev/adrs dev/research dev/wireframes dev/design-system dev/architecture dev/diagrams; do
+  if [[ -d "$exported_dir" ]]; then
+    leaked=$(find "$exported_dir" -type f ! -name '.gitkeep' 2>/dev/null)
+    if [[ -n "$leaked" ]]; then
+      leaked_bundle+="${leaked}"$'\n'
+    fi
   fi
+done
+for legacy_root_alias in dev/STATE.md dev/LEARNINGS.md dev/STACK.md dev/UBIQUITOUS_LANGUAGE.md dev/TECH-DEBT-BACKLOG.md dev/SPEC-LIFECYCLE.md dev/ROADMAP.md dev/PRODUCT.md dev/PRODUCT-BACKLOG.md dev/INSPIRATION-BACKLOG.md; do
+  if [[ -f "$legacy_root_alias" ]]; then
+    leaked_bundle+="${legacy_root_alias}"$'\n'
+  fi
+done
+if [[ -z "$leaked_bundle" ]]; then
+  pass "no exported implementation bundle files found"
 else
-  pass "dev/specs/ does not exist"
+  leaked_count=$(printf '%s' "$leaked_bundle" | sed '/^$/d' | wc -l | tr -d ' ')
+  fail "exported implementation bundle contains $leaked_count file(s) — remove before squash-merge (see dev/state/SPEC-LIFECYCLE.md)"
+  printf '%s' "$leaked_bundle" | sed '/^$/d; s/^/        /'
 fi
 
 section "2. Version pins (lockstep across all packages)"

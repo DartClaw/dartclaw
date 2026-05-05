@@ -59,7 +59,7 @@ For each matched row, emit the row's Location as `document_locations.<canonical_
 
 - **`specs`**: if the Location ends with a template segment (`<version>/`, `<milestone>/`, `<name>/`, etc.), strip that segment to yield the **specs root** (e.g. `specs/<milestone>/` → `specs/`). Emit the stripped form.
 - **Path existence**: a row whose Location does not exist on disk is still emitted as parsed (so downstream skills know where artefacts *should* live), but the row is also recorded in `notes` as "indexed-but-missing" so callers can distinguish "no row" from "row exists but file missing".
-- **Non-existent specs root** is permitted (greenfield project before any milestone is authored); downstream artefact-producing skills create it on first write.
+- **Non-existent specs root** is permitted (greenfield project before any milestone is authored, or a clean DartClaw public checkout before a transient `dev/bundle/docs/specs/` implementation bundle is exported); downstream artefact-producing skills create it on first write.
 
 ### Detection threshold
 

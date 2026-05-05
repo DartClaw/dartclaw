@@ -113,8 +113,9 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Tech stack | `dev/state/STACK.md` | Languages, packages, external services |
 | Ubiquitous language | `dev/state/UBIQUITOUS_LANGUAGE.md` | Domain glossary — use these terms in code, docs, naming |
 | Tech debt backlog | `dev/state/TECH-DEBT-BACKLOG.md` | Known debt requiring requirements input or architecture decision |
-| Spec lifecycle | `dev/state/SPEC-LIFECYCLE.md` | When `dev/specs/` files appear or disappear |
-| Specs (active milestone) | `dev/specs/<version>/` | PRD/plan/FIS for the in-flight milestone — transient on the feature branch, removed before squash-merge |
+| Spec lifecycle | `dev/state/SPEC-LIFECYCLE.md` | When exported implementation bundle files appear or disappear |
+| Implementation bundle specs | `dev/bundle/docs/specs/` | Transient PRD/plan/FIS copies for public workflow runs; canonical in private |
+| Implementation bundle docs | `dev/bundle/docs/` | Transient support docs copied with private `docs/` layout preserved |
 | Changelog | `CHANGELOG.md` | Shipped history per release |
 | Built-in workflows | `dev/tools/dartclaw-workflows/README.md` (+ § below) | Running shipped workflows against this checkout |
 | Dart style | `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` | Before writing Dart |
@@ -132,7 +133,7 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 
 DartClaw ships three end-to-end YAML workflows — `spec-and-implement`, `plan-and-implement`, `code-review` — in `packages/dartclaw_workflow/lib/src/workflow/definitions/`, executed by `WorkflowExecutor`. They are **not** wrappers around `andthen:*` plugin skills: they orchestrate the **`dartclaw-*` skill namespace** (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-exec-spec`, …) — a distinct surface. Never assume `dartclaw-foo` and `andthen:foo` are interchangeable.
 
-`plan-and-implement` short-circuits PRD/plan/FIS synthesis when artefacts already exist under `dev/specs/<version>/` — this is also the cross-repo handoff seam (see `dev/state/SPEC-LIFECYCLE.md`).
+`plan-and-implement` short-circuits PRD/plan/FIS synthesis when exported artefacts already exist under `dev/bundle/docs/specs/<version>/` — this is also the cross-repo handoff seam (see `dev/state/SPEC-LIFECYCLE.md`).
 
 To run from this checkout: `dev/tools/dartclaw-workflows/run.sh` — see `dev/tools/dartclaw-workflows/README.md` for the full surface (workflow inventory, injected variables, worktree isolation, AOT host isolation, escape hatches). The profile is intentionally maintainer-permissive (Codex `sandbox: danger-full-access`, `approval: never`, auto-accept) — **not** a hardened operator profile. Engine internals: `packages/dartclaw_workflow/CLAUDE.md`.
 
@@ -190,7 +191,7 @@ The `andthen:visual-validation` skill auto-reads this `## Visual Validation Work
 
 ## Release Preparation
 
-Run `bash dev/tools/release_check.sh` before tagging — it runs the automated gates as one command: `dev/specs/` cleanup (must be empty; see `dev/state/SPEC-LIFECYCLE.md`), version pin lockstep (`check_versions.sh`), `dart format --set-exit-if-changed`, `dart analyze --fatal-warnings --fatal-infos`, and `dart test`. Use `--quick` to skip the test suite during iteration. The script's manual gates (still required before tagging) are:
+Run `bash dev/tools/release_check.sh` before tagging — it runs the automated gates as one command: exported bundle cleanup (`dev/bundle/` and legacy transient export paths must be empty; see `dev/state/SPEC-LIFECYCLE.md`), version pin lockstep (`check_versions.sh`), `dart format --set-exit-if-changed`, `dart analyze --fatal-warnings --fatal-infos`, and `dart test`. Use `--quick` to skip the test suite during iteration. The script's manual gates (still required before tagging) are:
 - `dart test -t integration`
 - UI smoke test: `bash dev/testing/profiles/smoke-test/run.sh` (requires a running dev server)
 

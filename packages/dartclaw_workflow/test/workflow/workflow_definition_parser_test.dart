@@ -1961,7 +1961,7 @@ steps:
       expect(def.steps[0].maxItems, 10);
     });
 
-    test('max_items absent -> defaults to 20', () {
+    test('max_items absent -> uncapped', () {
       const yaml = '''
 name: n
 description: d
@@ -1972,7 +1972,58 @@ steps:
     map_over: items
 ''';
       final def = parser.parse(yaml);
-      expect(def.steps[0].maxItems, 20);
+      expect(def.steps[0].maxItems, isNull);
+    });
+
+    test('max_items 0 throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    max_items: 0
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('positive integer'))),
+      );
+    });
+
+    test('max_items negative throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    max_items: -1
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('positive integer'))),
+      );
+    });
+
+    test('max_items explicit null throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    max_items: null
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('positive integer'))),
+      );
     });
 
     test('isMapStep true when map_over set', () {
@@ -2285,6 +2336,27 @@ steps:
       final controller = def.steps[0];
       expect(controller.maxParallel, 2);
       expect(controller.maxItems, 50);
+    });
+
+    test('foreach max_items explicit null throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: fe
+    name: FE
+    type: foreach
+    map_over: items
+    max_items: null
+    steps:
+      - id: child
+        name: Child
+        prompt: Process {{map.item}}
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('positive integer'))),
+      );
     });
 
     test('nested foreach inside foreach throws FormatException', () {

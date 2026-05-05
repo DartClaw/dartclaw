@@ -235,7 +235,7 @@ class WorkflowDefinitionResolver {
     if (controller.mapOver != null) entries.add(MapEntry('map_over', controller.mapOver));
     if (controller.mapAlias != null) entries.add(MapEntry('as', controller.mapAlias));
     if (controller.maxParallel != null) entries.add(MapEntry('max_parallel', controller.maxParallel));
-    if (controller.maxItems != 20) entries.add(MapEntry('max_items', controller.maxItems));
+    if (controller.maxItems != null) entries.add(MapEntry('max_items', controller.maxItems));
     if (controller.inputs.isNotEmpty) {
       entries.add(MapEntry('inputs', controller.inputs.toList()));
     }
@@ -283,7 +283,7 @@ class WorkflowDefinitionResolver {
     if (step.mapOver != null) entries.add(MapEntry('map_over', step.mapOver));
     if (step.mapAlias != null) entries.add(MapEntry('as', step.mapAlias));
     if (step.maxParallel != null) entries.add(MapEntry('max_parallel', step.maxParallel));
-    if (step.maxItems != 20) entries.add(MapEntry('max_items', step.maxItems));
+    if (step.maxItems != null) entries.add(MapEntry('max_items', step.maxItems));
     // Foreach controllers are emitted via [_foreachControllerToOrderedMap]
     // (inline form with nested steps). If we reach here with a foreach
     // controller, something mis-routed — drop the stale ID list rather than

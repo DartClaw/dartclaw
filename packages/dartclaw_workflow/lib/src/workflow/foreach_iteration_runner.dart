@@ -69,14 +69,15 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       );
     }
     final collection = resolvedCollection;
-    if (collection.length > controllerStep.maxItems) {
+    final maxItems = controllerStep.maxItems;
+    if (maxItems != null && collection.length > maxItems) {
       return MapStepResult(
         results: const [],
         totalTokens: 0,
         success: false,
         error:
             "Foreach step '${controllerStep.id}': collection has ${collection.length} items "
-            'which exceeds maxItems (${controllerStep.maxItems}). '
+            'which exceeds maxItems ($maxItems). '
             'Consider decomposing into smaller batches.',
       );
     }

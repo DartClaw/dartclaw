@@ -120,15 +120,16 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     }
     final collection = resolvedCollection;
 
-    // 2. Check maxItems.
-    if (collection.length > step.maxItems) {
+    // 2. Check maxItems when the workflow author set a cap.
+    final maxItems = step.maxItems;
+    if (maxItems != null && collection.length > maxItems) {
       return MapStepResult(
         results: const [],
         totalTokens: 0,
         success: false,
         error:
             "Map step '${step.id}': collection has ${collection.length} items "
-            'which exceeds maxItems (${step.maxItems}). '
+            'which exceeds maxItems ($maxItems). '
             'Consider decomposing into smaller batches.',
       );
     }

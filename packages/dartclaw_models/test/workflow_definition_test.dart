@@ -750,11 +750,11 @@ void main() {
   });
 
   group('WorkflowStep map fields (S06)', () {
-    test('defaults: mapOver null, maxParallel null, maxItems 20', () {
+    test('defaults: mapOver null, maxParallel null, maxItems null', () {
       const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
       expect(step.mapOver, isNull);
       expect(step.maxParallel, isNull);
-      expect(step.maxItems, 20);
+      expect(step.maxItems, isNull);
       expect(step.isMapStep, false);
     });
 
@@ -802,20 +802,20 @@ void main() {
       expect(json.containsKey('maxItems'), false);
     });
 
-    test('toJson omits maxItems when default (20)', () {
+    test('toJson omits maxItems when unset', () {
       const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'items');
       final json = step.toJson();
       expect(json.containsKey('maxItems'), false);
     });
 
-    test('fromJson defaults maxItems to 20 when absent', () {
+    test('fromJson leaves maxItems uncapped when absent', () {
       final json = <String, dynamic>{
         'id': 's',
         'name': 'S',
         'prompts': ['p'],
       };
       final step = WorkflowStep.fromJson(json);
-      expect(step.maxItems, 20);
+      expect(step.maxItems, isNull);
     });
 
     test('round-trip: all map fields set together', () {

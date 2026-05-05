@@ -762,6 +762,43 @@ void main() {
       expect(updatedRun?.errorMessage, contains('decompos'));
     });
 
+    test('collection above 20 succeeds when maxItems is unset', () async {
+      final collection = List.generate(30, (i) => 'item$i');
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Map test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 5,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = collection;
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+      expect(context['mapped'], isA<List<Object?>>());
+      expect((context['mapped'] as List).length, equals(30));
+    });
+
     test('single iteration failure — others continue, result array has error object', () async {
       final collection = ['a', 'b', 'c'];
       final definition = WorkflowDefinition(
@@ -1989,6 +2026,44 @@ steps:
       final updatedRun = await repository.getById('run-1');
       expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('maxItems'));
+    });
+
+    test('foreach above 20 succeeds when maxItems is unset', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-uncapped',
+        description: 'Uncapped foreach test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            maxParallel: 5,
+            foreachSteps: ['child'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = List.generate(30, (i) => 'item$i');
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+      expect(context['results'], isA<List<Object?>>());
+      expect((context['results'] as List).length, equals(30));
     });
   });
 }

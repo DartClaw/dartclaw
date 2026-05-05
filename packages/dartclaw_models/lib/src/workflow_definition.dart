@@ -548,10 +548,10 @@ class WorkflowStep {
   /// - `null`: default (S07 determines the default)
   final Object? maxParallel;
 
-  /// Maximum number of items to process from the map collection (default 20).
+  /// Optional maximum number of items to process from the map collection.
   ///
-  /// Acts as a safety cap to prevent runaway fan-out.
-  final int maxItems;
+  /// When null, the collection is uncapped.
+  final int? maxItems;
 
   /// Ordered child step IDs for a per-item sub-pipeline (foreach).
   ///
@@ -665,7 +665,7 @@ class WorkflowStep {
     this.allowedTools,
     this.mapOver,
     this.maxParallel,
-    this.maxItems = 20,
+    this.maxItems,
     this.foreachSteps,
     this.mapAlias,
     this.continueSession,
@@ -699,7 +699,7 @@ class WorkflowStep {
     if (allowedTools != null) 'allowedTools': allowedTools!.toList(),
     if (mapOver != null) 'mapOver': mapOver,
     if (maxParallel != null) 'maxParallel': maxParallel,
-    if (maxItems != 20) 'maxItems': maxItems,
+    if (maxItems != null) 'maxItems': maxItems,
     if (foreachSteps != null) 'foreachSteps': foreachSteps!.toList(growable: false),
     if (mapAlias != null) 'mapAlias': mapAlias,
     if (continueSession != null) 'continueSession': continueSession == '@previous' ? true : continueSession,
@@ -748,7 +748,7 @@ class WorkflowStep {
       allowedTools: (json['allowedTools'] as List?)?.cast<String>(),
       mapOver: json['mapOver'] as String?,
       maxParallel: json['maxParallel'],
-      maxItems: (json['maxItems'] as int?) ?? 20,
+      maxItems: json['maxItems'] as int?,
       foreachSteps: (json['foreachSteps'] as List?)?.cast<String>(),
       mapAlias: json['mapAlias'] as String?,
       continueSession: switch (json['continueSession']) {

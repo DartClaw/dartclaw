@@ -16,8 +16,8 @@ class MapStepContext {
   /// Maximum concurrent iterations. Null = unlimited.
   final int? maxParallel;
 
-  /// Maximum allowed collection size (validated before construction).
-  final int maxItems;
+  /// Maximum allowed collection size, when configured.
+  final int? maxItems;
 
   /// Index-ordered result slots. Pre-sized to [collection.length], initially all null.
   final List<dynamic> results;

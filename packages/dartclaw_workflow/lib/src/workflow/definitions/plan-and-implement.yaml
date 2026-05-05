@@ -167,7 +167,6 @@ steps:
     type: foreach
     map_over: story_specs
     max_parallel: "{{MAX_PARALLEL}}"
-    #max_items: 20
     # The foreach controller emits a single aggregate list under this name.
     outputs:
       story_results:

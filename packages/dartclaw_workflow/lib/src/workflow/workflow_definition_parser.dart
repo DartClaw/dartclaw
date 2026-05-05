@@ -163,7 +163,7 @@ class WorkflowDefinitionParser {
       childSteps.add(_parseStep(childRaw, sourcePath));
     }
     final maxParallel = _parseMaxParallel(raw['max_parallel'] ?? raw['maxParallel'], id, sourcePath);
-    final maxItems = (raw['max_items'] ?? raw['maxItems']) as int? ?? 20;
+    final maxItems = _parseMaxItems(raw, id, sourcePath);
     final mapAlias = _parseMapAlias(raw['as'] ?? raw['mapAlias'] ?? raw['map_alias'], id, sourcePath);
 
     final outputs = _parseOutputs(raw['outputs'], id, sourcePath);
@@ -338,7 +338,7 @@ class WorkflowDefinitionParser {
     // Parse map step fields. Accept both snake_case (primary) and camelCase (alias).
     final mapOver = (raw['map_over'] ?? raw['mapOver']) as String?;
     final maxParallel = _parseMaxParallel(raw['max_parallel'] ?? raw['maxParallel'], id, sourcePath);
-    final maxItems = (raw['max_items'] ?? raw['maxItems']) as int? ?? 20;
+    final maxItems = _parseMaxItems(raw, id, sourcePath);
     final foreachStepsRaw = raw['foreach_steps'] ?? raw['foreachSteps'];
     final foreachSteps = foreachStepsRaw is YamlList
         ? foreachStepsRaw.cast<String>().toList(growable: false)
@@ -573,6 +573,19 @@ class WorkflowDefinitionParser {
       'Step "$stepId": "max_parallel" must be an integer or string '
       '(e.g., 3, "unlimited", or a template like "{{MAX_PARALLEL}}")${_at(sourcePath)}.',
     );
+  }
+
+  int? _parseMaxItems(YamlMap raw, String stepId, String? sourcePath) {
+    final key = raw.containsKey('max_items')
+        ? 'max_items'
+        : raw.containsKey('maxItems')
+        ? 'maxItems'
+        : null;
+    if (key == null) return null;
+
+    final value = raw[key];
+    if (value is int && value > 0) return value;
+    throw FormatException('Step "$stepId": "$key" must be a positive integer${_at(sourcePath)}.');
   }
 
   /// Parses a schema value: String (preset name), Map (inline schema), or null.

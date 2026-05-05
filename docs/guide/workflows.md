@@ -1024,7 +1024,7 @@ variables:
 | `mapOver` (`map_over`) | string | none | Context key naming a JSON array — step runs once per element |
 | `as` (`mapAlias`, `map_alias`) | string | none | Loop variable name for map/foreach controllers. Templates can reference `{{<as>.item.field}}`, `{{<as>.index}}`, etc. Legacy `{{map.*}}` keeps working alongside it |
 | `maxParallel` (`max_parallel`) | int or string | `1` | Max concurrent iterations for map steps. `"unlimited"` or template |
-| `maxItems` (`max_items`) | int | `20` | Max items processed from the mapped array |
+| `maxItems` (`max_items`) | int | none | Optional max items processed from the mapped array; omitted means uncapped |
 | `steps` | list | none | Inline child steps for `foreach` and inline `loop` containers |
 | `outputs` | map | none | Output format configs (see below) |
 | `onFailure` | string | `fail` | Modern step failure policy: `fail` (default), `continue`, `retry` (uses `maxRetries`), or `pause` (transitions to `awaitingApproval`). Drives the executor's outcome handling for any step type |

@@ -864,24 +864,3 @@ The configured `providers.<id>.pool_size` from dartclaw.yaml drives initial spaw
 **Trigger**: production-profile config validation; broad distribution to operators outside the DartClaw/AndThen maintainer trust boundary; choosing to keep live upstream AndThen provisioning instead of vendoring/forking; or any change that lets third-party skill sources run through this provisioning path.
 
 **References**: `dartclaw-private/docs/specs/0.16.4/dartclaw_workflow-code-review-claude-2026-04-29.md` C3.
-
----
-
-## TD-072 — 0.16.4 final-remediation polish (workflow show standalone bootstrap)
-
-**Severity**: Low (operator UX edge case)
-**Found**: 0.16.4 final baseline gap-review remediation (2026-04-30 07:09 / 07:12 CEST)
-**Affects**: `apps/dartclaw_cli/lib/src/commands/workflow/workflow_show_command.dart`
-
-**Context**: Non-gating leftover from the 0.16.4 final gap-review pair (`workflow-requirements-baseline-gap-review-claude-2026-04-30-2.md`, `workflow-requirements-baseline-gap-review-codex-2026-04-30-2.md`):
-
-1. **`dartclaw workflow show --resolved --standalone` does not call `bootstrapAndthenSkills(...)`.** `workflow_show_command.dart` builds a transient `SkillRegistryImpl` and scans the native user-tier skill roots, but unlike standalone execution and server wiring, it does not provision AndThen on first contact. On a freshly-installed instance where neither `dartclaw serve` nor `dartclaw workflow run` has run, `--resolved` output omits SKILL.md frontmatter defaults until any other workflow command provisions AndThen. Recoverable, narrow edge case; baseline §2 line 82 / §3 line 99 do not strictly require `show` to bootstrap.
-
-**Current state**: Acceptable for tag. Item 1 is a fresh-install edge that operators rarely hit before any other workflow command runs. It was explicitly flagged as fix-forward in the 04-30 remediation report.
-
-**Fix**:
-1. Route `WorkflowShowCommand._runStandalone(...)` through the same `bootstrapAndthenSkills(...)` helper used by run/serve, gated on a `runAndthenSkillsBootstrap` flag for tests that opt out (mirror the `CliWorkflowWiring` pattern). Add a regression test asserting bootstrap fires on first `show --resolved --standalone` invocation.
-
-**Trigger**: 0.16.5 stabilisation work; any operator report of empty resolved output on a fresh install.
-
-**References**: `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline-gap-review-claude-2026-04-30-2.md` (LOW finding) · `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline-gap-review-codex-2026-04-30-2.md` (MEDIUM glossary cluster + co-located surfacing in remediation completion report).

@@ -5,7 +5,7 @@
 
 ## Feature Overview and Goal
 
-Mirror the 0.12 Phase 0 server-side decomposition pattern on the CLI side: split the two CLI god-method `wire()` functions into per-subsystem private methods backed by a small context struct. Primary target is `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` (1,415 LOC; `wire()` ~678 LOC); secondary is `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` (945 LOC; `wire()` ~700 LOC). Mechanical refactor — zero behaviour change, no protocol change, no new dependencies. **Not in scope**: the server-side `packages/dartclaw_server/lib/src/service_wiring.dart` (already decomposed in 0.12 Phase 0 — `StorageWiring`/`SecurityWiring`/`HarnessWiring`/`ChannelWiring`/`TaskWiring`/`SchedulingWiring`/`ProjectWiring` files already exist under `apps/dartclaw_cli/lib/src/commands/wiring/` and are imported and used by the CLI `ServiceWiring` thin coordinator already; this story tightens the coordinator and the standalone workflow wiring twin).
+Mirror the 0.12 Phase 0 server-side decomposition pattern on the CLI side: split the two CLI god-method `wire()` functions into per-subsystem private methods backed by a small context struct. Primary target is `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` (1,415 LOC; `wire()` ~678 LOC); secondary is `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` (945 LOC; `wire()` ~700 LOC). Mechanical refactor — zero behaviour change, no protocol change, no new dependencies. Private Dart `part` files are allowed for cohesive extracted wiring chunks when keeping all code in the original file would prevent the LOC goals. **Not in scope**: the server-side `packages/dartclaw_server/lib/src/service_wiring.dart` (already decomposed in 0.12 Phase 0 — `StorageWiring`/`SecurityWiring`/`HarnessWiring`/`ChannelWiring`/`TaskWiring`/`SchedulingWiring`/`ProjectWiring` files already exist under `apps/dartclaw_cli/lib/src/commands/wiring/` and are imported and used by the CLI `ServiceWiring` thin coordinator already; this story tightens the coordinator and the standalone workflow wiring twin).
 
 > **Technical Research**: [.technical-research.md](../.technical-research.md) _(see "S17 — service_wiring.dart + cli_workflow_wiring.dart Per-Subsystem Split"; Shared Decision #26 — `WiringContext` / `CliWorkflowWiringContext` structs)_
 
@@ -25,15 +25,15 @@ Mirror the 0.12 Phase 0 server-side decomposition pattern on the CLI side: split
 <!-- extracted: e670c47 -->
 > **Risk**: Low — mechanical refactor, no behaviour change
 >
-> **Scope**: Two sibling god-method splits. **Primary target**: CLI-side wiring at `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` (1,415 LOC total as of 2026-05-04, grew from 1,235; `wire()` method still ~678 LOC) — NOT the server-side `ServiceWiring` that was already decomposed in 0.12 Phase 0 into `SecurityWiring`/`ChannelWiring`/`TaskWiring`/`SchedulingWiring`/`StorageWiring`. This story mirrors that 0.12 pattern for the CLI: split `wire()` into per-subsystem private methods. Based on the file's own numbered comment sections: `_wireStorage`, `_wireSecurity`, `_wireHarness`, `_wireChannels`, `_wireTasks`, `_wireScheduling`, `_wireObservability`, `_wireWebUi`, etc. Introduce a small `WiringContext` struct (or similar) for cross-cutting deps (eventBus, configNotifier, dataDir) rather than ambient closure capture. Target: `service_wiring.dart` ≤800 LOC, `wire()` ≤100 LOC.
+> **Scope**: Two sibling god-method splits. **Primary target**: CLI-side wiring at `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` (1,415 LOC total as of 2026-05-04, grew from 1,235; `wire()` method still ~678 LOC) — NOT the server-side `ServiceWiring` that was already decomposed in 0.12 Phase 0 into `SecurityWiring`/`ChannelWiring`/`TaskWiring`/`SchedulingWiring`/`StorageWiring`. This story mirrors that 0.12 pattern for the CLI: split `wire()` into per-subsystem private methods. Based on the file's own numbered comment sections: `_wireStorage`, `_wireSecurity`, `_wireHarness`, `_wireChannels`, `_wireTasks`, `_wireScheduling`, `_wireObservability`, `_wireWebUi`, etc. Introduce a small `WiringContext` struct (or similar) for cross-cutting deps (eventBus, configNotifier, dataDir) rather than ambient closure capture. Target: `service_wiring.dart` ≤800 LOC after private `part` extraction, `wire()` ≤100 LOC.
 >
-> **Secondary target**: `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` is now 945 LOC total, `wire()` ~700 LOC. Same numbered-section structure (storage → task layer → harness → behaviour → artifact collector → workflow service → task executor). Apply the same treatment: per-section `_wireXxx()` methods, `CliWorkflowWiringContext` struct, target `cli_workflow_wiring.dart` ≤600 LOC.
+> **Secondary target**: `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` is now 945 LOC total, `wire()` ~700 LOC. Same numbered-section structure (storage → task layer → harness → behaviour → artifact collector → workflow service → task executor). Apply the same treatment: per-section `_wireXxx()` methods, `CliWorkflowWiringContext` struct, target `cli_workflow_wiring.dart` ≤600 LOC after private `part` extraction.
 >
 > **Acceptance Criteria** (verbatim):
 > - `service_wiring.dart#wire()` ≤100 LOC (must-be-TRUE)
-> - `service_wiring.dart` total ≤800 LOC (must-be-TRUE)
+> - `service_wiring.dart` total ≤800 LOC after private extracted `part` files are moved out (must-be-TRUE)
 > - `cli_workflow_wiring.dart#wire()` ≤100 LOC (must-be-TRUE)
-> - `cli_workflow_wiring.dart` total ≤600 LOC (must-be-TRUE)
+> - `cli_workflow_wiring.dart` total ≤600 LOC after private extracted `part` files are moved out (must-be-TRUE)
 > - `WiringContext` / `CliWorkflowWiringContext` (or equivalents) encapsulate cross-cutting deps (must-be-TRUE)
 > - `dart test apps/dartclaw_cli` passes; `dart run dartclaw_cli:dartclaw serve --port 3333` starts and serves identical endpoints
 > - `dartclaw workflow run` standalone path works identically before/after (regression guard for CLI wiring)
@@ -43,6 +43,8 @@ Mirror the 0.12 Phase 0 server-side decomposition pattern on the CLI side: split
 <!-- source: ../.technical-research.md#shared-decisions-and-conventions -->
 <!-- extracted: e670c47 -->
 > **26. `WiringContext` / `CliWorkflowWiringContext` structs (S17)** — encapsulate cross-cutting deps (`eventBus`, `configNotifier`, `dataDir`) for CLI-side `service_wiring.dart` (≤800 LOC, `wire()` ≤100) and `cli_workflow_wiring.dart` (≤600 LOC, `wire()` ≤100). Per-subsystem `_wireXxx()` private methods.
+
+> **Execution clarification**: the LOC goals apply to the two composition-root files after extraction. They do not forbid private sibling `part` files that contain extracted helper classes/functions for MCP registration, workflow adapter construction, workflow registry setup, or result assembly. Aggregate LOC is recorded as a ratchet metric, not a failure condition, because the story is about reducing composition-root density without changing behavior.
 
 ### From `.technical-research.md` — "Binding PRD Constraints" (S17-applicable)
 <!-- source: ../.technical-research.md#binding-prd-constraints -->
@@ -71,15 +73,16 @@ Mirror the 0.12 Phase 0 server-side decomposition pattern on the CLI side: split
 > Each criterion has a proof path: a Scenario (S-n) or task Verify line (TI-n).
 
 - [ ] `apps/dartclaw_cli/lib/src/commands/service_wiring.dart`: `ServiceWiring.wire()` body is ≤100 LOC (counting from method signature `Future<WiringResult> wire() async {` to its closing `}`, exclusive of trailing blank lines). **Proof**: TI03, TI04 Verify; S-Happy-Serve.
-- [ ] `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` total ≤800 LOC (file LOC, including imports, doc comments, `WiringResult`, `ServiceWiring`, `_dropLegacySessionCostEntries`, `_configureBudgetWarningNotifiers`, `_configureLoopDetectionNotifiers`, the new `WiringContext` and `_wireXxx` methods, and `teardown`). **Proof**: TI04 Verify.
+- [ ] `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` total ≤800 LOC after extracted private `part` files are moved out. **Proof**: TI04/TI08 Verify.
 - [ ] `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart`: `CliWorkflowWiring.wire()` body is ≤100 LOC. **Proof**: TI07 Verify; S-Happy-Workflow-Run.
-- [ ] `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` total ≤600 LOC. **Proof**: TI08 Verify.
+- [ ] `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` total ≤600 LOC after extracted private `part` files are moved out. **Proof**: TI07/TI08 Verify.
 - [ ] A `WiringContext` value type (private `class _WiringContext` or `final class WiringContext`, or a record alias) lives in or alongside `service_wiring.dart` and carries — at minimum — `eventBus`, `configNotifier`, `dataDir`, plus any cross-section refs the split surfaces (e.g. `assetResolver`, `resolvedAssets`, `skillRegistry`, `serverRefGetter`). It is the parameter passed between `_wireXxx` methods rather than ambient closure capture. **Proof**: TI01, TI03; S-NewSubsystemPattern.
 - [ ] A `CliWorkflowWiringContext` value type lives in or alongside `cli_workflow_wiring.dart` with the equivalent role (eventBus, dataDir, environment, runtimeCwd, credentialRegistry, harnessConfig, skillRegistry, etc.). **Proof**: TI05, TI07; S-NewSubsystemPattern.
 - [ ] `dart test apps/dartclaw_cli` (default tags, integration tag NOT included) passes with zero test edits beyond mechanical-import or symbol-rename adjustments. **Proof**: TI09 Verify; S-Happy-Serve, S-Happy-Workflow-Run.
 - [ ] `dart run dartclaw_cli:dartclaw serve --port 3333` starts cleanly against a known config and the printed startup banner + the listed REST/SSE endpoints + `/health` payload + MCP tool list match the pre-refactor baseline byte-for-byte (or with whitespace-only diff). **Proof**: TI10; S-Happy-Serve.
 - [ ] `dartclaw workflow run <built-in workflow> --standalone` against a fixture project produces the same artifacts, the same workflow-run-ID format, the same exit code, and the same task-event sequence as the pre-refactor baseline. **Proof**: TI10; S-Happy-Workflow-Run.
 - [ ] `dart test --run-skipped -t integration apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart` passes — the test imports `service_wiring.dart` from `lib/src/` and asserts on `WiringResult`. **Proof**: TI11 Verify.
+- [ ] Any new wiring extraction files are private `part` files adjacent to their owning composition root, share that library's privacy boundary, and introduce no new public imports or package dependencies. **Proof**: TI12.
 
 ### Health Metrics (Must NOT Regress)
 
@@ -89,6 +92,7 @@ Mirror the 0.12 Phase 0 server-side decomposition pattern on the CLI side: split
 - [ ] No new `package:` dependency added to `apps/dartclaw_cli/pubspec.yaml`. **Proof**: TI09 Verify.
 - [ ] JSONL/REST/SSE protocol surfaces unchanged (Constraint #1).
 - [ ] Server-side `packages/dartclaw_server/lib/src/service_wiring.dart` is NOT modified by this story.
+- [ ] Aggregate LOC across each root file plus its new private `part` files is recorded in Implementation Observations as the new ratchet baseline; aggregate LOC may stay near the original baseline when code is moved rather than deleted.
 
 ## Scenarios
 
@@ -105,7 +109,7 @@ Mirror the 0.12 Phase 0 server-side decomposition pattern on the CLI side: split
 ### S-NewSubsystemPattern — Future contributor adds a new subsystem
 - **Given** an engineer needs to wire a new subsystem (e.g. a hypothetical `BillingService`) into `ServiceWiring`
 - **When** they read `service_wiring.dart`
-- **Then** they discover the established pattern: declare deps on `_WiringContext` (or extend it), add a `Future<_BillingWiring> _wireBilling(_WiringContext ctx)` private method that returns a small named-deps struct, and append a single `await _wireBilling(ctx)` call in `wire()`'s ≤100-LOC dispatcher block — without needing to add a new top-level helper file, refactor neighbours, or thread new closure captures.
+- **Then** they discover the established pattern: declare deps on `_WiringContext` (or extend it), add a `Future<_BillingWiring> _wireBilling(_WiringContext ctx)` private method that returns a small named-deps struct, and append a single `await _wireBilling(ctx)` call in `wire()`'s ≤100-LOC dispatcher block. If the helper body is substantial, it lives in an adjacent private `part` file rather than bloating the composition root.
 
 ### S-NoBehaviourChange-EmergencyPaths — Channel notification + alert routing unchanged
 - **Given** a session crosses the budget warning threshold OR a loop is detected OR an `AlertRouter`-routed sealed event fires during a `serve` session
@@ -127,6 +131,7 @@ Mirror the 0.12 Phase 0 server-side decomposition pattern on the CLI side: split
 ### In Scope
 _Every scope item is covered by at least one scenario or task with a Verify line._
 - Refactor `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` `ServiceWiring.wire()` into a ≤100-LOC dispatcher that calls per-subsystem private methods (`_wireStorage`, `_wireSecurity`, `_wireHarness`, `_wireChannels`, `_wireTasks` (pre+post split where the existing `wirePreServer`/`wirePostServer` boundary already exists in `TaskWiring`), `_wireScheduling`, `_wireObservability`, `_wireWebUi` / MCP-tool-registration, plus the cross-cutting `_wireRestartSentinel`, `_wireWorkflowRegistry`, `_wireAlertRouting`, `_wireGroupSessionInit`, `_assembleWiringResult`). Exact method names finalised during implementation against the in-file numbered sections.
+- Extract substantial helper bodies into adjacent private `part` files when that is the only clean way to meet the composition-root LOC goals. Recommended names: `service_wiring_context.dart`, `service_wiring_workflow.dart`, `service_wiring_mcp_tools.dart`, `service_wiring_result.dart`, `cli_workflow_wiring_context.dart`, `cli_workflow_wiring_adapter.dart`, and `cli_workflow_wiring_registry.dart`. Use `part of 'service_wiring.dart';` or `part of 'cli_workflow_wiring.dart';` so private names remain private to the owning library.
 - Introduce a `_WiringContext` value type (private to the file unless a test seam needs it) carrying cross-cutting deps and lazily-resolvable getters (`serverRefGetter`, `turnManagerGetter`).
 - Refactor `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` `CliWorkflowWiring.wire()` into a ≤100-LOC dispatcher with per-section private methods (`_wireSkillRegistry`, `_wireStorage`, `_wireTaskLayer`, `_wireHarness`, `_wireBehaviour`, `_wireRunnerPool`, `_wireArtifactCollector`, `_wireWorkflowService`, `_wireTaskExecutor`, `_wireWorkflowRegistry`).
 - Introduce a `_CliWorkflowWiringContext` (or similarly named) value type for cross-cutting deps. Expand the existing `late final` field set onto the context where it is conceptually internal-to-`wire()`-only; keep public-API `late final` fields unchanged.
@@ -135,6 +140,7 @@ _Every scope item is covered by at least one scenario or task with a Verify line
 ### What We're NOT Doing
 - **Not refactoring** `packages/dartclaw_server/lib/src/service_wiring.dart` — already decomposed in 0.12 Phase 0; out of scope by binding-decision-explicit. Touching it risks colliding with S18 on `server.dart`.
 - **Not refactoring** the per-subsystem helper files under `apps/dartclaw_cli/lib/src/commands/wiring/` (`storage_wiring.dart`, etc.) — they are already focused. This story only restructures their callers.
+- **Not creating** new public libraries, barrels, or importable APIs for wiring internals. New files, if any, are private `part` files of the owning composition-root library.
 - **Not changing** the public surface of `WiringResult`, `ServiceWiring(...)` ctor, `CliWorkflowWiring(...)` ctor, or any field name read by tests / `serve_command.dart` — preserving call-site compatibility.
 - **Not introducing** a dependency-injection framework (`get_it`, `riverpod`, etc.) — would violate Constraint #2 (no new deps) and Project Philosophy (lean deps, no reflection).
 - **Not changing** any endpoint route, SSE envelope, MCP tool registration order in a user-observable way, or any CLI command surface — would violate Constraint #1.
@@ -144,19 +150,21 @@ _Every scope item is covered by at least one scenario or task with a Verify line
   - Final method-name list (e.g. whether `_wireWorkflowRegistry` and `_wireWorkflowService` collapse into one or stay split) — choose what keeps `wire()` ≤100 LOC and each `_wireXxx` method cohesive.
   - Whether `_WiringContext` is a `final class`, a `record`, or a private `class _WiringContext` — pick the lowest-ceremony variant that compiles cleanly with strict-casts/raw-types.
   - Whether to extract a tiny named-deps return type per `_wireXxx` (e.g. `_StorageHandles`, `_HarnessHandles`) when the caller needs ≥3 handles back, vs. assigning into the context. Prefer named records or small private final classes — no `Map<String, Object>` shotguns.
+  - Which cohesive helper bodies move to private `part` files. Default to extracting large, mostly self-contained regions: MCP tool registration, workflow adapter construction, workflow registry materialization, and result assembly. Keep very small helpers in the root file.
   - Whether the two big inline closures inside `WorkflowTurnAdapter(...)` (the `resolveStartContext`, `bootstrapWorkflowGit`, `promoteWorkflowBranch`, `publishWorkflowBranch`, `cleanupWorkflowGit`, `cleanupWorktreeForRetry`, `captureWorkflowBranchSha`, `captureAndCleanWorktreeForRetry`, `runResolverAttemptUnderLock` blocks) are extracted into separate `_buildXxxAdapter()` private builder methods. **Strongly recommended yes** — these are ~200 LOC each and dominate the current `wire()` budget. If extracting, keep behaviour byte-identical; do not refactor inside the closures.
 - **Escalate** (stop with `BLOCKED:` and ask):
   - Any case where a `late final` field on `CliWorkflowWiring` is read by an external caller you cannot match to the current public surface — surfaces would be unsafe to move.
   - Any test failure that cannot be traced to a renamed symbol or a missed import — likely indicates a real behaviour regression.
+  - Any need to relax `wire() ≤100 LOC` or the primary-file LOC targets after private `part` extraction is available.
 
 ## Architecture Decision
 
 **We will**: Mirror the existing 0.12 Phase 0 server-side split pattern (`SecurityWiring`/`ChannelWiring`/`TaskWiring`/`SchedulingWiring`/`StorageWiring`) on the CLI side: per-subsystem private `_wireXxx()` methods on the existing `ServiceWiring` and `CliWorkflowWiring` classes, named per the numbered comment sections that already exist in each file's `wire()` body, with a `_WiringContext` / `_CliWorkflowWiringContext` value type for cross-cutting deps (`eventBus`, `configNotifier`/`runtimeCwd`/`environment`, `dataDir`, `assetResolver`, `skillRegistry`, lazy server/turn getters) instead of ambient closure capture.
 
-**Rationale**: (a) The pattern is already proven in this codebase (0.12 Phase 0). (b) The per-subsystem helper files under `commands/wiring/` already exist; the story is mechanical glue-tightening, not a new architecture. (c) An explicit context struct localises what is currently implicit closure capture across an 800-LOC method, which is the actual readability problem. (d) A struct-with-named-fields is strictly less ceremony than a DI container and respects Constraint #2 (no new deps).
+**Rationale**: (a) The pattern is already proven in this codebase (0.12 Phase 0). (b) The per-subsystem helper files under `commands/wiring/` already exist; the story is mechanical glue-tightening, not a new architecture. (c) An explicit context struct localises what is currently implicit closure capture across an 800-LOC method, which is the actual readability problem. (d) A struct-with-named-fields is strictly less ceremony than a DI container and respects Constraint #2 (no new deps). (e) Private `part` files are the right Dart tool for this case: they reduce composition-root density without inventing public libraries or breaking private-name access.
 
 **Alternatives considered**:
-1. **New per-subsystem files mirroring `commands/wiring/`** for `cli_workflow_wiring.dart` (e.g. `commands/workflow/wiring/workflow_storage_wiring.dart`, etc.) — rejected: would dilute the value of `cli_workflow_wiring.dart` as the single composition root for standalone runs and roughly doubles file count for no observable gain. Per-section private methods on the existing class deliver the same readability win at lower disruption and keep the tests under `test/commands/workflow/` aligned to one wiring entry.
+1. **New public per-subsystem libraries mirroring `commands/wiring/`** for `cli_workflow_wiring.dart` (e.g. `commands/workflow/wiring/workflow_storage_wiring.dart`, etc.) — rejected: would dilute the value of `cli_workflow_wiring.dart` as the single composition root for standalone runs and roughly doubles public-ish file count for no observable gain. Private `part` files are acceptable because they preserve one owning library and one public entry.
 2. **Pass each subsystem its own narrow record** of just the deps it needs (no shared context) — rejected: the current `wire()` body shows ~6 cross-cutting handles that flow through ≥4 subsystems each (`eventBus`, `configNotifier`, `dataDir`, `harness.pool`, `serverRef`-getter, `turns`-getter). A shared context is cheaper than ≥4 narrow records.
 3. **Introduce a DI container (`get_it` / `kiwi`)** — rejected: violates Constraint #2 and the project's lean-deps philosophy; is reflective in some impls (AOT-hostile).
 
@@ -179,7 +187,7 @@ _Every scope item is covered by at least one scenario or task with a Verify line
 
 ```
 # type | path/url | why needed
-file   | apps/dartclaw_cli/lib/src/commands/wiring/storage_wiring.dart      | Reference: per-subsystem `class XxxWiring` with `wire()` returning when done; mirror its "dataclass-with-method" shape inside `_wireXxx` methods (without creating new files).
+file   | apps/dartclaw_cli/lib/src/commands/wiring/storage_wiring.dart      | Reference: per-subsystem `class XxxWiring` with `wire()` returning when done; mirror its "dataclass-with-method" shape inside `_wireXxx` methods or adjacent private `part` files.
 file   | apps/dartclaw_cli/lib/src/commands/wiring/security_wiring.dart     | Reference: per-subsystem named-deps surface (`agentDefs:` pass-through), late getters for cross-cutting refs.
 file   | apps/dartclaw_cli/lib/src/commands/wiring/harness_wiring.dart      | Reference: late `serverRefGetter` pattern — same lazy-binding seam to preserve.
 file   | apps/dartclaw_cli/lib/src/commands/service_wiring.dart:173-936     | TARGET: existing `wire()` body; the numbered comments (`// 0.`, `// 0.5.`, `// 1.`, … `// 8.`) are the section boundaries that map onto `_wireXxx` method names.
@@ -200,7 +208,7 @@ file   | apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart    | Re
 - **Avoid**: Reordering statements that interact with `EventBus.subscribe` order, `ConfigNotifier.register` order, signal/IO setup, or `bootstrapAndthenSkills` invocation. — Instead: preserve the original 0..8 numbered ordering inside the new dispatcher; if a `_wireXxx` would re-order vs the original, leave it inline in `wire()` and split a different boundary.
 - **Avoid**: Capturing `this` deep inside extracted lambdas in a way that defeats AOT tree-shaking. — Instead: prefer plain function arguments over instance-method tear-offs in performance-sensitive paths (existing pattern).
 - **Constraint**: Workspace-wide strict-casts + strict-raw-types stay on. — Workaround: any new record/struct fields must have explicit types; any new private records must avoid `dynamic` / `Object` un-typed payloads.
-- **Gotcha**: `service_wiring.dart` already imports `wiring/*.dart` files. Do NOT create a new `wiring/wiring_context.dart` file — keep `_WiringContext` private inside `service_wiring.dart` to satisfy "≤800 LOC total" and avoid file-count creep. Same for `_CliWorkflowWiringContext` — keep inside `cli_workflow_wiring.dart`.
+- **Gotcha**: `service_wiring.dart` already imports `wiring/*.dart` files. Do NOT create a new public `wiring/wiring_context.dart` library. If context/helper extraction is needed for LOC, create adjacent private `part` files instead so `_WiringContext` and `_CliWorkflowWiringContext` remain library-private.
 - **Gotcha**: `DartclawServerBuilder` uses field-cascade assignment (`builder ..a = … ..b = …`). Splitting the pre-server cascade across `_wireXxx` methods is fine, but each method must take the same `builder` instance and return it (or operate via `ctx.builder`). Prefer adding `late DartclawServerBuilder builder` to the context struct rather than threading the builder as a method param everywhere.
 - **Gotcha**: The two `_workflowGit(...)` calls (around lines 540 and 593) are file-private helpers used inside the `WorkflowTurnAdapter` closures. When extracting `_buildWorkflowTurnAdapter`, keep the helper top-level-private in `service_wiring.dart` — do NOT move into the context struct.
 
@@ -224,7 +232,7 @@ file   | apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart    | Re
 
 - [ ] **TI04** Extract the remaining `_wireXxx` methods covering the eight numbered sections (`_wireProjects`, `_wireAndthenSkillsBootstrap`, `_wireSkillRegistryDiscovery`, `_wireStorage`, `_wireSecurity`, `_wireHarness`, `_wirePreServerTasks`, `_wireChannels`, `_wirePostServerTasks`, `_wireWorkflowService` (which includes the `WorkflowTurnAdapter` literal — extract to `_buildWorkflowTurnAdapter` if needed), `_wireWorkflowRegistry`, `_wireThreadBindingLifecycle`, `_wireScheduling`, `_wireAlertRouter`, `_wireGroupSessionInit`, `_wireRestartService`, `_registerMcpTools`, `_wireSpaceEventsStart`, `_assembleWiringResult`). `wire()` becomes a sequential dispatcher.
   - Constraint: section ordering preserved; `late` binding sites move onto context setters; `wire()` reaches ≤100 LOC.
-  - **Verify**: `wc -l < apps/dartclaw_cli/lib/src/commands/service_wiring.dart` ≤ 800; `awk '/Future<WiringResult> wire\(\) async \{/,/^  \}$/' apps/dartclaw_cli/lib/src/commands/service_wiring.dart | wc -l` ≤ 100; `dart test apps/dartclaw_cli` passes.
+  - **Verify**: `wc -l < apps/dartclaw_cli/lib/src/commands/service_wiring.dart` ≤ 800; `awk '/Future<WiringResult> wire\(\) async \{/,/^  \}$/' apps/dartclaw_cli/lib/src/commands/service_wiring.dart | wc -l` ≤ 100; any extracted helper files are adjacent private `part` files; `dart test apps/dartclaw_cli` passes.
 
 - [ ] **TI05** `_CliWorkflowWiringContext` value type defined in `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` carrying `eventBus`, `dataDir`, `runtimeCwd`, `environment`, `assetResolver`, `builtInSkillsSourceDir`, `credentialRegistry`, `harnessConfig`, `roleDefaults`, `skillRegistry`. Constructed at the top of `wire()`; replaces the in-method `final` locals it absorbs.
   - Pattern: same shape as `_WiringContext`.
@@ -236,10 +244,10 @@ file   | apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart    | Re
 
 - [ ] **TI07** Extract the remaining `_wireXxx` methods on `CliWorkflowWiring` (`_wireSkillRegistry`, `_wireStorage`, `_wireTaskLayer`, `_wireProjectAndWorktree`, `_wireHarness`, `_wireBehaviour`, `_wireRunnerPool`, `_wireArtifactCollector`, `_wireWorkflowService` (calls `_buildWorkflowTurnAdapter`), `_wireWorkflowRegistry`, `_wireTaskExecutor`). `wire()` becomes a ≤100-LOC dispatcher.
   - Constraint: public `late final` instance-field set unchanged; `dispose()` body unchanged.
-  - **Verify**: `awk '/Future<void> wire\(\) async \{/,/^  \}$/' apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart | wc -l` ≤ 100; `dart test apps/dartclaw_cli` passes.
+  - **Verify**: `wc -l < apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` ≤ 600; `awk '/Future<void> wire\(\) async \{/,/^  \}$/' apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart | wc -l` ≤ 100; any extracted helper files are adjacent private `part` files; `dart test apps/dartclaw_cli` passes.
 
 - [ ] **TI08** File-LOC trim — comment policy pass on both files: delete numbered-section narration comments that are now redundant with method names; keep rationale-only comments (e.g. "lazy because closures capture `serverRef`"); delete any `// REMOVED` / `// was:` markers. Verify nothing dead remains.
-  - **Verify**: `wc -l < apps/dartclaw_cli/lib/src/commands/service_wiring.dart` ≤ 800; `wc -l < apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` ≤ 600; `rg "// REMOVED|// was:|// TODO" apps/dartclaw_cli/lib/src/commands/service_wiring.dart apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` empty (or only TODOs with owner+issue link, none expected from this refactor).
+  - **Verify**: `wc -l < apps/dartclaw_cli/lib/src/commands/service_wiring.dart` ≤ 800; `wc -l < apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` ≤ 600; aggregate LOC across each root plus its private `part` files is recorded in Implementation Observations; `rg "// REMOVED|// was:|// TODO" apps/dartclaw_cli/lib/src/commands/service_wiring.dart apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` empty (or only TODOs with owner+issue link, none expected from this refactor).
 
 - [ ] **TI09** Workspace-wide validation: `dart format --set-exit-if-changed apps/dartclaw_cli/lib/src/commands/service_wiring.dart apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` clean; `dart analyze --fatal-warnings --fatal-infos` workspace-wide clean; `dart test apps/dartclaw_cli` (default tags) green; `apps/dartclaw_cli/pubspec.yaml` diff is empty.
   - **Verify**: all four commands exit 0; `git diff -- apps/dartclaw_cli/pubspec.yaml` is empty.
@@ -255,7 +263,7 @@ file   | apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart    | Re
   - **Verify**: integration test green; `git diff -- apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart` is empty.
 
 - [ ] **TI12** Public-surface diff sanity: `git diff -- apps/dartclaw_cli/lib/src/commands/service_wiring.dart apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart | rg '^[-+]\s*(class|abstract|final class|sealed class|extension|typedef)\s|\bWiringResult\b|\b(ServiceWiring|CliWorkflowWiring)\(' --color never` shows no deletions of public-surface lines (additions of `_WiringContext`, `_CliWorkflowWiringContext`, and `_wireXxx`/`_buildXxx` helpers are expected; no removals of `class WiringResult`, `class ServiceWiring`, `class CliWorkflowWiring`, ctor named-param set, or `wire()` signatures).
-  - **Verify**: the rg command output shows zero `^-` lines that match public-surface patterns; `WiringResult` field set is unchanged in the diff.
+  - **Verify**: the rg command output shows zero `^-` lines that match public-surface patterns; `WiringResult` field set is unchanged in the diff; new files, if any, use `part of` and are not imported by any other library.
 
 ### Testing Strategy
 
@@ -275,14 +283,14 @@ file   | apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart    | Re
 
 ### Execution Contract
 - Implement tasks in listed order. Each **Verify** line must pass before proceeding to the next task. TI01 and TI02 land context + low-risk sentinel split first; TI03 and TI04 land the bulk of `service_wiring.dart`; TI05–TI07 land `cli_workflow_wiring.dart`; TI08–TI12 are validation.
-- Prescriptive details (LOC ceilings, struct names per Decision #26, file paths) are exact — implement them verbatim.
+- Prescriptive details (LOC ceilings after private `part` extraction, struct names per Decision #26, file paths) are exact — implement them verbatim.
 - Sub-agents: spawn `andthen:documentation-lookup` only if a Dart language question arises (e.g. records vs `final class` for the context); none expected.
 - After all tasks: run `dart format --set-exit-if-changed`, `dart analyze --fatal-warnings --fatal-infos`, `dart test apps/dartclaw_cli`, and the integration smoke from TI10–TI11. Keep `rg "TODO|FIXME|placeholder|not.implemented" apps/dartclaw_cli/lib/src/commands/service_wiring.dart apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` empty.
 - Mark task checkboxes immediately upon completion — do not batch.
 
 ## Final Validation Checklist
 
-- [ ] All Success Criteria met (LOC ceilings, context structs in place, public surface unchanged, dart test green, manual smoke matches baseline, integration test green).
+- [ ] All Success Criteria met (root-file LOC ceilings after private `part` extraction, context structs in place, public surface unchanged, dart test green, manual smoke matches baseline, integration test green).
 - [ ] All tasks fully completed, verified, and checkboxes checked.
 - [ ] No regressions or breaking changes introduced (Constraint #1, #71).
 - [ ] Server-side `packages/dartclaw_server/lib/src/service_wiring.dart` untouched.
@@ -303,16 +311,16 @@ _No observations recorded yet._
 
 ### From plan.md — Scope detail (migrated from old plan format)
 
-**Scope**: Two sibling god-method splits. **Primary target**: CLI-side wiring at `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` (**1,415 LOC total** as of 2026-05-04, grew from 1,235; `wire()` method still ~678 LOC) — NOT the server-side `ServiceWiring` that was already decomposed in 0.12 Phase 0 into `SecurityWiring`/`ChannelWiring`/`TaskWiring`/`SchedulingWiring`/`StorageWiring`. This story mirrors that 0.12 pattern for the CLI: split `wire()` into per-subsystem private methods. Based on the file's own numbered comment sections: `_wireStorage`, `_wireSecurity`, `_wireHarness`, `_wireChannels`, `_wireTasks`, `_wireScheduling`, `_wireObservability`, `_wireWebUi`, etc. Introduce a small `WiringContext` struct (or similar) for cross-cutting deps (eventBus, configNotifier, dataDir) rather than ambient closure capture. Target: `service_wiring.dart` ≤800 LOC, `wire()` ≤100 LOC.
+**Scope**: Two sibling god-method splits. **Primary target**: CLI-side wiring at `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` (**1,415 LOC total** as of 2026-05-04, grew from 1,235; `wire()` method still ~678 LOC) — NOT the server-side `ServiceWiring` that was already decomposed in 0.12 Phase 0 into `SecurityWiring`/`ChannelWiring`/`TaskWiring`/`SchedulingWiring`/`StorageWiring`. This story mirrors that 0.12 pattern for the CLI: split `wire()` into per-subsystem private methods. Based on the file's own numbered comment sections: `_wireStorage`, `_wireSecurity`, `_wireHarness`, `_wireChannels`, `_wireTasks`, `_wireScheduling`, `_wireObservability`, `_wireWebUi`, etc. Introduce a small `WiringContext` struct (or similar) for cross-cutting deps (eventBus, configNotifier, dataDir) rather than ambient closure capture. Target: `service_wiring.dart` ≤800 LOC after private `part` extraction, `wire()` ≤100 LOC.
 
 
 ### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
 
 **Acceptance Criteria**:
 - [ ] `service_wiring.dart#wire()` ≤100 LOC (must-be-TRUE)
-- [ ] `service_wiring.dart` total ≤800 LOC (must-be-TRUE)
+- [ ] `service_wiring.dart` total ≤800 LOC after private `part` extraction (must-be-TRUE)
 - [ ] `cli_workflow_wiring.dart#wire()` ≤100 LOC (must-be-TRUE)
-- [ ] `cli_workflow_wiring.dart` total ≤600 LOC (must-be-TRUE)
+- [ ] `cli_workflow_wiring.dart` total ≤600 LOC after private `part` extraction (must-be-TRUE)
 - [ ] `WiringContext` / `CliWorkflowWiringContext` (or equivalents) encapsulate cross-cutting deps (must-be-TRUE)
 - [ ] `dart test apps/dartclaw_cli` passes; `dart run dartclaw_cli:dartclaw serve --port 3333` starts and serves identical endpoints
 - [ ] `dartclaw workflow run` standalone path works identically before/after (regression guard for CLI wiring)

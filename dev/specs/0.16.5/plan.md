@@ -134,7 +134,7 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 _Sequential — S10 (fitness functions) waits for S01 (sets up the alertable-events test baseline) and S09 (establishes the barrel-show allowlist baseline). S09 itself has no deps._
 
 #### [P] S09: dartclaw_workflow Barrel Narrowing
-**Scope**: Add `show` clauses to every `export 'src/...'` in `packages/dartclaw_workflow/lib/dartclaw_workflow.dart`, target ≤35 curated public symbols, and fix downstream imports in `dartclaw_server` and `dartclaw_cli` that previously relied on wholesale exports.
+**Scope**: Add `show` clauses to every `export 'src/...'` in `packages/dartclaw_workflow/lib/dartclaw_workflow.dart`, remove only proven-unused internal symbols, record the resulting count for S25's soft-cap ratchet, and fix downstream imports in `dartclaw_server` and `dartclaw_cli` that previously relied on wholesale exports.
 **Source refs**: FR3 — [`prd.md`](./prd.md)
 **Asset refs**: ARCH-001 finding
 
@@ -243,7 +243,7 @@ _Parallel-friendly W4 — S16, S17, S18 are independent files. S15 depends on S1
 **Asset refs**: ARCH-004 finding; 0.16.4 S46 closure (`workflow-robustness-refactor/s46-task-executor-decomposition.md`); pairs with S33 (binding coordinator) and S38 (`TaskExecutorLimits` record)
 
 #### [P] S17: service_wiring.dart + cli_workflow_wiring.dart Per-Subsystem Split
-**Scope**: Two sibling CLI-side wiring god-method splits — primary `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` (1,415 LOC; `wire()` ~678 LOC) split into per-subsystem `_wireXxx` methods (storage, security, harness, channels, tasks, scheduling, observability, web UI) with a `WiringContext` struct, target ≤800 LOC and `wire()` ≤100 LOC; secondary `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` (945 LOC; `wire()` ~700 LOC) given the same treatment with a `CliWorkflowWiringContext` struct, target ≤600 LOC.
+**Scope**: Two sibling CLI-side wiring god-method splits — primary `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` (1,415 LOC; `wire()` ~678 LOC) split into per-subsystem `_wireXxx` methods (storage, security, harness, channels, tasks, scheduling, observability, web UI) with a `WiringContext` struct, target ≤800 LOC after private `part` extraction and `wire()` ≤100 LOC; secondary `apps/dartclaw_cli/lib/src/commands/workflow/cli_workflow_wiring.dart` (945 LOC; `wire()` ~700 LOC) given the same treatment with a `CliWorkflowWiringContext` struct, target ≤600 LOC after private `part` extraction.
 **Notes**:
 - Mirrors the 0.12 Phase 0 server-side `ServiceWiring` decomposition (`SecurityWiring`/`ChannelWiring`/`TaskWiring`/`SchedulingWiring`/`StorageWiring`). 2026-05-04 rebaseline: secondary target grew from the original 350-LOC twin estimate during 0.16.4 final-remediation; effort roughly doubles.
 **Asset refs**: ARCH-007 finding; H3 finding (SR-10); M-D4 (cli_workflow_wiring twin)

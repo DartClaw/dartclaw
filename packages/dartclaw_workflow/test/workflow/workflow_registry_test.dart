@@ -148,6 +148,27 @@ void main() {
       expect(registry.getByName('nonexistent'), isNull);
     });
 
+    test('getByName reloads a changed workflow source file', () async {
+      final registry = _makeRegistry();
+      final file = File(p.join(tempDir.path, 'hot.yaml'));
+      file.writeAsStringSync(_validCustomYaml('hot-wf'));
+
+      await registry.loadFromDirectory(tempDir.path, source: WorkflowSource.materialized);
+      expect(registry.getByName('hot-wf')?.description, 'Custom workflow for testing.');
+
+      file.writeAsStringSync('''
+name: hot-wf
+description: Reloaded workflow for testing.
+steps:
+  - id: step1
+    name: Step 1
+    prompt: Do the thing.
+''');
+
+      expect(registry.getByName('hot-wf')?.description, 'Reloaded workflow for testing.');
+      expect(registry.authoredYaml('hot-wf'), contains('Reloaded workflow for testing.'));
+    });
+
     test('sourceOf("spec-and-implement") returns WorkflowSource.materialized', () async {
       final registry = _makeRegistry();
       await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);

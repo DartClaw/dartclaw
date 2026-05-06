@@ -595,7 +595,9 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             timestamp: DateTime.now(),
           ),
         );
-        if (result.awaitingApproval && controllerStep.onFailure != OnFailurePolicy.continueWorkflow) {
+        if (result.awaitingApproval &&
+            controllerStep.onFailure != OnFailurePolicy.continueWorkflow &&
+            !_hasPriorForeachFailures(mapCtx, iterIndex)) {
           await _transitionStepAwaitingApproval(
             run,
             childStep,
@@ -1702,3 +1704,6 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     await _repository.update(updatedRun);
   }
 }
+
+bool _hasPriorForeachFailures(MapStepContext mapCtx, int currentIndex) =>
+    mapCtx.failedIndices.any((index) => index != currentIndex);

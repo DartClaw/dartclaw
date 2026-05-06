@@ -256,6 +256,68 @@ void main() {
     );
   });
 
+  test('foreach hard failure takes precedence over later needsInput hold', () async {
+    final definition = WorkflowDefinition(
+      name: 'strict-foreach',
+      description: 'Strict foreach',
+      steps: const [
+        WorkflowStep(
+          id: 'story-pipeline',
+          name: 'Story Pipeline',
+          type: 'foreach',
+          mapOver: 'story_specs',
+          foreachSteps: ['implement'],
+          maxParallel: 2,
+          outputs: {'story_results': OutputConfig(format: OutputFormat.json)},
+        ),
+        WorkflowStep(id: 'implement', name: 'Implement', prompts: ['implement {{map.item.id}}']),
+      ],
+    );
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    const storySpecs = {
+      'items': [
+        {'id': 'S01', 'title': 'Story One', 'dependencies': <String>[], 'spec_path': 'fis/s01.md'},
+        {'id': 'S02', 'title': 'Story Two', 'dependencies': <String>[], 'spec_path': 'fis/s02.md'},
+      ],
+    };
+
+    final taskSub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      final task = await h.taskService.get(e.taskId);
+      if (task == null) return;
+      final session = await h.sessionService.createSession(type: SessionType.task);
+      await h.taskService.updateFields(e.taskId, sessionId: session.id);
+      final scope = task.configJson['displayScope'];
+      if (scope == 'S02') {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await h.messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<step-outcome>{"outcome":"needsInput","reason":"story needs human decision"}</step-outcome>',
+        );
+        await h.completeTask(e.taskId);
+        return;
+      }
+      await Future<void>.delayed(Duration.zero);
+      await h.messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: '<step-outcome>{"outcome":"failed","reason":"story cannot be implemented"}</step-outcome>',
+      );
+      await h.completeTask(e.taskId);
+    });
+
+    await h.executor.execute(run, definition, WorkflowContext(data: {'story_specs': storySpecs}));
+    await taskSub.cancel();
+
+    final finalRun = await h.repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    expect(finalRun?.errorMessage, contains("Foreach step 'story-pipeline': 2 iteration(s) failed"));
+    expect(finalRun?.contextJson['data']?['_approval.pending.stepId'], isNull);
+  });
+
   test('continue-on-failure foreach still fails controller preflight errors', () async {
     final definition = WorkflowDefinition(
       name: 'resilient-foreach',

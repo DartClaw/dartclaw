@@ -227,3 +227,21 @@ file   | packages/dartclaw_workflow/CLAUDE.md                         | Update "
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Add `show` clauses to every `export 'src/...'` in `packages/dartclaw_workflow/lib/dartclaw_workflow.dart`. Target ≤35 curated public symbols. Remove candidates that are likely internal-only (e.g. `workflow_definition_source.dart`, `workflow_turn_adapter.dart`, `workflow_template_engine.dart`, `skill_registry_impl.dart`, `shell_escape.dart`, `map_step_context.dart`, `json_extraction.dart`, `dependency_graph.dart`, `duration_parser.dart` — already in `dartclaw_config`, `step_config_resolver.dart`). Fix downstream imports in `dartclaw_server` and `dartclaw_cli` that previously relied on the wholesale exports.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] Every `export 'src/...'` in `dartclaw_workflow/lib/dartclaw_workflow.dart` uses a `show` clause (must-be-TRUE)
+- [ ] Barrel exposes ≤35 public symbols (must-be-TRUE)
+- [ ] `dart analyze` workspace-wide is clean after downstream import fixes (must-be-TRUE)
+- [ ] `dart test` workspace-wide passes

@@ -291,3 +291,39 @@ file   | packages/dartclaw_testing/lib/src/fake_turn_manager.dart               
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: **Note (2026-05-04 reconciliation)**: the bulk of S33's heavy lifting already landed during 0.16.4. The three workflow-shared-worktree maps and waiter set (`_workflowSharedWorktrees`, `_workflowSharedWorktreeBindings`, `_workflowSharedWorktreeWaiters`, `_workflowInlineBranchKeys`) and the `hydrateWorkflowSharedWorktreeBinding(...)` entry point were extracted from `task_executor.dart` into a concrete class `WorkflowWorktreeBinder` at `packages/dartclaw_server/lib/src/task/workflow_worktree_binder.dart`. `TaskExecutor` now delegates via a `_worktreeBinder` field (`task_executor.dart:146`). The inter-task-binding `StateError` defensive guard moved into `hydrateWorkflowSharedWorktreeBinding` on the binder.
+The remaining 0.16.5 work narrows to the **interface + fake + signature polish**:
+1. **Lift the abstract interface** from the concrete `WorkflowWorktreeBinder` into `dartclaw_core/lib/src/workflow/` as `abstract interface class WorkflowTaskBindingCoordinator { hydrate, get, put, waitFor }` — picking the surface that consumers actually need (drop public methods that callers don't reach for).
+2. **Rename or wrap** the concrete class as `WorkflowTaskBindingCoordinatorImpl` (or keep the `WorkflowWorktreeBinder` filename and have it `implements WorkflowTaskBindingCoordinator`) so `TaskExecutor` and `WorkflowService` depend on the interface, not the concrete type.
+3. **Add a fake** at `dartclaw_testing/lib/src/fake_workflow_task_binding_coordinator.dart`.
+4. **Drop the redundant `workflowRunId` parameter** in the hydrate callback signature — the binding already carries it. Remove or reduce the defensive guard now that the param mismatch can't happen.
+
+This extraction is what ARCH-004 anticipated; the unblock-S16 framing remains accurate, but S16's "drop the workflow-shared-worktree concern" is **already structurally true** (the binder owns them), so S16's residual is constructor-parameter reduction + dep-grouping only.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `WorkflowTaskBindingCoordinator` abstract interface class exists in `dartclaw_core` with the methods consumers actually need (must-be-TRUE)
+- [ ] Existing `WorkflowWorktreeBinder` (or a renamed `WorkflowTaskBindingCoordinatorImpl`) in `dartclaw_server` `implements` the new interface; `TaskExecutor` types its field as the interface, not the concrete (must-be-TRUE)
+- [ ] `FakeWorkflowTaskBindingCoordinator` in `dartclaw_testing` for unit-test use
+- [x] `TaskExecutor` no longer holds `_workflowSharedWorktrees*` fields directly — **already met by 0.16.4** (delegates via `_worktreeBinder` field at `task_executor.dart:146`); verify still met
+- [ ] Callback signature no longer carries the redundant `workflowRunId` parameter — only the binding itself
+- [ ] Defensive `StateError` (now living on the binder) deleted or reduced once the signature change makes the mismatch impossible
+- [ ] `dart analyze` and `dart test` workspace-wide pass; workflow-shared-worktree integration tests unchanged
+- [ ] Unblocks S16: `_TaskPreflight` / `_TaskTurnRunner` / `_TaskPostProcessor` split no longer needs to carry the binding-coordinator concern
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: workflow run with `worktree: shared` spawns 3 child tasks → all three hydrate from the coordinator → identical worktree path returned
+- Edge: concurrent hydrate attempts → coordinator serializes (mutex preserved from current `TaskExecutor` semantics)
+- Error: persisted binding disagrees with requested `workflowRunId` → coordinator throws with explicit message (behavior equivalent to the deleted `StateError`, now centralized)

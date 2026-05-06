@@ -374,3 +374,29 @@ doc    | dev/specs/0.16.5/fis/s10-level-1-governance-checks.md                  
 > _Managed by exec-spec post-implementation — append-only. Tag semantics: see [`data-contract.md`](${CLAUDE_PLUGIN_ROOT}/references/data-contract.md) (FIS Mutability Contract, tag definitions). AUTO_MODE assumption-recording: see [`automation-mode.md`](${CLAUDE_PLUGIN_ROOT}/references/automation-mode.md). Spec authors: leave this section empty._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Move domain-specific models out of `dartclaw_models` to their owning packages. (a) `WorkflowDefinition` (1,349 LOC alone), `WorkflowStep`, `WorkflowRun`, `WorkflowExecutionCursor` → `dartclaw_workflow`. (b) `Project`, `CloneStrategy`, `PrStrategy`, `PrConfig` → `dartclaw_config` (already hosts `ProjectConfig`/`ProjectDefinition`) or a new `dartclaw_project` sub-module (decision during implementation). (c) `TaskEvent` + 9 subtypes → `dartclaw_core` (where `Task` lives); **during the move, convert `TaskEventKind` sealed class with 6 empty subclasses → `enum`** with `String get name` — pattern matching with `switch` continues to work (closes [TD-053](../../state/TECH-DEBT-BACKLOG.md#td-053--taskeventkind-sealed-class-should-be-an-enum)). (d) `TurnTrace`, `TurnTraceSummary`, `ToolCallRecord` → `dartclaw_core`. (e) `SkillInfo` → `dartclaw_workflow`. Update all import sites. `dartclaw_models` ends ≤1,200 LOC as the true shared kernel (Session, Message, SessionKey, ChannelType, AgentDefinition, MemoryChunk). Decide whether to ship a one-release soft re-export from `dartclaw_models.dart` for external consumers (record decision in FIS). Update `CHANGELOG.md` with a migration note.
+
+
+### From plan.md — Note (2026-05-04 reconciliation)
+
+**Note (2026-05-04 reconciliation)**: `dartclaw_models` total LOC has grown from the pre-audit 3,005 baseline to **3,555 LOC** as of `v0.16.4` (workflow_definition.dart alone is 1,349 LOC), so this story's migration surface is larger than originally scoped. Targets unchanged. Pair this with the **TD-102 attractor** decision (folded in 2026-05-04): `dartclaw_core/lib/` grew from 11,561 → 12,437 LOC during 0.16.4; the ratchet was temporarily raised from 12,000 → 13,000. Items (c) `TaskEvent` and (d) `TurnTrace`/`TurnTraceSummary`/`ToolCallRecord` migrate **into** `dartclaw_core` and would push it further over budget — so before/while landing those moves, identify non-runtime-primitive material in `dartclaw_core/lib/` that can move out (typically to `dartclaw_models` or `dartclaw_config`) to compensate. Net target: `dartclaw_core/lib/` returns ≤12,000 LOC, then lower the ratchet back down in `dev/tools/arch_check.dart` to keep the constraint biting. Closes [TD-102](../../state/TECH-DEBT-BACKLOG.md#td-102--trim-dartclaw_corelib-back-below-the-12000-line-ratchet) at the same commit chain.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `dartclaw_models` ≤1,200 LOC (must-be-TRUE)
+- [ ] Workflow/project/task-event/turn-trace/skill-info models live in their owning packages (must-be-TRUE)
+- [ ] `dart analyze` and `dart test` workspace-wide pass (must-be-TRUE)
+- [ ] CHANGELOG migration note added
+- [ ] Fitness functions from S10 remain green (model moves don't regress barrel hygiene or file size)
+- [ ] **TD-102**: `dartclaw_core/lib/` total LOC ≤12,000; `_coreLocCeiling` in `dev/tools/arch_check.dart` lowered back from 13,000 → 12,000 in the same commit chain (must-be-TRUE)
+- [ ] TD-102 entry deleted (or marked Resolved-by-S22) in public `dev/state/TECH-DEBT-BACKLOG.md`

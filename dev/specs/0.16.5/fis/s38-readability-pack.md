@@ -365,3 +365,33 @@ file   | dev/specs/0.16.5/plan.md#s35-stringly-typed-workflow-flags-enums       
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Bundle five low-cost, high-payoff readability wins into one ~4h story. (a) **`_logRun(run, msg)` helper + severity drop to `fine`** in `packages/dartclaw_workflow/lib/src/workflow/workflow_executor.dart` — 12+ inline `_log.info("Workflow '${run.id}': $msg")` calls (lines 577, 588, 616, 681, 703, 715, 786, 816, 848, 912, …) collapse to `_logRun(run, msg)`; per-step progression events drop from `info` → `fine` (terminal status, errors, approval events stay `info`). Also unifies the `${run.id}` vs `${definition.name}` vs `(${run.id})` prefix inconsistency across lines 499, 523, 577. (b) **Typed `Task.worktree` read-only helper** in `packages/dartclaw_core/lib/src/task/task.dart` — add `({String? branch, String? path, DateTime? createdAt})? get worktree => …` that parses the `Map<String, dynamic>? worktreeJson` field. The map field stays for back-compat. (c) **Rename `WorkflowStep.type → taskType`** in `packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart:471` after S35 has introduced `WorkflowTaskType` on the existing `type` field — add `taskType` field; deprecate `type` with `@Deprecated('Use taskType')`; update public `dev/state/UBIQUITOUS_LANGUAGE.md` §"Overloaded Terms" to distinguish "step type" (kind: action/loop/parallel) from "task type" (coding/reading/analysis/etc). (d) **Document the three dir conventions** — add a dartdoc comment block in the `dartclaw_core` barrel clarifying: `dataDir` = `~/.dartclaw/` (instance root), `workspaceDir` / `workspaceRoot` = user's active project working tree, `projectDir` = clone under `$dataDir/projects/<id>/`. Rename `TaskExecutor.workspaceDir` → `workspaceRoot` to align with the glossary. (e) **`TaskExecutorLimits` record** — group the cohesive `compactInstructions` / `identifierPreservation` / `identifierInstructions` / `maxMemoryBytes` / `budgetConfig` quintet on `TaskExecutor.new` (`task_executor.dart:35-62`, currently ~23 named params) into a single record or class. This drops the ctor below S10's `≤12 params` fitness threshold and makes the cohesive-cluster-vs-one-off-flag distinction visible at the call site. (Similar `WebRoutesChannels` / `WorkflowBashSandbox` clusters are left for S18-adjacent future work — out of scope here.)
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `_logRun` helper exists in `workflow_executor.dart`; all 12+ inline prefix calls migrated (must-be-TRUE)
+- [ ] Per-step progression log calls at `fine` severity; terminal / error / approval at `info` (must-be-TRUE)
+- [ ] `Task.worktree` typed getter exists; returns null when `worktreeJson` is null (must-be-TRUE)
+- [ ] `WorkflowStep.taskType` field exists; `type` deprecated with `@Deprecated('Use taskType')` (must-be-TRUE)
+- [ ] Glossary "Overloaded Terms" section distinguishes step type vs task type (must-be-TRUE)
+- [ ] Dir-naming conventions documented in `dartclaw_core` barrel dartdoc (must-be-TRUE)
+- [ ] `TaskExecutor.workspaceDir` renamed to `workspaceRoot`; all call sites updated
+- [ ] `TaskExecutorLimits` record (or class) exists; `TaskExecutor.new` uses it; ctor param count drops below 12 (must-be-TRUE)
+- [ ] `dart analyze` and `dart test` workspace-wide pass
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: reading `workflow_executor.dart` log lines, the per-step noise disappears at `info` level; terminal errors remain visible
+- Edge: consumer code that reads `Task.worktreeJson['branch']` continues to work via the untouched map field; new code uses `task.worktree?.branch`
+- Boundary: glossary + dartdoc are authoritative — future contributors reach for `workspaceRoot` not `workspaceDir` on new code

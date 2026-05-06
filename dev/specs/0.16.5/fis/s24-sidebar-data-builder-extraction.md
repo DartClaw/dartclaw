@@ -216,3 +216,20 @@ Standard validation handled by exec-spec. Feature-specific:
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Extract a `SidebarDataBuilder` class in `packages/dartclaw_server/lib/src/web/web_routes.dart`. Construct once per-request context, expose `Future<SidebarData> build({String? activeSessionId})`. Inject via `PageContext`. Collapse the 6 existing call sites (each currently passes 7-10 similar named parameters) to `pageContext.sidebar.build(activeSessionId: id)`.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `SidebarDataBuilder` exists as a dedicated class (must-be-TRUE)
+- [ ] All 6 `buildSidebarData(...)` call sites collapsed to the builder invocation (must-be-TRUE)
+- [ ] `dart test packages/dartclaw_server/test/web` passes

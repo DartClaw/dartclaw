@@ -262,3 +262,31 @@ file   | packages/dartclaw_workflow/lib/src/workflow/workflow_definition_parser.
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Two pure DRY passes with no coupling between them, bundled as one story under the 1:1 story↔FIS invariant (previously S13+S14 sharing a composite FIS).
+
+**Part A — workflow_executor DRY helpers** (four one-shot extractions). (a) `mergeContextPreservingPrivate(WorkflowRun run, WorkflowContext context) → Map<String, dynamic>` — replaces the 12–14 duplicated map-spreads in `workflow_executor.dart` that preserve underscore-prefixed internal metadata keys (`_map.current`, `_foreach.current`, `_loop.current`, `_parallel.*`) across context merges. (b) `_fireStepCompleted(stepIndex, success, result)` helper (or equivalent `WorkflowRunMutator.recordStepSuccess/Failure/Continuation`) — replaces 12 duplicated `WorkflowStepCompletedEvent(...)` constructions. (c) Promote `truncate(String, int, {suffix})` from `packages/dartclaw_server/lib/src/templates/helpers.dart` to a new `dartclaw_core/lib/src/util/string_util.dart`. Delete 4 char-count `_truncate` duplicates in favour of the core util. Keep UTF-8-aware byte-truncate variants as separate named functions (`truncateUtf8Bytes`) with clear semantics. (d) `unwrapCollectionValue(Object? raw, {required String stepId, required String mapOverKey}) → List<dynamic>?` — dedupes the two verbatim auto-unwrap switches in `workflow_executor.dart:3285-3303` (map) and `3707-3725` (foreach) that promote a single-entry `Map` with a list value into the iteration collection. Place alongside `mergeContextPreservingPrivate` in a file-local workflow helper module.
+
+**Part B — YamlTypeSafeReader + config_parser conversion + workflow parser coercion (TD-086 mechanical slice)**. Add typed helpers to `packages/dartclaw_config/lib/src/` (likely a new `yaml_type_safe_reader.dart`): `readString`, `readInt`, `readBool`, `readMap`, `readStringList`, plus a generic `T? readField<T>(...)`. Each helper encapsulates the "type-check + warn-and-ignore" pattern. Mechanically convert the 51 inline "Invalid type for …" blocks in `config_parser.dart` to use these helpers. Target: cut `config_parser.dart` by ~300-400 LOC and keep it ≤1,200 LOC. Leave `_parseXxx` function structure unchanged (they just get terser). Also apply the same typed-coercion pattern inside `dartclaw_workflow` YAML parsing for the low-risk TD-086 defects: replace unguarded `as String?` / lazy `raw.cast<String>()` parser paths with eager typed reads that throw a friendly `FormatException` naming the offending field; normalize `extraction.type` / missing `pattern` errors away from `ArgumentError` / `TypeError`. Defer the design-heavy TD-086 pieces (duplicate-key policy, max-depth / max-bytes limits, parser-vs-validator semantic-home decision, and full gate-expression diagnostics) to S23 triage unless they prove mechanical during this pass.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `mergeContextPreservingPrivate` helper exists and is used at all duplicated sites in `workflow_executor.dart` (must-be-TRUE)
+- [ ] `_fireStepCompleted` (or `WorkflowRunMutator` method) exists and is used at all 12 sites (must-be-TRUE)
+- [ ] `truncate()` lives in `dartclaw_core`; 4 char-count `_truncate` duplicates removed (must-be-TRUE)
+- [ ] UTF-8-aware variants remain as separately-named functions with documented byte-vs-char semantics
+- [ ] `unwrapCollectionValue` replaces both map- and foreach-step auto-unwrap blocks (must-be-TRUE)
+- [ ] `YamlTypeSafeReader` (or equivalent typed helpers) exists in `dartclaw_config` (must-be-TRUE)
+- [ ] All 51 inline "Invalid type for …" sites in `config_parser.dart` replaced with helper calls (must-be-TRUE)
+- [ ] **TD-086 mechanical parser slice**: workflow parser scalar/list/extraction errors use typed coercion and surface as field-specific `FormatException`s, not raw `TypeError` / `ArgumentError` (must-be-TRUE)
+- [ ] `config_parser.dart` LOC reduced by ≥300 (must-be-TRUE)
+- [ ] `dart test packages/dartclaw_workflow packages/dartclaw_config` passes without changes to test expectations

@@ -244,3 +244,29 @@ url    | https://dart.dev/language/patterns#exhaustiveness-checking             
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Extend `AlertClassifier.classifyAlert` in `packages/dartclaw_server/lib/src/alerts/alert_classifier.dart` to cover `LoopDetectedEvent` (critical severity) and `EmergencyStopEvent` (critical severity). **Convert the classifier body from the current if-is ladder to an exhaustive `switch (event)` expression** over the `sealed DartclawEvent` hierarchy — the compiler enforces exhaustiveness, eliminating the need for a custom runtime test. Apply the same switch-expression conversion to `AlertFormatter._body`/`_details` in `alert_formatter.dart`. Events that legitimately don't alert use a `// NOT_ALERTABLE: <reason>` annotation on the event class declaration, and the switch returns null for those variants. Excluded: alert body/severity tuning for other events (that's their individual stories).
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [x] `classifyAlert` returns a critical-severity `AlertClassification` for both `LoopDetectedEvent` and `EmergencyStopEvent` (must-be-TRUE)
+- [x] `classifyAlert` body is a `switch (event)` expression with one arm per `DartclawEvent` sealed subtype; compiler exhaustiveness applies (must-be-TRUE)
+- [x] `AlertFormatter._body` + `_details` use the same exhaustive switch-expression pattern (must-be-TRUE)
+- [x] Introducing a new `DartclawEvent` subtype without a switch arm fails compilation (not a runtime test — by design) (must-be-TRUE)
+- [x] `NOT_ALERTABLE` annotation comment present on every sealed subtype whose switch arm returns `null`, explaining why no alert
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: `EmergencyStopEvent` fires → `classifyAlert` returns critical → `AlertRouter` delivers to configured target
+- Edge: a new `Foo*Event` added without switch coverage → `dart analyze` reports a non-exhaustive switch at the classifier site
+- Error: a safety-event handler returning wrong severity is still possible — the unit test suite checks representative severities for the known safety events, but the "missing coverage" case is delegated to the compiler

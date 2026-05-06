@@ -458,3 +458,45 @@ Derive test cases from Scenarios; tag with task ID(s) the test proves.
 > _Managed by exec-spec post-implementation — append-only. Tag semantics: see [`data-contract.md`](${CLAUDE_PLUGIN_ROOT}/references/data-contract.md) (FIS Mutability Contract, tag definitions). AUTO_MODE assumption-recording: see [`automation-mode.md`](${CLAUDE_PLUGIN_ROOT}/references/automation-mode.md). Spec authors: leave this section empty._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `dart format --set-exit-if-changed packages apps` green (must-be-TRUE)
+- [ ] `yaml` and `path` deps aligned across all pubspecs (must-be-TRUE)
+- [ ] `dev/tools/check-deps.sh` exists and asserts alignment
+- [ ] All 22 production `catch (_)` sites have log or comment
+- [ ] 23 test `Future.delayed(Duration.zero)` replaced with `pumpEventQueue()`
+- [ ] 2 typed exceptions added; 2 `throw Exception` removed
+- [ ] `claude_code_harness.dart` + `codex_harness.dart` use super-parameters
+- [ ] `expandHome` unit tests exist and pass
+- [ ] `TESTING-STRATEGY.md` has `pumpEventQueue` rationale section
+- [ ] **TD-054** settings-page round-trip removed; `_badgeVariantFromClass()` deleted
+- [ ] **TD-055** `_readSessionUsage` default record DRY'd; net line reduction
+- [ ] **TD-056** `cleanupWorktree` shared utility in use at 3 sites
+- [ ] **TD-060** `dartclawVersion` auto-sync OR release-checklist entry landed; decision recorded in FIS
+- [ ] **TD-061** Codex stderr lines appear in logs at `WARNING` / `FINE`; no regression in existing codex harness tests
+- [ ] **TD-073** `externalArtifactMount` duplicate destination paths fail at validation or runtime before overwrite; regression test landed (must-be-TRUE)
+- [ ] **TD-085** Unsupported JSON-Schema keywords no longer silently validate green; supported subset diagnostic or implementation tested (must-be-TRUE)
+- [ ] **TD-029** (stretch) `TemplateLoaderService` seam exists — OR this item carries forward on the backlog with an updated "Trigger" field pointing to the next template/wiring refactor
+- [ ] Public `dev/state/TECH-DEBT-BACKLOG.md` updated: resolved TD entries deleted per the "Open items only" policy on line 3
+- [ ] **R-L2** All 13 `@Deprecated` shims removed; CHANGELOG "Breaking changes" entry landed (must-be-TRUE)
+- [ ] **R-L6** `WorkflowStep.copyWith` exists and is used by `WorkflowDefinitionResolver` (must-be-TRUE)
+- [ ] **R-L1** Step-outcome warning log fires on missing marker for non-`emitsOwnOutcome` steps (must-be-TRUE)
+- [ ] **R-M7** 12 duplicated test-path helpers collapsed into `workflow_test_paths.dart` (must-be-TRUE)
+- [ ] **R-M8** `TaskExecutorTestHarness` lives in `dartclaw_testing`; 3 task executor tests use it
+- [ ] **DR-M3** All 9 `FakeProcess`-style redeclarations resolved (deleted where shape matches; canonical helper extended where it doesn't); all 9 test files import from `dartclaw_testing` (must-be-TRUE)
+- [ ] **DR-M2** `resolveGitCredentialEnv` + its `show` entry deleted (must-be-TRUE)
+- [ ] **DR-L2** Zero uncalled private methods in the post-0.16.4-S45/S46 successor files: `foreach_iteration_runner.dart`, `context_extractor.dart`, `workflow_executor_helpers.dart`, `task_executor.dart`, `workflow_cli_runner.dart` (must-be-TRUE) — _scope adjusted from original target list now that `workflow_executor.dart` is 844 LOC and `task_executor.dart` is 790 LOC._
+- [ ] **TD-069** All six advisory DECIDE items have a recorded decision; TD-069 entry deleted or narrowed in public `dev/state/TECH-DEBT-BACKLOG.md` (must-be-TRUE)
+- [ ] **TD-090 / TD-089 / TD-086 residuals** 0.16.5 triage decisions recorded; backlog entries either deleted, implemented, or narrowed to named 0.17+ residuals (must-be-TRUE)
+- [ ] **S30 residue** Error-builder helpers exist and are used in the `validation/` rule files; 63-call-site migration complete (must-be-TRUE)
+- [ ] **SP-1** `SkillProvisioner` validates `config.ref` shape; every `git` subcommand using a ref or url uses `--` separators; injection regression test landed (must-be-TRUE)
+- [ ] **SP-2** Cached-source `origin` URL re-validated against `andthen.git_url` on every startup; mismatched cache fails fast (must-be-TRUE)
+- [ ] Pre-existing 15 known failures in `workflow_builtin_integration_test` + `built_in_workflow_contracts_test` either fixed or formally accepted with rationale recorded

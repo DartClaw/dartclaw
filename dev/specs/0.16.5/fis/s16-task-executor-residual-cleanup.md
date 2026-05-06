@@ -308,3 +308,30 @@ file   | dev/specs/0.16.4/fis/workflow-robustness-refactor/s46-task-executor-dec
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Re-scope rationale (2026-04-30)
+
+**Re-scope rationale (2026-04-30)**: The original "task_executor.dart ≤1,500 LOC + decomposition" target is **already met**. 0.16.4 S46 (`workflow-robustness-refactor/s46-task-executor-decomposition.md`) shipped the decomposition; current `task_executor.dart` = **790 LOC** with `task_config_view`, `workflow_turn_extractor`, `task_read_only_guard`, `task_budget_policy`, `workflow_one_shot_runner`, and `workflow_worktree_binder` already extracted. **TD-052 is effectively closed** by 0.16.4 S46 — backlog cleanup at sprint close removes the entry. Remaining work narrows to:
+
+**Scope** (current targets):
+- (a) **Constructor parameter reduction** — current ctor still has ~28 named parameters; group into dep-group structs to reach ≤12 (S10's `constructor_param_count_test.dart` ceiling). Suggested groupings: `TaskExecutorServices` (repos + buses), `TaskExecutorRunners` (turn/harness/runner-pool), `TaskExecutorLimits` (already named in S38 — coordinate with that story); pair with S38 record extraction.
+- (b) **`_markFailedOrRetry` unification** — verify whether the original 3 near-identical blocks survive 0.16.5 S46's split into the new helper modules; collapse any remaining near-duplicates into a single `_failForProject(project, reason)` helper.
+- (c) **`_workflowSharedWorktrees*` field removal** — once S33 lands `WorkflowTaskBindingCoordinator`, delete the three maps + the defensive `StateError` callback guard from `task_executor.dart`; constructor accepts the coordinator instead.
+
+Preserves all call sites and public API.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] Constructor takes ≤12 parameters via dep-group structs (S10 ceiling) (must-be-TRUE)
+- [ ] All near-identical `_markFailedOrRetry` blocks (if any survive in 790-LOC file) unified into one helper (must-be-TRUE)
+- [ ] `_workflowSharedWorktrees*` fields removed; coordinator wired via constructor (depends on S33) (must-be-TRUE)
+- [ ] `dart test packages/dartclaw_server/test/task` passes with zero test changes (must-be-TRUE)
+- [ ] `constructor_param_count_test.dart` (S10) passes for this file (without allowlist)
+- [ ] TD-052 entry deleted from public `dev/state/TECH-DEBT-BACKLOG.md` at sprint close

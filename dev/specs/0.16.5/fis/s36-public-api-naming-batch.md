@@ -339,3 +339,30 @@ doc    | dev/specs/0.16.5/fis/s22-dartclaw-models-grab-bag-migration.md         
 > _Managed by exec-spec post-implementation — append-only. Tag semantics: see [`data-contract.md`](${CLAUDE_PLUGIN_ROOT}/references/data-contract.md) (FIS Mutability Contract, tag definitions). AUTO_MODE assumption-recording: see [`automation-mode.md`](${CLAUDE_PLUGIN_ROOT}/references/automation-mode.md). Spec authors: leave this section empty._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Batch two Effective-Dart naming corrections into one CHANGELOG break, piggy-backing on S22's already-breaking API migration. **Part A — drop `k`-prefix from 6 public constants**: Effective Dart explicitly bans Hungarian/prefix notation. Rename: `kDefaultBashStepEnvAllowlist` → `defaultBashStepEnvAllowlist`; `kDefaultGitEnvAllowlist` → `defaultGitEnvAllowlist`; `kDefaultSensitivePatterns` → `defaultSensitivePatterns` (all in `packages/dartclaw_security/lib/src/safe_process.dart:5,27,41` + re-exports in `dartclaw_security.dart:23-25`); `kWorkflowContextTag/Open/Close` and `kStepOutcomeTag/Open/Close` → `workflowContextTag/Open/Close` and `stepOutcomeTag/Open/Close` (in `packages/dartclaw_workflow/lib/src/workflow/workflow_output_contract.dart:12,15,18,25,28,31`). Update 7 call sites in `apps/dartclaw_cli/lib/src/commands/wiring/{harness,task}_wiring.dart`, `workflow_executor.dart:53,2218`, `security_config.dart:9`, `prompt_augmenter.dart:40-113`. **Part B — drop `get` prefix from 10 public methods**: Rename per Effective Dart guidance. `ProjectService.getDefaultProject` → `defaultProject` (convert to getter if side-effect-free); `ProjectService.getLocalProject` → `localProject` (getter); `SessionService.getOrCreateMain` → `getOrCreateMainSession` (keeping `getOrCreate` prefix is acceptable — it communicates side effect; Effective Dart bans `get` not `getOrCreate`); `ProviderStatusService.getAll` → `all` (getter); `.getSummary` → `summary` (getter); `GowaManager.getLoginQr` → `loginQr` / `.getStatus` → `status`; `PubsubHealthReporter.getStatus` → `status`. Update every call site. **Part C — add CHANGELOG migration note** under a shared "Breaking API Changes" section that also houses S22's model migration, so consumers see one coherent break.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] Zero `k[A-Z]` public identifiers in `dartclaw_security` + `dartclaw_workflow` barrel exports (`rg '^const k[A-Z]|^final k[A-Z]' packages/dartclaw_{security,workflow}` returns empty) (must-be-TRUE)
+- [ ] `get[A-Z]*` methods on public service interfaces renamed or converted to getters per scope list (must-be-TRUE)
+- [ ] Every call site updated; `dart analyze` workspace-wide clean (must-be-TRUE)
+- [ ] `dart test` workspace-wide passes (must-be-TRUE)
+- [ ] CHANGELOG entry ships under the S22 "Breaking API Changes" banner — single user-facing migration note
+- [ ] `getOrCreateMain` intentionally retained with its prefix to communicate "factory with side effect"; decision recorded in the FIS
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: consumer reads `projectService.localProject` as a getter → no parentheses required; prior `getLocalProject()` call sites now fail `dart analyze` pointing to the rename
+- Edge: `getOrCreate*` factories keep their prefix — Effective Dart's rule targets accessor-style `get` only
+- Boundary: CHANGELOG under one unified break ships; no per-rename CHANGELOG entries

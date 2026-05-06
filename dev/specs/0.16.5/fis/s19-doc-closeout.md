@@ -406,3 +406,41 @@ file   | dev/state/TECH-DEBT-BACKLOG.md (TD-072)                                
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Three independent doc-hygiene passes touching disjoint files, bundled as one story under the 1:1 story↔FIS invariant (previously S19+S20+S21 sharing a composite FIS). All land after code changes so the documentation reflects the shipped 0.16.5 structural work.
+
+**Part A — SDK 0.9.0 framing → placeholder acknowledgement**. Update `docs/sdk/quick-start.md`, `docs/sdk/packages.md`, and `examples/sdk/single_turn_cli/README.md` to describe the `0.0.1-dev.1` placeholder state instead of "upcoming 0.9.0 release imminent". Replace the pre-publication preview banner with an honest statement: "DartClaw is name-squatted on pub.dev as `0.0.1-dev.1`; the real publish is deferred until the public repo opens. Until then, use a git-pinned dependency or `dependency_overrides` against a local checkout (see ADR-008)." In `packages.md`, replace every `0.9.0 pending` table cell with `0.0.1-dev.1 (placeholder)` + a footnote pointing to ADR-008 (see Inline Reference Summaries appendix below; full rationale in private repo `docs/adrs/008-sdk-publishing-strategy.md`).
+
+**Part B — configuration.md schema sync + recipe key replacement**. Bring `docs/guide/configuration.md` into alignment with the actual parser. (b1) Reconcile `scheduling.jobs` schema: `configuration.md` uses `id:` + `schedule: { type: cron, expression: ... }`; `scheduling.md` uses `name:` + `schedule: "..."`; `jobs create` CLI uses `--name`; the API uses `:name`. Pick the canonical form (likely `id:` + structured `schedule`), document the alternate as a compatibility alias if both parse, or make one authoritative and deprecate the other. (b2) Fill the `channels.google_chat:` block (lines 272-286) with the fields the channel actually parses: `bot_user`, `typing_indicator`, `quote_reply`, `reactions_auth`, `oauth_credentials`, `pubsub.*`, `space_events.*`. Or replace the block with "see the public [Google Chat guide](../../../docs/guide/google-chat.md) for full schema" if split is intentional. (b3) Resolve `DARTCLAW_DB_PATH` env-var reference (line 483): either remove, relabel to what it actually controls, or annotate "deprecated". (b4) Search/replace `memory_max_bytes` → `memory.max_bytes` (with correct YAML nesting) across `recipes/00`, `02`, `06`, `_common-patterns.md`, `_troubleshooting.md`, and `examples/personal-assistant.yaml`.
+
+**Part C — per-package READMEs + CLI README refresh**. Expand stub/bare package READMEs. (c1) `packages/dartclaw_workflow/README.md` currently is one line — expand to match the other package-README structure (Quick Start, Key Types, Installation, When to Use, Related Packages, Documentation links). (c2) `packages/dartclaw_config/README.md` — currently adequate but bare; add Quick Start + Key Types sections. (c3) Refresh `apps/dartclaw_cli/README.md:16,27` — currently lists `serve, status, sessions, deploy, rebuild-index, token` — expand to cover `init`, `service` (install/start/stop/uninstall), `workflow` (run/runs/pause/resume/cancel/status/validate), operational groups (`agents`, `config`, `jobs`, `projects`, `tasks`, `sessions`, `traces`), utility commands (`token`, `rebuild-index`, `google-auth`). Link to `cli-reference.md` as the full source.
+
+**Part D — UBIQUITOUS_LANGUAGE.md glossary residuals (TD-072 closure)**. Bring three co-located entries in `dev/state/UBIQUITOUS_LANGUAGE.md` into line with the post-S73/S74 contract. (d1) "Task Project ID" — drop pre-S74 step-level `project:` framing; describe project-id as task-level only, set per workflow run / per agent step via context, never as a per-step YAML key. (d2) "Resolution Verification" — replace the pre-S73 `verification.format/analyze/test` block description with the S73 project-convention paragraph (skill discovers project conventions from `package.json` / `pubspec.yaml` / etc.; no per-step verification block). (d3) "Workflow Run Artifact" — reconcile the 8-vs-9 field count to the shipped `WorkflowRunArtifact` shape (verify against `dartclaw_models` source; update either count or field list to match exactly). Keep entries in their existing alphabetical positions; no broader glossary restructure.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `quick-start.md` and `packages.md` describe the placeholder state (must-be-TRUE)
+- [ ] Every `0.9.0 pending` reference is gone from the SDK docs (must-be-TRUE)
+- [ ] ADR-008 is linked from all 3 SDK files (must-be-TRUE)
+- [ ] `examples/sdk/single_turn_cli/README.md` version framing aligned
+- [ ] `scheduling.jobs` schema is canonical in both `configuration.md` and `scheduling.md` — same keys, same structure (must-be-TRUE)
+- [ ] `channels.google_chat` block in `configuration.md` covers `pubsub`, `space_events`, `reactions_auth`, `quote_reply`, `bot_user` (must-be-TRUE)
+- [ ] No recipe or example uses `memory_max_bytes` (must-be-TRUE)
+- [ ] `DARTCLAW_DB_PATH` either correctly describes the file it controls or is labelled deprecated
+- [ ] Manual verification: copy a recipe snippet into a test config and load it without deprecation warnings
+- [ ] `dartclaw_workflow/README.md` has Quick Start, Key Types, Installation, When to Use, Related Packages sections (must-be-TRUE)
+- [ ] `dartclaw_config/README.md` has Quick Start + Key Types (must-be-TRUE)
+- [ ] `dartclaw_cli/README.md` command list mirrors `cli-reference.md` top-level command families (must-be-TRUE)
+- [ ] UBIQUITOUS_LANGUAGE.md "Task Project ID" entry no longer describes step-level `project:` (must-be-TRUE)
+- [ ] UBIQUITOUS_LANGUAGE.md "Resolution Verification" entry uses S73 project-convention wording; no `verification.format|analyze|test` strings remain in the entry (must-be-TRUE)
+- [ ] UBIQUITOUS_LANGUAGE.md "Workflow Run Artifact" field count matches the shipped `WorkflowRunArtifact` shape; the entry's count and listed fields are mutually consistent (must-be-TRUE)
+- [ ] TD-072 in public `dev/state/TECH-DEBT-BACKLOG.md` is updated to either reflect closure of the three glossary residuals or list any remaining sub-item explicitly

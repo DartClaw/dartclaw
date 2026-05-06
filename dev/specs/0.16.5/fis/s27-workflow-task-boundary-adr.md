@@ -183,3 +183,23 @@ file   | dartclaw-public/packages/dartclaw_testing/test/fitness/workflow_task_bo
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Formalises the behavioural contract between `dartclaw_workflow` and the task orchestrator. Builds on ADR-021 (AgentExecution primitive) and ADR-022 (workflow run status + step outcome protocol), which defined the data-layer decomposition. ADR-023 names three behavioural commitments as intentional: (1) workflows compile to tasks (every agent step creates a `Task`; `bash` and `approval` are zero-task; `foreach` is a zero-task controller whose child agent steps do create tasks); (2) `TaskExecutor._isWorkflowOrchestrated` branching deliberately routes to `WorkflowCliRunner` one-shot execution instead of the interactive harness-pool path; (3) `dartclaw_workflow` writes to `TaskRepository` directly inside `executionTransactor.transaction()` (`workflow_executor.dart:2585-2589`) to atomically insert the three-row `Task` + `AgentExecution` + `WorkflowStepExecution` chain. Lives at private repo `docs/adrs/023-workflow-task-boundary.md`. Doc review report at private repo `docs/adrs/023-workflow-task-boundary-doc-review-codex-2026-04-21.md` — both findings (MEDIUM: foreach precision; LOW: fitness reference path) addressed inline.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `docs/adrs/023-workflow-task-boundary.md` exists in private repo and follows the ADR template (Status / Context / Decision / Consequences / Alternatives / References) (must-be-TRUE)
+- [ ] ADR names all three commitments with concrete code-seam references (must-be-TRUE)
+- [ ] `foreach` wording distinguishes the zero-task controller from its child agent steps that do create tasks (must-be-TRUE)
+- [ ] Fitness-function reference resolves to the existing test at `packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` (must-be-TRUE)
+- [ ] ADR-021, ADR-022, private repo `docs/architecture/workflow-architecture.md` §13, and S28 fitness test are cross-referenced (must-be-TRUE)
+- [ ] Status line reads "Accepted — 2026-04-21"

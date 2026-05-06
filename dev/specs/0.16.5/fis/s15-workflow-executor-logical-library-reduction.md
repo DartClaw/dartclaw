@@ -357,3 +357,54 @@ file   | packages/dartclaw_workflow/test/workflow/gate_evaluator_test.dart      
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Re-scope rationale (2026-04-30)
+
+**Re-scope rationale (2026-04-30)**: The original "workflow_executor.dart ≤1,500 LOC" target is **already met**. 0.16.4 S45 (`workflow-robustness-refactor/s45-workflow-executor-decomposition.md`) shipped the dispatcher + per-node-kind runners; current `workflow_executor.dart` = **844 LOC**. The dispatcher (`step_dispatcher.dart`), per-kind runners (`bash_step_runner.dart`, `approval_step_runner.dart`, `loop_step_runner.dart`, `map_iteration_runner.dart`, `foreach_iteration_runner.dart`, `parallel_group_runner.dart`), `workflow_artifact_committer.dart`, `workflow_budget_monitor.dart`, `workflow_task_factory.dart`, and `step_outcome_normalizer.dart` already exist. The `_EmptyProcessEnvironmentPlan` adapter is gone. The raw three-step git commit flow has been lifted into `workflow_git_port.dart` (124 LOC) by 0.16.4 S47. Remaining structural work narrows to the **new hotspots** that emerged after the original decomposition.
+
+**Scope** (current targets):
+- (a) **`foreach_iteration_runner.dart` reduction** — 1,624 LOC, the new largest runner. Extract foreach/promotion/merge-resolve state-machine collaborators (e.g. `ForeachIterationScheduler`, `ForeachPromotionCoordinator`, `MergeResolveAttemptDriver`) rather than adding more `part` files. Target ≤900 LOC.
+- (b) **`context_extractor.dart` reduction** — 950 LOC; extract structured-output schema validation and helpers into sibling files; target ≤600 LOC. Specific 4-way split candidate per 2026-04-30 review (M40): orchestrator + payload extraction in `context_extractor.dart` (~400 LOC); filesystem-output resolution + path safety (`_safeRelativeExistingFileClaim`, `_safeChangedFileSystemMatches`, `_existingSafeFileClaims`) → `filesystem_output_resolver.dart`; project-index sanitization (`_sanitizeProjectIndex`, `_sanitizeProjectRelativePath`) → `project_index_sanitizer.dart`; review-finding-count derivations → `review_finding_derivations.dart`. Path-safety is the most security-sensitive logic in the file and warrants a discoverable home.
+- (c) **`workflow_executor_helpers.dart` reduction** — 762 LOC; reabsorb helpers into the runners that own the call (esp. provider-alias resolution at line 633) or split into purpose-named helper modules; target ≤400 LOC.
+- (d) **Underscore-prefixed context-key contract documentation** — document the merge sites preserving keys prefixed with `_` plus scoped sub-namespaces (`_map.current`, `_foreach.current`, `_loop.current`, `_parallel.current.*`) in private repo `docs/architecture/workflow-architecture.md` or as an ADR-022 addendum. Mandatory first-commit doc.
+- (e) **TD-070 executor carry-over closure** — confirm runners individually meet the fitness target after (a)–(c); update TD-070 with any specific residual surface that does not.
+- (f) **Iteration-runner control-flow correctness (2026-04-30 review)** — beyond the 0.16.4 S78 hotfixes (parallel-group pause-as-failed, `Future.any`+1ms anti-pattern, serialize-remaining event idempotency, `mapAlias` resolver drop), thread cancellation through the inner bodies that S78 explicitly deferred: H4/H5 — `isCancelled` check inside `_executeMapStep` / `_executeForeachStep` / `_executeParallelGroup` / `_dispatchForeachIteration` / `_executeLoop`. Today the only cancellation honoured is the drain-via-task-status path for currently-in-flight tasks; a cancelled run with 30 pending iterations and 4 in-flight processes all 30. Fix folds naturally into the `ForeachIterationScheduler` / `MapIterationScheduler` extraction in (a).
+- (g) **Promotion gate + merge-resolve coordinator extraction (2026-04-30 review H10/H11/H12)** — the promotion gate logic in `_dispatchForeachIteration` (≈eight near-identical recordFailure+persist+inFlightCount-- +fire-event branches at `foreach_iteration_runner.dart:567-833`) plus the equivalent in `map_iteration_dispatcher.dart:224-305` is the single biggest LoC reduction opportunity. Extract `PromotionCoordinator` returning a typed `PromotionOutcome` ADT, used by both. The merge-resolve FSM (~550 LoC at `:899-1456`) extracts to `MergeResolveCoordinator` with a typed `MergeResolveState` value object replacing the ~13 stringly-typed magic context keys (`_merge_resolve.<id>.<i>.pre_attempt_sha`, `serialize_remaining_phase`, `serializing_iter_index`, `failed_attempt_number`, `serialize_remaining_event_emitted`, …). Same treatment lets foreach + map share scheduler internals (H10 dedupe).
+- (h) **Two-control-flow reconciliation (2026-04-30 review H1/H2)** — production `WorkflowExecutor.execute()` (615-line procedural switch) and `_PublicStepDispatcher.dispatchStep()` are two parallel implementations diverging in non-trivial ways: the public dispatcher does not persist `_parallel.current.stepIds` / `_parallel.failed.stepIds`, doesn't run `_maybeCommitArtifacts`, doesn't honour `step.onError == 'continue'` for action nodes, never runs the `promoteAfterSuccess` pass. Tests written against `dispatchStep` validate a strict subset of production behaviour. Either invert the relationship (have `execute()` loop via the dispatcher with hooks for production-only side effects) or rename the public surface to make the gap explicit (`dispatchStepForScenario`). Pick the smaller diff; document the choice. Also extract the open-coded context-filter-by-prefix policy that's duplicated 6+ times in `workflow_executor.dart` plus once in `parallel_group_runner.dart:131`.
+- (i) **Resume/race correctness closures (TD-088 + TD-082)** — while the iteration runner and helper surfaces are open, close the two small correctness debts instead of leaving them as passive backlog. TD-088: audit whether production crash recovery always persists `executionCursor` for map/foreach; if yes, delete or assert the loop-only `_resumeCursor` fallback so map/foreach cannot silently restart from scratch; if no, add symmetric map/foreach reconstruction plus a regression test. TD-082: replace the `_waitForTaskCompletion` early-completion shortcut with a single-source-of-truth completer / serialized subscription path so completion and pause/abort events cannot race through `Future.any` ordering ambiguity.
+
+Uses S13 helpers. Preserves all call sites and public API. **File code-freeze on `foreach_iteration_runner.dart`** during this story: bug-fix commits only.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `foreach_iteration_runner.dart` ≤900 LOC (must-be-TRUE)
+- [ ] `context_extractor.dart` ≤600 LOC (must-be-TRUE)
+- [ ] `workflow_executor_helpers.dart` ≤400 LOC OR file deleted with helpers absorbed (must-be-TRUE)
+- [ ] Underscore-prefixed context-key contract documented (must-be-TRUE)
+- [ ] TD-070 executor portion closed (entry deleted or narrowed to a specific named residue) (must-be-TRUE)
+- [ ] Existing `dart test packages/dartclaw_workflow` passes with zero test changes (must-be-TRUE)
+- [ ] Integration tests (`parallel_group_test.dart`, `map_step_execution_test.dart`, `loop_execution_test.dart`, `gate_evaluator_test.dart`) all pass
+- [ ] Public API exposed by `dartclaw_workflow` barrel is unchanged (S09 narrowing already reflects intended surface)
+- [ ] `max_file_loc_test.dart` (S10) passes without an allowlist entry for `foreach_iteration_runner.dart`
+- [ ] **(f) cancellation threading** — `isCancelled` checked at the top of `_dispatchForeachIteration`, before each child dispatch in `_executeMapStep` / `_executeForeachStep` / `_executeLoop`, and before each peer dispatch in `_executeParallelGroup`. Regression test: cancelled run with 30 pending iterations + 4 in-flight does NOT process all 30 (must-be-TRUE)
+- [ ] **(g) `PromotionCoordinator`** extracted; both foreach and map dispatchers consume it; the eight duplicated recordFailure+persist+inFlightCount-- +fire-event branches in `_dispatchForeachIteration` collapse to a single typed-outcome match (must-be-TRUE)
+- [ ] **(g) `MergeResolveCoordinator`** extracted; `MergeResolveState` typed value object replaces the magic `_merge_resolve.*` context keys (must-be-TRUE)
+- [ ] **(g) Foreach ↔ Map scheduler dedupe** — the two `_executeXxxStep` methods share a common scheduler internal so their dispatch loops are not byte-near-duplicates (must-be-TRUE)
+- [ ] **(h) Two-control-flow reconciliation** — either `execute()` consumes the dispatcher OR the public surface is renamed to flag the scenario-only contract; context-filter-by-prefix policy lives in one helper (must-be-TRUE)
+- [ ] **TD-088** map/foreach resume path either reconstructs from persisted state or fails fast with a regression test proving no silent restart-from-scratch (must-be-TRUE)
+- [ ] **TD-082** `_waitForTaskCompletion` early-completion shortcut has no `Future.any` ordering race between task completion and pause/abort; regression test added (must-be-TRUE)
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: workflow with parallel groups + map iterations + loop exit gates runs identically before/after; all events fire in the same order with the same payloads
+- Edge: cursor persistence across compaction boundary works identically; crash recovery resumes at the same step
+- Edge (new): cancelled run with N pending iterations stops promptly without processing more than `min(maxParallel, in-flight)` additional iterations
+- Error: synthesised workflow with a malformed node triggers the same validation error and message

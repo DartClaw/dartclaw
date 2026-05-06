@@ -355,3 +355,29 @@ file   | packages/dartclaw_testing/CLAUDE.md                                    
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Add 6 Level-1 fitness test files plus a CI format gate, hosted in `packages/dartclaw_testing/test/fitness/` where test-file checks live. A tiny workspace-root helper script (`dev/tools/run-fitness.sh`) wraps `dart test packages/dartclaw_testing/test/fitness/` so CI and local contributors invoke one command; `dart format --set-exit-if-changed packages apps` runs as the seventh Level-1 governance check in CI, not as a test file. Rationale frozen here so S25 (Level-2) uses the same fitness-test location. (a) `barrel_show_clauses_test.dart` — allowlist current exceptions, fail on new. (b) `max_file_loc_test.dart` — no `lib/src/**/*.dart` > 1,500 LOC; baseline allowlist covers current intentional violators with explicit shrink targets. (c) `package_cycles_test.dart` — zero cycles in workspace package graph. (d) `constructor_param_count_test.dart` — no public ctor > 12 params; allowlist `DartclawServer` until S18 lands. (e) `no_cross_package_env_plan_duplicates_test.dart` — assert `ProcessEnvironmentPlan implements` clauses appear only inside `dartclaw_security`, except for implementations that add concrete credential fields (allowlist: `GitCredentialPlan` in `dartclaw_server`). Catches regression of S32 at PR time. (f) `safe_process_usage_test.dart` — Dart-native promotion of `dev/tools/check_git_process_usage.sh` for structured diagnostics alongside the rest of the fitness suite. **Framing updated 2026-04-30**: 0.16.4 S47 (`WorkflowGitPort`) + S39 (Git Subprocess Env Centralization) already drove production-code occurrences of raw `Process.run('git', ...)` / `Process.start('git', ...)` to zero. This fitness test **freezes that post-S47 baseline** as a regression guard (allowlist: `SafeProcess` itself, `WorkflowGitPort` impl). Removed candidate: `alertable_events_test.dart`; S01 now uses compiler-enforced exhaustive switch expressions instead of a runtime enumeration test. All test files use existing deps (`package:test`, `package:analyzer`, `package:package_config`) — no new dependencies.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] 6 Level-1 fitness test files exist and pass; the format gate runs separately in CI (must-be-TRUE)
+- [ ] Allowlists are explicit files committed to the repo with rationale comments (must-be-TRUE)
+- [ ] CI pipeline runs the Level-1 fitness suite and format gate on every commit (must-be-TRUE)
+- [ ] Each fitness function has a documented "how to resolve a failure" section in its own `README.md` or in `TESTING-STRATEGY.md`
+- [ ] Adding a new wholesale `export 'src/...'` or a 1,501-LOC file fails the build locally
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: developer runs `dev/tools/run-fitness.sh` locally, suite completes in ≤30s, all green
+- Edge: developer legitimately needs a 1,600-LOC file; allowlist update process is documented
+- Error: a sneaky `export 'src/foo.dart';` in a new PR → `barrel_show_clauses_test.dart` fails with file + line

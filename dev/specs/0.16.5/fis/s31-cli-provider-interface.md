@@ -297,3 +297,23 @@ Standard validation (build/test, analyze, format, code review) is sufficient. No
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: `packages/dartclaw_server/lib/src/task/workflow_cli_runner.dart` grew from 515 → 635 LOC during 0.16.4 as Codex support matured; `executeTurn` now has 11 optional parameters and a per-provider switch that mixes process lifecycle, provider-specific command construction, and temp-file management. Introduce `abstract class CliProvider { Future<WorkflowCliTurnResult> run(CliTurnRequest request); }` plus `ClaudeCliProvider` and `CodexCliProvider` implementations. Each implementation owns its `_buildXxxCommand` logic (working-dir translation, container mount wiring, provider-specific stdin/stdout parsing) and temp-file cleanup. `WorkflowCliRunner.executeTurn` becomes a dispatcher on `Map<String, CliProvider>`. Keep `_WorkflowCliCommand` private helper type if still needed, or promote it to a `CliTurnRequest` value object. As part of TD-070, record the ownership decision explicitly: `WorkflowCliRunner` remains in `dartclaw_server` for now as the concrete one-shot process adapter, while portable request/value types and reusable parsing/settings helpers move to `dartclaw_core`; a full harness-dispatched rewrite remains out of scope.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `CliProvider` interface exists with `ClaudeCliProvider`/`CodexCliProvider` implementations (must-be-TRUE)
+- [ ] `WorkflowCliRunner.executeTurn` ≤60 LOC and contains no provider-specific branching (must-be-TRUE)
+- [ ] Ownership decision documented as a dated addendum section appended to `docs/adrs/023-workflow-task-boundary.md` (private repo; the canonical ADR-023 location): runner remains server-owned concrete adapter; core owns portable request/value/helper types; addendum is cross-referenced from public-repo `docs/architecture/workflow-architecture.md` so public readers can find it (must-be-TRUE)
+- [ ] `workflow_cli_runner.dart` total LOC reduced from ~635 toward ~350 (must-be-TRUE)
+- [ ] `dart test packages/dartclaw_server/test/task/workflow_cli_runner_test.dart` passes; add a per-provider test where the existing test is implementation-agnostic
+- [ ] Adding a future provider (e.g. Ollama) requires adding only a new `CliProvider` class — no edits to `WorkflowCliRunner` itself

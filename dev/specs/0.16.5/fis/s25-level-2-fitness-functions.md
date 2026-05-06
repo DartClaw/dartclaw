@@ -382,3 +382,33 @@ file   | dev/guidelines/TESTING-STRATEGY.md                                     
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Add 6 Level-2 fitness functions as `test/fitness/*.dart` files plus one cross-package smoke test (TD-046). (a) `dependency_direction_test.dart` — encode allowed package edges as data (map from package name to set of allowed dependencies in both library and test scope), fail on any `import 'package:X/...'` in `packages/Y/lib/` that violates. This table accepts the 0.16.4 surgical release-gate edge `dartclaw_workflow -> dartclaw_security`, while S12 still removes the separate `dartclaw_workflow -> dartclaw_storage` runtime edge. (b) `src_import_hygiene_test.dart` — no file in `packages/<X>/lib/` may `import 'package:<Y>/src/...'` where X != Y. (c) `testing_package_deps_test.dart` — assert `dartclaw_testing/pubspec.yaml` lists only core/models/security (+ http if needed) — enforces S11 post-state. (d) `barrel_export_count_test.dart` — per-package soft limits (core ≤80, config ≤50, workflow ≤35, others ≤25). Catches CRP drift. **(e) `enum_exhaustive_consumer_test.dart`** (added 2026-04-21 delta) — runtime scan over SSE envelope serializers, `AlertClassifier`, `AlertFormatter`, UI badge maps, and CLI status renderers asserting that every `WorkflowRunStatus` / `TaskStatus` / equivalent sealed-enum value is handled by each consumer. Mirrors S01's compile-time enforcement at a different axis (cross-consumer, not just classifier-side). Catches the pattern where adding a new enum variant silently renders as "Unknown" in a UI badge or gets dropped from an SSE payload. **(f) `max_method_count_per_file_test.dart`** (added 2026-04-21 delta) — per-file ceiling of ≤40 public + private methods (allowlist current offenders with explicit shrink targets). Catches the "file shrinks below 1,500 LOC but concerns stay tangled" failure mode. Complements S10's `max_file_loc_test.dart`. The FIS should also extend either `dependency_direction_test.dart` or a small workflow-specific companion check so production workflow runtime files cannot import `SqliteWorkflowRunRepository` after S12.
+
+**TD-046 — Crash-recovery smoke test** (added 2026-04-30): add an integration smoke at `packages/dartclaw_server/test/integration/crash_recovery_smoke_test.dart` (or under a scripted CLI/profile path) that exercises reserve/start → hard kill → restart → orphan cleanup + recovery notice. The operational-hygiene follow-up review (2026-03-15) flagged this as the missing automation around the rollback-leak fix in `releaseTurn()`; backlog says "Before calling the operational-hygiene hardening fully closed, before SDK publish, or whenever crash-recovery behavior is touched again." Fits 0.16.5's safety-and-observability theme; no new deps. Tag `@Tags(['integration'])` so it gates release-prep, not every-PR.
+
+**TD-074 — Homebrew/asset/archive revalidation** (added 2026-04-30): add a release-prep verification step that dry-runs the archive/Homebrew path against the current 0.16.4+ asset layout. Verify the unpacked archive contains the expected embedded templates, static assets, DC-native skill sources, and runtime-provisioning hooks. Update formula/archive docs if path drift appears; otherwise record the pass in the release checklist and delete TD-074 at closeout.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] 6 fitness-function test files exist and pass (must-be-TRUE)
+- [ ] Allowed-edges table for `dependency_direction_test.dart` is a committed data file with rationale comments (must-be-TRUE)
+- [ ] `testing_package_deps_test.dart` rejects any addition of `dartclaw_server` to testing's pubspec (must-be-TRUE)
+- [ ] `enum_exhaustive_consumer_test.dart` covers `WorkflowRunStatus` + at least one other sealed-enum type; allowlist documents any unhandled consumer with rationale (must-be-TRUE)
+- [ ] `max_method_count_per_file_test.dart` applies ≤40 methods/file; `task_executor.dart` and `foreach_iteration_runner.dart` entries in allowlist have explicit shrink targets (must-be-TRUE)
+- [ ] Workflow runtime files have a fitness guard against concrete `SqliteWorkflowRunRepository` imports after S12 (must-be-TRUE)
+- [ ] **TD-046** Crash-recovery smoke test exists and exercises reserve/start → hard kill → restart → orphan cleanup + recovery notice; gated by `@Tags(['integration'])` (must-be-TRUE)
+- [ ] TD-046 entry deleted from public `dev/state/TECH-DEBT-BACKLOG.md` at sprint close
+- [ ] **TD-074** Homebrew/archive asset revalidation dry-run recorded; formula/archive docs updated if needed; TD-074 deleted or narrowed (must-be-TRUE)
+- [ ] **Fitness-script blackout audit** — scan every governance script under `dev/tools/` and any CI-invoked workspace script for path-stale silent passes during the pre-restructure window (the same failure mode that masked TD-099/100/101 on `main`); record findings (any other script that was silently passing because its inputs no longer existed) and either fix or file as new TDs (must-be-TRUE)
+- [ ] CI pipeline runs Level-2 suite on every PR (can be separate job from Level-1 for parallelism)
+- [ ] Level-2 suite total runtime ≤5 min

@@ -316,3 +316,29 @@ url    | https://dart.dev/language/patterns#guard-clauses                       
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Wire consumers for all 7 orphan sealed events. (a) `LoopDetectedEvent` — S01 handles classify; add SSE broadcast in the appropriate route. (b) `EmergencyStopEvent` — SSE broadcast + critical alert (via S01's classify path). (c) `TaskReviewReadyEvent` — SSE broadcast (the UI already renders; only the bridge is missing). (d) `AdvisorInsightEvent` — SSE broadcast + `classifyAlert` mapping: warning severity on `status: stuck`, critical on `concerning`, info on `on_track | diverging` (no delivery for info). (e) `CompactionStartingEvent` — SSE broadcast paired with existing `CompactionCompletedEvent`. (f) `MapIterationCompletedEvent` + (g) `MapStepCompletedEvent` — SSE broadcast via `workflow_routes.dart` mirroring existing `LoopIterationCompletedEvent` / `ParallelGroupCompletedEvent` handlers. Excludes: new UI components (SSE only; UI work deferred to Block H stretch if needed).
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [x] Every one of the 7 listed events has at least one production listener (SSE, alert, or both) (must-be-TRUE)
+- [x] Exhaustiveness test from S01 remains green (must-be-TRUE)
+- [x] `AdvisorInsightEvent` with `status: stuck` triggers a warning alert; `concerning` triggers critical; `on_track` / `diverging` do not alert (must-be-TRUE)
+- [x] `workflow_routes.dart` handles `MapIterationCompletedEvent` and `MapStepCompletedEvent` mirroring sibling events
+- [x] Existing SSE envelope format is unchanged (no breaking protocol change)
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: admin runs `/stop` → `EmergencyStopEvent` fires → classified critical → alert delivered + SSE broadcast → dashboard reflects
+- Edge: advisor fires with `status: on_track` → SSE broadcast → no alert (info-only path)
+- Error: workflow in map-step iteration fires `MapIterationCompletedEvent` → SSE subscribers receive in real time

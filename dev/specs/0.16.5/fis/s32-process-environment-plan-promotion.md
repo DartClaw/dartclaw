@@ -269,3 +269,29 @@ file   | packages/dartclaw_testing/test/fitness/allowlist/no_cross_package_env_p
 > _Managed by exec-spec post-implementation — append-only. Tag semantics: see [`data-contract.md`](${CLAUDE_PLUGIN_ROOT}/references/data-contract.md) (FIS Mutability Contract, tag definitions). AUTO_MODE assumption-recording: see [`automation-mode.md`](${CLAUDE_PLUGIN_ROOT}/references/automation-mode.md). Spec authors: leave this section empty._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: `SafeProcess.git(..., plan: ProcessEnvironmentPlan)` lives in `dartclaw_security`, but every caller that wants an "empty environment" currently has to reach for a sentinel that's stuck in `dartclaw_server` (`GitCredentialPlan` at `packages/dartclaw_server/lib/src/task/git_credential_env.dart:13`) or reinvent it. This has produced **two confirmed duplicates** (verified 2026-04-30): `_InlineProcessEnvironmentPlan` at `project_service_impl.dart:48`; `_InlineProcessEnvironmentPlan` at `remote_push_service.dart:168`. The `_EmptyProcessEnvironmentPlan` at `workflow_executor.dart:128-133` originally cited as a third duplicate **is already gone** as a side-effect of 0.16.4 S45 / S47 (workflow_executor now 835 LOC and uses `WorkflowGitPort` for git calls). Promote `InlineProcessEnvironmentPlan` as a public class in `dartclaw_security/lib/src/process/inline_process_environment_plan.dart` (or `safe_process.dart`), and add a `ProcessEnvironmentPlan.empty` factory (or a `const EmptyProcessEnvironmentPlan()` singleton) to the same library. Promote `buildRemoteOverrideArgs` to a top-level function in `git_credential_env.dart` (or `dartclaw_security` if a cleaner home exists). Delete the two duplicates; retarget call sites at the new public API. Credential *resolution* (`resolveGitCredentialPlan` + `CredentialsConfig` + askpass scripting) legitimately stays in `dartclaw_server` — this story moves only the adapter/sentinel, not the credential logic.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `InlineProcessEnvironmentPlan` exists as public class in `dartclaw_security` (must-be-TRUE)
+- [ ] `ProcessEnvironmentPlan.empty` (or equivalent singleton) exists in `dartclaw_security` (must-be-TRUE)
+- [ ] Zero `_InlineProcessEnvironmentPlan` private declarations remain outside `dartclaw_security` (must-be-TRUE) — both confirmed duplicates at `project_service_impl.dart:48` and `remote_push_service.dart:168` deleted
+- [ ] `buildRemoteOverrideArgs` exists as top-level function in a neutral library; `project_service_impl.dart` + `remote_push_service.dart` both import it
+- [ ] S10's `no_cross_package_env_plan_duplicates_test.dart` fitness test (added under S10 expansion) passes
+- [ ] `dart analyze` and `dart test` workspace-wide pass
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: workflow executor needs empty env for a spawned git subprocess → imports from `dartclaw_security`, no private sentinel
+- Edge: `GitCredentialPlan` in server continues to implement `ProcessEnvironmentPlan` directly (it adds credential fields, so it's not a duplicate — it's a genuine implementation)

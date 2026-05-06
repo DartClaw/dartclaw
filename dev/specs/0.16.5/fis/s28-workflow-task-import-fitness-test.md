@@ -218,3 +218,29 @@ file   | dartclaw-public/dev/specs/0.16.5/fis/s27-workflow-task-boundary-adr.md 
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Enforces the ADR-023 import boundary as a fitness test at `packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` (dartclaw-public). Scans every `.dart` file under `packages/dartclaw_workflow/lib/src/**` and asserts no `package:dartclaw_server/*` or `package:dartclaw_storage/*` imports. Uses `dart:io` + `package:test/test.dart` only — no new deps. Current baseline: zero `dartclaw_server` violations (clean); two `dartclaw_storage` violations (`workflow_service.dart:26`, `workflow_executor.dart:54`, both importing `SqliteWorkflowRunRepository`) documented in an explicit `_knownViolations` allowlist tagged for closure by S12. When S12 lands, the allowlist empties in the same PR that removes the imports; `dev/tools/arch_check.dart:47` tightens to drop `dartclaw_storage` from `dartclaw_workflow`'s sanctioned deps in lockstep. Consider retiring `dev/tools/fitness/check_workflow_server_imports.sh` once S10 establishes the Dart fitness suite as the single source of truth.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` exists and passes (must-be-TRUE)
+- [ ] Zero `dartclaw_server` imports from `dartclaw_workflow/lib/src/**` (must-be-TRUE — clean baseline)
+- [ ] `dartclaw_storage` allowlist is documented with file:line + remediation pointer to S12 (must-be-TRUE)
+- [ ] `dart analyze packages/dartclaw_testing` clean; `dart format` applied
+- [ ] File header comment links ADR-023 and explains how to resolve a legitimate violation (extract an interface to `dartclaw_core`)
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: `dart test packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` passes against current main
+- Error: a new `import 'package:dartclaw_server/...'` in `dartclaw_workflow/lib/src/` fails with `src/.../file.dart:LINE: forbidden import ...` and an ADR-023 pointer
+- Edge (post-S12): S12 removes the two `dartclaw_storage` imports; in the same commit the `_knownViolations` set in this test empties, and `dev/tools/arch_check.dart:47` drops `dartclaw_storage` from the workflow package's sanctioned deps

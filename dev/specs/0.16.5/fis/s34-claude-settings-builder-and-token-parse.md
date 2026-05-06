@@ -425,3 +425,34 @@ Standard validation (build/test, analyze, format, code review) is sufficient. No
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Three related consolidations around `workflow_cli_runner.dart` and `claude_code_harness.dart`.
+
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `ClaudeSettingsBuilder` exists in `dartclaw_core/harness/`; two call sites delete their private helpers and import it (must-be-TRUE)
+- [ ] `permissionMode` validation differences documented: shared parser accepts the full set; runner's "reject interactive" is a clearly-commented second-pass validation
+- [ ] `_parseClaude` / `_parseCodex` use `intValue` / `stringValue` from `base_protocol_adapter.dart` for all JSON extractions; zero inline `(x as num?)?.toInt()` remaining (must-be-TRUE)
+- [ ] `normalizeDynamicMap` helper exists in a neutral dartclaw_core (or equivalent) module; three call sites route through it (must-be-TRUE)
+- [ ] Workflow task-config keys listed in Part D — **both cross-package** (`_workflowFollowUpPrompts`, `_workflowStructuredSchema`, `_workflowMergeResolveEnv`, `_dartclaw.internal.validationFailure`, token-metric keys) **and workflow-internal** (`_workflowGit`, `_workflowWorkspaceDir`, `_continueSessionId`, `_sessionBaselineTokens`, `_mapIterationIndex`) — have a central typed/constant accessor surface; no duplicated string literals remain at existing writer/reader call sites (must-be-TRUE)
+- [ ] A short comment or architecture note states that new underscored workflow task-config keys must be added to the typed surface rather than ad hoc literals
+- [ ] Net LOC reduction ≥150 across `workflow_cli_runner.dart` + `claude_code_harness.dart` + `workflow_executor.dart`
+- [ ] `dart test packages/dartclaw_core packages/dartclaw_server packages/dartclaw_workflow` all pass
+- [ ] `workflow_cli_runner_test.dart` continues to pass; no behavior change
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: workflow one-shot invokes Claude → settings built by `ClaudeSettingsBuilder` → result identical to pre-refactor
+- Edge: interactive `permissionMode: 'ask'` reaches the runner → shared parser accepts, then runner's stricter validation rejects — error message is explicit about the interactive-mode restriction
+- Boundary: S43 token-correctness fix and this DRY cleanup land independently; if S43 is merged first, Part B can be skipped for `_parseCodex` (only the DRY portion remains)

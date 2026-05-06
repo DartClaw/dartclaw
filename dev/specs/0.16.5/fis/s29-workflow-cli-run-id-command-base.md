@@ -261,3 +261,35 @@ Standard validation (build/test, analyze, format, code review) is sufficient. No
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Extract a `WorkflowRunIdCommand` abstract base in `apps/dartclaw_cli/lib/src/commands/workflow/`. Base owns `_config`, `_apiClient`, `_writeLine`, `_exitFn` fields, `_requireRunId()` (currently duplicated in 7 files), `_resolveApiClient()` (same), and a `runAgainstRun(String path, {String verb})` template method that performs the common POST + JSON-or-text output pattern. Collapse `workflow_pause_command.dart` (84 LOC), `workflow_resume_command.dart` (84 LOC), and `workflow_retry_command.dart` (85 LOC) to ~20 LOC each. Move file-private `_serverOverride()` and `_globalOptionString()` helpers (currently duplicated across 8 files) to a shared `cli_global_options.dart` library within `apps/dartclaw_cli/lib/src/commands/` and re-import from `workflow_cancel_command.dart`, `workflow_status_command.dart`, `workflow_show_command.dart`, `workflow_runs_command.dart` too (even where not fully collapsible, the shared helpers remove the file-local copies). Zero behaviour change.
+
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `WorkflowRunIdCommand` base class exists; `pause`/`resume`/`retry` extend it (must-be-TRUE)
+- [ ] `_requireRunId` / `_resolveApiClient` are defined once and shared (must-be-TRUE)
+- [ ] `_serverOverride` / `_globalOptionString` live in a single `cli_global_options.dart` module (must-be-TRUE)
+- [ ] Net LOC reduction ≥150 across the workflow CLI command files
+- [ ] `dart test apps/dartclaw_cli` passes with zero test changes
+- [ ] Existing `workflow {pause,resume,retry,cancel,status,show,runs}` CLI invocations produce identical output
+- [ ] **TD-072 item 1**: `WorkflowShowCommand._runStandalone(...)` calls `bootstrapAndthenSkills(...)` with a test-gateable flag (must-be-TRUE)
+- [ ] **TD-072 item 1**: Regression test asserts AndThen bootstrap fires on first `show --resolved --standalone` invocation on a fresh-install fixture (must-be-TRUE)
+- [ ] TD-072 entry updated to remove item 1 (or deleted entirely if S03 closes item 2 in the same sprint)
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: `dartclaw workflow pause <run-id>` / `resume` / `retry` / `cancel` all behave identically before/after
+- Happy (TD-072): freshly-installed instance runs `dartclaw workflow show --resolved --standalone <name>` first; AndThen provisioning runs; SKILL.md frontmatter defaults appear in resolved output
+- Edge: missing run-id argument produces the same error message and exit code
+- Error: server returns a non-2xx: same message surfaces to stderr with the same formatting

@@ -300,3 +300,43 @@ file   | packages/dartclaw_config/README.md                    | source for one-
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: One coordinated currency sweep across four co-located top-level public-repo doc surfaces that all reflect the same 0.16.4 ground truth. Consolidates what were previously four separate stories (S03 AGENTS.md, S04 README, S06 guide fixes, S07 package trees) sharing a composite FIS — merged under the 1:1 story↔FIS invariant.
+
+### From plan.md — Note (2026-05-04 reconciliation)
+
+**Note (2026-05-04 reconciliation)**: parts (a) and (b) below were largely satisfied by 0.16.4 release-prep doc updates (2026-05-01 STATE entry: `CHANGELOG dartclaw_workflow version line corrected, STATE.md trimmed to released state, ROADMAP.md advanced to 0.16.5 active`, etc.). Remaining work for (a) is small additive edits, not a rewrite; remaining work for (b) is a final tone/content verification pass.
+**(a) AGENTS.md** — `AGENTS.md` already mirrors `CLAUDE.md` in scope (multi-harness Claude + Codex language, all 12 workspace packages listed, no `0.9 Phase A` / `Bun standalone` residue). Remaining: (a1) **add** the explicit "Current milestone: 0.16.5 — Stabilisation & Hardening" line under the project overview (or wherever the milestone callout lives in `CLAUDE.md`); (a2) **add** the explicit assertion: "AGENTS.md is the standard instruction file for ALL non-Claude-Code agents, not DartClaw-specific." (a3) Verification grep pass: confirm no stale "0.9", "Bun standalone", or "Phase A" strings remain after the additions.
+**(b) README refresh** — `README.md` banner already says `v0.16.4`. Remaining: (b1) verify the one-line description under the banner accurately reflects 0.16.4 scope (connected-by-default workflow execution, operational CLI command groups, workflow trigger surfaces — web launch forms, `/workflow` chat commands, GitHub PR webhooks); (b2) trim if drift snuck in.
+**(c) Four high-impact guide fixes** — Targeted fixes in the user guide. (c1) `docs/guide/web-ui-and-api.md:548` — remove the "Deno worker" reference (NanoClaw-era artifact); describe the in-process MCP server inside the Dart host via JSONL control protocol. (c2) `docs/guide/configuration.md:467` — change `agent.claude_executable` → `providers.claude.executable`; drop the old key unless it's a documented back-compat alias. (c3) `docs/guide/whatsapp.md:51` — change pairing page port from `3000` to `3333`. (c4) `docs/guide/customization.md:91-107` — rewrite the custom-guard example against the real `Guard` + `GuardVerdict` API (sealed `GuardPass`/`GuardWarn`/`GuardBlock`), verify the snippet compiles.
+**(d) Package tree updates** — Add missing package rows to public-repo package trees. `README.md:75-94` currently lists 9 packages — add `dartclaw_workflow`, `dartclaw_testing`, `dartclaw_config`. `docs/guide/architecture.md:99-142` currently says "eleven packages" and omits `dartclaw_workflow` from the tree — add the package row and bump count to "twelve packages".
+**(e) UBIQUITOUS_LANGUAGE.md drift sweep** (added 2026-04-30 from TD-072 item 2) — three glossary entries in `dev/state/UBIQUITOUS_LANGUAGE.md` are stale post-0.16.4 S73/S74: (e1) "Task Project ID" still says workflow tasks "derive it from workflow-level or step-level project binding" — drop the "or step-level" clause; per-step `project:` was rejected in S74. (e2) "Resolution Verification" still describes "project format / analyze / test commands when declared", reflecting the pre-S73 verification config block that was removed in 0.16.4 — rewrite to match the S73 project-convention discovery + marker / `git diff --check` fallback contract. (e3) "Workflow Run Artifact" entry says "8-field record per merge-resolve invocation" but the shipped artifact is 9 fields per workflow-requirements-baseline §5 — update field count.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [x] `AGENTS.md` says "Current milestone: 0.16.5 — Stabilisation & Hardening" (must-be-TRUE) — additive edit
+- [x] Multi-harness model is described in `AGENTS.md` (Claude + Codex + HarnessFactory/HarnessPool) — **already met by 0.16.4** (verify only)
+- [x] `AGENTS.md` lists all 12 packages + `dartclaw_cli` app — **already met by 0.16.4** (verify only)
+- [x] No references remain in `AGENTS.md` to "Bun standalone binary", "0.9 Phase A", or pre-0.9 package layout — **already met by 0.16.4** (re-grep at FIS exec)
+- [x] `AGENTS.md` contains the explicit statement: "AGENTS.md is the standard instruction file for ALL non-Claude-Code agents" (must-be-TRUE) — additive edit
+- [x] `README.md` line 8 shows `v0.16.4` — **already met by 0.16.4** (verify only)
+- [x] `README.md` description reflects 0.16.4 CLI-operations and connected-workflow scope (must-be-TRUE) — verify-and-trim pass
+- [x] Each of the 4 guide fixes (web-ui-and-api, configuration, whatsapp, customization) is applied (must-be-TRUE)
+- [x] `customization.md` guard example compiles against the real `dartclaw_security` API (test-compile during FIS execution) (must-be-TRUE)
+- [x] No stray references to removed patterns ("Deno worker", `agent.claude_executable`, port 3000 for pairing) remain
+- [x] `README.md` package tree lists all 12 packages + `dartclaw_cli` app (must-be-TRUE)
+- [x] `architecture.md` says "twelve packages" and shows `dartclaw_workflow` in the tree (must-be-TRUE)
+- [x] One-line descriptions for the added packages match their respective READMEs
+- [x] **UBIQUITOUS_LANGUAGE.md "Task Project ID"** entry no longer mentions "or step-level project binding" (must-be-TRUE)
+- [x] **UBIQUITOUS_LANGUAGE.md "Resolution Verification"** entry describes the S73 project-convention contract (no "format/analyze/test commands when declared") (must-be-TRUE)
+- [x] **UBIQUITOUS_LANGUAGE.md "Workflow Run Artifact"** entry says **9-field** record (not 8) (must-be-TRUE)
+- [x] TD-072 item 2 (glossary cluster) is closed; entry in public `dev/state/TECH-DEBT-BACKLOG.md` updated to remove the closed item (or deleted if both items 1+2 close together — see S29)

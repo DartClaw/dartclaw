@@ -257,3 +257,21 @@ file   | dev/state/UBIQUITOUS_LANGUAGE.md                | Canonical terms — n
 > _Managed by exec-spec post-implementation — append-only. Tag semantics: see [`data-contract.md`](${CLAUDE_PLUGIN_ROOT}/references/data-contract.md). Spec authors: leave this section empty._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Pick **2 of 5** candidate new or promoted user-guide pages: (a) promote `recipes/08-crowd-coding.md` to `docs/guide/crowd-coding.md` + add row to `docs/guide/README.md` Features table; (b) author new `docs/guide/governance.md` (rate limits, budgets, loop detection, `/stop`/`/pause`/`/resume`, admin sender model); (c) author new `docs/guide/skills.md` (SkillRegistry source priority, frontmatter schema, validation rules, user vs managed skills, `.dartclaw-managed` marker); (d) add Workflow Triggers section to `workflows.md` (chat commands, web launch forms, GitHub PR webhook setup + HMAC secrets); (e) add Alert Routing + Compaction Observability sections under `web-ui-and-api.md` or new `docs/guide/observability.md`. The other 3 defer to a dedicated docs gap-fill milestone.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] 2 of the 5 candidate pages exist and are internally consistent with 0.16.5 reality
+- [ ] `docs/guide/README.md` Features table / index updated for the new page(s)
+- [ ] Cross-references from related guide pages added
+- [ ] A user-guide reader can get from `README.md` to the new pages within ≤2 clicks

@@ -199,3 +199,21 @@ file   | apps/dartclaw_cli/lib/src/commands/service_wiring.dart:352,845,933     
 > _Managed by exec-spec post-implementation — append-only. Tag semantics: see [`data-contract.md`](${CLAUDE_PLUGIN_ROOT}/references/data-contract.md) (FIS Mutability Contract, tag definitions). AUTO_MODE assumption-recording: see [`automation-mode.md`](${CLAUDE_PLUGIN_ROOT}/references/automation-mode.md). Spec authors: leave this section empty._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Delete the advisor re-export block at `packages/dartclaw_server/lib/src/canvas/canvas_exports.dart:1-14`. Update `service_wiring.dart` to direct-import `AdvisorSubscriber` from `src/advisor/advisor_subscriber.dart`. Remove the 10 orphan re-exports (`AdvisorOutput`, `AdvisorStatus`, `AdvisorTriggerContext`, `AdvisorTriggerType`, `CircuitBreaker`, `ContextEntry`, `SlidingContextWindow`, `TriggerEvaluator`, `AdvisorOutputParser`, `AdvisorOutputRouter`, `renderAdvisorInsightCard`). Verify no downstream consumer breaks via `dart analyze`.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [x] `canvas_exports.dart` advisor re-export block is removed (must-be-TRUE)
+- [x] `service_wiring.dart` still imports and wires `AdvisorSubscriber` correctly (must-be-TRUE)
+- [x] `dart analyze` workspace-wide is clean (must-be-TRUE)
+- [x] No test failures in advisor-related suites

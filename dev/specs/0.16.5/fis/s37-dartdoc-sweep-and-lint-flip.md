@@ -275,3 +275,38 @@ file   | packages/dartclaw_workflow/CLAUDE.md                                   
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Three-part governance-rail story. **Part A — dartdoc sweep for `dartclaw_server` hot-spots**: 26 undocumented public top-level types live in `packages/dartclaw_server/lib/`, with the worst cluster in `advisor_subscriber.dart:648,673,695,703,725` (`AdvisorTriggerType`, `AdvisorStatus`, `AdvisorOutput`, `AdvisorTriggerContext`, `ContextEntry`). Many of these leak through SSE/REST envelopes and into OpenAPI-shaped surfaces. Add one-sentence dartdoc summaries to each (third-person, starts with verb, uses `[Ref]` where a type is referenced). Target: 0 undocumented public top-level declarations in `dartclaw_server/lib/` after the sweep. CLI app (`apps/dartclaw_cli`) is explicitly **not** in scope — application code, not SDK surface. **Part B — enable `public_member_api_docs` in near-clean packages**: Four packages have ≤5 missing dartdoc each — flip the lint on in their `analysis_options.yaml`: `dartclaw_models` (0 missing — already exemplary), `dartclaw_storage` (0 missing), `dartclaw_security` (1 missing), `dartclaw_config` (5 missing). Fix the residual gaps (≤6 total). `dartclaw_core` is close (3 missing) but has a larger public surface — defer lint flip for `dartclaw_core` to 0.17 after a targeted sweep. `dartclaw_workflow` (3 missing) is similarly tractable — flip if time allows; otherwise defer. Each lint flip is a governance rail: new undocumented public declarations fail CI from day one. **Part C — internal dartdoc proportionality + planning-history cleanup**: Apply the new _Proportionality & Anti-Rot_ rules from `docs/guidelines/DART-EFFECTIVE-GUIDELINES.md` to `lib/src/` classes in the four packages touched by Part B, plus `dartclaw_workflow/lib/src/` (where the worst offenders are known to live — e.g. `skill_prompt_builder.dart` has a 30-line class-level dartdoc that restates the `switch` body below, and contains a stale "(S01 integration)" planning reference). Two mechanical passes: (1) **trim internal class/method dartdoc** in `lib/src/` to one-sentence summaries + non-obvious WHY, collapsing multi-case enumerations into named anchors the body references via `// Case N:` inline comments (pattern already present in several files); (2) **strip planning-history references, cleanup-leftover markers, unowned TODOs, and consumer-coupled docstrings** from `///` and `//` comments across all packages via grep — story IDs (`S\d+`), PR numbers (`#\d+`), sprint/wave labels, "added for the X flow", "used by Y flow", `// REMOVED …` / `// was:` / `// previously:` tombstones, bare `// TODO:` without owner or tracking link, and dartdoc paragraphs that document a consumer's behavior at the definition site (e.g. _"is rewrapped by `ServiceWiring.wire()`"_) — replacing durable-justification cases with ADR links. Not a wholesale rewrite: the goal is to remove the obvious bloat the guideline names, not to re-audit every file. Part C is the **slip candidate within S37** — if Parts A + B consume the wave-3 budget, Part C defers to 0.16.6 as a standalone cleanup story.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] Zero undocumented public top-level types in `dartclaw_server/lib/` (grep-verified) (must-be-TRUE)
+- [ ] `public_member_api_docs` enabled in `dartclaw_models`, `dartclaw_storage`, `dartclaw_security`, `dartclaw_config` `analysis_options.yaml` (must-be-TRUE)
+- [ ] `dart analyze` clean in all 4 packages after the sweep (must-be-TRUE)
+- [ ] Adding a new undocumented public class to any of the 4 near-clean packages fails `dart analyze` locally
+- [ ] Each dartdoc summary is one sentence, third-person, starts with a verb (spot-check)
+- [ ] Where a type is referenced by name in prose, it uses the `[TypeName]` bracket syntax (spot-check)
+- [ ] `docs/guidelines/DART-EFFECTIVE-GUIDELINES.md` `### Proportionality & Anti-Rot` subsection covers each of: planning-history, control-flow restatement, identifier paraphrasing, multi-paragraph collapse, drift discipline, consumer-coupling, cleanup-leftover markers, unowned TODOs (must-be-TRUE)
+- [ ] `rg "(S\d+ integration|S\d+ flow|for the .* flow|used by the .* flow)" packages/{dartclaw_models,dartclaw_storage,dartclaw_security,dartclaw_config,dartclaw_workflow}/lib/src/ -t dart` returns zero planning-history references in `///` comments (must-be-TRUE)
+- [ ] `rg "//\s*(REMOVED|was:|previously:)" packages/{dartclaw_models,dartclaw_storage,dartclaw_security,dartclaw_config,dartclaw_workflow}/lib/src/ -t dart` returns zero cleanup-leftover markers (must-be-TRUE)
+- [ ] `rg --pcre2 "(?<!/)//\s*TODO\b(?!\s*\([^)]+\))" packages/{dartclaw_models,dartclaw_storage,dartclaw_security,dartclaw_config,dartclaw_workflow}/lib/src/ -t dart` returns zero unowned `// TODO`s (must-be-TRUE; the lookbehind excludes `///` dartdoc, the lookahead matches `// TODO` not followed by `(name)` or `(#issue)` even with intervening whitespace)
+- [ ] Consumer-coupled dartdoc paragraphs (documenting a caller's behavior at the definition site, e.g. _"is rewrapped by `ServiceWiring.wire()`"_) removed from `lib/src/` of the 5 targeted packages (spot-check)
+- [ ] `skill_prompt_builder.dart` class-level dartdoc ≤ 8 lines; method dartdoc for `build()` ≤ 10 lines (spot-check — illustrative target, not a blanket LOC rule)
+- [ ] No new planning-history references introduced (governance: the existing `andthen:quick-review` flow flags these in PR feedback; no new lint added)
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: contributor adds a new public class to `dartclaw_models` without dartdoc → CI fails with a pointer to `public_member_api_docs`
+- Edge: `dartclaw_server` remains lint-off (too much surface to sweep in one sprint) — explicit scope boundary noted in `analysis_options.yaml`
+- Sustainability: lint flip is the forcing function; individual sweeps are one-time cost
+- Scope pressure: Parts A + B ship as the non-negotiable governance rail; Part C defers to 0.16.6 as standalone cleanup if W3 budget tightens

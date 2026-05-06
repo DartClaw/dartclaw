@@ -317,3 +317,31 @@ file   | packages/dartclaw_models/lib/src/session_key.dart:27 | Existing FormatE
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Replace four stringly-typed public flags with proper enums + `fromJsonString` factories that throw `FormatException` naming the valid values. Keep JSON serialization unchanged via `toJson()/fromJson()` that returns/accepts the same strings. (a) `WorkflowStep.type: String` at `workflow_definition.dart:471` — introduce `WorkflowTaskType` enum and type the existing `type` field with it; S38 depends on this story and owns the later field rename to `taskType`. (b) `WorkflowGitExternalArtifactMount.mode` at `:806` (`'per-story-copy' | 'bind-mount'`) → `WorkflowExternalArtifactMountMode` enum. (c) `WorkflowGitWorktreeStrategy.mode` at `:869` (`'shared' | 'per-task' | 'per-map-item' | 'inline' | 'auto'`) → `WorkflowGitWorktreeMode` enum. (d) `TaskExecutor.identifierPreservation = 'strict'` → `IdentifierPreservationMode` enum (values TBD during implementation — likely `strict | lenient | off`). Reader impact: valid values become IDE-discoverable via autocomplete; typos become compile errors. Don't enum-ify `chat_card_builder.dart:338-380` status switches — those operate on Google Chat wire values already owned by upstream.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] Four enums exist in their owning packages (`WorkflowTaskType` + `WorkflowExternalArtifactMountMode` + `WorkflowGitWorktreeMode` in `dartclaw_workflow`; `IdentifierPreservationMode` in `dartclaw_core` or `dartclaw_server`) (must-be-TRUE)
+- [ ] Each enum has a `fromJsonString(String)` factory that throws `FormatException` listing valid values for unknown input (must-be-TRUE)
+- [ ] Each enum has a `toJson()` / `name` getter returning the exact wire string
+- [ ] `WorkflowStep.type` remains the field name in S35 and is typed `WorkflowTaskType`; S38 owns the follow-up rename to `taskType` (must-be-TRUE)
+- [ ] YAML parser and validator use the enum-typed fields; JSON wire format is byte-compatible with the prior String representation
+- [ ] `dart analyze` and `dart test` workspace-wide pass
+- [ ] Changelog notes the internal type change (not a breaking wire change)
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: YAML says `mode: per-task` → parser resolves to `WorkflowGitWorktreeMode.perTask`; re-emitted YAML round-trips byte-identical
+- Edge: YAML says `mode: typo-value` → parser raises `FormatException` listing all valid values in the error message
+- Boundary: existing resolved-YAML baselines round-trip identically; new enum doesn't leak into public JSON responses

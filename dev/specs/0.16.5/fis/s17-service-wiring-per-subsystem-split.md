@@ -294,3 +294,26 @@ file   | apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart    | Re
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Two sibling god-method splits. **Primary target**: CLI-side wiring at `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` (**1,415 LOC total** as of 2026-05-04, grew from 1,235; `wire()` method still ~678 LOC) — NOT the server-side `ServiceWiring` that was already decomposed in 0.12 Phase 0 into `SecurityWiring`/`ChannelWiring`/`TaskWiring`/`SchedulingWiring`/`StorageWiring`. This story mirrors that 0.12 pattern for the CLI: split `wire()` into per-subsystem private methods. Based on the file's own numbered comment sections: `_wireStorage`, `_wireSecurity`, `_wireHarness`, `_wireChannels`, `_wireTasks`, `_wireScheduling`, `_wireObservability`, `_wireWebUi`, etc. Introduce a small `WiringContext` struct (or similar) for cross-cutting deps (eventBus, configNotifier, dataDir) rather than ambient closure capture. Target: `service_wiring.dart` ≤800 LOC, `wire()` ≤100 LOC.
+
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `service_wiring.dart#wire()` ≤100 LOC (must-be-TRUE)
+- [ ] `service_wiring.dart` total ≤800 LOC (must-be-TRUE)
+- [ ] `cli_workflow_wiring.dart#wire()` ≤100 LOC (must-be-TRUE)
+- [ ] `cli_workflow_wiring.dart` total ≤600 LOC (must-be-TRUE)
+- [ ] `WiringContext` / `CliWorkflowWiringContext` (or equivalents) encapsulate cross-cutting deps (must-be-TRUE)
+- [ ] `dart test apps/dartclaw_cli` passes; `dart run dartclaw_cli:dartclaw serve --port 3333` starts and serves identical endpoints
+- [ ] `dartclaw workflow run` standalone path works identically before/after (regression guard for CLI wiring)
+- [ ] `server_builder_integration_test.dart` (which imports `service_wiring.dart` via `src/`) still passes

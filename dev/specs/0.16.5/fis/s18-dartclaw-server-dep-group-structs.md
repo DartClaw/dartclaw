@@ -221,3 +221,23 @@ The exact partitioning above is the **defensible default** but is finalised by t
 - No new dependency, channel, route, or schema introduced.
 - Public-API surface (server barrel, builder field surface, JSONL/REST/SSE wire formats) unchanged.
 - Risk classification (Low — constructor-only refactor) consistent with the plan; the only failure mode is missing a field rename, caught by the analyzer + existing test suite.
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Collapse `DartclawServer.compose()` static factory into `DartclawServerBuilder` — single construction path. Replace the ~60 scalar required fields in the `DartclawServer._` private constructor with 6 dep-group structs (names TBD during implementation, suggested: `_ServerCoreDeps`, `_ServerTurnDeps`, `_ServerChannelDeps`, `_ServerTaskDeps`, `_ServerObservabilityDeps`, `_ServerWebDeps`). Each struct mirrors a section of `DartclawServerBuilder`'s existing groupings. Constructor takes 6 struct params instead of 60 scalars. Target: `server.dart` ≤800 LOC (from 1,063).
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `DartclawServer._` constructor takes ≤6 parameters (must-be-TRUE)
+- [ ] `compose()` static factory removed; `DartclawServerBuilder` is the single construction path (must-be-TRUE)
+- [ ] 6 dep-group structs exist and are used (must-be-TRUE)
+- [ ] `server.dart` ≤800 LOC
+- [ ] `dart test packages/dartclaw_server` passes with zero test changes
+- [ ] `constructor_param_count_test.dart` (S10) passes for this file (without allowlist)

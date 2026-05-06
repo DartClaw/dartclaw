@@ -290,3 +290,28 @@ file   | packages/dartclaw_workflow/CLAUDE.md                                   
 > _Managed by exec-spec post-implementation — append-only._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Add an abstract `WorkflowRunRepository` interface to `dartclaw_core` alongside `TaskRepository` and `GoalRepository`. Sqlite implementation (`SqliteWorkflowRunRepository`) remains in `dartclaw_storage`. Every consumer — `WorkflowService`, `WorkflowExecutor`, **and `TaskExecutor` (which currently accepts `SqliteWorkflowRunRepository?` at `task_executor.dart:54,113` and calls into the concrete API)** — depends on the abstract interface, not the concrete storage type. Without the TaskExecutor side of the migration, ADR-023's leaky-abstraction smell reappears one package lower (flagged in ADX-01).
+
+### From plan.md — Note (2026-05-04 reconciliation)
+
+**Note (2026-05-04 reconciliation)**: a partial port already exists at `packages/dartclaw_workflow/lib/src/workflow/workflow_runner_types.dart:69` as `WorkflowRunRepositoryPort` — but it's a `dynamic`-wrapped wrapper inside the wrong package, not a typed abstract interface. The 0.16.5 work is to (1) **promote/rewrite** it as a proper `abstract interface class WorkflowRunRepository` in `dartclaw_core/lib/src/workflow/`, (2) make `SqliteWorkflowRunRepository` `implements` the new interface, (3) migrate `dartclaw_workflow` consumers from the `dynamic`-wrapped port to the typed abstract interface, then (4) delete the placeholder port. `sqlite3` stays in `dartclaw_workflow`'s dev-dependencies for tests that need a real DB. **Fitness test wiring**: S28's `_knownViolations` allowlist empties in the same commit as this migration; `dev/tools/arch_check.dart:47` tightens to drop `dartclaw_storage` from `dartclaw_workflow`'s sanctioned deps in lockstep.
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] `WorkflowRunRepository` abstract interface in `dartclaw_core/lib/src/workflow/` (or similar) (must-be-TRUE)
+- [ ] `SqliteWorkflowRunRepository` in `dartclaw_storage` implements the interface (must-be-TRUE)
+- [ ] `dartclaw_workflow` imports `WorkflowRunRepository` from `dartclaw_core` only, not `SqliteWorkflowRunRepository` by name (must-be-TRUE)
+- [ ] **`TaskExecutor` accepts `WorkflowRunRepository?` — not `SqliteWorkflowRunRepository?`; the constructor param type changes (currently typed concrete at `task_executor.dart:54,113`), and the two call sites (`task_executor.dart:127,1438`) migrate to the abstract API** (must-be-TRUE)
+- [ ] The `dynamic`-wrapped `WorkflowRunRepositoryPort` at `workflow_runner_types.dart:69` is deleted (or, if a wrapper is still needed for staged migration, it `implements` the new typed abstract interface) (must-be-TRUE)
+- [ ] S28's `workflow_task_boundary_test.dart` allowlist empties; `dev/tools/arch_check.dart:47` sanctioned-deps list drops `dartclaw_storage` for `dartclaw_workflow` (must-be-TRUE)
+- [ ] `dart analyze` and `dart test` workspace-wide pass

@@ -266,3 +266,28 @@ file   | packages/dartclaw_testing/CLAUDE.md                                    
 > _Managed by exec-spec post-implementation — append-only. Tag semantics: see [`data-contract.md`](${CLAUDE_PLUGIN_ROOT}/references/data-contract.md) (FIS Mutability Contract, tag definitions). AUTO_MODE assumption-recording: see [`automation-mode.md`](${CLAUDE_PLUGIN_ROOT}/references/automation-mode.md). Spec authors: leave this section empty._
 
 _No observations recorded yet._
+
+---
+
+## Plan-format migration addendum (2026-05-06)
+
+> Migrated from the pre-template `plan.md` story body during the plan-template reformat. Verbatim copy of the plan's `**Acceptance Criteria**`, `**Key Scenarios**`, and any detailed `**Scope**` paragraphs not already represented above. Authoritative spec content lives in this FIS; the plan now carries only a 1-2 sentence Scope summary plus catalog metadata.
+
+### From plan.md — Scope detail (migrated from old plan format)
+
+**Scope**: Extract abstract interfaces for `TurnManager`, `TurnRunner`, `HarnessPool`, and `GoogleJwtVerifier` from `dartclaw_server` into `dartclaw_core` (`src/turn/`, `src/auth/`). Concrete implementations remain in `dartclaw_server`. `dartclaw_testing` `FakeTurnManager` + `FakeGoogleJwtVerifier` rebind their `implements` clauses to the new interfaces. **Note (2026-05-04 reconciliation)**: `dartclaw_testing/pubspec.yaml`'s `dartclaw_server` dependency was already removed during 0.16.4 release prep — only `dartclaw_core` is listed under `dependencies:`. TD-063 ([linked](../../state/TECH-DEBT-BACKLOG.md#td-063--dartclaw_testing-depends-on-dartclaw_server)) is therefore effectively closed; the entry will be deleted at sprint close as backlog hygiene rather than counting toward 0.16.5 closure. The actual interface-extraction work is unchanged. Verify every consumer's expectations are met by the derived interface surface (grep + Dart LSP call-hierarchy over each type to enumerate method use).
+
+### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
+
+**Acceptance Criteria**:
+- [ ] Four abstract interfaces live in `dartclaw_core` with matching method signatures (must-be-TRUE)
+- [x] `dartclaw_testing/pubspec.yaml` no longer declares `dartclaw_server` — **already met by 0.16.4**; verify still met at sprint close
+- [ ] `FakeTurnManager` / `FakeGoogleJwtVerifier` implement the new interfaces (must-be-TRUE)
+- [ ] `dart analyze` and `dart test` workspace-wide pass
+- [ ] `testing_package_deps_test.dart` fitness function (S25) will validate this invariant; in this story, a minimal assertion in `dartclaw_testing/test/fitness_smoke_test.dart` or similar confirms the dep is gone
+
+### From plan.md — Key Scenarios addendum (migrated from old plan format)
+
+**Key Scenarios**:
+- Happy: every consumer of `TurnManager` (production + fakes + tests) still works via the interface
+- Edge: a consumer depends on a concrete method not captured by the interface — FIS discovery phase surfaces this and either widens the interface or narrows the consumer

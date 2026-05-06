@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_cli/src/commands/workflow/andthen_skill_bootstrap.dart' show bootstrapAndthenSkills;
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart'
     show restoreCheckoutBeforeWorkflowBranchDeletion;
@@ -98,6 +99,33 @@ void main() {
       );
       expect(Directory(projectSkillDir).existsSync(), isFalse);
     }
+  });
+
+  test('skill bootstrap does not create remote project clone directories before initialization', () async {
+    _seedAndthenSrc(p.join(tempDir.path, 'andthen-src'), sha: 'bootstrap-head');
+    final builtInSkillsSource = _seedDcNativeSkillsSource(p.join(tempDir.path, 'built-in-skills'));
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      andthen: const AndthenConfig(network: AndthenNetworkPolicy.disabled),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', remote: 'file:///tmp/alpha.git')},
+      ),
+    );
+
+    await bootstrapAndthenSkills(
+      config: config,
+      dataDir: tempDir.path,
+      builtInSkillsSourceDir: builtInSkillsSource.path,
+      processRunner: _FakeProvisionerProcessRunner().run,
+      environment: {'HOME': p.join(tempDir.path, 'fake-home')},
+    );
+
+    final cloneDir = Directory(p.join(tempDir.path, 'projects', 'alpha'));
+    expect(cloneDir.existsSync(), isFalse);
   });
 
   test('excludes custom workflows that reference missing skills', () async {
@@ -498,13 +526,12 @@ steps:
     expect(captured.map((config) => config.cwd).toSet(), {runtimeCwd.path});
   });
 
-  test('discovers dartclaw workflow skills from native user-tier roots', () async {
-    final fakeHome = p.join(tempDir.path, 'native-home');
-    final userClaudeSkills = p.join(fakeHome, '.claude', 'skills');
-    final userAgentsSkills = p.join(fakeHome, '.agents', 'skills');
+  test('discovers dartclaw workflow skills from data-dir native roots', () async {
+    final dataClaudeSkills = p.join(tempDir.path, '.claude', 'skills');
+    final dataAgentsSkills = p.join(tempDir.path, '.agents', 'skills');
     for (final name in const ['dartclaw-prd', 'dartclaw-plan']) {
-      _writeSkill(userClaudeSkills, name);
-      _writeSkill(userAgentsSkills, name);
+      _writeSkill(dataClaudeSkills, name);
+      _writeSkill(dataAgentsSkills, name);
     }
 
     final config = DartclawConfig(
@@ -519,7 +546,6 @@ steps:
       config: config,
       dataDir: tempDir.path,
       runAndthenSkillsBootstrap: false,
-      environment: {'HOME': fakeHome},
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
@@ -531,8 +557,8 @@ steps:
     for (final name in const ['dartclaw-prd', 'dartclaw-plan']) {
       final skill = wiring.skillRegistry.getByName(name);
       expect(skill, isNotNull);
-      expect(skill!.path, startsWith(fakeHome));
-      expect(skill.source, SkillSource.userClaude);
+      expect(skill!.path, startsWith(tempDir.path));
+      expect(skill.source, SkillSource.dataDirNative);
       expect(skill.nativeHarnesses, {'claude', 'codex'});
     }
   });
@@ -564,7 +590,7 @@ steps:
 
     await wiring.wire();
 
-    expect(File(p.join(fakeHome, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(tempDir.path, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
     for (final name in _shippedDartclawSkillRefs) {
       expect(wiring.skillRegistry.getByName(name), isNotNull, reason: '$name should resolve after provisioning');
       expect(wiring.skillRegistry.validateRef(name), isNull, reason: '$name validateRef should pass');
@@ -1075,6 +1101,16 @@ void _seedAndthenSrc(String srcDir, {required String sha}) {
   File(p.join(srcDir, '.git', 'HEAD_SHA')).writeAsStringSync(sha);
 }
 
+Directory _seedDcNativeSkillsSource(String sourceDir) {
+  final dir = Directory(sourceDir)..createSync(recursive: true);
+  for (final name in const ['dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve']) {
+    File(p.join(dir.path, name, 'SKILL.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('---\nname: $name\n---\n\n# $name\n');
+  }
+  return dir;
+}
+
 class _FakeProvisionerProcessRunner {
   final List<({String executable, List<String> arguments, String? workingDirectory})> calls = [];
 
@@ -1097,12 +1133,15 @@ class _FakeProvisionerProcessRunner {
     }
     if (executable.endsWith('install-skills.sh')) {
       String? skillsDir;
+      String? codexAgentsDir;
       String? claudeSkillsDir;
       String? claudeAgentsDir;
       for (var i = 0; i < arguments.length - 1; i++) {
         switch (arguments[i]) {
           case '--skills-dir':
             skillsDir = arguments[i + 1];
+          case '--codex-agents-dir':
+            codexAgentsDir = arguments[i + 1];
           case '--claude-skills-dir':
             claudeSkillsDir = arguments[i + 1];
           case '--claude-agents-dir':
@@ -1115,10 +1154,11 @@ class _FakeProvisionerProcessRunner {
           return ProcessResult(0, 2, '', 'HOME is required for --claude-user');
         }
         skillsDir ??= p.join(home, '.agents', 'skills');
+        codexAgentsDir ??= p.join(home, '.codex', 'agents');
         claudeSkillsDir ??= p.join(home, '.claude', 'skills');
         claudeAgentsDir ??= p.join(home, '.claude', 'agents');
       }
-      for (final dir in [skillsDir, claudeSkillsDir, claudeAgentsDir].whereType<String>()) {
+      for (final dir in [skillsDir, codexAgentsDir, claudeSkillsDir, claudeAgentsDir].whereType<String>()) {
         Directory(dir).createSync(recursive: true);
       }
       for (final dir in [skillsDir, claudeSkillsDir].whereType<String>()) {

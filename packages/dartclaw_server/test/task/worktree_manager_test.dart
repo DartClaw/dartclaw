@@ -60,6 +60,47 @@ void main() {
       expect((branchResult.stdout as String).trim(), isNotEmpty);
     });
 
+    test('create() materializes workflow skills before returning', () async {
+      final sourceSkill = Directory(p.join(dataDir, '.claude', 'skills', 'dartclaw-test'))..createSync(recursive: true);
+      File(p.join(sourceSkill.path, 'SKILL.md')).writeAsStringSync('---\nname: dartclaw-test\n---\n');
+      final manager = WorktreeManager(
+        dataDir: dataDir,
+        projectDir: projectDir,
+        skillMaterializer: (worktreePath) async {
+          Link(
+            p.join(worktreePath, '.claude', 'skills', 'dartclaw-test'),
+          ).createSync(sourceSkill.path, recursive: true);
+        },
+      );
+
+      final info = await manager.create('skills-test');
+
+      expect(Link(p.join(info.path, '.claude', 'skills', 'dartclaw-test')).targetSync(), sourceSkill.path);
+    });
+
+    test('create() rolls back worktree and branch when skill materialization fails', () async {
+      final manager = WorktreeManager(
+        dataDir: dataDir,
+        projectDir: projectDir,
+        skillMaterializer: (_) async {
+          throw StateError('link failed');
+        },
+      );
+
+      await expectLater(
+        manager.create('rollback-skills'),
+        throwsA(isA<WorktreeException>().having((e) => e.message, 'message', contains('Failed to materialize'))),
+      );
+
+      expect(Directory(p.join(dataDir, 'worktrees', 'rollback-skills')).existsSync(), isFalse);
+      final branchResult = await Process.run('git', [
+        'branch',
+        '--list',
+        'dartclaw/task-rollback-skills',
+      ], workingDirectory: projectDir);
+      expect((branchResult.stdout as String).trim(), isEmpty);
+    });
+
     test('create() appends -N suffix when branch already exists', () async {
       final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
 

@@ -37,7 +37,7 @@ class SkillRegistryImpl implements SkillRegistry {
   /// P1-P2 resolution).
   /// [projectDirs] — project directories to scan in priority order for P1-P2.
   /// [workspaceDir] — DartClaw workspace directory (for P3).
-  /// [dataDir] — DartClaw data directory (for P6).
+  /// [dataDir] — DartClaw data directory (for native roots and legacy P6).
   /// [pluginDirs] — additional plugin skill directories (for P8).
   void discover({
     String? projectDir,
@@ -47,6 +47,8 @@ class SkillRegistryImpl implements SkillRegistry {
     List<String> pluginDirs = const [],
     String? userClaudeSkillsDir,
     String? userAgentsSkillsDir,
+    String? dataDirClaudeSkillsDir,
+    String? dataDirAgentsSkillsDir,
     String? builtInSkillsDir,
   }) {
     final stopwatch = Stopwatch()..start();
@@ -71,15 +73,18 @@ class SkillRegistryImpl implements SkillRegistry {
       ],
       // P3: <workspace>/skills/ -> nativeHarnesses: {} (DartClaw-managed)
       (p.join(workspaceDir, 'skills'), SkillSource.workspace, <String>{}),
-      // P4: ~/.claude/skills/ -> nativeHarnesses: {claude}
+      // P4: <dataDir>/.claude/skills/ and <dataDir>/.agents/skills/ -> native harness roots.
+      (dataDirClaudeSkillsDir ?? p.join(dataDir, '.claude', 'skills'), SkillSource.dataDirNative, <String>{'claude'}),
+      (dataDirAgentsSkillsDir ?? p.join(dataDir, '.agents', 'skills'), SkillSource.dataDirNative, <String>{'codex'}),
+      // P5: ~/.claude/skills/ -> nativeHarnesses: {claude}
       (userClaudeSkillsDir ?? _userClaudeSkillsDir, SkillSource.userClaude, <String>{'claude'}),
-      // P5: ~/.agents/skills/ -> nativeHarnesses: {codex}
+      // P6: ~/.agents/skills/ -> nativeHarnesses: {codex}
       (userAgentsSkillsDir ?? _userAgentsSkillsDir, SkillSource.userAgents, <String>{'codex'}),
-      // P6: <dataDir>/skills/ -> nativeHarnesses: {} (DartClaw-managed)
+      // P7: <dataDir>/skills/ -> nativeHarnesses: {} (DartClaw-managed)
       (p.join(dataDir, 'skills'), SkillSource.userDartclaw, <String>{}),
-      // P7: <repo>/packages/dartclaw_workflow/skills/ -> repo-managed built-ins.
+      // P8: <repo>/packages/dartclaw_workflow/skills/ -> repo-managed built-ins.
       if (builtInSkillsDir != null) (builtInSkillsDir, SkillSource.dartclaw, <String>{}),
-      // P8: Plugin directories -> nativeHarnesses: {} (plugin-dependent)
+      // P9: Plugin directories -> nativeHarnesses: {} (plugin-dependent)
       for (final dir in pluginDirs) (dir, SkillSource.plugin, <String>{}),
     ];
 
@@ -183,7 +188,11 @@ class SkillRegistryImpl implements SkillRegistry {
   }
 
   bool _skipsManagedCopies(SkillSource source) => switch (source) {
-    SkillSource.projectClaude || SkillSource.projectAgents || SkillSource.userClaude || SkillSource.userAgents => true,
+    SkillSource.projectClaude ||
+    SkillSource.projectAgents ||
+    SkillSource.userClaude ||
+    SkillSource.userAgents ||
+    SkillSource.dataDirNative => true,
     _ => false,
   };
 

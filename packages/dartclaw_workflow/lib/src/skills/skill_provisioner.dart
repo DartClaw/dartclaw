@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show AndthenConfig, AndthenNetworkPolicy, expandHome;
+import 'package:dartclaw_config/dartclaw_config.dart' show AndthenConfig, AndthenNetworkPolicy;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -28,8 +29,8 @@ const dcNativeSkillNames = <String>[
   'dartclaw-merge-resolve',
 ];
 
-/// Marker filename written under each install destination's `skillsDir` to
-/// record which AndThen commit SHA the destination was last installed from.
+/// Marker filename written under the DartClaw data dir to record which AndThen
+/// commit SHA the destination was last installed from.
 const skillProvisionerMarkerFile = '.dartclaw-andthen-sha';
 
 /// Thrown for config/CWD validation failures.
@@ -52,18 +53,18 @@ class SkillProvisionException implements Exception {
   String toString() => 'SkillProvisionException: $message';
 }
 
-/// Resolved native user-tier install destination.
+/// Resolved data-dir native install destination.
 class _InstallDestination {
-  /// Codex-tier skills (`~/.agents/skills`).
+  /// Codex-tier skills (`<dataDir>/.agents/skills`).
   final String skillsDir;
 
-  /// Codex agents tier (`~/.codex/agents`).
+  /// Codex agents tier (`<dataDir>/.codex/agents`).
   final String codexAgentsDir;
 
-  /// Claude Code skills tier (`~/.claude/skills`).
+  /// Claude Code skills tier (`<dataDir>/.claude/skills`).
   final String claudeSkillsDir;
 
-  /// Claude Code agents tier (`~/.claude/agents`).
+  /// Claude Code agents tier (`<dataDir>/.claude/agents`).
   ///
   /// DartClaw materializes this directory after installer success so
   /// destination-completeness checks stay stable even when upstream ships no
@@ -81,18 +82,18 @@ class _InstallDestination {
     required this.label,
   });
 
-  String get markerPath => p.join(skillsDir, skillProvisionerMarkerFile);
+  String get markerPath => p.join(label, skillProvisionerMarkerFile);
 }
 
 /// Runtime provisioner for AndThen-derived workflow skills.
 ///
 /// At `dartclaw serve` startup, [ensureCacheCurrent] clones AndThen into
-/// its configured source cache, runs AndThen's own `scripts/install-skills.sh
-/// --prefix dartclaw- --display-brand DartClaw --claude-user`, and copies the
-/// DC-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`,
-/// `dartclaw-merge-resolve`) into the same user-tier skill trees. The upstream
-/// installer also materializes Codex/Claude agent payloads in their native
-/// user-tier agent directories.
+/// its configured source cache, runs AndThen's own `scripts/install-skills.sh`
+/// with explicit data-dir destination flags, and copies the DC-native skills
+/// (`dartclaw-discover-project`, `dartclaw-validate-workflow`,
+/// `dartclaw-merge-resolve`) into the same data-dir native skill trees. The
+/// upstream installer also materializes Codex/Claude agent payloads in their
+/// data-dir native agent directories.
 ///
 /// Re-install is gated by the AndThen commit SHA written to a per-destination
 /// marker file plus a destination-completeness check; partial installs are
@@ -118,9 +119,9 @@ class SkillProvisioner {
        _runProcess = processRunner ?? _defaultProcessRunner,
        _copyDirectory = directoryCopier ?? _defaultDirectoryCopier;
 
-  /// Clone-or-pull AndThen, then run the installer for each resolved
-  /// user-tier destination whose marker SHA differs from the source HEAD or
-  /// whose tree is incomplete. Idempotent within a single process.
+  /// Clone-or-pull AndThen, then run the installer when the data-dir native
+  /// destination marker SHA differs from the source HEAD or the tree is
+  /// incomplete. Idempotent within a single process.
   Future<void> ensureCacheCurrent() async {
     final destinations = _resolveDestinations();
     final srcDir = config.sourceCacheDir?.trim().isNotEmpty == true
@@ -184,21 +185,15 @@ class SkillProvisioner {
   // ── Internals (visible to tests via @visibleForTesting wrappers below) ────
 
   List<_InstallDestination> _resolveDestinations() {
-    final home = environment['HOME'] ?? environment['USERPROFILE'];
-    if (home == null || home.trim().isEmpty) {
-      throw const SkillProvisionException(
-        'Cannot resolve HOME/USERPROFILE for native workflow skill installation. '
-        'Set HOME or USERPROFILE so Codex and Claude Code can discover user-tier skills.',
-      );
-    }
-    final userDest = _InstallDestination(
-      label: 'user',
-      skillsDir: expandHome('~/.agents/skills', env: environment),
-      codexAgentsDir: expandHome('~/.codex/agents', env: environment),
-      claudeSkillsDir: expandHome('~/.claude/skills', env: environment),
-      claudeAgentsDir: expandHome('~/.claude/agents', env: environment),
+    final normalizedDataDir = p.normalize(dataDir);
+    final dataDirDest = _InstallDestination(
+      label: normalizedDataDir,
+      skillsDir: p.join(normalizedDataDir, '.agents', 'skills'),
+      codexAgentsDir: p.join(normalizedDataDir, '.codex', 'agents'),
+      claudeSkillsDir: p.join(normalizedDataDir, '.claude', 'skills'),
+      claudeAgentsDir: p.join(normalizedDataDir, '.claude', 'agents'),
     );
-    return [userDest];
+    return [dataDirDest];
   }
 
   Future<void> _cloneOrPull(String srcDir) async {
@@ -379,16 +374,46 @@ class SkillProvisioner {
       throw SkillProvisionException('install-skills.sh missing at $script — check andthen.ref/git_url.');
     }
 
-    final args = <String>['--prefix', 'dartclaw-', '--display-brand', 'DartClaw', '--claude-user'];
+    final args = <String>[
+      '--prefix',
+      'dartclaw-',
+      '--display-brand',
+      'DartClaw',
+      '--skills-dir',
+      dest.skillsDir,
+      '--codex-agents-dir',
+      dest.codexAgentsDir,
+      '--claude-skills-dir',
+      dest.claudeSkillsDir,
+      '--claude-agents-dir',
+      dest.claudeAgentsDir,
+    ];
 
-    // Forward the provisioner's environment to the spawned installer so
-    // user-tier paths (`~/.agents/skills`, `~/.claude/...`) expand from the
-    // same `HOME` the provisioner used to resolve destinations. In production
-    // `this.environment` is `Platform.environment`, so the script behaves
-    // exactly as if invoked directly; in tests, an injected `HOME` keeps the
-    // installer from touching the developer's real user-tier paths.
     final processEnv = identical(environment, Platform.environment) ? null : environment;
-    final result = await _runProcess(script, args, workingDirectory: srcDir, environment: processEnv);
+    var result = await _runProcess(script, args, workingDirectory: srcDir, environment: processEnv);
+    var usedLegacyAgentFallback = false;
+    if (result.exitCode != 0 && _installerRejectedAgentFlags(result.stderr)) {
+      _log.warning(
+        'install-skills.sh at $srcDir does not support explicit agent destination flags; '
+        'retrying with data-dir skill destinations only.',
+      );
+      usedLegacyAgentFallback = true;
+      result = await _runProcess(
+        script,
+        [
+          '--prefix',
+          'dartclaw-',
+          '--display-brand',
+          'DartClaw',
+          '--skills-dir',
+          dest.skillsDir,
+          '--claude-skills-dir',
+          dest.claudeSkillsDir,
+        ],
+        workingDirectory: srcDir,
+        environment: processEnv,
+      );
+    }
     if (result.exitCode != 0) {
       throw SkillProvisionException(
         'install-skills.sh failed for ${dest.label} (exit ${result.exitCode}):\n'
@@ -406,6 +431,38 @@ class SkillProvisioner {
     // won't be created and every restart would fail the completeness check.
     Directory(dest.codexAgentsDir).createSync(recursive: true);
     Directory(dest.claudeAgentsDir).createSync(recursive: true);
+    await _ensureAgentPayloads(srcDir, dest, overwrite: usedLegacyAgentFallback);
+  }
+
+  bool _installerRejectedAgentFlags(Object? stderr) {
+    final text = (stderr as String?) ?? '';
+    return text.contains('Unknown option: --codex-agents-dir') || text.contains('Unknown option: --claude-agents-dir');
+  }
+
+  Future<void> _ensureAgentPayloads(String srcDir, _InstallDestination dest, {required bool overwrite}) async {
+    final sourceDir = Directory(p.join(srcDir, 'plugin', 'agents'));
+    if (!sourceDir.existsSync()) return;
+
+    await for (final source in sourceDir.list(followLinks: false)) {
+      if (source is! File || p.extension(source.path) != '.md') continue;
+
+      final baseName = p.basenameWithoutExtension(source.path);
+      final prefixedName = 'dartclaw-$baseName';
+      final markdown = await source.readAsString();
+      final parsed = _parseAgentMarkdown(markdown, defaultName: baseName);
+
+      final claudeAgent = File(p.join(dest.claudeAgentsDir, '$prefixedName.md'));
+      if (overwrite || !claudeAgent.existsSync()) {
+        claudeAgent.parent.createSync(recursive: true);
+        await claudeAgent.writeAsString(_renderClaudeAgent(markdown, prefixedName));
+      }
+
+      final codexAgent = File(p.join(dest.codexAgentsDir, '$prefixedName.toml'));
+      if (overwrite || !codexAgent.existsSync()) {
+        codexAgent.parent.createSync(recursive: true);
+        await codexAgent.writeAsString(_renderCodexAgent(parsed, prefixedName));
+      }
+    }
   }
 
   Future<void> _copyDcNativeSkills(_InstallDestination dest) async {
@@ -441,6 +498,110 @@ class SkillProvisioner {
     await tmp.writeAsString(sha, flush: true);
     await tmp.rename(dest.markerPath);
   }
+}
+
+_AgentMarkdown _parseAgentMarkdown(String markdown, {required String defaultName}) {
+  final normalized = markdown.replaceAll('\r\n', '\n');
+  if (!normalized.startsWith('---\n')) {
+    return _AgentMarkdown(
+      frontmatterLines: const [],
+      body: normalized.trimLeft(),
+      name: defaultName,
+      description: '',
+      model: null,
+    );
+  }
+
+  final closeIndex = normalized.indexOf('\n---\n', 4);
+  if (closeIndex < 0) {
+    return _AgentMarkdown(
+      frontmatterLines: const [],
+      body: normalized.trimLeft(),
+      name: defaultName,
+      description: '',
+      model: null,
+    );
+  }
+
+  final frontmatter = normalized.substring(4, closeIndex).split('\n');
+  final body = normalized.substring(closeIndex + 5).trimLeft();
+  final fields = <String, String>{};
+  for (final line in frontmatter) {
+    final separator = line.indexOf(':');
+    if (separator <= 0) continue;
+    fields[line.substring(0, separator).trim()] = line.substring(separator + 1).trim();
+  }
+
+  return _AgentMarkdown(
+    frontmatterLines: frontmatter,
+    body: body,
+    name: fields['name']?.isNotEmpty == true ? fields['name']! : defaultName,
+    description: fields['description'] ?? '',
+    model: fields['model'],
+  );
+}
+
+String _renderClaudeAgent(String sourceMarkdown, String prefixedName) {
+  final parsed = _parseAgentMarkdown(sourceMarkdown, defaultName: prefixedName);
+  if (parsed.frontmatterLines.isEmpty) {
+    return '---\nname: $prefixedName\n---\n\n${parsed.body}';
+  }
+
+  var sawName = false;
+  final frontmatter = <String>[];
+  for (final line in parsed.frontmatterLines) {
+    if (line.trimLeft().startsWith('name:')) {
+      frontmatter.add('name: $prefixedName');
+      sawName = true;
+    } else {
+      frontmatter.add(line);
+    }
+  }
+  if (!sawName) frontmatter.insert(0, 'name: $prefixedName');
+  return '---\n${frontmatter.join('\n')}\n---\n\n${parsed.body}';
+}
+
+String _renderCodexAgent(_AgentMarkdown agent, String prefixedName) {
+  final model = _codexAgentModel(agent.model);
+  return [
+    '# Generated by DartClaw from plugin/agents/${agent.name}.md',
+    '# Do not edit by hand — edit the source .md instead.',
+    '',
+    'name = ${jsonEncode(prefixedName)}',
+    'description = ${jsonEncode(agent.description)}',
+    'model = ${jsonEncode(model.model)}',
+    'model_reasoning_effort = ${jsonEncode(model.reasoningEffort)}',
+    '',
+    'developer_instructions = ${jsonEncode(agent.body.trim())}',
+    '',
+  ].join('\n');
+}
+
+({String model, String reasoningEffort}) _codexAgentModel(String? sourceModel) {
+  final normalized = sourceModel?.trim().toLowerCase();
+  if (normalized == 'haiku') {
+    return (model: 'gpt-5-mini', reasoningEffort: 'low');
+  }
+  if (normalized != null && normalized.startsWith('gpt-')) {
+    return (model: normalized, reasoningEffort: 'medium');
+  }
+  return (model: 'gpt-5', reasoningEffort: 'medium');
+}
+
+final class _AgentMarkdown {
+  final List<String> frontmatterLines;
+  final String body;
+  final String name;
+  final String description;
+  final String? model;
+
+  const _AgentMarkdown({
+    required this.frontmatterLines,
+    required this.body,
+    required this.name,
+    required this.description,
+    required this.model,
+  });
 }
 
 Future<ProcessResult> _defaultProcessRunner(

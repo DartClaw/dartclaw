@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkspaceSkillInventory, WorkspaceSkillLinker;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -92,6 +93,7 @@ class TaskWiring {
   late DiffGenerator _diffGenerator;
   late ArtifactCollector _artifactCollector;
   late AgentObserver _agentObserver;
+  late final WorkspaceSkillLinker _workspaceSkillLinker = WorkspaceSkillLinker();
   late TaskExecutor _taskExecutor;
   late ChannelReviewHandler _reviewHandler;
   late TaskCancellationSubscriber _taskCancellationSubscriber;
@@ -130,6 +132,7 @@ class TaskWiring {
       worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
       taskLookup: _storage.taskService.get,
       projectLookup: _project?.projectService.get,
+      skillMaterializer: _materializeWorkflowSkillsForWorktree,
     );
     await _worktreeManager.detectStaleWorktrees();
 
@@ -150,6 +153,17 @@ class TaskWiring {
       eventRecorder: _storage.taskEventRecorder,
     );
     _reviewHandler = _taskReviewService.channelReviewHandler(trigger: 'channel');
+  }
+
+  Future<void> _materializeWorkflowSkillsForWorktree(String worktreePath) async {
+    final inventory = WorkspaceSkillInventory.fromDataDir(_dataDir);
+    _workspaceSkillLinker.materialize(
+      dataDir: _dataDir,
+      workspaceDir: worktreePath,
+      skillNames: inventory.skillNames,
+      agentMdNames: inventory.agentMdNames,
+      agentTomlNames: inventory.agentTomlNames,
+    );
   }
 
   /// Wires task services that require a live [TurnManager].

@@ -90,7 +90,7 @@ steps:
       expect(output, contains('steps:'));
     });
 
-    test('standalone resolved mode injects defaults from native user-tier skill roots', () async {
+    test('standalone resolved mode injects defaults from data-dir native skill roots', () async {
       final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))
         ..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'resolved-skill-demo.yaml')).writeAsStringSync('''
@@ -102,15 +102,14 @@ steps:
     skill: dartclaw-default-demo
 ''');
 
-      final fakeHome = Directory(p.join(tempDir.path, 'native-home'))..createSync(recursive: true);
-      final skillDir = Directory(p.join(fakeHome.path, '.agents', 'skills', 'dartclaw-default-demo'))
+      final skillDir = Directory(p.join(config.server.dataDir, '.agents', 'skills', 'dartclaw-default-demo'))
         ..createSync(recursive: true);
       File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('''
 ---
 name: dartclaw-default-demo
 description: Default demo
 workflow:
-  default_prompt: default prompt from native user-tier skill
+  default_prompt: default prompt from data-dir native skill
   default_outputs:
     result:
       format: text
@@ -122,19 +121,13 @@ workflow:
 
       final runner = CommandRunner<void>('dartclaw', 'test')
         ..addCommand(
-          WorkflowShowCommand(
-            config: config,
-            environment: {'HOME': fakeHome.path},
-            write: stdoutBuffer.write,
-            writeLine: (_) {},
-            exitFn: _fakeExit,
-          ),
+          WorkflowShowCommand(config: config, write: stdoutBuffer.write, writeLine: (_) {}, exitFn: _fakeExit),
         );
 
       await runner.run(['show', 'resolved-skill-demo', '--standalone', '--resolved']);
 
       final output = stdoutBuffer.toString();
-      expect(output, contains('prompt: default prompt from native user-tier skill'));
+      expect(output, contains('prompt: default prompt from data-dir native skill'));
       expect(output, contains('outputs:'));
       expect(output, contains('result:'));
       expect(output, contains('description: Result from default skill.'));

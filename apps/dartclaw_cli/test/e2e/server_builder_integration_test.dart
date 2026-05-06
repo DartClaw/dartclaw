@@ -70,7 +70,7 @@ void _stageAndthenSkillStubs(String searchRoot) {
 /// Pre-stages `<dataDir>/andthen-src/` as a real git repo with a fake
 /// `install-skills.sh` script so the SkillProvisioner can run end-to-end with
 /// `andthen.network: disabled` and produce installed `dartclaw-prd` / DC-native
-/// skills under the injected fake HOME's native user-tier roots. Required for tests that
+/// skills under the data-dir native roots. Required for tests that
 /// rely on built-in workflow definitions (which reference the runtime-provisioned
 /// `dartclaw-*` skills); without bootstrap, the workflow validator excludes them
 /// from the registry.
@@ -82,11 +82,13 @@ void _stageFakeAndthenSrc(String dataDir) {
 set -eu
 SKILLS_DIR=""
 CLAUDE_SKILLS_DIR=""
+CODEX_AGENTS_DIR=""
 CLAUDE_AGENTS_DIR=""
 USER_DEFAULTS=0
 while [ \$# -gt 0 ]; do
   case "\$1" in
     --skills-dir) SKILLS_DIR="\$2"; shift 2 ;;
+    --codex-agents-dir) CODEX_AGENTS_DIR="\$2"; shift 2 ;;
     --claude-skills-dir) CLAUDE_SKILLS_DIR="\$2"; shift 2 ;;
     --claude-agents-dir) CLAUDE_AGENTS_DIR="\$2"; shift 2 ;;
     --claude-user) USER_DEFAULTS=1; shift ;;
@@ -96,10 +98,11 @@ done
 if [ "\$USER_DEFAULTS" = "1" ]; then
   : "\${HOME:?HOME required for --claude-user}"
   SKILLS_DIR="\$HOME/.agents/skills"
+  CODEX_AGENTS_DIR="\$HOME/.codex/agents"
   CLAUDE_SKILLS_DIR="\$HOME/.claude/skills"
   CLAUDE_AGENTS_DIR="\$HOME/.claude/agents"
 fi
-mkdir -p "\$SKILLS_DIR" "\$CLAUDE_SKILLS_DIR" "\$CLAUDE_AGENTS_DIR"
+mkdir -p "\$SKILLS_DIR" "\$CODEX_AGENTS_DIR" "\$CLAUDE_SKILLS_DIR" "\$CLAUDE_AGENTS_DIR"
 for name in dartclaw-prd dartclaw-plan dartclaw-spec dartclaw-exec-spec dartclaw-review dartclaw-remediate-findings dartclaw-quick-review dartclaw-ops dartclaw-architecture dartclaw-refactor; do
   mkdir -p "\$SKILLS_DIR/\$name" "\$CLAUDE_SKILLS_DIR/\$name"
   printf 'fake %s' "\$name" > "\$SKILLS_DIR/\$name/SKILL.md"
@@ -555,23 +558,24 @@ void main() {
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
 
-    // AndThen-derived skill installed by the fake installer in both native user-tier trees.
-    expect(File(p.join(provisionHome.path, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(provisionHome.path, '.claude', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
-    // DC-native skills copied into both native user-tier trees by SkillProvisioner.
+    // AndThen-derived skill installed by the fake installer in both data-dir native trees.
+    expect(File(p.join(tempDir.path, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(tempDir.path, '.claude', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    // DC-native skills copied into both data-dir native trees by SkillProvisioner.
     for (final name in const ['dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve']) {
       expect(
-        File(p.join(provisionHome.path, '.agents', 'skills', name, 'SKILL.md')).existsSync(),
+        File(p.join(tempDir.path, '.agents', 'skills', name, 'SKILL.md')).existsSync(),
         isTrue,
-        reason: '$name in native user-tier Codex tree',
+        reason: '$name in data-dir native Codex tree',
       );
       expect(
-        File(p.join(provisionHome.path, '.claude', 'skills', name, 'SKILL.md')).existsSync(),
+        File(p.join(tempDir.path, '.claude', 'skills', name, 'SKILL.md')).existsSync(),
         isTrue,
-        reason: '$name in native user-tier Claude tree',
+        reason: '$name in data-dir native Claude tree',
       );
     }
-    // Marker written for the native user-tier destination.
-    expect(File(p.join(provisionHome.path, '.agents', 'skills', '.dartclaw-andthen-sha')).existsSync(), isTrue);
+    // Marker written for the data-dir native destination.
+    expect(File(p.join(tempDir.path, '.dartclaw-andthen-sha')).existsSync(), isTrue);
+    expect(Directory(p.join(provisionHome.path, '.agents', 'skills')).existsSync(), isFalse);
   });
 }

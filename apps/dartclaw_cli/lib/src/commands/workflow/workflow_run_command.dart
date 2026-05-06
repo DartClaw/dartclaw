@@ -221,8 +221,8 @@ class WorkflowRunCommand extends Command<void> {
           // means workflow skills weren't pre-staged. Surface the hint.
           _stderrLine(
             'Note: --no-skill-bootstrap was set. If "$workflowName" uses DartClaw workflow skills '
-            '(dartclaw-prd, dartclaw-plan, etc.), pre-stage the AndThen skill bundle under '
-            '~/.claude/skills/ and ~/.agents/skills/, '
+            '(dartclaw-prd, dartclaw-plan, etc.), pre-stage the AndThen skill bundle under the data-dir '
+            'native skill roots and materialize the project workspace links, '
             'or omit --no-skill-bootstrap to provision them automatically.',
           );
         }
@@ -235,7 +235,7 @@ class WorkflowRunCommand extends Command<void> {
             '--no-skill-bootstrap was set but DartClaw workflow skills referenced by "$workflowName" '
             'are not installed in native harness skill roots for their execution providers: '
             '${_formatMissingNativeSkillInstalls(missing)}. '
-            'Pre-stage the skill bundle under ~/.claude/skills/ and ~/.agents/skills/, '
+            'Pre-stage the skill bundle under the data-dir native skill roots and materialize the project workspace links, '
             'or omit --no-skill-bootstrap to provision them automatically.',
           );
           _exitFn(1);

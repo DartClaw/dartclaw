@@ -821,7 +821,7 @@ dartclaw workflow show plan-and-implement --resolved --json        # JSON wrappe
 dartclaw workflow show plan-and-implement --standalone              # bypass the server
 ```
 
-In standalone resolved mode, `show` reads skill defaults from the same native user-tier skill roots as standalone execution. It does not run the AndThen provisioning step itself, so use `dartclaw serve` or `dartclaw workflow run --standalone` first when those `dartclaw-*` skills have not been installed yet.
+In standalone resolved mode, `show` reads skill defaults from the data-dir native skill roots. It does not run the AndThen provisioning step itself, so use `dartclaw serve` or `dartclaw workflow run --standalone` first when those `dartclaw-*` skills have not been installed yet.
 
 Use this whenever a step behaves differently than the authored YAML suggests: the resolved form is the source of truth for what the engine actually runs after defaults and skill-level injections are applied.
 
@@ -917,7 +917,7 @@ DartClaw ships three DC-native skills and resolves all other workflow steps thro
 
 **Runtime provisioning — [AndThen](https://github.com/IT-HUSET/andthen) `>= 0.14.3`**:
 
-At `dartclaw serve` startup, and before `dartclaw workflow run --standalone`, `SkillProvisioner` clones AndThen into the configured source cache (`<data_dir>/andthen-src/` by default) and runs `install-skills.sh --prefix dartclaw- --display-brand DartClaw --claude-user`. The built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review`) resolve their AndThen-derived steps through these installed `dartclaw-*` names. Key skills used:
+At `dartclaw serve` startup, and before `dartclaw workflow run --standalone`, `SkillProvisioner` clones AndThen into the configured source cache (`<data_dir>/andthen-src/` by default), installs `dartclaw-*` payloads into `<dataDir>/.claude/skills/`, `<dataDir>/.agents/skills/`, `<dataDir>/.claude/agents/`, and `<dataDir>/.codex/agents/`, then materializes project/worktree links. The built-in workflows (`plan-and-implement`, `spec-and-implement`, `code-review`) resolve their AndThen-derived steps through these installed `dartclaw-*` names. Key skills used:
 
 - `dartclaw-spec`, `dartclaw-prd`, `dartclaw-plan` — specification and planning
 - `dartclaw-exec-spec` — spec execution / implementation driver
@@ -925,7 +925,7 @@ At `dartclaw serve` startup, and before `dartclaw workflow run --standalone`, `S
 - `dartclaw-remediate-findings` — remediation loop driver
 - `dartclaw-ops` — state update (final workflow step)
 
-Configure source, ref, and network behavior under `andthen:` in `dartclaw.yaml`; see [AndThen Skills](andthen-skills.md). DC-native skills are copied into the same native user-tier destination trees automatically.
+Configure source, ref, and network behavior under `andthen:` in `dartclaw.yaml`; see [AndThen Skills](andthen-skills.md). DC-native skills are copied into the same data-dir native skill trees automatically.
 
 ### Supported SDD Frameworks
 

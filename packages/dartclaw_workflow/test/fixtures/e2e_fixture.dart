@@ -571,12 +571,11 @@ final class E2EFixtureInstance {
     return wiring;
   }
 
-  void writeUserTierWorkflowSkills(Iterable<String> names) {
-    final home = environment['HOME'];
-    if (home == null || home.isEmpty) {
-      throw StateError('E2E fixture requires HOME to write native user-tier workflow skills.');
-    }
-    for (final root in [p.join(home, '.claude', 'skills'), p.join(home, '.agents', 'skills')]) {
+  void writeDataDirWorkflowSkills(Iterable<String> names) {
+    for (final root in [
+      p.join(config.server.dataDir, '.claude', 'skills'),
+      p.join(config.server.dataDir, '.agents', 'skills'),
+    ]) {
       for (final name in names) {
         final skillDir = Directory(p.join(root, name))..createSync(recursive: true);
         File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('---\nname: $name\n---\n\n# $name\n');

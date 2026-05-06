@@ -62,14 +62,10 @@ void main() {
     expect(credential?.envVars, ['GITHUB_TOKEN']);
   });
 
-  test('fixture wiring discovers required workflow skills from native user-tier roots with sanitized home', () async {
-    final fakeHome = Directory.systemTemp.createTempSync('dartclaw_fixture_home_');
-    addTearDown(() async {
-      if (fakeHome.existsSync()) await fakeHome.delete(recursive: true);
-    });
-    final fixture = await E2EFixture(projectCredentials: null, environment: {'HOME': fakeHome.path}).build();
+  test('fixture wiring discovers required workflow skills from data-dir native roots', () async {
+    final fixture = await E2EFixture(projectCredentials: null, environment: const {}).build();
     addTearDown(fixture.dispose);
-    fixture.writeUserTierWorkflowSkills(const [
+    fixture.writeDataDirWorkflowSkills(const [
       'dartclaw-prd',
       'dartclaw-plan',
       'dartclaw-spec',
@@ -92,8 +88,8 @@ void main() {
     ]) {
       final skill = wiring.skillRegistry.getByName(name);
       expect(skill, isNotNull);
-      expect(skill!.path, startsWith(fakeHome.path));
-      expect(skill.source, SkillSource.userClaude);
+      expect(skill!.path, startsWith(fixture.config.server.dataDir));
+      expect(skill.source, SkillSource.dataDirNative);
       expect(skill.nativeHarnesses, {'claude', 'codex'});
     }
   });

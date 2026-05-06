@@ -39,6 +39,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         SkillRegistryImpl,
         ProcessRunner,
+        WorkspaceSkillInventory,
+        WorkspaceSkillLinker,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRegistry,
@@ -146,6 +148,7 @@ class CliWorkflowWiring {
 
   late final CredentialRegistry _credentialRegistry;
   late final HarnessConfig _harnessConfig;
+  late final WorkspaceSkillLinker _workspaceSkillLinker;
 
   CliWorkflowWiring({
     required this.config,
@@ -168,6 +171,17 @@ class CliWorkflowWiring {
        _taskDbFactory = taskDbFactory ?? openTaskDb,
        assetResolver = assetResolver ?? AssetResolver();
 
+  Future<void> _materializeWorkflowSkillsForWorktree(String worktreePath) async {
+    final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
+    _workspaceSkillLinker.materialize(
+      dataDir: dataDir,
+      workspaceDir: worktreePath,
+      skillNames: inventory.skillNames,
+      agentMdNames: inventory.agentMdNames,
+      agentTomlNames: inventory.agentTomlNames,
+    );
+  }
+
   /// Constructs all services needed for headless workflow execution.
   ///
   /// Does not start an HTTP server, initialize templates, connect channels,
@@ -183,6 +197,7 @@ class CliWorkflowWiring {
     }
 
     eventBus = EventBus();
+    _workspaceSkillLinker = WorkspaceSkillLinker();
     final projectDirs = workflowSkillProjectDirs(config, fallbackCwd: runtimeCwd);
     final resolvedAssets = assetResolver.resolve();
     final builtInSkillsSourceDir =
@@ -192,6 +207,7 @@ class CliWorkflowWiring {
         config: config,
         dataDir: dataDir,
         builtInSkillsSourceDir: builtInSkillsSourceDir,
+        fallbackWorkspaceDir: runtimeCwd,
         environment: environment,
         processRunner: skillProvisionerProcessRunner,
       );
@@ -199,15 +215,18 @@ class CliWorkflowWiring {
 
     // Skill registry — discovered before the workflow service so the
     // executor can honor skill-declared default_prompt/default_outputs.
-    final userSkillRoots = workflowUserSkillRoots(environment);
+    final dataDirSkillRoots = workflowDataDirSkillRoots(dataDir);
+    final userSkillRoots = workflowOptionalUserSkillRoots(environment);
     skillRegistry = SkillRegistryImpl();
     skillRegistry.discover(
       projectDirs: projectDirs,
       workspaceDir: config.workspaceDir,
       dataDir: dataDir,
       builtInSkillsDir: builtInSkillsSourceDir,
-      userClaudeSkillsDir: userSkillRoots.claudeSkillsDir,
-      userAgentsSkillsDir: userSkillRoots.agentsSkillsDir,
+      dataDirClaudeSkillsDir: dataDirSkillRoots.claudeSkillsDir,
+      dataDirAgentsSkillsDir: dataDirSkillRoots.agentsSkillsDir,
+      userClaudeSkillsDir: userSkillRoots?.claudeSkillsDir,
+      userAgentsSkillsDir: userSkillRoots?.agentsSkillsDir,
     );
 
     // Storage layer
@@ -250,6 +269,7 @@ class CliWorkflowWiring {
       worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
       taskLookup: taskServiceInst.get,
       projectLookup: projectService.get,
+      skillMaterializer: _materializeWorkflowSkillsForWorktree,
     );
     await worktreeManager.detectStaleWorktrees();
 

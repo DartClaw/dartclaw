@@ -38,5 +38,6 @@ export 'task_review_service.dart'
         ReviewInvalidRequest,
         ReviewActionFailed;
 export 'task_service.dart' show TaskService;
-export 'worktree_manager.dart' show WorktreeManager, WorktreeInfo, WorktreeException, GitNotFoundException;
+export 'worktree_manager.dart'
+    show WorktreeManager, WorktreeInfo, WorktreeException, GitNotFoundException, WorktreeSkillMaterializer;
 export 'workflow_git_port_process.dart' show WorkflowGitPortProcess;

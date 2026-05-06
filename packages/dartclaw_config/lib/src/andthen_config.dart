@@ -13,9 +13,9 @@ enum AndthenNetworkPolicy {
 /// Configuration for the AndThen-skills runtime provisioning subsystem.
 ///
 /// At `dartclaw serve` startup, [SkillProvisioner] (in `dartclaw_workflow`)
-/// uses this config to clone AndThen, run AndThen's own `install-skills.sh
-/// --prefix dartclaw- --claude-user`, and copy the DC-native skills into the
-/// same user-tier native skill roots.
+/// uses this config to clone AndThen, run AndThen's own `install-skills.sh`
+/// with DartClaw's data-dir native destination flags, and copy the DC-native
+/// skills into the same data-dir native skill roots.
 ///
 /// All fields require a server restart to change — see
 /// `ConfigNotifier.nonReloadableKeys`.

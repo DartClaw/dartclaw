@@ -70,6 +70,8 @@ void main() {
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_positive_skills_');
     final dataDir = tempDir.resolveSymbolicLinksSync();
     final fakeHome = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
+    final projectA = Directory(p.join(tempDir.path, 'project-a'))..createSync(recursive: true);
+    final projectB = Directory(p.join(tempDir.path, 'project-b'))..createSync(recursive: true);
     final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'))..writeAsStringSync('');
     addTearDown(() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
@@ -83,7 +85,7 @@ void main() {
     addTearDown(logService.dispose);
 
     final wiring = ServiceWiring(
-      config: _baseConfig(dataDir),
+      config: _baseConfig(dataDir, projectA: projectA.path, projectB: projectB.path),
       dataDir: dataDir,
       port: 3001,
       harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
@@ -103,15 +105,22 @@ void main() {
     final result = await wiring.wire();
     addTearDown(result.shutdownExtras);
 
-    expect(File(p.join(fakeHome.path, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(fakeHome.path, '.claude', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(dataDir, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(dataDir, '.claude', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
     for (final name in const ['dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve']) {
-      expect(File(p.join(fakeHome.path, '.agents', 'skills', name, 'SKILL.md')).existsSync(), isTrue, reason: name);
-      expect(File(p.join(fakeHome.path, '.claude', 'skills', name, 'SKILL.md')).existsSync(), isTrue, reason: name);
+      expect(File(p.join(dataDir, '.agents', 'skills', name, 'SKILL.md')).existsSync(), isTrue, reason: name);
+      expect(File(p.join(dataDir, '.claude', 'skills', name, 'SKILL.md')).existsSync(), isTrue, reason: name);
+      expect(
+        Link(p.join(projectA.path, '.agents', 'skills', name)).targetSync(),
+        p.join(dataDir, '.agents', 'skills', name),
+      );
+      expect(
+        Link(p.join(projectB.path, '.claude', 'skills', name)).targetSync(),
+        p.join(dataDir, '.claude', 'skills', name),
+      );
     }
-    expect(File(p.join(fakeHome.path, '.agents', 'skills', '.dartclaw-andthen-sha')).readAsStringSync(), 'fake-head');
-    expect(Directory(p.join(dataDir, '.agents', 'skills')).existsSync(), isFalse);
-    expect(Directory(p.join(dataDir, '.claude', 'skills')).existsSync(), isFalse);
+    expect(File(p.join(dataDir, '.dartclaw-andthen-sha')).readAsStringSync(), 'fake-head');
+    expect(_findDartclawEntries(fakeHome.path), isEmpty);
 
     // Wiring proof: SkillRegistry built by ServiceWiring.wire()
     // must resolve every dartclaw-* skill the shipped workflow YAMLs reference.
@@ -122,7 +131,7 @@ void main() {
       expect(
         skillRegistry.getByName(name),
         isNotNull,
-        reason: '$name must resolve through the registry after native user-tier provisioning',
+        reason: '$name must resolve through the registry after data-dir native provisioning',
       );
       expect(skillRegistry.validateRef(name), isNull, reason: '$name validateRef should pass');
     }
@@ -173,7 +182,16 @@ Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code)');
 }
 
-DartclawConfig _baseConfig(String dataDir) {
+List<String> _findDartclawEntries(String root) {
+  final dir = Directory(root);
+  if (!dir.existsSync()) return const [];
+  return [
+    for (final entity in dir.listSync(recursive: true, followLinks: false))
+      if (p.basename(entity.path).startsWith('dartclaw-')) entity.path,
+  ];
+}
+
+DartclawConfig _baseConfig(String dataDir, {String? projectA, String? projectB}) {
   return DartclawConfig(
     agent: const AgentConfig(provider: 'claude'),
     credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'k')}),
@@ -182,6 +200,12 @@ DartclawConfig _baseConfig(String dataDir) {
     ),
     gateway: const GatewayConfig(authMode: 'none'),
     andthen: const AndthenConfig(network: AndthenNetworkPolicy.disabled),
+    projects: ProjectConfig(
+      definitions: {
+        if (projectA != null) 'project-a': ProjectDefinition(id: 'project-a', localPath: projectA, branch: 'main'),
+        if (projectB != null) 'project-b': ProjectDefinition(id: 'project-b', localPath: projectB, branch: 'main'),
+      },
+    ),
     server: ServerConfig(
       dataDir: dataDir,
       staticDir: _staticDir(),
@@ -225,6 +249,7 @@ class _FakeProcessRunner {
     }
     if (executable.endsWith('install-skills.sh')) {
       String? skillsDir;
+      String? codexAgentsDir;
       String? claudeSkillsDir;
       String? claudeAgentsDir;
       final userDefaults = arguments.contains('--claude-user');
@@ -232,6 +257,8 @@ class _FakeProcessRunner {
         switch (arguments[i]) {
           case '--skills-dir':
             skillsDir = arguments[i + 1];
+          case '--codex-agents-dir':
+            codexAgentsDir = arguments[i + 1];
           case '--claude-skills-dir':
             claudeSkillsDir = arguments[i + 1];
           case '--claude-agents-dir':
@@ -244,10 +271,11 @@ class _FakeProcessRunner {
           throw StateError('fake installer requires HOME for --claude-user');
         }
         skillsDir ??= p.join(home, '.agents', 'skills');
+        codexAgentsDir ??= p.join(home, '.codex', 'agents');
         claudeSkillsDir ??= p.join(home, '.claude', 'skills');
         claudeAgentsDir ??= p.join(home, '.claude', 'agents');
       }
-      for (final dir in [skillsDir, claudeSkillsDir, claudeAgentsDir].whereType<String>()) {
+      for (final dir in [skillsDir, codexAgentsDir, claudeSkillsDir, claudeAgentsDir].whereType<String>()) {
         Directory(dir).createSync(recursive: true);
       }
       for (final dir in [skillsDir, claudeSkillsDir].whereType<String>()) {

@@ -137,7 +137,7 @@ class ServiceWiring {
 
   /// Environment passed to [SkillProvisioner] when [runAndthenSkillsBootstrap]
   /// is true. Defaults to [Platform.environment] in production. Tests inject a
-  /// controlled `HOME` here so user-tier installs cannot leak into the
+  /// controlled `HOME` here so optional user-tier discovery cannot read the
   /// developer's real `~/.agents` or `~/.claude` trees.
   final Map<String, String>? skillProvisionerEnvironment;
 
@@ -187,8 +187,7 @@ class ServiceWiring {
         resolvedAssets?.skillsDir ?? WorkflowSkillSourceResolver.resolveBuiltInSkillsSourceDir();
 
     // 0.5. AndThen skills bootstrap — clone AndThen, install dartclaw-* skills
-    // through native user-tier skill loading, and copy DC-native skills per
-    // ADR-025.
+    // into the data-dir native roots, and materialize configured project links.
     if (runAndthenSkillsBootstrap) {
       await bootstrapAndthenSkills(
         config: config,
@@ -203,15 +202,18 @@ class ServiceWiring {
     // Built here (before WorkflowService / task executor) so downstream
     // services that need the registry (workflow executor skill defaults,
     // MCP/SSE handlers, etc.) can reference the same instance.
-    final userSkillRoots = workflowUserSkillRoots(skillProvisionerEnvironment);
+    final dataDirSkillRoots = workflowDataDirSkillRoots(dataDir);
+    final userSkillRoots = workflowOptionalUserSkillRoots(skillProvisionerEnvironment);
     final skillRegistry = SkillRegistryImpl();
     skillRegistry.discover(
       projectDirs: projectDirs,
       workspaceDir: config.workspaceDir,
       dataDir: dataDir,
       builtInSkillsDir: builtInSkillsSourceDir,
-      userClaudeSkillsDir: userSkillRoots.claudeSkillsDir,
-      userAgentsSkillsDir: userSkillRoots.agentsSkillsDir,
+      dataDirClaudeSkillsDir: dataDirSkillRoots.claudeSkillsDir,
+      dataDirAgentsSkillsDir: dataDirSkillRoots.agentsSkillsDir,
+      userClaudeSkillsDir: userSkillRoots?.claudeSkillsDir,
+      userAgentsSkillsDir: userSkillRoots?.agentsSkillsDir,
     );
 
     // 1. Storage — databases, sessions, messages, memory, KV, QMD.

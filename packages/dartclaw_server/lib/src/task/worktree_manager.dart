@@ -60,6 +60,9 @@ final class _RegisteredWorktree {
   const _RegisteredWorktree({required this.path, required this.branch});
 }
 
+/// Hook invoked after a worktree is created and before it is returned.
+typedef WorktreeSkillMaterializer = Future<void> Function(String worktreePath);
+
 /// Git worktree lifecycle manager for coding tasks.
 ///
 /// Worktrees are keyed by the caller-supplied `taskId`, which must be globally
@@ -85,6 +88,7 @@ class WorktreeManager {
   final Map<String, WorktreeInfo> _worktrees = {};
   final Future<Task?> Function(String taskId)? _taskLookup;
   final Future<Project?> Function(String projectId)? _projectLookup;
+  final WorktreeSkillMaterializer _skillMaterializer;
 
   bool? _gitAvailable;
 
@@ -100,6 +104,7 @@ class WorktreeManager {
     String? worktreesDir,
     Future<Task?> Function(String taskId)? taskLookup,
     Future<Project?> Function(String projectId)? projectLookup,
+    WorktreeSkillMaterializer? skillMaterializer,
     Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
     processRunner,
   }) : _projectDir = projectDir,
@@ -108,6 +113,7 @@ class WorktreeManager {
        _worktreesDir = worktreesDir ?? p.join(dataDir, 'worktrees'),
        _taskLookup = taskLookup,
        _projectLookup = projectLookup,
+       _skillMaterializer = skillMaterializer ?? _noopSkillMaterializer,
        _runProcess = processRunner ?? _defaultProcessRunner;
 
   // All git spawns routed through the default runner carry
@@ -130,6 +136,8 @@ class WorktreeManager {
     }
     return Process.run(executable, arguments, workingDirectory: workingDirectory);
   }
+
+  static Future<void> _noopSkillMaterializer(String worktreePath) async {}
 
   /// Creates a new git worktree for the given task.
   ///
@@ -240,12 +248,54 @@ class WorktreeManager {
       branch: createBranch ? branch : ((baseRef != null && baseRef.trim().isNotEmpty) ? baseRef.trim() : branch),
       createdAt: DateTime.now(),
     );
+    try {
+      await _skillMaterializer(worktreePath);
+    } catch (e) {
+      await _rollbackCreatedWorktree(
+        worktreePath: worktreePath,
+        branch: createBranch ? branch : null,
+        workingDirectory: effectiveProjectDir,
+      );
+      throw WorktreeException('Failed to materialize workflow skills for worktree at $worktreePath: $e');
+    }
     _worktrees[taskId] = info;
     _log.info(
       'Created worktree for task $taskId at $worktreePath '
       '(branch: $branch, project: ${project?.id ?? "_local"})',
     );
     return info;
+  }
+
+  Future<void> _rollbackCreatedWorktree({
+    required String worktreePath,
+    required String? branch,
+    required String workingDirectory,
+  }) async {
+    final removeResult = await _runProcess('git', [
+      'worktree',
+      'remove',
+      '--force',
+      worktreePath,
+    ], workingDirectory: workingDirectory);
+    if (removeResult.exitCode != 0) {
+      _log.warning(
+        'Failed to roll back worktree $worktreePath after skill materialization failure: '
+        '${(removeResult.stderr as String).trim()}',
+      );
+    }
+    if (branch == null) return;
+    final branchResult = await _runProcess('git', [
+      'branch',
+      '--delete',
+      '--force',
+      branch,
+    ], workingDirectory: workingDirectory);
+    if (branchResult.exitCode != 0) {
+      _log.warning(
+        'Failed to roll back branch $branch after skill materialization failure: '
+        '${(branchResult.stderr as String).trim()}',
+      );
+    }
   }
 
   Future<String> _resolveProjectBaseRef({

@@ -11,6 +11,9 @@ enum SkillSource {
   /// `<workspace>/skills/` -- workspace-scoped, DartClaw-managed.
   workspace,
 
+  /// `<dataDir>/.claude/skills/` / `<dataDir>/.agents/skills/` -- data-dir scoped native harness roots.
+  dataDirNative,
+
   /// `~/.claude/skills/` -- user-scoped, Claude Code harness.
   userClaude,
 
@@ -30,6 +33,7 @@ enum SkillSource {
     projectClaude => 'project (.claude)',
     projectAgents => 'project (.agents)',
     workspace => 'workspace',
+    dataDirNative => 'data dir native',
     userClaude => 'user (.claude)',
     userAgents => 'user (.agents)',
     userDartclaw => 'user (dartclaw)',

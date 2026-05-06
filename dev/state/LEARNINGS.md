@@ -65,7 +65,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Empty YAML document root is null, not an empty map.** Initialize with `editor.update([], {})` before path creation works.
 - **Trim string-to-enum config values on both parse paths.** `default_type: "analysis "` (trailing space) silently resolves to a different value.
 - **JSON decoders emit doubles for whole-number values.** Distinguish `3000.0` (accept) from `3000.5` (reject) via `value != value.toInt().toDouble()`.
-- **Workflow skill provisioning should use native harness install paths.** Codex loads skill metadata into initial context and reads full `SKILL.md` bodies only on invocation, so isolated data-dir/profile installs are not a useful prompt-size optimization. DartClaw now provisions `dartclaw-*` workflow skills and agents into native user-tier roots (`~/.agents/skills`, `~/.codex/agents`, `~/.claude/skills`, `~/.claude/agents`) and lets Codex/Claude Code load them normally.
+- **2026-05-06: Data-dir skill provisioning needs per-skill project links, not spawn-target constraints.** Installing `dartclaw-*` payloads under `<dataDir>/.claude/skills/` and `<dataDir>/.agents/skills/` is viable when each project/worktree gets per-skill symlinks into that data dir; this preserves native harness discovery without the 0.16.4 `validateSpawnTargets()` gate that incorrectly required project paths to live under `<dataDir>`.
 
 ## Concurrency / Async
 

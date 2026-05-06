@@ -165,7 +165,7 @@ steps:
         '--no-skill-bootstrap was set but DartClaw workflow skills referenced by "source-only-skill" '
             'are not installed in native harness skill roots for their execution providers: '
             'dartclaw-discover-project (claude). '
-            'Pre-stage the skill bundle under ~/.claude/skills/ and ~/.agents/skills/, '
+            'Pre-stage the skill bundle under the data-dir native skill roots and materialize the project workspace links, '
             'or omit --no-skill-bootstrap to provision them automatically.',
       ]);
     });
@@ -210,7 +210,7 @@ steps:
         '--no-skill-bootstrap was set but DartClaw workflow skills referenced by "provider-mismatch" '
             'are not installed in native harness skill roots for their execution providers: '
             'dartclaw-discover-project (codex). '
-            'Pre-stage the skill bundle under ~/.claude/skills/ and ~/.agents/skills/, '
+            'Pre-stage the skill bundle under the data-dir native skill roots and materialize the project workspace links, '
             'or omit --no-skill-bootstrap to provision them automatically.',
       ]);
     });

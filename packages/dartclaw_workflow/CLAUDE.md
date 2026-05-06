@@ -19,7 +19,7 @@ Authoring steps in `plan-and-implement` are **artefact-aware** via `entryGate`s 
 - **Executor** — `WorkflowExecutor` (run loop, gate evaluation, per-step persistence, crash recovery, role-alias provider resolution).
 - **Step dispatch + iteration** — `step_dispatcher.dart` plus 3 step runners (`bash`, `approval`, `loop`) and 3 iteration controllers (`foreach`, `map`, `parallel_group`). Foreach/map produce a single aggregate output key; parallel_group produces one per branch.
 - **Output capture** — `OutputConfig` (sentinel-backed slots so absence vs explicit `null` round-trip distinctly) + `context_extractor.dart` (parses inline `<workflow-context>`, falls back to a second extraction turn).
-- **Skills subsystem** — `SkillRegistry` (step-time lookup), `SkillPromptBuilder` (prompt augmentation with `SKILL.md` body + step args), `SkillProvisioner` (startup AndThen clone gated by `AndthenNetworkPolicy` + DC-native skill copy from `packages/dartclaw_workflow/skills/`).
+- **Skills subsystem** — `SkillRegistry` (step-time lookup), `SkillPromptBuilder` (prompt augmentation with `SKILL.md` body + step args), `SkillProvisioner` (startup AndThen clone gated by `AndthenNetworkPolicy` + DC-native skill copy from `packages/dartclaw_workflow/skills/`), `WorkspaceSkillLinker` (project/worktree native-link materialization and cleanup).
 - **Host ports** — `WorkflowGitPort` (worktree / merge / push / PR) and `WorkflowTurnAdapter` (turn execution); both injected by `dartclaw_server`. This package never calls `Process.run` for git nor spawns harnesses directly.
 
 ## Shape
@@ -28,7 +28,7 @@ Authoring steps in `plan-and-implement` are **artefact-aware** via `entryGate`s 
 - **Step types**: `bash_step_runner` (shell), `approval_step_runner` (human checkpoint), `loop_step_runner` (re-runs inner sequence until a gate fires), `foreach_iteration_runner` (sequential), `map_iteration_runner` (parallel up to `maxParallel`), `parallel_group_runner` (fixed parallel branches). Foreach/map produce one aggregate output key; parallel_group produces one per branch.
 - **Output capture**: agent emits a `<workflow-context>` payload inline → executor parses → outputs land in `OutputConfig`. Inline-parse failure triggers a second extraction turn; happy path is one turn.
 - **Iteration + worktrees**: `gitStrategy.worktree: auto` resolves to `per-map-item` when `maxParallel > 1`, else `inline` (via `WorkflowGitStrategy.effectiveWorktreeMode()`). Worktree-promotion inference depends on this resolution.
-- **Skills**: at step time, `SkillRegistry` looks up the skill → `SkillPromptBuilder` augments the prompt with the `SKILL.md` body + step arguments. `SkillProvisioner` clones AndThen at server startup (gated by `AndthenNetworkPolicy`) and copies DC-native skills from `packages/dartclaw_workflow/skills/` into the native user-tier Codex/Claude skill roots.
+- **Skills**: at step time, `SkillRegistry` looks up the skill → `SkillPromptBuilder` augments the prompt with the `SKILL.md` body + step arguments. `SkillProvisioner` clones AndThen at server startup (gated by `AndthenNetworkPolicy`) and installs `dartclaw-*` skills and agents into data-dir native Codex/Claude roots. `WorkspaceSkillLinker` exposes those payloads to configured projects and worktrees through per-skill native links.
 - **Host seam**: this package never calls `Process.run` for git nor spawns agents directly. The host (`dartclaw_server`) injects `WorkflowGitPort` (worktree / merge / push / PR) and `WorkflowTurnAdapter` (turn execution).
 
 ## Boundaries
@@ -65,5 +65,6 @@ Authoring steps in `plan-and-implement` are **artefact-aware** via `entryGate`s 
 - `lib/src/workflow/workflow_turn_adapter.dart` + `workflow_git_port.dart` — host-injected git callbacks; do not import server impls.
 - `lib/src/workflow/skill_registry_impl.dart` + `skill_prompt_builder.dart` — skill lookup and prompt augmentation.
 - `lib/src/skills/skill_provisioner.dart` — startup AndThen clone + DC-native skill copy; honors `AndthenNetworkPolicy`.
+- `lib/src/skills/workspace_skill_linker.dart` — per-project/worktree `dartclaw-*` symlink materialization, copy fallback, git-exclude writes, and cleanup.
 - `lib/src/workflow/definitions/*.yaml` — shipped built-in workflows; changes affect the contract test.
 - `lib/src/workflow/validation/` — split validator rule files.

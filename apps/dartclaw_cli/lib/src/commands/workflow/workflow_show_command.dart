@@ -154,15 +154,18 @@ class WorkflowShowCommand extends Command<void> {
     // skill-declared default_prompt / default_outputs just like the server.
     final resolvedAssets = _assetResolver.resolve();
     final builtInSkillsDir = resolvedAssets?.skillsDir ?? WorkflowSkillSourceResolver.resolveBuiltInSkillsSourceDir();
-    final userSkillRoots = workflowUserSkillRoots(_environment);
+    final dataDirSkillRoots = workflowDataDirSkillRoots(config.server.dataDir);
+    final userSkillRoots = workflowOptionalUserSkillRoots(_environment);
     final skills = SkillRegistryImpl()
       ..discover(
         projectDirs: workflowSkillProjectDirs(config, fallbackCwd: _projectFallbackCwd ?? Directory.current.path),
         workspaceDir: config.workspaceDir,
         dataDir: config.server.dataDir,
         builtInSkillsDir: builtInSkillsDir,
-        userClaudeSkillsDir: userSkillRoots.claudeSkillsDir,
-        userAgentsSkillsDir: userSkillRoots.agentsSkillsDir,
+        dataDirClaudeSkillsDir: dataDirSkillRoots.claudeSkillsDir,
+        dataDirAgentsSkillsDir: dataDirSkillRoots.agentsSkillsDir,
+        userClaudeSkillsDir: userSkillRoots?.claudeSkillsDir,
+        userAgentsSkillsDir: userSkillRoots?.agentsSkillsDir,
       );
     final resolver = WorkflowDefinitionResolver(skillRegistry: skills);
     final resolvedDef = resolver.resolve(definition);

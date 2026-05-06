@@ -1555,7 +1555,7 @@ AndthenConfig _parseAndthen(
   for (final key in atMap.keys) {
     if (key == 'install_scope') {
       warns.add(
-        'andthen.install_scope is no longer supported (skills always install user-tier); '
+        'andthen.install_scope is no longer supported (skills always install into the data dir); '
         'remove it from your config to silence this warning',
       );
       continue;

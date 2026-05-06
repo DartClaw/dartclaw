@@ -146,6 +146,24 @@ void main() {
       expect(skills.first.nativeHarnesses, isEmpty);
     });
 
+    test('data-dir native skills resolve between workspace and user tiers', () {
+      final dataClaudeSkills = Directory('${dataDir.path}/.claude/skills')..createSync(recursive: true);
+      makeSkill(dataClaudeSkills, 'dartclaw-prd', name: 'dartclaw-prd');
+
+      final registry = makeRegistry();
+      registry.discover(
+        workspaceDir: workspaceDir.path,
+        dataDir: dataDir.path,
+        userClaudeSkillsDir: '/nonexistent',
+        userAgentsSkillsDir: '/nonexistent',
+        builtInSkillsDir: '/nonexistent',
+      );
+
+      final skill = registry.getByName('dartclaw-prd')!;
+      expect(skill.source, SkillSource.dataDirNative);
+      expect(skill.nativeHarnesses, {'claude'});
+    });
+
     test('missing SKILL.md -> directory skipped silently', () {
       final claudeSkills = Directory('${workspaceDir.path}/skills')..createSync();
       // Create a dir without SKILL.md

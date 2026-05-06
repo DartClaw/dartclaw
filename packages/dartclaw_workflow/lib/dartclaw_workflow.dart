@@ -72,3 +72,10 @@ export 'src/skills/skill_provisioner.dart'
         SkillProvisioner,
         dcNativeSkillNames,
         skillProvisionerMarkerFile;
+export 'src/skills/workspace_skill_linker.dart'
+    show
+        WorkspaceDirectoryCopier,
+        WorkspaceGitDirResolver,
+        WorkspaceLinkFactory,
+        WorkspaceSkillInventory,
+        WorkspaceSkillLinker;

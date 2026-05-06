@@ -553,6 +553,7 @@ final class E2EFixtureInstance {
     WorkflowStepOutputTransformer? outputTransformer,
     CliWorkflowPrCreator? prCreator,
     HarnessFactory? harnessFactory,
+    bool runAndthenSkillsBootstrap = false,
   }) async {
     final wiring = CliWorkflowWiring(
       config: config,
@@ -563,6 +564,7 @@ final class E2EFixtureInstance {
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
       workflowStepOutputTransformer: outputTransformer,
+      runAndthenSkillsBootstrap: runAndthenSkillsBootstrap,
       prCreator: prCreator,
     );
     await wiring.wire();

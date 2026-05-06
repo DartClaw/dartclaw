@@ -7,7 +7,12 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 String _repoRoot() {
-  var current = Directory.current.absolute.path;
+  final start =
+      Platform.environment['DARTCLAW_REPO_ROOT'] ??
+      Platform.environment['GITHUB_WORKSPACE'] ??
+      Platform.environment['PWD'] ??
+      Directory.current.absolute.path;
+  var current = start;
   while (true) {
     if (File(p.join(current, 'dev', 'tools', 'build.sh')).existsSync() &&
         Directory(p.join(current, 'apps')).existsSync()) {
@@ -16,7 +21,7 @@ String _repoRoot() {
 
     final parent = p.dirname(current);
     if (parent == current) {
-      throw StateError('Unable to locate repository root from $current');
+      throw StateError('Unable to locate repository root from $start');
     }
     current = parent;
   }

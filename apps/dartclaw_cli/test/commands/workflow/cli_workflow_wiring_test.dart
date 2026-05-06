@@ -940,6 +940,116 @@ steps:
     expect((projectBranchResult.stdout as String).trim(), isEmpty);
   });
 
+  test('tracked workflow git cleanup preserves non-terminal runs for resume', () async {
+    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
+    final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
+    final projectDir = Directory(p.join(tempDir.path, 'project-alpha'))..createSync(recursive: true);
+    final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
+
+    _runGit(projectDir.path, ['init', '-b', 'main']);
+    _runGit(projectDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(projectDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('# project\n');
+    _runGit(projectDir.path, ['add', 'README.md']);
+    _runGit(projectDir.path, ['commit', '-m', 'initial']);
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path)},
+      ),
+    );
+
+    final savedCwd = Directory.current;
+    Directory.current = launchDir;
+    CliWorkflowWiring? wiring;
+    String? worktreePath;
+    String? workflowBranch;
+    try {
+      wiring = CliWorkflowWiring(
+        config: config,
+        dataDir: tempDir.path,
+        runAndthenSkillsBootstrap: false,
+        environment: {'HOME': p.join(tempDir.path, 'fake-home')},
+        runtimeCwd: runtimeCwd.path,
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+      );
+      await wiring.wire();
+
+      final definition = WorkflowDefinition(
+        name: 'approval-hold',
+        description: 'Stops in a non-terminal approval state',
+        variables: const {
+          'PROJECT': WorkflowVariable(required: true, description: 'Target project'),
+          'BRANCH': WorkflowVariable(required: true, description: 'Requested branch'),
+        },
+        steps: const [
+          WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+        ],
+      );
+
+      final run = await wiring.workflowService.start(definition, const {
+        'PROJECT': 'alpha',
+        'BRANCH': 'main',
+      }, headless: true);
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (DateTime.now().isBefore(deadline)) {
+        final updated = await wiring.workflowService.get(run.id);
+        if (updated?.status == WorkflowRunStatus.awaitingApproval) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect((await wiring.workflowService.get(run.id))?.status, WorkflowRunStatus.awaitingApproval);
+
+      workflowBranch = 'dartclaw/workflow/${run.id.replaceAll('-', '')}/integration';
+      const taskBranch = 'dartclaw/task-wf-active';
+      worktreePath = p.join(workspaceDir.path, '.dartclaw', 'worktrees', 'wf-active');
+      _runGit(projectDir.path, ['branch', workflowBranch, 'main']);
+      _runGit(projectDir.path, ['worktree', 'add', worktreePath, '-b', taskBranch, workflowBranch]);
+
+      final task = await wiring.taskService.create(
+        id: 'active-task',
+        title: 'Active workflow task',
+        description: 'Tracks a resumable workflow worktree',
+        type: TaskType.coding,
+        projectId: 'alpha',
+        workflowRunId: run.id,
+      );
+      await wiring.taskService.updateFields(
+        task.id,
+        worktreeJson: {
+          'path': worktreePath,
+          'branch': taskBranch,
+          'createdAt': DateTime.parse('2026-01-01T00:00:00Z').toIso8601String(),
+        },
+      );
+
+      await wiring.dispose();
+      wiring = null;
+    } finally {
+      Directory.current = savedCwd;
+      if (wiring != null) {
+        await wiring.dispose();
+      }
+    }
+
+    expect(Directory(worktreePath).existsSync(), isTrue);
+    final workflowBranchResult = Process.runSync('git', [
+      'branch',
+      '--list',
+      workflowBranch,
+    ], workingDirectory: projectDir.path);
+    expect(workflowBranchResult.exitCode, 0);
+    expect((workflowBranchResult.stdout as String).trim(), workflowBranch);
+  });
+
   test('standalone coding tasks use the configured project clone instead of cwd', () async {
     final localRepoDir = Directory(p.join(tempDir.path, 'local-repo'))..createSync(recursive: true);
     final alphaSeedDir = Directory(p.join(tempDir.path, 'alpha-seed'))..createSync(recursive: true);

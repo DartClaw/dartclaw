@@ -72,6 +72,9 @@ group('SessionKey', () {
 - Shared fakes from `dartclaw_testing` for external boundaries (harness, channels, processes)
 - Per-test isolation — `setUp` creates fresh state, `tearDown` cleans up
 - May require serialized execution when testing real local resources such as TCP ports, process wiring, current working directory behavior, or static-asset filesystem lookup. Prefer random ports and per-test temp directories; when that is not practical, the command must use `-j 1` and the reason must be documented.
+- Keep filesystem assertions portable across Linux CI and local macOS. For POSIX file permission assertions, prefer
+  `File.statSync().mode & 0x1ff` and compare the octal string; do not shell out to platform-specific `stat` flags
+  (`stat -f` is BSD/macOS, `stat -c` is GNU/Linux).
 
 **When to write**: For any behavior that requires storage, persistence, or interaction with an external boundary that must be faked.
 

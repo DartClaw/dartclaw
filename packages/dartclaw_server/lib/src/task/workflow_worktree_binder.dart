@@ -116,6 +116,7 @@ final class WorkflowWorktreeBinder {
 
     final completer = Completer<WorktreeInfo>();
     _workflowSharedWorktreeWaiters[workflowWorktreeKey] = completer;
+    unawaited(completer.future.then<void>((_) {}, onError: (_, _) {}));
 
     try {
       final alreadyCreated = _workflowSharedWorktrees[workflowWorktreeKey];

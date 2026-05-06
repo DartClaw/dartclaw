@@ -719,6 +719,9 @@ class CliWorkflowWiring {
     final runIds = workflowTasks.map((task) => task.workflowRunId).whereType<String>().toSet();
     for (final runId in runIds) {
       final run = await workflowService.get(runId);
+      if (run != null && !run.status.terminal) {
+        continue;
+      }
       final restoreRef = run?.variablesJson['BRANCH']?.trim();
       final runTasks = workflowTasks.where((task) => task.workflowRunId == runId).toList();
       final projectIds = runTasks

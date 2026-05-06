@@ -108,6 +108,7 @@ Adhere to system prompt "CRITICAL RULES and GUARDRAILS" before doing any work.
   - **Forbidden patterns**: `// REMOVED …` / `// was: …` markers, references to transient planning artifacts (story IDs, sprint/wave labels, current-PR numbers — those belong in commits and PR descriptions; durable refs like ADRs and TODO issue links are fine), `// TODO` without an owner or issue link, multi-paragraph docstrings on internal helpers.
   - See `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` § Proportionality & Anti-Rot for the full ruleset (also covers control-flow restatement and identifier paraphrasing).
 - **Tech debt backlog discipline** — `dev/state/TECH-DEBT-BACKLOG.md` is reserved for items that **cannot** be resolved directly without further requirements input or an architecture decision. If a finding can be fixed now with the current understanding, fix it now (or capture it in an active spec/FIS). The backlog is a last resort, not a default landing zone for follow-ups — entries that just describe known cleanups invite rot and dilute signal.
+- **Portable tests** — tests must run on Linux CI and local macOS. Avoid platform-specific shell flags when Dart APIs can express the assertion; see `dev/guidelines/TESTING-STRATEGY.md` for POSIX file-permission checks.
 
 ### Timestamps
 **Always** run `date '+%Y-%m-%d %H:%M %Z'` before writing timestamps. Never guess — internal time may be wrong timezone.
@@ -149,6 +150,10 @@ See `dev/guidelines/RELEASE_PREPARATION.md` for the release preparation workflow
 
 ## Key Development Commands
 See `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` — read before/after modifying code.
+
+Before pushing shared branches, before declaring a CI fix done, and after changes that touch package boundaries, tests,
+build tooling, workflow definitions, or cross-package behavior, run the CI-equivalent gate in
+`dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md`.
 
 #### Example configs
 Quick start: `bash examples/run.sh` — defaults to `dev.yaml` (no auth, guards off), stores data in `.dartclaw-dev/`.

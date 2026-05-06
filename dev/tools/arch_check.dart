@@ -7,7 +7,7 @@ import 'dart:io';
 // only with a CHANGELOG note explaining what justified the growth — the
 // conversation forced by every breach is the point.
 const _coreLocCeiling = 13000;
-const _barrelExportCeiling = 80;
+const _barrelExportCeiling = 81;
 const _workspacePackageCeiling = 14;
 const _workspaceAppNames = {'dartclaw_cli'};
 const _expectedWorkspaceDependencies = <String, Set<String>>{
@@ -50,7 +50,7 @@ const _expectedWorkspaceDependencies = <String, Set<String>>{
     'dartclaw_workflow',
   },
   'dartclaw_whatsapp': {'dartclaw_config', 'dartclaw_core'},
-  'dartclaw_workflow': {'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_security', 'dartclaw_storage'},
+  'dartclaw_workflow': {'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_security'},
 };
 
 final class _CheckResult {

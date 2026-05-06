@@ -51,7 +51,7 @@ class TaskExecutor {
     TaskEventRecorder? eventRecorder,
     WorkflowCliRunner? workflowCliRunner,
     WorkflowStepExecutionRepository? workflowStepExecutionRepository,
-    SqliteWorkflowRunRepository? workflowRunRepository,
+    WorkflowRunRepository? workflowRunRepository,
     Future<void> Function()? onSpawnNeeded,
     Future<void> Function(String taskId)? onAutoAccept,
     ProjectService? projectService,
@@ -110,7 +110,7 @@ class TaskExecutor {
   final TaskEventRecorder? _eventRecorder;
   final WorkflowCliRunner? _workflowCliRunner;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
-  final SqliteWorkflowRunRepository? _workflowRunRepository;
+  final WorkflowRunRepository? _workflowRunRepository;
   final Future<void> Function()? _onSpawnNeeded;
   final Future<void> Function(String taskId)? _onAutoAccept;
   final ProjectService? _projectService;

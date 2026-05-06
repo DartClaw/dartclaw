@@ -56,14 +56,7 @@ const _forbiddenInternal = <String>{'dartclaw_server', 'dartclaw_storage'};
 /// Each entry is a relative path under `packages/dartclaw_workflow/lib/` and
 /// maps to the forbidden package it imports. Entries are removed as the
 /// linked story lands. Do not add new entries without an ADR.
-///
-/// Remediation: 0.16.5 S12 introduces an abstract `WorkflowRunRepository` in
-/// `dartclaw_core` that these files will consume instead of the concrete
-/// `SqliteWorkflowRunRepository` from `dartclaw_storage`.
-const _knownViolations = <String, Set<String>>{
-  'src/workflow/workflow_service.dart': {'dartclaw_storage'},
-  'src/workflow/workflow_executor.dart': {'dartclaw_storage'},
-};
+const _knownViolations = <String, Set<String>>{};
 
 final _importLine = RegExp(r'''^\s*import\s+['"]([^'"]+)['"]''');
 final _packageImport = RegExp(r'''^package:([a-zA-Z_][a-zA-Z0-9_]*)/''');

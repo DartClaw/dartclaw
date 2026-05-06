@@ -125,13 +125,15 @@ class TurnGovernanceEnforcer {
         timestamp: DateTime.now(),
       ),
     );
-    _sseBroadcast?.broadcast('loop_detected', {
-      'sessionId': sessionId,
-      'mechanism': detection.mechanism.name,
-      'message': detection.message,
-      'action': action,
-      ...detection.detail,
-    });
+    if (_eventBus == null) {
+      _sseBroadcast?.broadcast('loop_detected', {
+        'sessionId': sessionId,
+        'mechanism': detection.mechanism.name,
+        'message': detection.message,
+        'action': action,
+        ...detection.detail,
+      });
+    }
 
     final notifier = _loopDetectionNotifier;
     if (notifier != null) {

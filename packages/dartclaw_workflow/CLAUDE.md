@@ -32,7 +32,7 @@ Authoring steps in `plan-and-implement` are **artefact-aware** via `entryGate`s 
 - **Host seam**: this package never calls `Process.run` for git nor spawns agents directly. The host (`dartclaw_server`) injects `WorkflowGitPort` (worktree / merge / push / PR) and `WorkflowTurnAdapter` (turn execution).
 
 ## Boundaries
-- Allowed prod deps (enforced by `dev/tools/arch_check.dart`): `dartclaw_config`, `dartclaw_core`, `dartclaw_models`, `dartclaw_security`, `dartclaw_storage` only. Adding anything else fails the L1 dependency-graph check.
+- Allowed prod deps (enforced by `dev/tools/arch_check.dart`): `dartclaw_config`, `dartclaw_core`, `dartclaw_models`, `dartclaw_security` only. Adding anything else fails the L1 dependency-graph check.
 - Definition model (`WorkflowDefinition`, `WorkflowStep`, `WorkflowRun`, `OutputConfig`) lives in `dartclaw_models` — do not duplicate types here. New authoring fields land in two places: a typed field on the model and a corresponding branch in `WorkflowDefinitionParser`.
 - Server-only concerns belong in `dartclaw_server`: HTTP routes (`workflow_routes.dart`), git implementations (`MergeExecutor`, `RemotePushService`, `PrCreator`), task execution glue. Inject git lifecycle through `WorkflowTurnAdapter` / `WorkflowGitPort`, never call `Process.run` for git from here.
 - Cross-package `lib/src/` imports are forbidden — consume other workspace packages through their barrels.

@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-05-05 17:53 CEST
+Last Updated: 2026-05-06 18:27 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -48,7 +48,9 @@ None yet — 0.16.5 stories will be enumerated when the milestone enters plannin
 
 ## Session Continuity Notes
 
+- [2026-05-06] S12 complete — promoted `WorkflowRunRepository` to `dartclaw_core`, migrated workflow/server consumers to the abstract type, removed workflow package prod dependency on `dartclaw_storage`, emptied workflow-task boundary allowlist, and tightened `arch_check` dependency gates.
 - [2026-05-05] S05 complete — wired EventBus→SSE bridge for loop/task-review/advisor/compaction-starting events, kept emergency-stop on imperative SSE path to avoid duplicate-frame drift, added per-run map iteration/step SSE handlers, and validated advisor status-based alert classification (`stuck` warning, `concerning` critical, `on_track`/`diverging` null).
+- [2026-05-06] S05 follow-up validation pass: fixed duplicate `loop_detected` SSE emission by keeping `TurnGovernanceEnforcer` direct broadcast only when `EventBus` is absent, leaving EventBus-enabled paths to emit through `EventBusSseBridge` once.
 - [2026-05-05] S03 complete — doc-currency critical pass landed: CLAUDE/AGENTS milestone+assertion line, README status sentence and package tree update (`dartclaw_workflow` + explicit `dartclaw_cli` row), guide fixes (in-process MCP wording, `providers.claude.executable`, WhatsApp pairing port 3333, guard example compile-checked), architecture tree count bumped to 12 with workflow row, glossary drift corrected, and TD-072 item 2 removed from backlog entry.
 - [2026-05-05] S01 complete — `AlertClassifier` and `AlertFormatter` now use exhaustive `switch (event)` expressions over `DartclawEvent`; `LoopDetectedEvent` + `EmergencyStopEvent` alert mappings added as critical; `NOT_ALERTABLE` annotations landed for null-classified concrete event types; TI07 proof validated `non_exhaustive_switch_expression` at all 3 switch sites with temporary `_ProofEvent`.
 - [2026-05-05] S02 complete — removed advisor re-export block from `canvas_exports.dart`, introduced `src/advisor/advisor_exports.dart` (`AdvisorSubscriber` only), mounted it in `dartclaw_server.dart`, and updated advisor tests to import internal advisor support types directly instead of relying on public barrel over-exports.

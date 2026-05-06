@@ -137,6 +137,8 @@ export 'src/task/task_artifact.dart' show ArtifactKind, TaskArtifact;
 export 'src/task/task_repository.dart' show TaskRepository;
 export 'src/task/task_status.dart' show TaskStatus;
 export 'src/task/workflow_task_service.dart' show WorkflowTaskService;
+// Workflow
+export 'src/workflow/workflow_run_repository.dart' show WorkflowRunRepository;
 
 // Concurrency
 export 'src/concurrency/repo_lock.dart' show RepoLock;

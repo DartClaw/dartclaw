@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart';
 
 import 'git_credential_env.dart';
 import 'task_config_view.dart';
@@ -19,14 +18,14 @@ const _workflowWorktreeTokenLength = 16;
 final class WorkflowWorktreeBinder {
   WorkflowWorktreeBinder({
     required WorktreeManager? worktreeManager,
-    required SqliteWorkflowRunRepository? workflowRunRepository,
+    required WorkflowRunRepository? workflowRunRepository,
     required WorkflowWorktreeFailureHandler failTask,
   }) : _worktreeManager = worktreeManager,
        _workflowRunRepository = workflowRunRepository,
        _failTask = failTask;
 
   final WorktreeManager? _worktreeManager;
-  final SqliteWorkflowRunRepository? _workflowRunRepository;
+  final WorkflowRunRepository? _workflowRunRepository;
   final WorkflowWorktreeFailureHandler _failTask;
   final Map<String, WorktreeInfo> _workflowSharedWorktrees = {};
   final Map<String, WorkflowWorktreeBinding> _workflowSharedWorktreeBindings = {};

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 0.16.5 - Unreleased
+
+### Changed
+
+- **Architecture / boundaries**: promoted the `WorkflowRunRepository` interface to `dartclaw_core`, removed the `dartclaw_workflow` production dependency on `dartclaw_storage`, and retyped `TaskExecutor`'s workflow-run repository dependency to the abstract interface (closes ADX-01)
+- **Governance ratchet**: raised `dev/tools/arch_check.dart` barrel export ceiling from 80 to 81 to account for the new `WorkflowRunRepository` core barrel export in this release
+
 ## [0.16.4]
 
 CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-by-default workflow execution, operational command groups, workflow trigger surfaces, a redesigned `plan-and-implement` built-in, file-based artifact transport with auto-commit, skill altitude split + upstream AndThen re-sync, workflow default cleanup, and the `AgentExecution` primitive decomposition. 81 stories (72 main plan + 9 agent-resolved-merge sub-plan).

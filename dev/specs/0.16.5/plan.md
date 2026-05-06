@@ -62,7 +62,7 @@ The 0.16.4 milestone-level consolidated review at `../0.16.4/0.16.4-consolidated
 | S09 | dartclaw_workflow Barrel Narrowing | B: Governance Rails | W1 | – | [P] | Medium | Spec Ready | `fis/s09-dartclaw-workflow-barrel-narrowing.md` |
 | S10 | Level-1 Governance Checks (6 tests + format gate) | B: Governance Rails | W3 | S01, S09 | No | Medium | Spec Ready | `fis/s10-level-1-governance-checks.md` |
 | S11 | Turn/Pool/Harness Interface Extraction to dartclaw_core | C: Interface Extraction | W3 | – | [P] | High | Spec Ready | `fis/s11-turn-pool-harness-interface-extraction.md` |
-| S12 | WorkflowRunRepository Interface in dartclaw_core | C: Interface Extraction | W3 | – | [P] | Low | Spec Ready | `fis/s12-workflow-run-repository-interface.md` |
+| S12 | WorkflowRunRepository Interface in dartclaw_core | C: Interface Extraction | W3 | – | [P] | Low | Done | `fis/s12-workflow-run-repository-interface.md` |
 | S13 | Pre-Decomposition DRY Helpers (context-merge, fire-step, truncate, YamlTypeSafeReader) | D: Helpers | W3 | – | [P] | Low | Spec Ready | `fis/s13-pre-decomposition-helpers.md` |
 | S15 | Workflow Executor Logical-Library Reduction (post-0.16.4-S45 hotspots) | E: Structural Decomposition | W4 | S13 | No | Medium | Spec Ready (re-scoped 2026-04-30) | `fis/s15-workflow-executor-logical-library-reduction.md` |
 | S16 | Task Executor Residual Cleanup (ctor params + binding handoff) | E: Structural Decomposition | W4 | S33 | No | Low | Spec Ready (re-scoped 2026-04-30) | `fis/s16-task-executor-residual-cleanup.md` |

@@ -50,7 +50,7 @@ class WorkflowExecutor {
   final WorkflowTaskService _taskService;
   final EventBus _eventBus;
   final KvService _kvService;
-  final WorkflowRunRepositoryPort _repository;
+  final WorkflowRunRepository _repository;
   final GateEvaluator _gateEvaluator;
   final ContextExtractor _contextExtractor;
   final WorkflowTemplateEngine _templateEngine;
@@ -98,7 +98,7 @@ class WorkflowExecutor {
   }) : _taskService = executionContext.taskService,
        _eventBus = executionContext.eventBus,
        _kvService = executionContext.kvService,
-       _repository = WorkflowRunRepositoryPort(executionContext.repository),
+       _repository = executionContext.repository,
        _gateEvaluator = executionContext.gateEvaluator,
        _contextExtractor = executionContext.contextExtractor,
        _templateEngine = promptConfiguration.templateEngine,

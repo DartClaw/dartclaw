@@ -19,12 +19,12 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
         WorkflowRun,
+        WorkflowRunRepository,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowWorktreeBinding,
         WorkflowTaskService,
         atomicWriteJson;
-import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
@@ -47,7 +47,7 @@ import 'workflow_turn_adapter.dart';
 class WorkflowService {
   static final _log = Logger('WorkflowService');
 
-  final SqliteWorkflowRunRepository _repository;
+  final WorkflowRunRepository _repository;
   final WorkflowTaskService _taskService;
   final MessageService _messageService;
   final WorkflowTurnAdapter? _turnAdapter;
@@ -81,7 +81,7 @@ class WorkflowService {
   final _approvalTimeoutTimers = <String, Timer>{};
 
   WorkflowService({
-    required SqliteWorkflowRunRepository repository,
+    required WorkflowRunRepository repository,
     required WorkflowTaskService taskService,
     required MessageService messageService,
     WorkflowTurnAdapter? turnAdapter,

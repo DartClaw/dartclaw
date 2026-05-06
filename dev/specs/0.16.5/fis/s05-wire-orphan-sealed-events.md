@@ -315,7 +315,10 @@ url    | https://dart.dev/language/patterns#guard-clauses                       
 
 > _Managed by exec-spec post-implementation — append-only._
 
-_No observations recorded yet._
+### Run: 2026-05-06 18:20 CEST
+
+#### NOTICED BUT NOT TOUCHING
+- `packages/dartclaw_server/lib/src/api/workflow_routes.dart`: per-run SSE stream still listens to global `TaskStatusChangedEvent` and performs `tasks.get(taskId)` before runId filtering, which may amplify reads under high fan-out; unchanged because this predates S05 acceptance scope.
 
 ---
 

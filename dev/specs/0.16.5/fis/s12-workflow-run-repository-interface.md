@@ -63,30 +63,30 @@ Promote workflow-run persistence to a typed `abstract interface class WorkflowRu
 
 ## Success Criteria (Must Be TRUE)
 
-- [ ] `abstract interface class WorkflowRunRepository` exists at `packages/dartclaw_core/lib/src/workflow/workflow_run_repository.dart` with public method signatures matching every public method currently on `SqliteWorkflowRunRepository` (`insert`, `getById`, `list`, `update`, `delete`, `setWorktreeBinding`, `getWorktreeBinding`, `getWorktreeBindings` — return types and parameter types using only `dartclaw_core` + `dartclaw_models` types).
-- [ ] `dartclaw_core` barrel (`packages/dartclaw_core/lib/dartclaw_core.dart`) exports `WorkflowRunRepository` via a `show` clause under a `// Workflow` group (or appended to `// Tasks` per author's judgement, mirroring `TaskRepository`'s grouping).
-- [ ] `SqliteWorkflowRunRepository` in `packages/dartclaw_storage/lib/src/storage/sqlite_workflow_run_repository.dart:12` declares `implements WorkflowRunRepository`; `dart analyze packages/dartclaw_storage` is clean (no missing-method or signature-mismatch errors).
-- [ ] `dartclaw_workflow` source files import `WorkflowRunRepository` from `package:dartclaw_core/dartclaw_core.dart` (via the barrel), not `SqliteWorkflowRunRepository` from `package:dartclaw_storage`. Specifically: `workflow_service.dart:27` no longer imports `dartclaw_storage`; `workflow_service.dart:50,84,107` retype `_repository` / ctor param to `WorkflowRunRepository`; `workflow_executor.dart:53,101` retype `_repository` and drop the `WorkflowRunRepositoryPort(...)` wrapper construction; `StepExecutionContext.repository` at `workflow_runner_types.dart:222,250,286,321` retypes from `dynamic` to `WorkflowRunRepository`.
-- [ ] `WorkflowRunRepositoryPort` at `packages/dartclaw_workflow/lib/src/workflow/workflow_runner_types.dart:69-79` is **deleted** (preferred). If a wrapper is still required for staged migration, it `implements WorkflowRunRepository` and `_delegate` is typed as `WorkflowRunRepository` (no `dynamic`).
-- [ ] `TaskExecutor` ctor parameter (`task_executor.dart:54`) and field declaration (`task_executor.dart:113`) retype from `SqliteWorkflowRunRepository?` to `WorkflowRunRepository?`; the `dartclaw_storage` import on `task_executor.dart:6` is dropped if no other concrete storage type is referenced from the file (else narrowed via `show`).
-- [ ] `WorkflowWorktreeBinder` (`workflow_worktree_binder.dart:18,21,25,246`) ctor parameter, field, and call-site repository reference retype to `WorkflowRunRepository?`; the file's import of `SqliteWorkflowRunRepository` is dropped or narrowed.
-- [ ] `dev/tools/arch_check.dart` `'dartclaw_workflow'` allowed-deps set (currently line 53) drops `'dartclaw_storage'` (set becomes `{'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_security'}`).
-- [ ] `packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` `_knownViolations` map empties (`<String, Set<String>>{}`).
-- [ ] `dart test packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` passes (zero `dartclaw_storage` imports remain in `packages/dartclaw_workflow/lib/src/**`).
-- [ ] `dart run dev/tools/arch_check.dart` (or whatever wires it into CI) passes with the tightened sanctioned-deps map.
-- [ ] `dart analyze --fatal-warnings --fatal-infos` workspace-wide is clean.
-- [ ] `dart test` workspace-wide passes (no behavioural regressions; tests using a real sqlite DB inside `dartclaw_workflow/test/**` pull `dartclaw_storage` via `dev_dependencies` — unchanged).
-- [ ] `packages/dartclaw_workflow/CLAUDE.md` § Boundaries "Allowed prod deps" line drops `dartclaw_storage` (Boy-Scout — keep package rules current).
-- [ ] CHANGELOG `## 0.16.5 - Unreleased` gains a single `### Changed` bullet under "Architecture / boundaries": `WorkflowRunRepository` interface promoted to `dartclaw_core`; `dartclaw_workflow` no longer depends on `dartclaw_storage` in prod; `TaskExecutor` retypes its workflow-run repo dependency to the abstract interface (closes ADX-01).
+- [x] `abstract interface class WorkflowRunRepository` exists at `packages/dartclaw_core/lib/src/workflow/workflow_run_repository.dart` with public method signatures matching every public method currently on `SqliteWorkflowRunRepository` (`insert`, `getById`, `list`, `update`, `delete`, `setWorktreeBinding`, `getWorktreeBinding`, `getWorktreeBindings` — return types and parameter types using only `dartclaw_core` + `dartclaw_models` types).
+- [x] `dartclaw_core` barrel (`packages/dartclaw_core/lib/dartclaw_core.dart`) exports `WorkflowRunRepository` via a `show` clause under a `// Workflow` group (or appended to `// Tasks` per author's judgement, mirroring `TaskRepository`'s grouping).
+- [x] `SqliteWorkflowRunRepository` in `packages/dartclaw_storage/lib/src/storage/sqlite_workflow_run_repository.dart:12` declares `implements WorkflowRunRepository`; `dart analyze packages/dartclaw_storage` is clean (no missing-method or signature-mismatch errors).
+- [x] `dartclaw_workflow` source files import `WorkflowRunRepository` from `package:dartclaw_core/dartclaw_core.dart` (via the barrel), not `SqliteWorkflowRunRepository` from `package:dartclaw_storage`. Specifically: `workflow_service.dart:27` no longer imports `dartclaw_storage`; `workflow_service.dart:50,84,107` retype `_repository` / ctor param to `WorkflowRunRepository`; `workflow_executor.dart:53,101` retype `_repository` and drop the `WorkflowRunRepositoryPort(...)` wrapper construction; `StepExecutionContext.repository` at `workflow_runner_types.dart:222,250,286,321` retypes from `dynamic` to `WorkflowRunRepository`.
+- [x] `WorkflowRunRepositoryPort` at `packages/dartclaw_workflow/lib/src/workflow/workflow_runner_types.dart:69-79` is **deleted** (preferred). If a wrapper is still required for staged migration, it `implements WorkflowRunRepository` and `_delegate` is typed as `WorkflowRunRepository` (no `dynamic`).
+- [x] `TaskExecutor` ctor parameter (`task_executor.dart:54`) and field declaration (`task_executor.dart:113`) retype from `SqliteWorkflowRunRepository?` to `WorkflowRunRepository?`; the `dartclaw_storage` import on `task_executor.dart:6` is dropped if no other concrete storage type is referenced from the file (else narrowed via `show`).
+- [x] `WorkflowWorktreeBinder` (`workflow_worktree_binder.dart:18,21,25,246`) ctor parameter, field, and call-site repository reference retype to `WorkflowRunRepository?`; the file's import of `SqliteWorkflowRunRepository` is dropped or narrowed.
+- [x] `dev/tools/arch_check.dart` `'dartclaw_workflow'` allowed-deps set (currently line 53) drops `'dartclaw_storage'` (set becomes `{'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_security'}`).
+- [x] `packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` `_knownViolations` map empties (`<String, Set<String>>{}`).
+- [x] `dart test packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` passes (zero `dartclaw_storage` imports remain in `packages/dartclaw_workflow/lib/src/**`).
+- [x] `dart run dev/tools/arch_check.dart` (or whatever wires it into CI) passes with the tightened sanctioned-deps map.
+- [x] `dart analyze --fatal-warnings --fatal-infos` workspace-wide is clean.
+- [x] `dart test` workspace-wide passes (no behavioural regressions; tests using a real sqlite DB inside `dartclaw_workflow/test/**` pull `dartclaw_storage` via `dev_dependencies` — unchanged).
+- [x] `packages/dartclaw_workflow/CLAUDE.md` § Boundaries "Allowed prod deps" line drops `dartclaw_storage` (Boy-Scout — keep package rules current).
+- [x] CHANGELOG `## 0.16.5 - Unreleased` gains a single `### Changed` bullet under "Architecture / boundaries": `WorkflowRunRepository` interface promoted to `dartclaw_core`; `dartclaw_workflow` no longer depends on `dartclaw_storage` in prod; `TaskExecutor` retypes its workflow-run repo dependency to the abstract interface (closes ADX-01).
 
 ### Health Metrics (Must NOT Regress)
 
-- [ ] Existing `packages/dartclaw_storage/test/storage/sqlite_workflow_run_repository_test.dart` remains green (the implementation gains an `implements` clause; behaviour unchanged).
-- [ ] `packages/dartclaw_workflow/test/**` remains green (callers see the same method shapes through the abstract interface).
-- [ ] `packages/dartclaw_server/test/task/**` (TaskExecutor + WorkflowWorktreeBinder tests) remain green.
-- [ ] JSON wire formats (workflow YAML schema, REST envelopes, SSE event payloads) unchanged — Binding Constraint #1.
-- [ ] `dev/tools/check_versions.sh` continues to pass (no version pin churn from this story).
-- [ ] `dartclaw_workflow/pubspec.yaml` `dependencies:` block no longer lists `dartclaw_storage`. `dev_dependencies:` retains `dartclaw_storage` for tests that exercise a real sqlite DB.
+- [x] Existing `packages/dartclaw_storage/test/storage/sqlite_workflow_run_repository_test.dart` remains green (the implementation gains an `implements` clause; behaviour unchanged).
+- [x] `packages/dartclaw_workflow/test/**` remains green (callers see the same method shapes through the abstract interface).
+- [x] `packages/dartclaw_server/test/task/**` (TaskExecutor + WorkflowWorktreeBinder tests) remain green.
+- [x] JSON wire formats (workflow YAML schema, REST envelopes, SSE event payloads) unchanged — Binding Constraint #1.
+- [x] `dev/tools/check_versions.sh` continues to pass (no version pin churn from this story).
+- [x] `dartclaw_workflow/pubspec.yaml` `dependencies:` block no longer lists `dartclaw_storage`. `dev_dependencies:` retains `dartclaw_storage` for tests that exercise a real sqlite DB.
 
 ## Scenarios
 
@@ -214,39 +214,39 @@ file   | packages/dartclaw_workflow/CLAUDE.md                                   
 
 ### Implementation Tasks
 
-- [ ] **TI01** Add `abstract interface class WorkflowRunRepository` at `packages/dartclaw_core/lib/src/workflow/workflow_run_repository.dart` mirroring the public method surface of `SqliteWorkflowRunRepository` (`insert`, `getById`, `list`, `update`, `delete`, `setWorktreeBinding`, `getWorktreeBinding`, `getWorktreeBindings`). Use only `dartclaw_models` + `dartclaw_core`-internal types in the signatures. Pattern reference: `packages/dartclaw_core/lib/src/task/task_repository.dart`.
+- [x] **TI01** Add `abstract interface class WorkflowRunRepository` at `packages/dartclaw_core/lib/src/workflow/workflow_run_repository.dart` mirroring the public method surface of `SqliteWorkflowRunRepository` (`insert`, `getById`, `list`, `update`, `delete`, `setWorktreeBinding`, `getWorktreeBinding`, `getWorktreeBindings`). Use only `dartclaw_models` + `dartclaw_core`-internal types in the signatures. Pattern reference: `packages/dartclaw_core/lib/src/task/task_repository.dart`.
   - Each method gets a one-line dartdoc comment describing the contract (per `dartclaw_core/CLAUDE.md` Conventions for public API).
   - **Verify**: file compiles (`dart analyze packages/dartclaw_core` clean); `rg "abstract interface class WorkflowRunRepository" packages/dartclaw_core/lib/src/workflow/` returns exactly one match.
 
-- [ ] **TI02** Add export to `packages/dartclaw_core/lib/dartclaw_core.dart` under a new `// Workflow` group (or appended to `// Tasks`): `export 'src/workflow/workflow_run_repository.dart' show WorkflowRunRepository;`. Update `packages/dartclaw_core/test/barrel_export_test.dart` if it locks the surface (per the package's "barrel surface is locked by `test/barrel_export_test.dart`" convention).
+- [x] **TI02** Add export to `packages/dartclaw_core/lib/dartclaw_core.dart` under a new `// Workflow` group (or appended to `// Tasks`): `export 'src/workflow/workflow_run_repository.dart' show WorkflowRunRepository;`. Update `packages/dartclaw_core/test/barrel_export_test.dart` if it locks the surface (per the package's "barrel surface is locked by `test/barrel_export_test.dart`" convention).
   - **Verify**: `dart test packages/dartclaw_core/test/barrel_export_test.dart` passes; `rg "WorkflowRunRepository" packages/dartclaw_core/lib/dartclaw_core.dart` returns at least one hit.
 
-- [ ] **TI03** Add `implements WorkflowRunRepository` to `SqliteWorkflowRunRepository` at `packages/dartclaw_storage/lib/src/storage/sqlite_workflow_run_repository.dart:12`. Resolve any signature drift (return-type narrowing, parameter-name parity) — bodies stay byte-identical.
+- [x] **TI03** Add `implements WorkflowRunRepository` to `SqliteWorkflowRunRepository` at `packages/dartclaw_storage/lib/src/storage/sqlite_workflow_run_repository.dart:12`. Resolve any signature drift (return-type narrowing, parameter-name parity) — bodies stay byte-identical.
   - Update `packages/dartclaw_storage/CLAUDE.md` § Architecture line listing repos if it mentions the interface relation explicitly (Boy-Scout — only if the line meaningfully drifts).
   - **Verify**: `dart analyze packages/dartclaw_storage` clean (zero "non-abstract class … is missing implementations"); `dart test packages/dartclaw_storage/test/storage/sqlite_workflow_run_repository_test.dart` green.
 
-- [ ] **TI04** Migrate `dartclaw_workflow` consumers — `workflow_service.dart` (drop `dartclaw_storage` import at :27; retype `_repository` field at :50, ctor param at :84, initialiser at :107 to `WorkflowRunRepository`), `workflow_executor.dart` (retype `_repository` field at :53; drop `WorkflowRunRepositoryPort(...)` wrapper at :101 — assign `executionContext.repository` directly), `workflow_runner_types.dart` (retype `StepExecutionContext.repository` from `dynamic` to `WorkflowRunRepository` at :222, :250, :286, :321).
+- [x] **TI04** Migrate `dartclaw_workflow` consumers — `workflow_service.dart` (drop `dartclaw_storage` import at :27; retype `_repository` field at :50, ctor param at :84, initialiser at :107 to `WorkflowRunRepository`), `workflow_executor.dart` (retype `_repository` field at :53; drop `WorkflowRunRepositoryPort(...)` wrapper at :101 — assign `executionContext.repository` directly), `workflow_runner_types.dart` (retype `StepExecutionContext.repository` from `dynamic` to `WorkflowRunRepository` at :222, :250, :286, :321).
   - Import `WorkflowRunRepository` via the `package:dartclaw_core/dartclaw_core.dart` barrel `show` clause already used by these files (extend the `show` list if needed).
   - **Verify**: `rg "package:dartclaw_storage" packages/dartclaw_workflow/lib/` returns zero matches; `rg "dynamic" packages/dartclaw_workflow/lib/src/workflow/workflow_runner_types.dart` reports zero `dynamic` typings on the `repository` field/param; `dart analyze packages/dartclaw_workflow` clean.
 
-- [ ] **TI05** Delete `WorkflowRunRepositoryPort` class declaration at `workflow_runner_types.dart:69-79`. Remove the `WorkflowRunRepositoryPort` symbol from `workflow_executor.dart:36`'s `export 'workflow_runner_types.dart';` if that export exposes it (and from any package barrel re-export).
+- [x] **TI05** Delete `WorkflowRunRepositoryPort` class declaration at `workflow_runner_types.dart:69-79`. Remove the `WorkflowRunRepositoryPort` symbol from `workflow_executor.dart:36`'s `export 'workflow_runner_types.dart';` if that export exposes it (and from any package barrel re-export).
   - If a wrapper is genuinely required for staged migration (escalate first), retain with `implements WorkflowRunRepository` and a typed `_delegate: WorkflowRunRepository`; record the rationale in this Verify line. Default action: delete.
   - **Verify**: `rg "WorkflowRunRepositoryPort" packages/dartclaw_workflow/` returns zero matches (or, if retained, a single match with `implements WorkflowRunRepository`); `dart analyze packages/dartclaw_workflow` clean; `dart test packages/dartclaw_workflow` passes.
 
-- [ ] **TI06** Migrate `dartclaw_server` consumers — `packages/dartclaw_server/lib/src/task/task_executor.dart` (retype ctor param at :54, field at :113, ensure import at :6 either drops `dartclaw_storage` or narrows via `show`), and `packages/dartclaw_server/lib/src/task/workflow_worktree_binder.dart` (retype ctor param at :18, initialiser at :21, field at :25, call site at :246). The construction-site at `task_executor.dart:148` (passing `_workflowRunRepository` to `WorkflowWorktreeBinder`) needs no shape change but its types must align.
+- [x] **TI06** Migrate `dartclaw_server` consumers — `packages/dartclaw_server/lib/src/task/task_executor.dart` (retype ctor param at :54, field at :113, ensure import at :6 either drops `dartclaw_storage` or narrows via `show`), and `packages/dartclaw_server/lib/src/task/workflow_worktree_binder.dart` (retype ctor param at :18, initialiser at :21, field at :25, call site at :246). The construction-site at `task_executor.dart:148` (passing `_workflowRunRepository` to `WorkflowWorktreeBinder`) needs no shape change but its types must align.
   - Import `WorkflowRunRepository` from `package:dartclaw_core/dartclaw_core.dart` (already imported in both files; extend the `show` list).
   - **Verify**: `rg "SqliteWorkflowRunRepository" packages/dartclaw_server/lib/` returns matches only at composition-root sites where the concrete impl is constructed (e.g. `server_builder.dart`), never as a parameter or field type. `dart analyze packages/dartclaw_server` clean; `dart test packages/dartclaw_server/test/task/` passes.
 
-- [ ] **TI07** Lockstep edit #1 — empty `_knownViolations` in `packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` to `<String, Set<String>>{}`. The remediation comment (S12 closure) per S28's FIS may stay as a historical note or be deleted; defer to S28's checkbox if both stories race — the literal map content is what matters.
+- [x] **TI07** Lockstep edit #1 — empty `_knownViolations` in `packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` to `<String, Set<String>>{}`. The remediation comment (S12 closure) per S28's FIS may stay as a historical note or be deleted; defer to S28's checkbox if both stories race — the literal map content is what matters.
   - **Verify**: `dart test packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` passes (no allowed `dartclaw_storage` violations remain because there are none in the source tree post-TI04/TI05); `rg "dartclaw_storage" packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` returns no matches inside the `_knownViolations` literal.
 
-- [ ] **TI08** Lockstep edit #2 — drop `'dartclaw_storage'` from the `'dartclaw_workflow'` entry in `dev/tools/arch_check.dart` (line 53 of current tree); the entry becomes `'dartclaw_workflow': {'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_security'}`.
+- [x] **TI08** Lockstep edit #2 — drop `'dartclaw_storage'` from the `'dartclaw_workflow'` entry in `dev/tools/arch_check.dart` (line 53 of current tree); the entry becomes `'dartclaw_workflow': {'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_security'}`.
   - **Verify**: `dart run dev/tools/arch_check.dart` exits 0; `rg "'dartclaw_storage'" dev/tools/arch_check.dart` shows the literal removed from the `dartclaw_workflow` entry (it may legitimately remain elsewhere, e.g. in keys or in another package's allowlist).
 
-- [ ] **TI09** Update `packages/dartclaw_workflow/pubspec.yaml`: move `dartclaw_storage` from `dependencies:` to `dev_dependencies:` (or remove from `dependencies:` if already present in `dev_dependencies:`). Update `packages/dartclaw_workflow/CLAUDE.md` § Boundaries "Allowed prod deps" line — drop `dartclaw_storage`.
+- [x] **TI09** Update `packages/dartclaw_workflow/pubspec.yaml`: move `dartclaw_storage` from `dependencies:` to `dev_dependencies:` (or remove from `dependencies:` if already present in `dev_dependencies:`). Update `packages/dartclaw_workflow/CLAUDE.md` § Boundaries "Allowed prod deps" line — drop `dartclaw_storage`.
   - **Verify**: `grep -A 10 'dependencies:' packages/dartclaw_workflow/pubspec.yaml` shows `dartclaw_storage` only under `dev_dependencies:`; `rg "dartclaw_storage" packages/dartclaw_workflow/CLAUDE.md` shows the dep no longer listed in the prod-deps allowlist line; `dart pub get` workspace-wide succeeds.
 
-- [ ] **TI10** Add CHANGELOG entry under `## 0.16.5 - Unreleased` `### Changed`: a single bullet naming the interface promotion, the `dartclaw_workflow → dartclaw_storage` prod-dep removal, and the `TaskExecutor` retype, with `(closes ADX-01)` suffix.
+- [x] **TI10** Add CHANGELOG entry under `## 0.16.5 - Unreleased` `### Changed`: a single bullet naming the interface promotion, the `dartclaw_workflow → dartclaw_storage` prod-dep removal, and the `TaskExecutor` retype, with `(closes ADX-01)` suffix.
   - Wording exact form not prescribed; content must enumerate (1) interface added in `dartclaw_core`, (2) `dartclaw_workflow` no longer prod-depends on `dartclaw_storage`, (3) `TaskExecutor` field retype.
   - **Verify**: `rg "WorkflowRunRepository" CHANGELOG.md` shows a 0.16.5 entry; `rg "ADX-01" CHANGELOG.md` confirms the closure tag.
 
@@ -277,13 +277,13 @@ file   | packages/dartclaw_workflow/CLAUDE.md                                   
 
 ## Final Validation Checklist
 
-- [ ] All Success Criteria met
+- [x] All Success Criteria met
 - [ ] All TI01–TI11 tasks fully completed, verified, and checkboxes checked
-- [ ] No regressions: `dart test` workspace-wide passes; `dart analyze --fatal-warnings --fatal-infos` clean; `dart run dev/tools/arch_check.dart` clean
-- [ ] CHANGELOG entry present under `## 0.16.5 - Unreleased` `### Changed`, names the interface promotion, the prod-dep removal, and the `TaskExecutor` retype, with `(closes ADX-01)` tag
-- [ ] `packages/dartclaw_workflow/CLAUDE.md` § Boundaries no longer lists `dartclaw_storage` in the prod-deps allowlist
-- [ ] `packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` `_knownViolations` is `<String, Set<String>>{}`
-- [ ] `dev/tools/arch_check.dart` `'dartclaw_workflow'` allowed-deps set excludes `'dartclaw_storage'`
+- [x] No regressions: `dart test` workspace-wide passes; `dart analyze --fatal-warnings --fatal-infos` clean; `dart run dev/tools/arch_check.dart` clean
+- [x] CHANGELOG entry present under `## 0.16.5 - Unreleased` `### Changed`, names the interface promotion, the prod-dep removal, and the `TaskExecutor` retype, with `(closes ADX-01)` tag
+- [x] `packages/dartclaw_workflow/CLAUDE.md` § Boundaries no longer lists `dartclaw_storage` in the prod-deps allowlist
+- [x] `packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart` `_knownViolations` is `<String, Set<String>>{}`
+- [x] `dev/tools/arch_check.dart` `'dartclaw_workflow'` allowed-deps set excludes `'dartclaw_storage'`
 
 ## Implementation Observations
 
@@ -308,10 +308,10 @@ _No observations recorded yet._
 ### From plan.md — Acceptance Criteria addendum (migrated from old plan format)
 
 **Acceptance Criteria**:
-- [ ] `WorkflowRunRepository` abstract interface in `dartclaw_core/lib/src/workflow/` (or similar) (must-be-TRUE)
-- [ ] `SqliteWorkflowRunRepository` in `dartclaw_storage` implements the interface (must-be-TRUE)
-- [ ] `dartclaw_workflow` imports `WorkflowRunRepository` from `dartclaw_core` only, not `SqliteWorkflowRunRepository` by name (must-be-TRUE)
-- [ ] **`TaskExecutor` accepts `WorkflowRunRepository?` — not `SqliteWorkflowRunRepository?`; the constructor param type changes (currently typed concrete at `task_executor.dart:54,113`), and the two call sites (`task_executor.dart:127,1438`) migrate to the abstract API** (must-be-TRUE)
-- [ ] The `dynamic`-wrapped `WorkflowRunRepositoryPort` at `workflow_runner_types.dart:69` is deleted (or, if a wrapper is still needed for staged migration, it `implements` the new typed abstract interface) (must-be-TRUE)
-- [ ] S28's `workflow_task_boundary_test.dart` allowlist empties; `dev/tools/arch_check.dart:47` sanctioned-deps list drops `dartclaw_storage` for `dartclaw_workflow` (must-be-TRUE)
-- [ ] `dart analyze` and `dart test` workspace-wide pass
+- [x] `WorkflowRunRepository` abstract interface in `dartclaw_core/lib/src/workflow/` (or similar) (must-be-TRUE)
+- [x] `SqliteWorkflowRunRepository` in `dartclaw_storage` implements the interface (must-be-TRUE)
+- [x] `dartclaw_workflow` imports `WorkflowRunRepository` from `dartclaw_core` only, not `SqliteWorkflowRunRepository` by name (must-be-TRUE)
+- [x] **`TaskExecutor` accepts `WorkflowRunRepository?` — not `SqliteWorkflowRunRepository?`; the constructor param type changes (currently typed concrete at `task_executor.dart:54,113`), and the two call sites (`task_executor.dart:127,1438`) migrate to the abstract API** (must-be-TRUE)
+- [x] The `dynamic`-wrapped `WorkflowRunRepositoryPort` at `workflow_runner_types.dart:69` is deleted (or, if a wrapper is still needed for staged migration, it `implements` the new typed abstract interface) (must-be-TRUE)
+- [x] S28's `workflow_task_boundary_test.dart` allowlist empties; `dev/tools/arch_check.dart:47` sanctioned-deps list drops `dartclaw_storage` for `dartclaw_workflow` (must-be-TRUE)
+- [x] `dart analyze` and `dart test` workspace-wide pass

@@ -10,6 +10,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ProjectService,
         Task,
         TaskRepository,
+        WorkflowRunRepository,
         WorkflowStepExecutionRepository,
         WorkflowTaskService;
 import 'package:dartclaw_models/dartclaw_models.dart'
@@ -64,19 +65,6 @@ final class StepValidationFailure {
 }
 
 typedef StorySpecOutputValidation = ({Map<String, dynamic> outputs, StepValidationFailure? validationFailure});
-
-/// Narrow workflow-run persistence contract used by workflow execution.
-final class WorkflowRunRepositoryPort {
-  final dynamic _delegate;
-
-  WorkflowRunRepositoryPort(this._delegate);
-
-  Future<WorkflowRun?> getById(String id) async => await _delegate.getById(id) as WorkflowRun?;
-
-  Future<void> update(WorkflowRun run) async {
-    await _delegate.update(run);
-  }
-}
 
 /// Token accounting attached to a step handoff.
 final class StepTokenBreakdown {
@@ -219,7 +207,7 @@ final class StepExecutionContext {
   final WorkflowTaskService taskService;
   final EventBus eventBus;
   final KvService kvService;
-  final dynamic repository;
+  final WorkflowRunRepository repository;
   final GateEvaluator gateEvaluator;
   final ContextExtractor contextExtractor;
   final WorkflowTurnAdapter? turnAdapter;

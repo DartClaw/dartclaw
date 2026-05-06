@@ -20,6 +20,7 @@ import 'api/config_api_routes.dart';
 import 'api/skill_routes.dart';
 import 'api/workflow_routes.dart';
 import 'api/config_routes.dart';
+import 'api/event_bus_sse_bridge.dart';
 import 'api/google_chat_space_events_wiring.dart';
 import 'api/google_chat_subscription_routes.dart';
 import 'api/google_chat_webhook.dart';
@@ -130,6 +131,7 @@ class DartclawServer {
   final TaskEventService? _taskEventService;
   final TaskEventRecorder? _taskEventRecorder;
   final TaskProgressTracker? _progressTracker;
+  final EventBusSseBridge? _eventBusSseBridge;
   final GoogleChatSpaceEventsWiring? _spaceEventsWiring;
   final ThreadBindingStore? _threadBindingStore;
   final WorkflowService? _workflowService;
@@ -204,6 +206,7 @@ class DartclawServer {
     required TaskEventService? taskEventService,
     required TaskEventRecorder? taskEventRecorder,
     required TaskProgressTracker? progressTracker,
+    required EventBusSseBridge? eventBusSseBridge,
     required GoogleChatSpaceEventsWiring? spaceEventsWiring,
     required ThreadBindingStore? threadBindingStore,
     required WorkflowService? workflowService,
@@ -263,6 +266,7 @@ class DartclawServer {
        _taskEventService = taskEventService,
        _taskEventRecorder = taskEventRecorder,
        _progressTracker = progressTracker,
+       _eventBusSseBridge = eventBusSseBridge,
        _spaceEventsWiring = spaceEventsWiring,
        _threadBindingStore = threadBindingStore,
        _workflowService = workflowService,
@@ -327,6 +331,7 @@ class DartclawServer {
     required TaskEventService? taskEventService,
     required TaskEventRecorder? taskEventRecorder,
     required TaskProgressTracker? progressTracker,
+    required EventBusSseBridge? eventBusSseBridge,
     required GoogleChatSpaceEventsWiring? spaceEventsWiring,
     required ThreadBindingStore? threadBindingStore,
     required WorkflowService? workflowService,
@@ -387,6 +392,7 @@ class DartclawServer {
       taskEventService: taskEventService,
       taskEventRecorder: taskEventRecorder,
       progressTracker: progressTracker,
+      eventBusSseBridge: eventBusSseBridge,
       spaceEventsWiring: spaceEventsWiring,
       threadBindingStore: threadBindingStore,
       workflowService: workflowService,
@@ -544,6 +550,7 @@ class DartclawServer {
       await _turns.cancelTurn(sessionId);
     }
     await _spaceEventsWiring?.dispose();
+    await _eventBusSseBridge?.cancel();
     await _sseBroadcast?.dispose();
     await _canvasService?.dispose();
     await _channelManager?.dispose();

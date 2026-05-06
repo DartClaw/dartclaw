@@ -867,27 +867,21 @@ The configured `providers.<id>.pool_size` from dartclaw.yaml drives initial spaw
 
 ---
 
-## TD-072 — 0.16.4 final-remediation polish (workflow show standalone bootstrap + glossary residual drift)
+## TD-072 — 0.16.4 final-remediation polish (workflow show standalone bootstrap)
 
-**Severity**: Low (operator UX edge case + doc currency)
+**Severity**: Low (operator UX edge case)
 **Found**: 0.16.4 final baseline gap-review remediation (2026-04-30 07:09 / 07:12 CEST)
-**Affects**: `apps/dartclaw_cli/lib/src/commands/workflow/workflow_show_command.dart`, `dev/state/UBIQUITOUS_LANGUAGE.md`
+**Affects**: `apps/dartclaw_cli/lib/src/commands/workflow/workflow_show_command.dart`
 
-**Context**: Two non-gating leftovers from the 0.16.4 final gap-review pair (`workflow-requirements-baseline-gap-review-claude-2026-04-30-2.md`, `workflow-requirements-baseline-gap-review-codex-2026-04-30-2.md`) and its doc remediation pass:
+**Context**: Non-gating leftover from the 0.16.4 final gap-review pair (`workflow-requirements-baseline-gap-review-claude-2026-04-30-2.md`, `workflow-requirements-baseline-gap-review-codex-2026-04-30-2.md`):
 
 1. **`dartclaw workflow show --resolved --standalone` does not call `bootstrapAndthenSkills(...)`.** `workflow_show_command.dart` builds a transient `SkillRegistryImpl` and scans the native user-tier skill roots, but unlike standalone execution and server wiring, it does not provision AndThen on first contact. On a freshly-installed instance where neither `dartclaw serve` nor `dartclaw workflow run` has run, `--resolved` output omits SKILL.md frontmatter defaults until any other workflow command provisions AndThen. Recoverable, narrow edge case; baseline §2 line 82 / §3 line 99 do not strictly require `show` to bootstrap.
 
-2. **`UBIQUITOUS_LANGUAGE.md` glossary residual drift co-located with the codex doc remediation but outside its finding scope:**
-   - `UBIQUITOUS_LANGUAGE.md:72` "Task Project ID" still says workflow tasks "derive it from workflow-level or step-level project binding" — same S74 drift the codex fix removed elsewhere; per-step `project:` was rejected in S74.
-   - "Resolution Verification" entry still describes "project format / analyze / test commands when declared", reflecting the pre-S73 verification config block that was removed in 0.16.4.
-   - "Workflow Run Artifact" entry says "8-field record per merge-resolve invocation" but the shipped artifact is 9 fields (per baseline §5).
-
-**Current state**: Acceptable for tag. Item 1 is a fresh-install edge that operators rarely hit before any other workflow command runs; item 2 is internal glossary drift that does not produce invalid YAML or wrong runtime behavior. Both were explicitly flagged as fix-forward in the 04-30 remediation report.
+**Current state**: Acceptable for tag. Item 1 is a fresh-install edge that operators rarely hit before any other workflow command runs. It was explicitly flagged as fix-forward in the 04-30 remediation report.
 
 **Fix**:
 1. Route `WorkflowShowCommand._runStandalone(...)` through the same `bootstrapAndthenSkills(...)` helper used by run/serve, gated on a `runAndthenSkillsBootstrap` flag for tests that opt out (mirror the `CliWorkflowWiring` pattern). Add a regression test asserting bootstrap fires on first `show --resolved --standalone` invocation.
-2. Sweep `UBIQUITOUS_LANGUAGE.md`: remove the "or step-level" clause from "Task Project ID"; rewrite "Resolution Verification" to match the S73 project-convention discovery + marker / `git diff --check` fallback contract; correct the "Workflow Run Artifact" field count to 9.
 
-**Trigger**: 0.16.5 stabilisation work; any operator report of empty resolved output on a fresh install; the next pass over `UBIQUITOUS_LANGUAGE.md` (e.g. as part of S03 "Doc Currency Critical Pass" or S19 "Doc + Hygiene Closeout").
+**Trigger**: 0.16.5 stabilisation work; any operator report of empty resolved output on a fresh install.
 
 **References**: `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline-gap-review-claude-2026-04-30-2.md` (LOW finding) · `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline-gap-review-codex-2026-04-30-2.md` (MEDIUM glossary cluster + co-located surfacing in remediation completion report).

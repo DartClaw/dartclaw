@@ -1,17 +1,3 @@
-export '../advisor/advisor_subscriber.dart'
-    show
-        AdvisorSubscriber,
-        AdvisorOutput,
-        AdvisorStatus,
-        AdvisorTriggerContext,
-        AdvisorTriggerType,
-        CircuitBreaker,
-        ContextEntry,
-        SlidingContextWindow,
-        TriggerEvaluator,
-        AdvisorOutputParser,
-        AdvisorOutputRouter,
-        renderAdvisorInsightCard;
 export 'canvas_admin_routes.dart' show canvasAdminRoutes;
 export 'canvas_routes.dart' show canvasRoutes;
 export 'canvas_service.dart' show CanvasService;

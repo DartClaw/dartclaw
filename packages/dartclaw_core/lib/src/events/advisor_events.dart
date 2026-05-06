@@ -1,6 +1,7 @@
 part of 'dartclaw_event.dart';
 
 /// Fired when a channel user explicitly invokes `@advisor`.
+// NOT_ALERTABLE: lifecycle telemetry — surfaced via SSE only
 final class AdvisorMentionEvent extends DartclawEvent {
   /// Sender identifier from the originating channel.
   final String senderJid;

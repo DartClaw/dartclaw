@@ -17,6 +17,7 @@ sealed class CompactionLifecycleEvent extends DartclawEvent {
 /// Emitted from the `PreCompact` hook callback before the compaction occurs.
 /// Downstream systems can use this to flush pending state before the context
 /// is reduced.
+// NOT_ALERTABLE: lifecycle telemetry — surfaced via SSE only
 final class CompactionStartingEvent extends CompactionLifecycleEvent {
   @override
   final String sessionId;

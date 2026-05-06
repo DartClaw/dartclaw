@@ -216,6 +216,13 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
 
   // ── Shared helpers ──────────────────────────────────────────────────────────
 
+  String? _displayScopeForTask(Task? task) {
+    final scope = task?.configJson['displayScope'];
+    if (scope is! String) return null;
+    final normalizedScope = scope.trim();
+    return normalizedScope.isEmpty ? null : normalizedScope;
+  }
+
   Future<void> _createWorkflowTaskTriple({
     required String taskId,
     required WorkflowRun run,

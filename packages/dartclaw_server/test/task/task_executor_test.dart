@@ -1745,7 +1745,7 @@ void main() {
     final binding = await workflowRuns.getWorktreeBinding(workflowRunId);
     expect(binding, isNotNull);
     expect(binding?.key, workflowRunId);
-    expect(binding?.path, '/tmp/worktrees/wf-$workflowRunId');
+    expect(binding?.path, '/tmp/worktrees/wf-6032d6adb94f37fe');
     expect(binding?.branch, 'dartclaw/workflow/runbinding/integration');
     expect(binding?.workflowRunId, workflowRunId);
   });

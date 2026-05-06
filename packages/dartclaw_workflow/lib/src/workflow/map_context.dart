@@ -30,4 +30,14 @@ class MapContext {
   final MapContext? parent;
 
   const MapContext({required this.item, required this.index, required this.length, this.alias, this.parent});
+
+  /// Extracts a non-empty `id` field from the current item when present.
+  String? get itemId {
+    final currentItem = item;
+    if (currentItem is! Map) return null;
+    final id = currentItem['id'];
+    if (id is! String) return null;
+    final normalizedId = id.trim();
+    return normalizedId.isEmpty ? null : normalizedId;
+  }
 }

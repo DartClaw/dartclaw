@@ -10,6 +10,7 @@ sealed class WorkflowLifecycleEvent extends DartclawEvent {
 }
 
 /// Fired when a workflow run changes status.
+// NOT_ALERTABLE: workflow lifecycle telemetry — surfaced via SSE only
 final class WorkflowRunStatusChangedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;
@@ -45,6 +46,7 @@ final class WorkflowRunStatusChangedEvent extends WorkflowLifecycleEvent {
 }
 
 /// Fired when a workflow step completes (success or failure).
+// NOT_ALERTABLE: workflow lifecycle telemetry — surfaced via SSE only
 final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;
@@ -97,6 +99,7 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
 }
 
 /// Fired when a workflow-owned one-shot CLI provider finishes a turn.
+// NOT_ALERTABLE: workflow progress telemetry — surfaced via SSE only
 final class WorkflowCliTurnProgressEvent extends DartclawEvent {
   /// Task whose workflow-owned CLI invocation emitted the progress signal.
   final String taskId;
@@ -148,6 +151,7 @@ final class WorkflowCliTurnProgressEvent extends DartclawEvent {
 }
 
 /// Fired when all steps in a parallel group complete (success or partial failure).
+// NOT_ALERTABLE: workflow lifecycle telemetry — surfaced via SSE only
 final class ParallelGroupCompletedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;
@@ -218,6 +222,7 @@ final class WorkflowBudgetWarningEvent extends WorkflowLifecycleEvent {
 }
 
 /// Fired after each loop iteration completes (whether or not the exit gate passed).
+// NOT_ALERTABLE: workflow loop telemetry — surfaced via SSE only
 final class LoopIterationCompletedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;
@@ -253,6 +258,7 @@ final class LoopIterationCompletedEvent extends WorkflowLifecycleEvent {
 }
 
 /// Fired when a single iteration of a map/fan-out step completes.
+// NOT_ALERTABLE: progress telemetry — surfaced via SSE only
 final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;
@@ -300,6 +306,7 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
 }
 
 /// Fired when a workflow approval step is reached and the run is paused awaiting human action.
+// NOT_ALERTABLE: workflow approval telemetry — surfaced via SSE only
 final class WorkflowApprovalRequestedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;
@@ -331,6 +338,7 @@ final class WorkflowApprovalRequestedEvent extends WorkflowLifecycleEvent {
 }
 
 /// Fired when an approval step is resolved (approved or rejected).
+// NOT_ALERTABLE: workflow approval telemetry — surfaced via SSE only
 final class WorkflowApprovalResolvedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;
@@ -362,6 +370,7 @@ final class WorkflowApprovalResolvedEvent extends WorkflowLifecycleEvent {
 }
 
 /// Fired when all iterations of a map/fan-out step have settled.
+// NOT_ALERTABLE: progress telemetry — surfaced via SSE only
 final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;
@@ -418,6 +427,7 @@ final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
 /// subsequent steps still drain and re-queue but do not re-emit. The
 /// [foreachStepId] field identifies the step that triggered the run-level
 /// transition.
+// NOT_ALERTABLE: workflow governance telemetry — surfaced via SSE only
 final class WorkflowSerializationEnactedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;
@@ -457,6 +467,7 @@ final class WorkflowSerializationEnactedEvent extends WorkflowLifecycleEvent {
 /// evaluated false.
 ///
 /// The cursor advances past the step without pausing the run.
+// NOT_ALERTABLE: workflow control-flow telemetry — surfaced via SSE only
 final class StepSkippedEvent extends WorkflowLifecycleEvent {
   @override
   final String runId;

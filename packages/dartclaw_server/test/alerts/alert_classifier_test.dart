@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/alerts/alert_classifier.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 DateTime get _now => DateTime.now();
@@ -107,6 +108,98 @@ void main() {
       expect(result, isNotNull);
       expect(result!.alertType, 'compaction');
       expect(result.severity, AlertSeverity.info);
+    });
+
+    test('LoopDetectedEvent → loop_detected / critical', () {
+      final event = LoopDetectedEvent(
+        sessionId: 'sess-1',
+        mechanism: 'turnChainDepth',
+        message: 'depth exceeded',
+        action: 'abort',
+        timestamp: _now,
+      );
+      final result = classifyAlert(event);
+      expect(result, isNotNull);
+      expect(result!.alertType, 'loop_detected');
+      expect(result.severity, AlertSeverity.critical);
+    });
+
+    test('EmergencyStopEvent → emergency_stop / critical', () {
+      final event = EmergencyStopEvent(stoppedBy: 'admin', turnsCancelled: 2, tasksCancelled: 1, timestamp: _now);
+      final result = classifyAlert(event);
+      expect(result, isNotNull);
+      expect(result!.alertType, 'emergency_stop');
+      expect(result.severity, AlertSeverity.critical);
+    });
+
+    test('AdvisorInsightEvent status mapping and malformed status logging', () async {
+      final records = <LogRecord>[];
+      final prevLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      addTearDown(() => Logger.root.level = prevLevel);
+      final sub = Logger('AlertClassifier').onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      final stuck = AdvisorInsightEvent(
+        status: 'stuck',
+        observation: 'stalled',
+        suggestion: null,
+        triggerType: 'watchdog',
+        taskIds: const ['t-1'],
+        sessionKey: 'agent:main:web:',
+        timestamp: _now,
+      );
+      final concerning = AdvisorInsightEvent(
+        status: 'concerning',
+        observation: 'risk',
+        suggestion: null,
+        triggerType: 'watchdog',
+        taskIds: const ['t-1'],
+        sessionKey: 'agent:main:web:',
+        timestamp: _now,
+      );
+      final onTrack = AdvisorInsightEvent(
+        status: 'on_track',
+        observation: 'ok',
+        suggestion: null,
+        triggerType: 'watchdog',
+        taskIds: const ['t-1'],
+        sessionKey: 'agent:main:web:',
+        timestamp: _now,
+      );
+      final diverging = AdvisorInsightEvent(
+        status: 'diverging',
+        observation: 'split',
+        suggestion: null,
+        triggerType: 'watchdog',
+        taskIds: const ['t-1'],
+        sessionKey: 'agent:main:web:',
+        timestamp: _now,
+      );
+      final unknown = AdvisorInsightEvent(
+        status: 'unknown_value',
+        observation: 'unknown',
+        suggestion: null,
+        triggerType: 'watchdog',
+        taskIds: const ['t-1'],
+        sessionKey: 'agent:main:web:',
+        timestamp: _now,
+      );
+
+      final stuckResult = classifyAlert(stuck);
+      expect(stuckResult, isNotNull);
+      expect(stuckResult!.alertType, 'advisor_insight');
+      expect(stuckResult.severity, AlertSeverity.warning);
+
+      final concerningResult = classifyAlert(concerning);
+      expect(concerningResult, isNotNull);
+      expect(concerningResult!.alertType, 'advisor_insight');
+      expect(concerningResult.severity, AlertSeverity.critical);
+
+      expect(classifyAlert(onTrack), isNull);
+      expect(classifyAlert(diverging), isNull);
+      expect(classifyAlert(unknown), isNull);
+      expect(records.any((r) => r.level == Level.FINE && r.message.contains('unknown_value')), isTrue);
     });
 
     test('unrecognized event types return null', () {

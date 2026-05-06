@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
@@ -768,6 +770,93 @@ void main() {
 
       final detail = await detailResponse.readAsString();
       expect(detail, startsWith('name: spec-and-implement'));
+    });
+  });
+
+  group('GET /api/workflows/runs/<id>/events', () {
+    Future<Map<String, dynamic>> nextPayload(StreamIterator<String> iterator) async {
+      final hasFrame = await iterator.moveNext().timeout(const Duration(seconds: 1));
+      expect(hasFrame, isTrue);
+      final dataLine = iterator.current.trim().split('\n').first;
+      expect(dataLine, startsWith('data: '));
+      return jsonDecode(dataLine.substring('data: '.length)) as Map<String, dynamic>;
+    }
+
+    Future<Map<String, dynamic>> nextPayloadOfType(StreamIterator<String> iterator, String type) async {
+      for (var i = 0; i < 20; i++) {
+        final payload = await nextPayload(iterator);
+        if (payload['type'] == type) {
+          return payload;
+        }
+      }
+      fail('Did not receive SSE payload type=$type');
+    }
+
+    test('emits map_iteration_completed and map_step_completed payloads for run', () async {
+      handler = workflowRoutes(workflows, tasks, definitions, eventBus: eventBus).call;
+      workflows.getResult = _makeRun(id: 'run-001');
+      await tasks.create(
+        id: 'task-map-step',
+        title: 'Map step',
+        description: 'desc',
+        type: TaskType.coding,
+        workflowRunId: 'run-001',
+        stepIndex: 0,
+      );
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+      expect(response.statusCode, 200);
+      final iterator = StreamIterator(response.read().transform(utf8.decoder));
+      addTearDown(iterator.cancel);
+
+      final connected = await nextPayload(iterator);
+      expect(connected['type'], 'connected');
+
+      eventBus.fire(
+        MapIterationCompletedEvent(
+          runId: 'run-001',
+          stepId: 's2',
+          iterationIndex: 3,
+          totalIterations: 10,
+          itemId: 'item-7',
+          taskId: 'task-map-step',
+          success: true,
+          tokenCount: 120,
+          timestamp: DateTime.parse('2026-03-24T10:00:00Z'),
+        ),
+      );
+      final mapIteration = await nextPayloadOfType(iterator, 'map_iteration_completed');
+      expect(mapIteration['runId'], 'run-001');
+      expect(mapIteration['stepId'], 's2');
+      expect(mapIteration['iterationIndex'], 3);
+      expect(mapIteration['totalIterations'], 10);
+      expect(mapIteration['itemId'], 'item-7');
+      expect(mapIteration['taskId'], 'task-map-step');
+      expect(mapIteration['success'], true);
+      expect(mapIteration['tokenCount'], 120);
+
+      eventBus.fire(
+        MapStepCompletedEvent(
+          runId: 'run-001',
+          stepId: 's2',
+          stepName: 'fanout',
+          totalIterations: 10,
+          successCount: 9,
+          failureCount: 1,
+          cancelledCount: 0,
+          totalTokens: 1200,
+          timestamp: DateTime.parse('2026-03-24T10:00:01Z'),
+        ),
+      );
+      final mapStep = await nextPayloadOfType(iterator, 'map_step_completed');
+      expect(mapStep['runId'], 'run-001');
+      expect(mapStep['stepId'], 's2');
+      expect(mapStep['stepName'], 'fanout');
+      expect(mapStep['totalIterations'], 10);
+      expect(mapStep['successCount'], 9);
+      expect(mapStep['failureCount'], 1);
+      expect(mapStep['cancelledCount'], 0);
+      expect(mapStep['totalTokens'], 1200);
     });
   });
 

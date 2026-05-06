@@ -44,6 +44,7 @@ final class TaskStatusChangedEvent extends TaskLifecycleEvent {
 }
 
 /// Fired when a task enters review and artifacts are ready.
+// NOT_ALERTABLE: lifecycle telemetry — surfaced via SSE only
 final class TaskReviewReadyEvent extends TaskLifecycleEvent {
   @override
   /// Identifier of the task ready for review.
@@ -75,6 +76,7 @@ final class TaskReviewReadyEvent extends TaskLifecycleEvent {
 ///
 /// Carries primitive fields only — no dependency on [TaskEvent] model.
 /// Downstream consumers (SSE, dashboard) subscribe to push real-time updates.
+// NOT_ALERTABLE: timeline telemetry — surfaced via task event stream
 final class TaskEventCreatedEvent extends TaskLifecycleEvent {
   @override
   final String taskId;

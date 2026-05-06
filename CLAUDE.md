@@ -3,6 +3,8 @@
 ## Project Overview
 
 **DartClaw** — An experimental, security-conscious AI agent runtime built with Dart. Dart orchestrator (AOT-compiled, zero npm) + multiple agent harnesses (Claude Code, Codex, and potentially more).
+Current milestone: 0.16.5 — Stabilisation & Hardening
+> AGENTS.md is the standard instruction file for ALL non-Claude-Code agents, not DartClaw-specific.
 
 Read more in `dev/state/PRODUCT.md` for vision, development stage, and core philosophy.
 

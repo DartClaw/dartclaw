@@ -177,6 +177,8 @@ void main() {
     expect(handoff, isA<StepHandoffSuccess>());
     expect(handoff.validationFailure, isNull);
     expect(handoff.outputs['story_result'], ['ok-S01']);
+    final tasks = await harness.tasks.list();
+    expect(tasks.single.configJson['displayScope'], 'S01');
   });
 
   test('dispatchStep preserves approval outcome metadata', () async {

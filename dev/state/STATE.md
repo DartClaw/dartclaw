@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-05-04 20:01 CEST
+Last Updated: 2026-05-05 17:53 CEST
 
 ### Implemented Features (through 0.16.4)
 
@@ -48,6 +48,10 @@ None yet — 0.16.5 stories will be enumerated when the milestone enters plannin
 
 ## Session Continuity Notes
 
+- [2026-05-05] S05 complete — wired EventBus→SSE bridge for loop/task-review/advisor/compaction-starting events, kept emergency-stop on imperative SSE path to avoid duplicate-frame drift, added per-run map iteration/step SSE handlers, and validated advisor status-based alert classification (`stuck` warning, `concerning` critical, `on_track`/`diverging` null).
+- [2026-05-05] S03 complete — doc-currency critical pass landed: CLAUDE/AGENTS milestone+assertion line, README status sentence and package tree update (`dartclaw_workflow` + explicit `dartclaw_cli` row), guide fixes (in-process MCP wording, `providers.claude.executable`, WhatsApp pairing port 3333, guard example compile-checked), architecture tree count bumped to 12 with workflow row, glossary drift corrected, and TD-072 item 2 removed from backlog entry.
+- [2026-05-05] S01 complete — `AlertClassifier` and `AlertFormatter` now use exhaustive `switch (event)` expressions over `DartclawEvent`; `LoopDetectedEvent` + `EmergencyStopEvent` alert mappings added as critical; `NOT_ALERTABLE` annotations landed for null-classified concrete event types; TI07 proof validated `non_exhaustive_switch_expression` at all 3 switch sites with temporary `_ProofEvent`.
+- [2026-05-05] S02 complete — removed advisor re-export block from `canvas_exports.dart`, introduced `src/advisor/advisor_exports.dart` (`AdvisorSubscriber` only), mounted it in `dartclaw_server.dart`, and updated advisor tests to import internal advisor support types directly instead of relying on public barrel over-exports.
 - [2026-05-04] 0.16.4 squash-merged to `main` (`2f45c84`) and tagged `v0.16.4`; remote `feat/0.16.4` deleted (local kept as archive). New work on `feat/0.16.5`. README path conflict resolved in favor of `dev/tools/build.sh` (post-`tool/`→`dev/tools/` reorg).
 - [2026-05-01] 0.16.4 release-prep doc updates landed: CHANGELOG `dartclaw_workflow` version line corrected (0.9.0 → 0.16.0), STATE.md trimmed to released state, ROADMAP.md advanced to 0.16.5 active, architecture markers verified at 0.16.4, `feature-comparison.md` advanced to 0.16.4 with new entries. `dartclawVersion` was already 0.16.4.
 - [2026-04-30] S80 complete — built-in workflows now consume AndThen 0.15.8's `dartclaw-review --output-dir <path>` support by pinning every `dartclaw-review` report to an engine-managed absolute runtime artifacts directory under `<data_dir>/workflows/runs/<runId>/runtime-artifacts/reviews`. Supersedes the unlanded S79 in-worktree `.agent_temp/reviews` convention.

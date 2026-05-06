@@ -22,6 +22,11 @@ void main() {
       expect(output.first, '[step 1/6] research: Research & Design — running (claude)');
     });
 
+    test('stepRunning includes display scope when present', () {
+      printer.stepRunning(5, 'implement', 'Implement Story', 'codex', displayScope: 'S01');
+      expect(output.first, '[step 6/6] implement[S01]: Implement Story — running (codex)');
+    });
+
     test('stepRunning omits provider suffix when null', () {
       printer.stepRunning(2, 'implement', 'Implement Feature', null);
       expect(output.first, '[step 3/6] implement: Implement Feature — running');
@@ -35,6 +40,11 @@ void main() {
     test('stepCompleted formats seconds-only duration', () {
       printer.stepCompleted(0, 'research', const Duration(seconds: 45), 12000);
       expect(output.first, '[step 1/6] research: completed (45s, 12K tokens)');
+    });
+
+    test('stepCompleted includes display scope when present', () {
+      printer.stepCompleted(5, 'implement', const Duration(minutes: 4, seconds: 41), 91000, displayScope: 'S01');
+      expect(output.first, '[step 6/6] implement[S01]: completed (4m 41s, 91K tokens)');
     });
 
     test('stepCompleted formats minutes+seconds duration', () {

@@ -4,6 +4,7 @@ export 'github_webhook_config.dart'
 export 'agent_routes.dart' show agentRoutes;
 export 'config_api_routes.dart' show configApiRoutes, writeRestartPending, readRestartPending;
 export 'config_routes.dart' show configRoutes;
+export 'event_bus_sse_bridge.dart' show EventBusSseBridge;
 export 'google_chat_space_events_wiring.dart' show GoogleChatSpaceEventsWiring;
 export 'google_chat_subscription_routes.dart' show googleChatSubscriptionRoutes;
 export 'google_chat_webhook.dart' show GoogleChatWebhookHandler, GoogleChatMessageDispatcher;

@@ -61,39 +61,39 @@ One coordinated currency sweep across five co-located public-repo doc surfaces (
 > Verify-only criteria carry a `(verify-only)` tag and re-grep at exec time; remaining criteria are real edits.
 
 ### AGENTS.md / CLAUDE.md (part a)
-- [ ] `CLAUDE.md` contains the literal string `Current milestone: 0.16.5 — Stabilisation & Hardening` under the project-overview region (proof: TI01 Verify)
-- [ ] `CLAUDE.md` contains the literal sentence `AGENTS.md is the standard instruction file for ALL non-Claude-Code agents, not DartClaw-specific.` (proof: TI01 Verify)
-- [ ] `AGENTS.md -> CLAUDE.md` symlink intact; both paths read identical content (proof: TI01 Verify — `readlink` + `diff`)
-- [ ] (verify-only) `rg -n "Bun standalone|0\.9 Phase A|Phase A in progress" CLAUDE.md` returns zero hits (proof: TI01 Verify)
-- [ ] (verify-only) `CLAUDE.md` lists all 12 workspace packages + `dartclaw_cli` app and describes the multi-harness model (proof: TI01 Verify — already met by 0.16.4)
+- [x] `CLAUDE.md` contains the literal string `Current milestone: 0.16.5 — Stabilisation & Hardening` under the project-overview region (proof: TI01 Verify)
+- [x] `CLAUDE.md` contains the literal sentence `AGENTS.md is the standard instruction file for ALL non-Claude-Code agents, not DartClaw-specific.` (proof: TI01 Verify)
+- [x] `AGENTS.md -> CLAUDE.md` symlink intact; both paths read identical content (proof: TI01 Verify — `readlink` + `diff`)
+- [x] (verify-only) `rg -n "Bun standalone|0\.9 Phase A|Phase A in progress" CLAUDE.md` returns zero hits (proof: TI01 Verify)
+- [x] (verify-only) `CLAUDE.md` lists all 12 workspace packages + `dartclaw_cli` app and describes the multi-harness model (proof: TI01 Verify — already met by 0.16.4)
 
 ### README.md (part b)
-- [ ] (verify-only) `README.md` line 12 banner reads `v0.16.4` (proof: TI02 Verify)
-- [ ] `README.md` one-line description (line 12) names: connected-by-default CLI workflow execution, operational command groups, workflow trigger surfaces (web launch forms / `/workflow` chat commands / GitHub PR webhooks). Trim if drift snuck in. (proof: TI02 Verify)
+- [x] (verify-only) `README.md` line 12 banner reads `v0.16.4` (proof: TI02 Verify)
+- [x] `README.md` one-line description (line 12) names: connected-by-default CLI workflow execution, operational command groups, workflow trigger surfaces (web launch forms / `/workflow` chat commands / GitHub PR webhooks). Trim if drift snuck in. (proof: TI02 Verify)
 
 ### Four guide fixes (part c)
-- [ ] `docs/guide/web-ui-and-api.md:548` no longer mentions "Deno worker"; describes the in-process MCP server inside the Dart host (proof: TI03 Verify)
-- [ ] `docs/guide/configuration.md:467` references `providers.claude.executable` instead of `agent.claude_executable`; the old key is removed unless surrounding prose documents it as a back-compat alias (proof: TI04 Verify)
-- [ ] `docs/guide/whatsapp.md:51` pairing page URL uses port `3333` (proof: TI05 Verify)
-- [ ] `docs/guide/customization.md:99-114` Custom-Guard example uses real API (`extends Guard`, `Future<GuardVerdict> evaluate(GuardContext context)`, `GuardVerdict.block(...)`, `GuardVerdict.pass()`, valid `category`) and **compiles** when extracted into a temp Dart project that depends on `dartclaw_security` (proof: TI06 Verify — `dart analyze` clean against a temp pubspec)
-- [ ] `rg -n "Deno worker|agent\.claude_executable|http://localhost:3000/whatsapp/pairing" docs/` returns zero hits (proof: TI07 Verify — global cross-cut grep)
+- [x] `docs/guide/web-ui-and-api.md:548` no longer mentions "Deno worker"; describes the in-process MCP server inside the Dart host (proof: TI03 Verify)
+- [x] `docs/guide/configuration.md:467` references `providers.claude.executable` instead of `agent.claude_executable`; the old key is removed unless surrounding prose documents it as a back-compat alias (proof: TI04 Verify)
+- [x] `docs/guide/whatsapp.md:51` pairing page URL uses port `3333` (proof: TI05 Verify)
+- [x] `docs/guide/customization.md:99-114` Custom-Guard example uses real API (`extends Guard`, `Future<GuardVerdict> evaluate(GuardContext context)`, `GuardVerdict.block(...)`, `GuardVerdict.pass()`, valid `category`) and **compiles** when extracted into a temp Dart project that depends on `dartclaw_security` (proof: TI06 Verify — `dart analyze` clean against a temp pubspec)
+- [x] `rg -n "Deno worker|agent\.claude_executable|http://localhost:3000/whatsapp/pairing" docs/` returns zero hits (proof: TI07 Verify — global cross-cut grep)
 
 ### Package trees (part d)
-- [ ] `README.md` package tree (lines ~81–97) includes `dartclaw_workflow` row alongside `dartclaw_testing` and `dartclaw_config` (proof: TI08 Verify)
-- [ ] `docs/guide/architecture.md:99` says **twelve packages** (not "eleven"); package tree (lines ~101–142) contains a `dartclaw_workflow/` row (proof: TI09 Verify)
-- [ ] One-line descriptions for added packages match the corresponding `packages/<name>/README.md` opening line where one exists (proof: TI08/TI09 Verify spot-check)
+- [x] `README.md` package tree (lines ~81–97) includes `dartclaw_workflow` row alongside `dartclaw_testing` and `dartclaw_config` (proof: TI08 Verify)
+- [x] `docs/guide/architecture.md:99` says **twelve packages** (not "eleven"); package tree (lines ~101–142) contains a `dartclaw_workflow/` row (proof: TI09 Verify)
+- [x] One-line descriptions for added packages match the corresponding `packages/<name>/README.md` opening line where one exists (proof: TI08/TI09 Verify spot-check)
 
 ### UBIQUITOUS_LANGUAGE.md drift (part e)
-- [ ] "Task Project ID" entry no longer contains `or step-level` (proof: TI10 Verify)
-- [ ] "Resolution Verification" entry no longer contains `format / analyze / test commands when declared` and instead names the S73 project-convention discovery + marker / `git diff --check` fallback contract (proof: TI10 Verify)
-- [ ] "Workflow Run Artifact" entry says **9-field** record (not `8-field`) (proof: TI10 Verify)
-- [ ] `dev/state/TECH-DEBT-BACKLOG.md` TD-072 entry has item 2 removed (or whole entry deleted if S29 closes item 1 in the same sprint) (proof: TI11 Verify)
+- [x] "Task Project ID" entry no longer contains `or step-level` (proof: TI10 Verify)
+- [x] "Resolution Verification" entry no longer contains `format / analyze / test commands when declared` and instead names the S73 project-convention discovery + marker / `git diff --check` fallback contract (proof: TI10 Verify)
+- [x] "Workflow Run Artifact" entry says **9-field** record (not `8-field`) (proof: TI10 Verify)
+- [x] `dev/state/TECH-DEBT-BACKLOG.md` TD-072 entry has item 2 removed (or whole entry deleted if S29 closes item 1 in the same sprint) (proof: TI11 Verify)
 
 ### Health Metrics (Must NOT Regress)
-- [ ] `dart analyze` workspace-wide remains clean
-- [ ] `dart format --set-exit-if-changed` remains clean for any file touched
-- [ ] No new files created (this story is pure edits to existing files; see Constraints)
-- [ ] No code under `packages/`/`apps/` modified (docs-only — except the temp pubspec used to compile-test the customization snippet, which is created and deleted within TI06)
+- [x] `dart analyze` workspace-wide remains clean
+- [x] `dart format --set-exit-if-changed` remains clean for any file touched
+- [x] No new files created (this story is pure edits to existing files; see Constraints)
+- [x] No code under `packages/`/`apps/` modified (docs-only — except the temp pubspec used to compile-test the customization snippet, which is created and deleted within TI06)
 
 
 ## Scenarios
@@ -212,50 +212,50 @@ file   | packages/dartclaw_config/README.md                    | source for one-
 
 ### Implementation Tasks
 
-- [ ] **TI01** `CLAUDE.md` carries the milestone line and the AGENTS.md-standard assertion; `AGENTS.md` symlink still matches.
+- [x] **TI01** `CLAUDE.md` carries the milestone line and the AGENTS.md-standard assertion; `AGENTS.md` symlink still matches.
   - Add `**Current milestone**: 0.16.5 — Stabilisation & Hardening` line to the project-overview region of `CLAUDE.md` (natural insertion point: after the lineage sentence on line 5, or as a new bullet under § "Current State"). Add `> AGENTS.md is the standard instruction file for ALL non-Claude-Code agents, not DartClaw-specific.` near the top of the same file.
   - **Verify**: `rg -n "Current milestone: 0\.16\.5 — Stabilisation & Hardening" CLAUDE.md` returns 1 hit; `rg -n "AGENTS\.md is the standard instruction file for ALL non-Claude-Code agents" CLAUDE.md` returns 1 hit; `readlink AGENTS.md` prints `CLAUDE.md`; `diff AGENTS.md CLAUDE.md` is empty; `rg -n "Bun standalone|0\.9 Phase A|Phase A in progress" CLAUDE.md` returns zero hits.
 
-- [ ] **TI02** `README.md` description line names the 0.16.4 capabilities; banner unchanged. **Edit-or-leave decision tree** (per cross-cutting review F2):
+- [x] **TI02** `README.md` description line names the 0.16.4 capabilities; banner unchanged. **Edit-or-leave decision tree** (per cross-cutting review F2):
   - Inspect `README.md:9-13`. Confirm banner reads `v0.16.4` (verify-only — already correct).
   - **Decision**: grep `rg -n "connected-by-default|connected workflow|workflow execution|operational" README.md` against lines 9-13. **If** all four capability surfaces are named verbatim or paraphrased (connected workflow execution, operational CLI command groups, workflow trigger surfaces — web launch forms / `/workflow` chat commands / GitHub PR webhooks), then verify-only — record "current description matches FR7" and proceed. **Else** rewrite the description line to a single sentence naming all four surfaces.
   - **Verify**: `rg -n "v0\.16\.4" README.md` shows the banner line; `rg -nE "(connected[- ]by[- ]default|connected workflow execution)" README.md` returns ≥1 hit covering CLI workflow execution; `rg -nE "(operational|CLI command groups|workflow trigger|web launch|/workflow|PR webhook)" README.md` returns ≥3 hits across lines 9-13 (covering operational groups + at least two trigger surfaces).
 
-- [ ] **TI03** `docs/guide/web-ui-and-api.md:548` no longer mentions Deno worker.
+- [x] **TI03** `docs/guide/web-ui-and-api.md:548` no longer mentions Deno worker.
   - Replace the "exposed via an MCP server in the Deno worker and bridge back to the Dart host" wording with a sentence describing the in-process MCP server hosted inside the Dart host (the host registers tool handlers directly; agents reach them over the JSONL control protocol).
   - **Verify**: `rg -n "Deno worker" docs/guide/web-ui-and-api.md` returns zero hits; `rg -n "in-process MCP|MCP server.*Dart host" docs/guide/web-ui-and-api.md` returns ≥1 hit.
 
-- [ ] **TI04** `docs/guide/configuration.md:467` uses `providers.claude.executable` instead of `agent.claude_executable`.
+- [x] **TI04** `docs/guide/configuration.md:467` uses `providers.claude.executable` instead of `agent.claude_executable`.
   - Rewrite the providers-section note: when omitted, DartClaw creates a single Claude provider using `providers.claude.executable` (or the `claude` binary on `$PATH`). Drop the legacy `agent.claude_executable` reference unless three lines of surrounding prose document it as a back-compat alias — current prose does not, so remove cleanly.
   - **Verify**: `rg -n "agent\.claude_executable" docs/guide/configuration.md` returns zero hits; `rg -n "providers\.claude\.executable" docs/guide/configuration.md` returns ≥1 hit.
 
-- [ ] **TI05** `docs/guide/whatsapp.md` pairing page URL uses port `3333`.
+- [x] **TI05** `docs/guide/whatsapp.md` pairing page URL uses port `3333`.
   - Update line 54 (the prose URL `http://localhost:3000/whatsapp/pairing` → `http://localhost:3333/whatsapp/pairing`). Lines 33, 124, 125, 140 reference the **GOWA sidecar port** (separate config knob `whatsapp.gowa_port`), not the DartClaw server port — leave them at `3000`. Read context before editing each line.
   - **Verify**: `rg -n "http://localhost:3333/whatsapp/pairing" docs/guide/whatsapp.md` returns 1 hit; `rg -n "http://localhost:3000/whatsapp/pairing" docs/guide/whatsapp.md` returns zero hits; the GOWA sidecar port references on lines 33/124/125/140 unchanged.
 
-- [ ] **TI06** `docs/guide/customization.md:99-114` Custom-Guard example test-compiles against real `dartclaw_security` API.
+- [x] **TI06** `docs/guide/customization.md:99-114` Custom-Guard example test-compiles against real `dartclaw_security` API.
   - Read lines 99–114. Verify the snippet uses `extends Guard`, `Future<GuardVerdict> evaluate(GuardContext context) async`, `GuardVerdict.block(...)`, `GuardVerdict.pass()`. Tighten if any drift slipped in (e.g. wrong return type, missing `async`). Compile-check via `.agent_temp/s03-guard-check/` (see Constraints): create minimal pubspec depending on `dartclaw_security` via local path, wrap snippet in `void main(){}` inside `bin/check.dart`, run `dart pub get && dart analyze`. Delete `.agent_temp/s03-guard-check/` after green.
   - **Verify**: `dart analyze .agent_temp/s03-guard-check/` (run inside that dir before deletion) reports zero errors and zero warnings; `.agent_temp/s03-guard-check/` is removed before commit; final `ls .agent_temp/` does not list `s03-guard-check`.
 
-- [ ] **TI07** Cross-cut negative-grep gate clean across removed strings.
+- [x] **TI07** Cross-cut negative-grep gate clean across removed strings.
   - From workspace root: `rg -n "Deno worker|agent\.claude_executable|Bun standalone|0\.9 Phase A|Phase A in progress|http://localhost:3000/whatsapp/pairing" CLAUDE.md README.md docs/ dev/state/UBIQUITOUS_LANGUAGE.md`. Any hit means a stale string slipped through — fix and re-run.
   - **Verify**: command above returns zero hits.
 
-- [ ] **TI08** `README.md` package tree includes all 12 packages + `dartclaw_cli` app row.
+- [x] **TI08** `README.md` package tree includes all 12 packages + `dartclaw_cli` app row.
   - Insert a `dartclaw_workflow/` row (between `dartclaw_security/` and `dartclaw_whatsapp/`, alphabetical-ish to match neighbours) with one-line description sourced from `packages/dartclaw_workflow/README.md` opening line (or paraphrased: "Workflow definitions, registry, parser/validator, and execution engine"). Verify `dartclaw_testing` and `dartclaw_config` rows are present (they already are at lines 89, 94).
   - **Verify**: `rg -n "^\s*dartclaw_workflow/" README.md` returns 1 hit; `rg -nc "^\s*dartclaw_(workflow|testing|config|core|models|storage|server|security|whatsapp|signal|google_chat|cli)" README.md` returns ≥12; `rg -n "^\s*dartclaw/\s+" README.md` shows the umbrella row.
 
-- [ ] **TI09** `docs/guide/architecture.md` says "twelve packages" and tree contains `dartclaw_workflow` row.
+- [x] **TI09** `docs/guide/architecture.md` says "twelve packages" and tree contains `dartclaw_workflow` row.
   - Line 99: change `eleven packages` → `twelve packages`. In the package-tree code block (lines 101–142), insert a `dartclaw_workflow/` row with a one-line description matching the package's actual role (e.g. "Workflow definitions, registry, parser/validator, and execution engine"). Place between `dartclaw_storage/` and `dartclaw_server/` to keep the dependency-tier grouping intact.
   - **Verify**: `rg -n "twelve packages" docs/guide/architecture.md` returns 1 hit; `rg -n "eleven packages" docs/guide/architecture.md` returns zero hits; `rg -n "^\s*dartclaw_workflow/" docs/guide/architecture.md` returns 1 hit.
 
-- [ ] **TI10** `dev/state/UBIQUITOUS_LANGUAGE.md` three drift entries reflect post-S73/S74 contract.
+- [x] **TI10** `dev/state/UBIQUITOUS_LANGUAGE.md` three drift entries reflect post-S73/S74 contract.
   - Line 72 (Task Project ID): drop the ` or step-level` clause from the descriptive cell — keep "workflow-level" only.
   - Line 102 (Resolution Verification): rewrite the cell to read "Post-resolution checks performed by the merge-resolve skill: no remaining conflict markers and `git diff --check` clean. When the project's discovered conventions (per S73 project-convention discovery) declare format/analyze/test commands, those run as additional verification. Failure triggers Internal Remediation within the same Resolution Attempt." Adjust phrasing to fit existing column width / tone but preserve the contract.
   - Line 106 (Workflow Run Artifact): change `8-field record per merge-resolve invocation` → `9-field record per merge-resolve invocation`.
   - **Verify**: `rg -n "or step-level" dev/state/UBIQUITOUS_LANGUAGE.md` returns zero hits; `rg -n "format / analyze / test commands when declared" dev/state/UBIQUITOUS_LANGUAGE.md` returns zero hits; `rg -n "9-field record per merge-resolve invocation" dev/state/UBIQUITOUS_LANGUAGE.md` returns 1 hit; `rg -n "8-field record" dev/state/UBIQUITOUS_LANGUAGE.md` returns zero hits.
 
-- [ ] **TI11** TD-072 item 2 removed from `dev/state/TECH-DEBT-BACKLOG.md`.
+- [x] **TI11** TD-072 item 2 removed from `dev/state/TECH-DEBT-BACKLOG.md`.
   - Read current TD-072 entry. If item 1 is still listed (S29 not yet landed), remove only item 2 and rewrite the entry summary to mention item 1 only. If item 1 is already gone (S29 landed first), delete the whole TD-072 entry as backlog hygiene.
   - **Verify**: `rg -n "UBIQUITOUS_LANGUAGE\.md.*Task Project ID|UBIQUITOUS_LANGUAGE\.md.*Resolution Verification|UBIQUITOUS_LANGUAGE\.md.*Workflow Run Artifact" dev/state/TECH-DEBT-BACKLOG.md` returns zero hits in TD-072 context; surrounding TD entries unchanged.
 
@@ -288,11 +288,11 @@ file   | packages/dartclaw_config/README.md                    | source for one-
 
 ## Final Validation Checklist
 
-- [ ] **All success criteria** met (every checkbox under § "Success Criteria" ticked)
-- [ ] **All tasks** fully completed, verified, and checkboxes checked
-- [ ] **No regressions**: `dart analyze` workspace-wide clean; `dart format --set-exit-if-changed` clean for any file touched
-- [ ] **No new files** committed (the `.agent_temp/s03-guard-check/` working tree is deleted before commit)
-- [ ] **Symlink intact**: `readlink AGENTS.md` prints `CLAUDE.md`
+- [x] **All success criteria** met (every checkbox under § "Success Criteria" ticked)
+- [x] **All tasks** fully completed, verified, and checkboxes checked
+- [x] **No regressions**: `dart analyze` workspace-wide clean; `dart format --set-exit-if-changed` clean for any file touched
+- [x] **No new files** committed (the `.agent_temp/s03-guard-check/` working tree is deleted before commit)
+- [x] **Symlink intact**: `readlink AGENTS.md` prints `CLAUDE.md`
 
 
 ## Implementation Observations

@@ -545,7 +545,7 @@ The route returns the created run as JSON. Missing required variables produce a 
 
 ## Memory MCP Tools
 
-These tools are available to the agent during conversations. They're exposed via an MCP server in the Deno worker and bridge back to the Dart host for storage.
+These tools are available to the agent during conversations. They're exposed via an in-process MCP server inside the Dart host, and agents reach them over the JSONL control protocol.
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|

@@ -53,10 +53,10 @@ The 0.16.4 milestone-level consolidated review at `../0.16.4/0.16.4-consolidated
 
 | ID | Name | Phase | Wave | Dependencies | Parallel | Risk | Status | FIS |
 |----|------|-------|------|--------------|----------|------|--------|-----|
-| S01 | AlertClassifier Safety Fix + Event Exhaustiveness Test | A: Safety + Quick Wins | W1 | – | [P] | Low | Spec Ready | `fis/s01-alert-classifier-safety.md` |
-| S02 | canvas_exports Advisor Re-export Cleanup | A: Safety + Quick Wins | W1 | – | [P] | Low | Spec Ready | `fis/s02-canvas-exports-advisor-cleanup.md` |
-| S03 | Doc Currency Critical Pass (AGENTS.md + README + guide fixes + package trees) | A: Safety + Quick Wins | W1 | – | [P] | Low | Spec Ready | `fis/s03-doc-currency-critical.md` |
-| S05 | Wire 7 Orphan Sealed Events (SSE + Alert Mapping) | A: Safety + Quick Wins | W2 | S01 | No | Medium | Spec Ready | `fis/s05-wire-orphan-sealed-events.md` |
+| S01 | AlertClassifier Safety Fix + Event Exhaustiveness Test | A: Safety + Quick Wins | W1 | – | [P] | Low | Done | `fis/s01-alert-classifier-safety.md` |
+| S02 | canvas_exports Advisor Re-export Cleanup | A: Safety + Quick Wins | W1 | – | [P] | Low | Done | `fis/s02-canvas-exports-advisor-cleanup.md` |
+| S03 | Doc Currency Critical Pass (AGENTS.md + README + guide fixes + package trees) | A: Safety + Quick Wins | W1 | – | [P] | Low | Done | `fis/s03-doc-currency-critical.md` |
+| S05 | Wire 7 Orphan Sealed Events (SSE + Alert Mapping) | A: Safety + Quick Wins | W2 | S01 | No | Medium | Done | `fis/s05-wire-orphan-sealed-events.md` |
 | S09 | dartclaw_workflow Barrel Narrowing | B: Governance Rails | W1 | – | [P] | Medium | Spec Ready | `fis/s09-dartclaw-workflow-barrel-narrowing.md` |
 | S10 | Level-1 Governance Checks (6 tests + format gate) | B: Governance Rails | W3 | S01, S09 | No | Medium | Spec Ready | `fis/s10-level-1-governance-checks.md` |
 | S11 | Turn/Pool/Harness Interface Extraction to dartclaw_core | C: Interface Extraction | W3 | – | [P] | High | Spec Ready | `fis/s11-turn-pool-harness-interface-extraction.md` |
@@ -92,7 +92,7 @@ The 0.16.4 milestone-level consolidated review at `../0.16.4/0.16.4-consolidated
 _Parallel-friendly W1 cluster — each quick-win story is independent and can execute concurrently. S05 (event wiring) waits for S01 (classifier + exhaustiveness test) so the test harness is ready when S05's new mappings land._
 
 #### [P] S01: AlertClassifier Safety Fix + Event Exhaustiveness Test
-**Status**: Spec Ready
+**Status**: Done
 **FIS**: `fis/s01-alert-classifier-safety.md`
 **Phase**: Block A: Safety + Quick Wins
 **Wave**: W1
@@ -101,11 +101,11 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 **Risk**: Low
 **Scope**: Extend `AlertClassifier.classifyAlert` in `packages/dartclaw_server/lib/src/alerts/alert_classifier.dart` to cover `LoopDetectedEvent` (critical severity) and `EmergencyStopEvent` (critical severity). **Convert the classifier body from the current if-is ladder to an exhaustive `switch (event)` expression** over the `sealed DartclawEvent` hierarchy — the compiler enforces exhaustiveness, eliminating the need for a custom runtime test. Apply the same switch-expression conversion to `AlertFormatter._body`/`_details` in `alert_formatter.dart`. Events that legitimately don't alert use a `// NOT_ALERTABLE: <reason>` annotation on the event class declaration, and the switch returns null for those variants. Excluded: alert body/severity tuning for other events (that's their individual stories).
 **Acceptance Criteria**:
-- [ ] `classifyAlert` returns a critical-severity `AlertClassification` for both `LoopDetectedEvent` and `EmergencyStopEvent` (must-be-TRUE)
-- [ ] `classifyAlert` body is a `switch (event)` expression with one arm per `DartclawEvent` sealed subtype; compiler exhaustiveness applies (must-be-TRUE)
-- [ ] `AlertFormatter._body` + `_details` use the same exhaustive switch-expression pattern (must-be-TRUE)
-- [ ] Introducing a new `DartclawEvent` subtype without a switch arm fails compilation (not a runtime test — by design) (must-be-TRUE)
-- [ ] `NOT_ALERTABLE` annotation comment present on every sealed subtype whose switch arm returns `null`, explaining why no alert
+- [x] `classifyAlert` returns a critical-severity `AlertClassification` for both `LoopDetectedEvent` and `EmergencyStopEvent` (must-be-TRUE)
+- [x] `classifyAlert` body is a `switch (event)` expression with one arm per `DartclawEvent` sealed subtype; compiler exhaustiveness applies (must-be-TRUE)
+- [x] `AlertFormatter._body` + `_details` use the same exhaustive switch-expression pattern (must-be-TRUE)
+- [x] Introducing a new `DartclawEvent` subtype without a switch arm fails compilation (not a runtime test — by design) (must-be-TRUE)
+- [x] `NOT_ALERTABLE` annotation comment present on every sealed subtype whose switch arm returns `null`, explaining why no alert
 **Key Scenarios**:
 - Happy: `EmergencyStopEvent` fires → `classifyAlert` returns critical → `AlertRouter` delivers to configured target
 - Edge: a new `Foo*Event` added without switch coverage → `dart analyze` reports a non-exhaustive switch at the classifier site
@@ -113,7 +113,7 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 **Asset refs**: safety alerting rows (Unified C-1, Gaps C-1, Effective Dart C1; switch-expression replaces custom exhaustiveness test)
 
 #### [P] S02: canvas_exports Advisor Re-export Cleanup
-**Status**: Spec Ready
+**Status**: Done
 **FIS**: `fis/s02-canvas-exports-advisor-cleanup.md`
 **Phase**: Block A: Safety + Quick Wins
 **Wave**: W1
@@ -122,14 +122,14 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 **Risk**: Low
 **Scope**: Delete the advisor re-export block at `packages/dartclaw_server/lib/src/canvas/canvas_exports.dart:1-14`. Update `service_wiring.dart` to direct-import `AdvisorSubscriber` from `src/advisor/advisor_subscriber.dart`. Remove the 10 orphan re-exports (`AdvisorOutput`, `AdvisorStatus`, `AdvisorTriggerContext`, `AdvisorTriggerType`, `CircuitBreaker`, `ContextEntry`, `SlidingContextWindow`, `TriggerEvaluator`, `AdvisorOutputParser`, `AdvisorOutputRouter`, `renderAdvisorInsightCard`). Verify no downstream consumer breaks via `dart analyze`.
 **Acceptance Criteria**:
-- [ ] `canvas_exports.dart` advisor re-export block is removed (must-be-TRUE)
-- [ ] `service_wiring.dart` still imports and wires `AdvisorSubscriber` correctly (must-be-TRUE)
-- [ ] `dart analyze` workspace-wide is clean (must-be-TRUE)
-- [ ] No test failures in advisor-related suites
+- [x] `canvas_exports.dart` advisor re-export block is removed (must-be-TRUE)
+- [x] `service_wiring.dart` still imports and wires `AdvisorSubscriber` correctly (must-be-TRUE)
+- [x] `dart analyze` workspace-wide is clean (must-be-TRUE)
+- [x] No test failures in advisor-related suites
 **Asset refs**: H-1 finding
 
 #### [P] S03: Doc Currency Critical Pass
-**Status**: Spec Ready
+**Status**: Done
 **FIS**: `fis/s03-doc-currency-critical.md`
 **Phase**: Block A: Safety + Quick Wins
 **Wave**: W1
@@ -144,23 +144,23 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 **(d) Package tree updates** — Add missing package rows to public-repo package trees. `README.md:75-94` currently lists 9 packages — add `dartclaw_workflow`, `dartclaw_testing`, `dartclaw_config`. `docs/guide/architecture.md:99-142` currently says "eleven packages" and omits `dartclaw_workflow` from the tree — add the package row and bump count to "twelve packages".
 **(e) UBIQUITOUS_LANGUAGE.md drift sweep** (added 2026-04-30 from TD-072 item 2) — three glossary entries in `dev/state/UBIQUITOUS_LANGUAGE.md` are stale post-0.16.4 S73/S74: (e1) "Task Project ID" still says workflow tasks "derive it from workflow-level or step-level project binding" — drop the "or step-level" clause; per-step `project:` was rejected in S74. (e2) "Resolution Verification" still describes "project format / analyze / test commands when declared", reflecting the pre-S73 verification config block that was removed in 0.16.4 — rewrite to match the S73 project-convention discovery + marker / `git diff --check` fallback contract. (e3) "Workflow Run Artifact" entry says "8-field record per merge-resolve invocation" but the shipped artifact is 9 fields per workflow-requirements-baseline §5 — update field count.
 **Acceptance Criteria**:
-- [ ] `AGENTS.md` says "Current milestone: 0.16.5 — Stabilisation & Hardening" (must-be-TRUE) — additive edit
+- [x] `AGENTS.md` says "Current milestone: 0.16.5 — Stabilisation & Hardening" (must-be-TRUE) — additive edit
 - [x] Multi-harness model is described in `AGENTS.md` (Claude + Codex + HarnessFactory/HarnessPool) — **already met by 0.16.4** (verify only)
 - [x] `AGENTS.md` lists all 12 packages + `dartclaw_cli` app — **already met by 0.16.4** (verify only)
 - [x] No references remain in `AGENTS.md` to "Bun standalone binary", "0.9 Phase A", or pre-0.9 package layout — **already met by 0.16.4** (re-grep at FIS exec)
-- [ ] `AGENTS.md` contains the explicit statement: "AGENTS.md is the standard instruction file for ALL non-Claude-Code agents" (must-be-TRUE) — additive edit
+- [x] `AGENTS.md` contains the explicit statement: "AGENTS.md is the standard instruction file for ALL non-Claude-Code agents" (must-be-TRUE) — additive edit
 - [x] `README.md` line 8 shows `v0.16.4` — **already met by 0.16.4** (verify only)
-- [ ] `README.md` description reflects 0.16.4 CLI-operations and connected-workflow scope (must-be-TRUE) — verify-and-trim pass
-- [ ] Each of the 4 guide fixes (web-ui-and-api, configuration, whatsapp, customization) is applied (must-be-TRUE)
-- [ ] `customization.md` guard example compiles against the real `dartclaw_security` API (test-compile during FIS execution) (must-be-TRUE)
-- [ ] No stray references to removed patterns ("Deno worker", `agent.claude_executable`, port 3000 for pairing) remain
-- [ ] `README.md` package tree lists all 12 packages + `dartclaw_cli` app (must-be-TRUE)
-- [ ] `architecture.md` says "twelve packages" and shows `dartclaw_workflow` in the tree (must-be-TRUE)
-- [ ] One-line descriptions for the added packages match their respective READMEs
-- [ ] **UBIQUITOUS_LANGUAGE.md "Task Project ID"** entry no longer mentions "or step-level project binding" (must-be-TRUE)
-- [ ] **UBIQUITOUS_LANGUAGE.md "Resolution Verification"** entry describes the S73 project-convention contract (no "format/analyze/test commands when declared") (must-be-TRUE)
-- [ ] **UBIQUITOUS_LANGUAGE.md "Workflow Run Artifact"** entry says **9-field** record (not 8) (must-be-TRUE)
-- [ ] TD-072 item 2 (glossary cluster) is closed; entry in public `dev/state/TECH-DEBT-BACKLOG.md` updated to remove the closed item (or deleted if both items 1+2 close together — see S29)
+- [x] `README.md` description reflects 0.16.4 CLI-operations and connected-workflow scope (must-be-TRUE) — verify-and-trim pass
+- [x] Each of the 4 guide fixes (web-ui-and-api, configuration, whatsapp, customization) is applied (must-be-TRUE)
+- [x] `customization.md` guard example compiles against the real `dartclaw_security` API (test-compile during FIS execution) (must-be-TRUE)
+- [x] No stray references to removed patterns ("Deno worker", `agent.claude_executable`, port 3000 for pairing) remain
+- [x] `README.md` package tree lists all 12 packages + `dartclaw_cli` app (must-be-TRUE)
+- [x] `architecture.md` says "twelve packages" and shows `dartclaw_workflow` in the tree (must-be-TRUE)
+- [x] One-line descriptions for the added packages match their respective READMEs
+- [x] **UBIQUITOUS_LANGUAGE.md "Task Project ID"** entry no longer mentions "or step-level project binding" (must-be-TRUE)
+- [x] **UBIQUITOUS_LANGUAGE.md "Resolution Verification"** entry describes the S73 project-convention contract (no "format/analyze/test commands when declared") (must-be-TRUE)
+- [x] **UBIQUITOUS_LANGUAGE.md "Workflow Run Artifact"** entry says **9-field** record (not 8) (must-be-TRUE)
+- [x] TD-072 item 2 (glossary cluster) is closed; entry in public `dev/state/TECH-DEBT-BACKLOG.md` updated to remove the closed item (or deleted if both items 1+2 close together — see S29)
 **Asset refs**: C1, C2, H4, H5, H6, H7, H9, M6 findings; `CLAUDE.md` as AGENTS.md mirror source; TD-072 item 2 (UBIQUITOUS_LANGUAGE.md drift)
 
 #### S05: Wire 7 Orphan Sealed Events (SSE + Alert Mapping)
@@ -173,11 +173,11 @@ _Parallel-friendly W1 cluster — each quick-win story is independent and can ex
 **Risk**: Medium — cross-cutting change across AlertClassifier + workflow_routes + SSE envelope
 **Scope**: Wire consumers for all 7 orphan sealed events. (a) `LoopDetectedEvent` — S01 handles classify; add SSE broadcast in the appropriate route. (b) `EmergencyStopEvent` — SSE broadcast + critical alert (via S01's classify path). (c) `TaskReviewReadyEvent` — SSE broadcast (the UI already renders; only the bridge is missing). (d) `AdvisorInsightEvent` — SSE broadcast + `classifyAlert` mapping: warning severity on `status: stuck`, critical on `concerning`, info on `on_track | diverging` (no delivery for info). (e) `CompactionStartingEvent` — SSE broadcast paired with existing `CompactionCompletedEvent`. (f) `MapIterationCompletedEvent` + (g) `MapStepCompletedEvent` — SSE broadcast via `workflow_routes.dart` mirroring existing `LoopIterationCompletedEvent` / `ParallelGroupCompletedEvent` handlers. Excludes: new UI components (SSE only; UI work deferred to Block H stretch if needed).
 **Acceptance Criteria**:
-- [ ] Every one of the 7 listed events has at least one production listener (SSE, alert, or both) (must-be-TRUE)
-- [ ] Exhaustiveness test from S01 remains green (must-be-TRUE)
-- [ ] `AdvisorInsightEvent` with `status: stuck` triggers a warning alert; `concerning` triggers critical; `on_track` / `diverging` do not alert (must-be-TRUE)
-- [ ] `workflow_routes.dart` handles `MapIterationCompletedEvent` and `MapStepCompletedEvent` mirroring sibling events
-- [ ] Existing SSE envelope format is unchanged (no breaking protocol change)
+- [x] Every one of the 7 listed events has at least one production listener (SSE, alert, or both) (must-be-TRUE)
+- [x] Exhaustiveness test from S01 remains green (must-be-TRUE)
+- [x] `AdvisorInsightEvent` with `status: stuck` triggers a warning alert; `concerning` triggers critical; `on_track` / `diverging` do not alert (must-be-TRUE)
+- [x] `workflow_routes.dart` handles `MapIterationCompletedEvent` and `MapStepCompletedEvent` mirroring sibling events
+- [x] Existing SSE envelope format is unchanged (no breaking protocol change)
 **Key Scenarios**:
 - Happy: admin runs `/stop` → `EmergencyStopEvent` fires → classified critical → alert delivered + SSE broadcast → dashboard reflects
 - Edge: advisor fires with `status: on_track` → SSE broadcast → no alert (info-only path)

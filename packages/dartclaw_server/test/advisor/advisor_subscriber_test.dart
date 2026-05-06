@@ -3,15 +3,16 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/advisor/advisor_subscriber.dart' as advisor;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel, InMemoryTaskRepository;
 import 'package:test/test.dart';
 
 void main() {
   group('advisor support classes', () {
     test('SlidingContextWindow drops oldest entries on overflow', () {
-      final window = SlidingContextWindow(maxEntries: 2);
+      final window = advisor.SlidingContextWindow(maxEntries: 2);
       window.add(
-        ContextEntry(
+        advisor.ContextEntry(
           kind: 'one',
           summary: 'first',
           sessionKey: 'session-1',
@@ -20,7 +21,7 @@ void main() {
         ),
       );
       window.add(
-        ContextEntry(
+        advisor.ContextEntry(
           kind: 'two',
           summary: 'second',
           sessionKey: 'session-1',
@@ -29,7 +30,7 @@ void main() {
         ),
       );
       window.add(
-        ContextEntry(
+        advisor.ContextEntry(
           kind: 'three',
           summary: 'third',
           sessionKey: 'session-1',
@@ -42,10 +43,10 @@ void main() {
     });
 
     test('AdvisorOutputParser parses JSON payloads', () {
-      const parser = AdvisorOutputParser();
+      const parser = advisor.AdvisorOutputParser();
       final output = parser.parse('{"status":"stuck","observation":"Loop detected","suggestion":"Narrow scope"}');
 
-      expect(output.status, AdvisorStatus.stuck);
+      expect(output.status, advisor.AdvisorStatus.stuck);
       expect(output.observation, 'Loop detected');
       expect(output.suggestion, 'Narrow scope');
     });

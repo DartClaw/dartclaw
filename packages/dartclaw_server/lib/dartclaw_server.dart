@@ -14,6 +14,7 @@ export 'package:dartclaw_core/dartclaw_core.dart' show PromptScope;
 
 export 'src/api/api_exports.dart';
 export 'src/alerts/alerts_exports.dart';
+export 'src/advisor/advisor_exports.dart';
 export 'src/audit/audit_exports.dart';
 export 'src/auth/auth_exports.dart';
 export 'src/behavior/behavior_exports.dart';

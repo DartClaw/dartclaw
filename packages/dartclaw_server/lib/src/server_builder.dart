@@ -7,6 +7,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistry, Wo
 
 import 'api/google_chat_space_events_wiring.dart';
 import 'api/google_chat_webhook.dart';
+import 'api/event_bus_sse_bridge.dart';
 import 'api/sse_broadcast.dart';
 import 'auth/token_service.dart';
 import 'behavior/behavior_file_service.dart';
@@ -114,6 +115,7 @@ class DartclawServerBuilder {
   TurnTraceService? traceService;
   TaskEventService? taskEventService;
   TaskEventRecorder? taskEventRecorder;
+  EventBusSseBridge? eventBusSseBridge;
 
   // Google Chat
   GoogleChatSpaceEventsWiring? spaceEventsWiring;
@@ -188,6 +190,9 @@ class DartclawServerBuilder {
     final progressTracker = (taskEventService != null && taskService != null && eventBus != null)
         ? TaskProgressTracker(eventBus: eventBus!, tasks: taskService!)
         : null;
+    final bridge =
+        eventBusSseBridge ??
+        (eventBus != null && sseBroadcast != null ? EventBusSseBridge(bus: eventBus!, broadcast: sseBroadcast!) : null);
 
     return DartclawServer.compose(
       sessions: s,
@@ -238,6 +243,7 @@ class DartclawServerBuilder {
       taskEventService: taskEventService,
       taskEventRecorder: eventRecorder,
       progressTracker: progressTracker,
+      eventBusSseBridge: bridge,
       spaceEventsWiring: spaceEventsWiring,
       threadBindingStore: threadBindingStore,
       workflowService: workflowService,

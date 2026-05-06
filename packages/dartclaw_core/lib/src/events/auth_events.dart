@@ -1,6 +1,7 @@
 part of 'dartclaw_event.dart';
 
 /// Fired when authentication fails on a gateway, login, or webhook surface.
+// NOT_ALERTABLE: auth telemetry — tracked in audit logs and metrics
 final class FailedAuthEvent extends DartclawEvent {
   /// Surface that emitted the authentication failure.
   final String source;
@@ -96,6 +97,7 @@ final class GuardBlockEvent extends DartclawEvent {
 /// This fires when Claude Code itself denies a tool, NOT when DartClaw's guard
 /// chain blocks it. A tool denied by `PreToolUse` never reaches this hook.
 /// Informational only — no response action needed from DartClaw.
+// NOT_ALERTABLE: informational telemetry — no operator action required
 final class ToolPermissionDeniedEvent extends DartclawEvent {
   /// Native Claude Code tool name that was denied.
   final String toolName;
@@ -117,6 +119,7 @@ final class ToolPermissionDeniedEvent extends DartclawEvent {
 }
 
 /// Fired when configuration values change via the config API.
+// NOT_ALERTABLE: config mutation telemetry — surfaced in UI state
 final class ConfigChangedEvent extends DartclawEvent {
   /// Fully-qualified config keys that changed.
   final List<String> changedKeys;

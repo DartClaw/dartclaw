@@ -1,4 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:logging/logging.dart';
+
+final _log = Logger('AlertClassifier');
 
 /// Severity classification for alert events (D17).
 enum AlertSeverity { info, warning, critical }
@@ -17,28 +20,58 @@ typedef AlertClassification = ({String alertType, AlertSeverity severity});
 /// - [BudgetWarningEvent]            → `budget_warning` / warning
 /// - [WorkflowBudgetWarningEvent]    → `budget_warning` / warning
 /// - [CompactionCompletedEvent]      → `compaction` / info
+/// - [LoopDetectedEvent]             → `loop_detected` / critical
+/// - [EmergencyStopEvent]            → `emergency_stop` / critical
+/// - [AdvisorInsightEvent]           → `advisor_insight` / warning|critical by status
 AlertClassification? classifyAlert(DartclawEvent event) {
-  if (event is GuardBlockEvent) {
-    return (alertType: 'guard_block', severity: AlertSeverity.warning);
-  }
-  if (event is ContainerCrashedEvent) {
-    return (alertType: 'container_crash', severity: AlertSeverity.critical);
-  }
-  if (event is TaskStatusChangedEvent && event.newStatus == TaskStatus.failed) {
-    return (alertType: 'task_failure', severity: AlertSeverity.warning);
-  }
-  if (event is ScheduledJobFailedEvent) {
-    return (alertType: 'job_failure', severity: AlertSeverity.critical);
-  }
-  if (event is BudgetWarningEvent) {
-    return (alertType: 'budget_warning', severity: AlertSeverity.warning);
-  }
-  if (event is WorkflowBudgetWarningEvent) {
-    return (alertType: 'budget_warning', severity: AlertSeverity.warning);
-  }
-  if (event is CompactionCompletedEvent) {
-    return (alertType: 'compaction', severity: AlertSeverity.info);
-  }
+  return switch (event) {
+    GuardBlockEvent() => (alertType: 'guard_block', severity: AlertSeverity.warning),
+    ContainerCrashedEvent() => (alertType: 'container_crash', severity: AlertSeverity.critical),
+    TaskStatusChangedEvent(newStatus: TaskStatus.failed) => (
+      alertType: 'task_failure',
+      severity: AlertSeverity.warning,
+    ),
+    ScheduledJobFailedEvent() => (alertType: 'job_failure', severity: AlertSeverity.critical),
+    BudgetWarningEvent() => (alertType: 'budget_warning', severity: AlertSeverity.warning),
+    WorkflowBudgetWarningEvent() => (alertType: 'budget_warning', severity: AlertSeverity.warning),
+    CompactionCompletedEvent() => (alertType: 'compaction', severity: AlertSeverity.info),
+    LoopDetectedEvent() => (alertType: 'loop_detected', severity: AlertSeverity.critical),
+    EmergencyStopEvent() => (alertType: 'emergency_stop', severity: AlertSeverity.critical),
+    AdvisorInsightEvent(status: 'stuck') => (alertType: 'advisor_insight', severity: AlertSeverity.warning),
+    AdvisorInsightEvent(status: 'concerning') => (alertType: 'advisor_insight', severity: AlertSeverity.critical),
+    AdvisorInsightEvent(status: final status) => _logUnknownAdvisorStatus(status),
+    TaskStatusChangedEvent() => null,
+    ProjectStatusChangedEvent() => null,
+    FailedAuthEvent() => null,
+    ToolPermissionDeniedEvent() => null,
+    ConfigChangedEvent() => null,
+    ContainerStartedEvent() => null,
+    ContainerStoppedEvent() => null,
+    TaskReviewReadyEvent() => null,
+    TaskEventCreatedEvent() => null,
+    SessionCreatedEvent() => null,
+    SessionEndedEvent() => null,
+    SessionErrorEvent() => null,
+    AdvisorMentionEvent() => null,
+    CompactionStartingEvent() => null,
+    WorkflowRunStatusChangedEvent() => null,
+    WorkflowStepCompletedEvent() => null,
+    WorkflowCliTurnProgressEvent() => null,
+    ParallelGroupCompletedEvent() => null,
+    LoopIterationCompletedEvent() => null,
+    MapIterationCompletedEvent() => null,
+    WorkflowApprovalRequestedEvent() => null,
+    WorkflowApprovalResolvedEvent() => null,
+    MapStepCompletedEvent() => null,
+    WorkflowSerializationEnactedEvent() => null,
+    StepSkippedEvent() => null,
+    AgentStateChangedEvent() => null,
+    AgentExecutionStatusChangedEvent() => null,
+  };
+}
+
+AlertClassification? _logUnknownAdvisorStatus(String status) {
+  _log.fine('AdvisorInsightEvent unrecognised status: $status — no alert');
   return null;
 }
 

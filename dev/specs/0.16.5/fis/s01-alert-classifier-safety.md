@@ -62,19 +62,19 @@ Close the alert-routing safety gap so `LoopDetectedEvent` and `EmergencyStopEven
 
 > Each criterion has a proof path (Scenario or Verify line); criterion → upstream source noted in trailing parens.
 
-- [ ] `classifyAlert(LoopDetectedEvent)` returns `(alertType: 'loop_detected', severity: AlertSeverity.critical)` (plan AC #1, PRD FR1, binding #6)
-- [ ] `classifyAlert(EmergencyStopEvent)` returns `(alertType: 'emergency_stop', severity: AlertSeverity.critical)` (plan AC #1, PRD FR1, binding #6)
-- [ ] `classifyAlert` body is a single `switch (event)` expression with one arm per concrete `DartclawEvent` subtype reachable from the sealed root (plan AC #2, PRD FR1, binding #7)
-- [ ] `AlertFormatter._body` and `AlertFormatter._details` are `switch (event)` expressions over `DartclawEvent` with one arm per concrete subtype (plan AC #3, PRD FR1, binding #7)
-- [ ] Adding a new `DartclawEvent` subtype without a switch arm at any of the three sites causes `dart analyze --fatal-warnings --fatal-infos` to fail with `non_exhaustive_switch_expression` naming the missing subtype (plan AC #4, PRD FR1, binding #9, #79)
-- [ ] Every concrete `DartclawEvent` subtype whose `classifyAlert` arm returns `null` carries a `// NOT_ALERTABLE: <reason>` comment immediately above the class declaration in `packages/dartclaw_core/lib/src/events/*_events.dart` (plan AC #5, binding #74)
+- [x] `classifyAlert(LoopDetectedEvent)` returns `(alertType: 'loop_detected', severity: AlertSeverity.critical)` (plan AC #1, PRD FR1, binding #6)
+- [x] `classifyAlert(EmergencyStopEvent)` returns `(alertType: 'emergency_stop', severity: AlertSeverity.critical)` (plan AC #1, PRD FR1, binding #6)
+- [x] `classifyAlert` body is a single `switch (event)` expression with one arm per concrete `DartclawEvent` subtype reachable from the sealed root (plan AC #2, PRD FR1, binding #7)
+- [x] `AlertFormatter._body` and `AlertFormatter._details` are `switch (event)` expressions over `DartclawEvent` with one arm per concrete subtype (plan AC #3, PRD FR1, binding #7)
+- [x] Adding a new `DartclawEvent` subtype without a switch arm at any of the three sites causes `dart analyze --fatal-warnings --fatal-infos` to fail with `non_exhaustive_switch_expression` naming the missing subtype (plan AC #4, PRD FR1, binding #9, #79)
+- [x] Every concrete `DartclawEvent` subtype whose `classifyAlert` arm returns `null` carries a `// NOT_ALERTABLE: <reason>` comment immediately above the class declaration in `packages/dartclaw_core/lib/src/events/*_events.dart` (plan AC #5, binding #74)
 
 ### Health Metrics (Must NOT Regress)
 
-- [ ] All existing `alert_classifier_test.dart` and `alert_formatter_test.dart` cases still pass with unchanged assertions (the seven currently-mapped events return identical `(alertType, severity)` tuples and identical formatted bodies/details).
-- [ ] SSE envelope format unchanged — no `alert_*` envelope schema changes; this story does NOT wire the new events into SSE (that's S05).
-- [ ] Workspace-wide `strict-casts` + `strict-raw-types` remain on; `dart analyze --fatal-warnings --fatal-infos` is clean (binding #3, #73).
-- [ ] No new package dependencies added to any pubspec (binding #2).
+- [x] All existing `alert_classifier_test.dart` and `alert_formatter_test.dart` cases still pass with unchanged assertions (the seven currently-mapped events return identical `(alertType, severity)` tuples and identical formatted bodies/details).
+- [x] SSE envelope format unchanged — no `alert_*` envelope schema changes; this story does NOT wire the new events into SSE (that's S05).
+- [x] Workspace-wide `strict-casts` + `strict-raw-types` remain on; `dart analyze --fatal-warnings --fatal-infos` is clean (binding #3, #73).
+- [x] No new package dependencies added to any pubspec (binding #2).
 
 
 ## Scenarios
@@ -180,30 +180,30 @@ url    | https://dart.dev/language/patterns#exhaustiveness-checking             
 
 ### Implementation Tasks
 
-- [ ] **TI01** `classifyAlert` is a `switch (event)` expression with one arm per concrete `DartclawEvent` subtype; the seven existing mappings preserve byte-identical `(alertType, severity)` tuples; new arms for `LoopDetectedEvent` → `(loop_detected, critical)` and `EmergencyStopEvent` → `(emergency_stop, critical)`. Subtypes not yet alertable return `null`. No `default:` branch.
+- [x] **TI01** `classifyAlert` is a `switch (event)` expression with one arm per concrete `DartclawEvent` subtype; the seven existing mappings preserve byte-identical `(alertType, severity)` tuples; new arms for `LoopDetectedEvent` → `(loop_detected, critical)` and `EmergencyStopEvent` → `(emergency_stop, critical)`. Subtypes not yet alertable return `null`. No `default:` branch.
   - Reference current ladder at `alert_classifier.dart:20-43`. Use destructuring pattern to encode the `TaskStatusChangedEvent(newStatus: TaskStatus.failed)` guard. Keep dartdoc updated to list all alerting arms.
   - **Verify**: `dart analyze --fatal-warnings --fatal-infos packages/dartclaw_server` is clean; `dart test packages/dartclaw_server/test/alerts/alert_classifier_test.dart` passes; manual inspection of `classifyAlert` shows `switch (event)` with one arm per concrete leaf and no `default:`.
 
-- [ ] **TI02** `AlertFormatter._body` is a `switch (event)` expression with one arm per concrete `DartclawEvent` subtype; the existing seven body strings are byte-identical for the currently-mapped events; new arms for `LoopDetectedEvent` and `EmergencyStopEvent` produce human-readable bodies including their identifying fields (e.g. `'Loop detected in session ${sessionId} (mechanism: ${mechanism}, action: ${action})'`, `'Emergency stop by ${stoppedBy} — ${turnsCancelled} turn(s), ${tasksCancelled} task(s) cancelled'`). No `default:` branch and no `event.toString()` fallback.
+- [x] **TI02** `AlertFormatter._body` is a `switch (event)` expression with one arm per concrete `DartclawEvent` subtype; the existing seven body strings are byte-identical for the currently-mapped events; new arms for `LoopDetectedEvent` and `EmergencyStopEvent` produce human-readable bodies including their identifying fields (e.g. `'Loop detected in session ${sessionId} (mechanism: ${mechanism}, action: ${action})'`, `'Emergency stop by ${stoppedBy} — ${turnsCancelled} turn(s), ${tasksCancelled} task(s) cancelled'`). No `default:` branch and no `event.toString()` fallback.
   - Reference current ladder at `alert_formatter.dart:82-109`. The function returns `String` so each arm yields a string; non-alerting subtypes still need an arm — return a placeholder (e.g. `event.runtimeType.toString()`) since `_body` is only invoked when `classifyAlert` returned non-null, but the analyzer needs the arm to exist.
   - **Verify**: `dart test packages/dartclaw_server/test/alerts/alert_formatter_test.dart` passes; `dart analyze --fatal-warnings --fatal-infos packages/dartclaw_server` clean; the seven existing format strings unchanged (assert via existing tests).
 
-- [ ] **TI03** `AlertFormatter._details` is a `switch (event)` expression with one arm per concrete `DartclawEvent` subtype, returning `Map<String, String>?`. The existing six non-null detail maps are byte-identical; new arms for `LoopDetectedEvent` (`{'Session': sessionId, 'Mechanism': mechanism, 'Action': action}`) and `EmergencyStopEvent` (`{'Stopped by': stoppedBy, 'Turns cancelled': '$turnsCancelled', 'Tasks cancelled': '$tasksCancelled'}`) added; subtypes without details return `null`. No `default:` branch.
+- [x] **TI03** `AlertFormatter._details` is a `switch (event)` expression with one arm per concrete `DartclawEvent` subtype, returning `Map<String, String>?`. The existing six non-null detail maps are byte-identical; new arms for `LoopDetectedEvent` (`{'Session': sessionId, 'Mechanism': mechanism, 'Action': action}`) and `EmergencyStopEvent` (`{'Stopped by': stoppedBy, 'Turns cancelled': '$turnsCancelled', 'Tasks cancelled': '$tasksCancelled'}`) added; subtypes without details return `null`. No `default:` branch.
   - Reference current ladder at `alert_formatter.dart:111-131`.
   - **Verify**: `dart test packages/dartclaw_server/test/alerts/alert_formatter_test.dart` passes (existing detail-map assertions unchanged); new tests for the two safety events assert the prescribed key names.
 
-- [ ] **TI04** Every concrete `DartclawEvent` subtype whose `classifyAlert` arm returns `null` carries a `// NOT_ALERTABLE: <reason>` comment immediately above the class declaration in its `packages/dartclaw_core/lib/src/events/<group>_events.dart` file. Reasons are concise (≤80 chars) and reflect the actual rationale (e.g. `// NOT_ALERTABLE: lifecycle telemetry — surfaced via SSE only`, `// NOT_ALERTABLE: pending S05 — status-driven alert added by S05`).
+- [x] **TI04** Every concrete `DartclawEvent` subtype whose `classifyAlert` arm returns `null` carries a `// NOT_ALERTABLE: <reason>` comment immediately above the class declaration in its `packages/dartclaw_core/lib/src/events/<group>_events.dart` file. Reasons are concise (≤80 chars) and reflect the actual rationale (e.g. `// NOT_ALERTABLE: lifecycle telemetry — surfaced via SSE only`, `// NOT_ALERTABLE: pending S05 — status-driven alert added by S05`).
   - Subtypes that DO alert (the seven in the dartdoc table at `alert_classifier.dart:12-19`, plus `LoopDetectedEvent` + `EmergencyStopEvent` from TI01) get NO annotation. Reference the comment-policy "Anti-rot rules" — the annotation is durable rationale, not narration.
   - **Verify**: `rg "NOT_ALERTABLE:" packages/dartclaw_core/lib/src/events/` lists one annotation per non-alerting concrete subtype; cross-check by running `rg -B1 "^final class .* extends (Dartclaw|.*Lifecycle|AgentExecution)Event" packages/dartclaw_core/lib/src/events/ | rg -A1 "class "` against the subtypes that return `null` from `classifyAlert`. Counts match.
 
-- [ ] **TI05** `alert_classifier_test.dart` covers the two new safety events with positive assertions: `LoopDetectedEvent` → `(alertType: 'loop_detected', severity: AlertSeverity.critical)`; `EmergencyStopEvent` → `(alertType: 'emergency_stop', severity: AlertSeverity.critical)`. Existing test cases remain untouched.
+- [x] **TI05** `alert_classifier_test.dart` covers the two new safety events with positive assertions: `LoopDetectedEvent` → `(alertType: 'loop_detected', severity: AlertSeverity.critical)`; `EmergencyStopEvent` → `(alertType: 'emergency_stop', severity: AlertSeverity.critical)`. Existing test cases remain untouched.
   - Reference test pattern at `alert_classifier_test.dart:13-72`. Include the constructors used in the test data — `LoopDetectedEvent(sessionId, mechanism, message, action, detail?, timestamp)` and `EmergencyStopEvent(stoppedBy, turnsCancelled, tasksCancelled, timestamp)` — verbatim from `governance_events.dart:25-32,54-58`.
   - **Verify**: `dart test packages/dartclaw_server/test/alerts/alert_classifier_test.dart` passes; the two new test names appear in the test report.
 
-- [ ] **TI06** `alert_formatter_test.dart` asserts body and detail content for the two new safety events: body strings include the event's identifying fields verbatim, severity prefix `[CRITICAL]` is present in the plain-text format, and details map keys match TI03 verbatim.
+- [x] **TI06** `alert_formatter_test.dart` asserts body and detail content for the two new safety events: body strings include the event's identifying fields verbatim, severity prefix `[CRITICAL]` is present in the plain-text format, and details map keys match TI03 verbatim.
   - **Verify**: `dart test packages/dartclaw_server/test/alerts/alert_formatter_test.dart` passes; the new tests assert literal body substrings and detail-map keys (`'Session'`, `'Mechanism'`, `'Action'`, `'Stopped by'`, `'Turns cancelled'`, `'Tasks cancelled'`) verbatim.
 
-- [ ] **TI07** Compile-time exhaustiveness is demonstrated. Manual proof: temporarily add a stub `final class _ProofEvent extends DartclawEvent { @override DateTime get timestamp => throw 0; }` to `governance_events.dart`, run `dart analyze --fatal-warnings --fatal-infos packages/dartclaw_server`, confirm `non_exhaustive_switch_expression` diagnostics fire at the three switch sites naming `_ProofEvent`, then revert. (No committed runtime test — by design per binding #79.)
+- [x] **TI07** Compile-time exhaustiveness is demonstrated. Manual proof: temporarily add a stub `final class _ProofEvent extends DartclawEvent { @override DateTime get timestamp => throw 0; }` to `governance_events.dart`, run `dart analyze --fatal-warnings --fatal-infos packages/dartclaw_server`, confirm `non_exhaustive_switch_expression` diagnostics fire at the three switch sites naming `_ProofEvent`, then revert. (No committed runtime test — by design per binding #79.)
   - This task is a one-off verification, not a commit. The `Verify` line is the reproducible analyzer output.
   - **Verify**: With stub event added, `dart analyze packages/dartclaw_server 2>&1 | rg non_exhaustive_switch_expression` lists three hits referencing `alert_classifier.dart` and `alert_formatter.dart` (twice for `_body` and `_details`). Stub then removed; analyzer clean.
 
@@ -232,11 +232,11 @@ url    | https://dart.dev/language/patterns#exhaustiveness-checking             
 
 ## Final Validation Checklist
 
-- [ ] **All success criteria** met
-- [ ] **All tasks** fully completed, verified, and checkboxes checked
-- [ ] **No regressions** — all pre-existing tests in `packages/dartclaw_server/test/alerts/` pass with unchanged assertions
-- [ ] **Analyzer clean** — `dart analyze --fatal-warnings --fatal-infos` clean across `packages/dartclaw_server` and `packages/dartclaw_core`
-- [ ] **Format clean** — `dart format --set-exit-if-changed` clean across changed files
+- [x] **All success criteria** met
+- [x] **All tasks** fully completed, verified, and checkboxes checked
+- [x] **No regressions** — all pre-existing tests in `packages/dartclaw_server/test/alerts/` pass with unchanged assertions
+- [x] **Analyzer clean** — `dart analyze --fatal-warnings --fatal-infos` clean across `packages/dartclaw_server` and `packages/dartclaw_core`
+- [x] **Format clean** — `dart format --set-exit-if-changed` clean across changed files
 
 
 ## Implementation Observations

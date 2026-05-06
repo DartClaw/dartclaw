@@ -47,16 +47,16 @@ Delete the 14-line advisor re-export block from `packages/dartclaw_server/lib/sr
 
 ## Success Criteria (Must Be TRUE)
 
-- [ ] Lines 1–14 of `packages/dartclaw_server/lib/src/canvas/canvas_exports.dart` (the advisor re-export block) are deleted; the file only re-exports canvas-domain symbols.
-- [ ] `AdvisorSubscriber` is publicly reachable from `package:dartclaw_server/dartclaw_server.dart` via a dedicated `src/advisor/advisor_exports.dart` sub-barrel (added to the umbrella alongside the existing `*_exports.dart` rows).
-- [ ] The 10 non-`AdvisorSubscriber` symbols (`AdvisorOutput`, `AdvisorStatus`, `AdvisorTriggerContext`, `AdvisorTriggerType`, `CircuitBreaker`, `ContextEntry`, `SlidingContextWindow`, `TriggerEvaluator`, `AdvisorOutputParser`, `AdvisorOutputRouter`, `renderAdvisorInsightCard`) are NOT re-exported from any barrel — `rg "show.*AdvisorOutput|show.*CircuitBreaker|show.*renderAdvisorInsightCard" packages/` returns empty.
-- [ ] `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` continues to construct and dispose `AdvisorSubscriber` without source changes (umbrella import still resolves the symbol).
-- [ ] `dart analyze` is clean across the workspace (`--fatal-warnings --fatal-infos`).
+- [x] Lines 1–14 of `packages/dartclaw_server/lib/src/canvas/canvas_exports.dart` (the advisor re-export block) are deleted; the file only re-exports canvas-domain symbols.
+- [x] `AdvisorSubscriber` is publicly reachable from `package:dartclaw_server/dartclaw_server.dart` via a dedicated `src/advisor/advisor_exports.dart` sub-barrel (added to the umbrella alongside the existing `*_exports.dart` rows).
+- [x] The 10 non-`AdvisorSubscriber` symbols (`AdvisorOutput`, `AdvisorStatus`, `AdvisorTriggerContext`, `AdvisorTriggerType`, `CircuitBreaker`, `ContextEntry`, `SlidingContextWindow`, `TriggerEvaluator`, `AdvisorOutputParser`, `AdvisorOutputRouter`, `renderAdvisorInsightCard`) are NOT re-exported from any barrel — `rg "show.*AdvisorOutput|show.*CircuitBreaker|show.*renderAdvisorInsightCard" packages/` returns empty.
+- [x] `apps/dartclaw_cli/lib/src/commands/service_wiring.dart` continues to construct and dispose `AdvisorSubscriber` without source changes (umbrella import still resolves the symbol).
+- [x] `dart analyze` is clean across the workspace (`--fatal-warnings --fatal-infos`).
 
 ### Health Metrics (Must NOT Regress)
-- [ ] Existing advisor test suites (`packages/dartclaw_server/test/advisor/`) pass unchanged.
-- [ ] `package:dartclaw_server/dartclaw_server.dart` umbrella still observes its ≤80-export ceiling (per `dartclaw_server/CLAUDE.md`).
-- [ ] No other re-exports in `canvas_exports.dart` are touched (canvas-domain re-exports stay intact).
+- [x] Existing advisor test suites (`packages/dartclaw_server/test/advisor/`) pass unchanged.
+- [x] `package:dartclaw_server/dartclaw_server.dart` umbrella still observes its ≤80-export ceiling (per `dartclaw_server/CLAUDE.md`).
+- [x] No other re-exports in `canvas_exports.dart` are touched (canvas-domain re-exports stay intact).
 
 
 ## Scenarios
@@ -145,26 +145,26 @@ file   | apps/dartclaw_cli/lib/src/commands/service_wiring.dart:352,845,933     
 
 ### Implementation Tasks
 
-- [ ] **TI01** New file `packages/dartclaw_server/lib/src/advisor/advisor_exports.dart` exists, exporting `AdvisorSubscriber` only via a `show` clause.
+- [x] **TI01** New file `packages/dartclaw_server/lib/src/advisor/advisor_exports.dart` exists, exporting `AdvisorSubscriber` only via a `show` clause.
   - Mirror the shape of `lib/src/alerts/alerts_exports.dart`. Single line: `export 'advisor_subscriber.dart' show AdvisorSubscriber;`. No other symbols.
   - **Verify**: `rg "^export" packages/dartclaw_server/lib/src/advisor/advisor_exports.dart` shows exactly one line containing `AdvisorSubscriber` and no other symbol names.
 
-- [ ] **TI02** Umbrella `packages/dartclaw_server/lib/dartclaw_server.dart` re-exports the new sub-barrel.
+- [x] **TI02** Umbrella `packages/dartclaw_server/lib/dartclaw_server.dart` re-exports the new sub-barrel.
   - Insert `export 'src/advisor/advisor_exports.dart';` alphabetically (between `src/alerts/alerts_exports.dart` and `src/audit/audit_exports.dart`). Preserve surrounding ordering.
   - **Verify**: `grep -n "advisor_exports" packages/dartclaw_server/lib/dartclaw_server.dart` returns one match; `dart analyze packages/dartclaw_server` is clean.
 
-- [ ] **TI03** Advisor re-export block removed from `packages/dartclaw_server/lib/src/canvas/canvas_exports.dart`.
+- [x] **TI03** Advisor re-export block removed from `packages/dartclaw_server/lib/src/canvas/canvas_exports.dart`.
   - Delete lines 1–14 (the entire `export '../advisor/advisor_subscriber.dart' show ... ;` block). Lines 15–22 (canvas-domain re-exports) remain unchanged. Resulting file starts with `export 'canvas_admin_routes.dart' show canvasAdminRoutes;`.
   - **Verify**: `head -1 packages/dartclaw_server/lib/src/canvas/canvas_exports.dart` shows `export 'canvas_admin_routes.dart' show canvasAdminRoutes;`; `rg "advisor_subscriber|AdvisorSubscriber|AdvisorOutput|CircuitBreaker|renderAdvisorInsightCard" packages/dartclaw_server/lib/src/canvas/canvas_exports.dart` returns empty.
 
-- [ ] **TI04** No CLI consumer source change is needed — `service_wiring.dart` resolves `AdvisorSubscriber` through the umbrella.
+- [x] **TI04** No CLI consumer source change is needed — `service_wiring.dart` resolves `AdvisorSubscriber` through the umbrella.
   - This task is a verify-only checkpoint (no edit). If `dart analyze apps/dartclaw_cli` flags `AdvisorSubscriber` as unresolved, TI01/TI02 are wrong — fix there, do not patch the CLI to import a sub-barrel directly.
   - **Verify**: `dart analyze apps/dartclaw_cli` is clean; `git diff -- apps/dartclaw_cli/lib/src/commands/service_wiring.dart` is empty.
 
-- [ ] **TI05** None of the 10 orphan symbols are reachable from any public barrel.
+- [x] **TI05** None of the 10 orphan symbols are reachable from any public barrel.
   - **Verify**: `rg "AdvisorOutput\b|AdvisorStatus\b|AdvisorTriggerContext\b|AdvisorTriggerType\b|CircuitBreaker\b|ContextEntry\b|SlidingContextWindow\b|TriggerEvaluator\b|AdvisorOutputParser\b|AdvisorOutputRouter\b|renderAdvisorInsightCard\b" packages/dartclaw_server/lib/dartclaw_server.dart packages/dartclaw_server/lib/src/canvas/canvas_exports.dart packages/dartclaw_server/lib/src/advisor/advisor_exports.dart` returns no matches.
 
-- [ ] **TI06** Workspace analyze + advisor test suite green.
+- [x] **TI06** Workspace analyze + advisor test suite green.
   - Run `dart analyze --fatal-warnings --fatal-infos` from the workspace root, then `dart test packages/dartclaw_server/test/advisor/`.
   - **Verify**: analyzer reports zero issues across the workspace; advisor test suite passes with zero failures.
 
@@ -187,11 +187,11 @@ file   | apps/dartclaw_cli/lib/src/commands/service_wiring.dart:352,845,933     
 
 ## Final Validation Checklist
 
-- [ ] **All success criteria** met
-- [ ] **All tasks** fully completed, verified, and checkboxes checked
-- [ ] **No regressions** or breaking changes introduced
-- [ ] **Advisor test suite** passes (`dart test packages/dartclaw_server/test/advisor/`)
-- [ ] **Workspace analyze clean** (`dart analyze --fatal-warnings --fatal-infos`)
+- [x] **All success criteria** met
+- [x] **All tasks** fully completed, verified, and checkboxes checked
+- [x] **No regressions** or breaking changes introduced
+- [x] **Advisor test suite** passes (`dart test packages/dartclaw_server/test/advisor/`)
+- [x] **Workspace analyze clean** (`dart analyze --fatal-warnings --fatal-infos`)
 
 
 ## Implementation Observations

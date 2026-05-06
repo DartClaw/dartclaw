@@ -464,7 +464,7 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 **Note on `agent.provider`:** When set, the default provider applies to all sessions and tasks unless overridden. Per-task provider overrides are supported via `configJson.provider` at task creation time. See [Agents § Providers](agents.md#providers) for setup details and routing behavior.
 
-**Note on `providers` section:** When omitted, DartClaw creates a single Claude provider using `agent.claude_executable` (or the `claude` binary on `$PATH`). The explicit `providers:` section is only needed for multi-provider deployments or to customize pool sizes, executables, or provider-specific options. `pool_size: 0` means "use the default pool allocation".
+**Note on `providers` section:** When omitted, DartClaw creates a single Claude provider using `providers.claude.executable` (or the `claude` binary on `$PATH`). The explicit `providers:` section is only needed for multi-provider deployments or to customize pool sizes, executables, or provider-specific options. `pool_size: 0` means "use the default pool allocation".
 
 **Note on `governance.budget.timezone`:** Only UTC-offset formats are supported: `UTC`, `GMT`, `UTC+N`, `UTC-N` (e.g., `UTC+1`, `UTC-5`). IANA timezone names like `Europe/Stockholm` or `America/New_York` are **not** supported and will fall back to UTC with a warning. This means budget reset times do not automatically adjust for DST. If your timezone observes DST, you may need to update the offset seasonally or accept the one-hour drift during DST transitions.
 

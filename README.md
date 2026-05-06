@@ -9,7 +9,7 @@ _Agentic powers. No dependency black holes. Secure by design._
 > [!NOTE]
 > Welcome to DartClaw – An **experimental**, security-conscious AI agent runtime built with Dart.
 >
-> _Status_: `v0.16.4` – connected-by-default CLI workflow execution, operational command groups, workflow trigger surfaces, redesigned `plan-and-implement` built-in, and AndThen-as-runtime-prerequisite skill provisioning. See [CHANGELOG](CHANGELOG.md).
+> _Status_: `v0.16.4` – connected-by-default CLI workflow execution, operational command groups, and workflow trigger surfaces (web launch forms, `/workflow` chat commands, and GitHub PR webhooks). See [CHANGELOG](CHANGELOG.md).
 
 <p align="center">
   <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI — Task Dashboard" width="720">
@@ -79,7 +79,8 @@ dart compile exe apps/dartclaw_cli/bin/dartclaw.dart -o dartclaw
 ## Project Structure
 
 ```
-apps/dartclaw_cli/              CLI app (serve, status, deploy, token commands)
+apps/
+  dartclaw_cli/                 AOT-compilable CLI app (serve, status, deploy, token commands)
 packages/
   dartclaw/                     Published umbrella — re-exports core + models + storage
   dartclaw_core/                Harness, protocol adapters, guards, channels, agents, scheduling, governance (sqlite3-free)
@@ -88,6 +89,7 @@ packages/
   dartclaw_server/              HTTP API (Shelf), web UI (HTMX/Trellis), SSE, tasks, turns
   dartclaw_config/              Config parsing, typed sections, extension registration
   dartclaw_security/            Guard implementations, input sanitizer, content classifier
+  dartclaw_workflow/            Workflow definitions, registry, parser/validator, and execution support
   dartclaw_whatsapp/            WhatsApp channel (GOWA sidecar)
   dartclaw_signal/              Signal channel (signal-cli sidecar)
   dartclaw_google_chat/         Google Chat channel (Workspace Events + Pub/Sub)

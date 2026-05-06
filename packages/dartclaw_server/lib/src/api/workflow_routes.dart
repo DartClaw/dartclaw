@@ -600,8 +600,12 @@ Future<Response> _workflowRunSseHandler(
     });
   });
 
-  final stepCompletedSub = eventBus.on<WorkflowStepCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+  final stepCompletedSub = eventBus.on<WorkflowStepCompletedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) async {
     childTaskIds.add(event.taskId);
+    final task = event.taskId.isEmpty ? null : await tasks.get(event.taskId);
+    final displayScope = event.displayScope ?? _taskDisplayScope(task);
     final payload = <String, dynamic>{
       'type': 'workflow_step_completed',
       'runId': event.runId,
@@ -612,8 +616,8 @@ Future<Response> _workflowRunSseHandler(
       'success': event.success,
       'tokenCount': event.tokenCount,
     };
-    if (event.displayScope != null) {
-      payload['displayScope'] = event.displayScope;
+    if (displayScope != null) {
+      payload['displayScope'] = displayScope;
     }
     _sendSse(controller, payload);
   });

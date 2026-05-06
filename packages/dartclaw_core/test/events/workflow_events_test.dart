@@ -77,6 +77,7 @@ void main() {
         stepIndex: 0,
         totalSteps: 3,
         taskId: 'task-abc',
+        displayScope: 'S01',
         success: true,
         tokenCount: 12500,
         timestamp: DateTime(2026, 4, 1),
@@ -88,6 +89,7 @@ void main() {
       expect(event.stepIndex, equals(0));
       expect(event.totalSteps, equals(3));
       expect(event.taskId, equals('task-abc'));
+      expect(event.displayScope, equals('S01'));
       expect(event.success, isTrue);
       expect(event.tokenCount, equals(12500));
     });

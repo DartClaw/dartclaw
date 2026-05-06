@@ -48,12 +48,16 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
     });
 
     try {
+      final displayScope = mapCtx.itemId(iterIndex);
       final mapTaskConfig = {
         ...taskConfig,
         '_mapStepId': step.id,
         '_mapIterationIndex': iterIndex,
         '_mapIterationTotal': mapCtx.collection.length,
       };
+      if (displayScope != null) {
+        mapTaskConfig['displayScope'] = displayScope;
+      }
       await _createWorkflowTaskTriple(
         taskId: taskId,
         run: run,

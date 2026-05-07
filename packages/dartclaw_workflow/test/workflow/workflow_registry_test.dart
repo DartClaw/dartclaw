@@ -242,7 +242,7 @@ steps:
       expect(reviseSpec.entryGate, contains('spec_confidence'));
       // spec_path is referenced somewhere in the definition steps.
       expect(specAndImplement.steps.any((s) => s.prompts?.any((p) => p.contains('spec_path')) ?? false), isTrue);
-      assertSkills(specAndImplement, ['dartclaw-review'], ['andthen-review', 'dartclaw-review-gap']);
+      assertSkills(specAndImplement, ['andthen:review'], ['andthen-review', 'dartclaw-review-gap']);
 
       // plan-and-implement: BRANCH variable, gitStrategy, revise-prd step, not review-prd.
       expect(planAndImplement.variables.containsKey('BRANCH'), isTrue);
@@ -254,23 +254,23 @@ steps:
       expect(planAndImplement.steps.any((s) => s.id == 'update-state'), isFalse);
       assertSkills(
         planAndImplement,
-        ['dartclaw-quick-review', 'dartclaw-review', 'dartclaw-plan', 'dartclaw-prd'],
+        ['andthen:quick-review', 'andthen:review', 'andthen:plan', 'andthen:prd'],
         ['andthen-quick-review', 'andthen-review', 'andthen-plan', 'andthen-prd', 'dartclaw-spec-plan'],
       );
 
-      // code-review: PROJECT variable (not REPO), gitStrategy, dartclaw-review skill.
+      // code-review: PROJECT variable (not REPO), gitStrategy, canonical review skill.
       expect(codeReview.variables.containsKey('PROJECT'), isTrue);
       expect(codeReview.variables.containsKey('REPO'), isFalse);
       expect(codeReview.gitStrategy, isNotNull);
-      assertSkills(codeReview, ['dartclaw-review'], ['andthen-review', 'dartclaw-review-code']);
+      assertSkills(codeReview, ['andthen:review'], ['andthen-review', 'dartclaw-review-code']);
     });
 
-    test('code-review uses dartclaw-review and forbids legacy andthen-review', () async {
+    test('code-review uses canonical andthen:review and forbids provider alias in YAML', () async {
       final parser = WorkflowDefinitionParser();
       final codeReview = await parser.parseFile(p.join(_workflowDefinitionsDir(), 'code-review.yaml'));
 
-      // Exactly two steps use dartclaw-review (initial review + re-review).
-      final reviewSteps = codeReview.steps.where((s) => s.skill == 'dartclaw-review').toList();
+      // Exactly two steps use andthen:review (initial review + re-review).
+      final reviewSteps = codeReview.steps.where((s) => s.skill == 'andthen:review').toList();
       expect(reviewSteps.length, equals(2));
       expect(codeReview.steps.map((s) => s.skill), isNot(contains('andthen-review')));
 

@@ -62,16 +62,13 @@ void main() {
     expect(credential?.envVars, ['GITHUB_TOKEN']);
   });
 
-  test('fixture wiring discovers required workflow skills from data-dir native roots', () async {
+  test('fixture wiring resolves required AndThen workflow skill aliases from data-dir native roots', () async {
     final fixture = await E2EFixture(projectCredentials: null, environment: const {}).build();
     addTearDown(fixture.dispose);
-    fixture.writeDataDirWorkflowSkills(const [
-      'dartclaw-prd',
-      'dartclaw-plan',
-      'dartclaw-spec',
-      'dartclaw-exec-spec',
-      'dartclaw-review',
-    ]);
+    fixture.writeDataDirWorkflowSkills(
+      codexNames: const ['andthen-prd', 'andthen-plan', 'andthen-spec', 'andthen-exec-spec', 'andthen-review'],
+      claudeNames: const ['andthen:prd', 'andthen:plan', 'andthen:spec', 'andthen:exec-spec', 'andthen:review'],
+    );
 
     final factory = HarnessFactory()
       ..register('codex', (_) => FakeAgentHarness())
@@ -79,18 +76,34 @@ void main() {
     final wiring = await fixture.wire(harnessFactory: factory);
     addTearDown(wiring.dispose);
 
-    for (final name in const [
-      'dartclaw-prd',
-      'dartclaw-plan',
-      'dartclaw-spec',
-      'dartclaw-exec-spec',
-      'dartclaw-review',
-    ]) {
+    for (final name in const ['andthen-prd', 'andthen-plan', 'andthen-spec', 'andthen-exec-spec', 'andthen-review']) {
       final skill = wiring.skillRegistry.getByName(name);
       expect(skill, isNotNull);
       expect(skill!.path, startsWith(fixture.config.server.dataDir));
       expect(skill.source, SkillSource.dataDirNative);
-      expect(skill.nativeHarnesses, {'claude', 'codex'});
+      expect(skill.nativeHarnesses, {'codex'});
+    }
+    for (final name in const ['andthen:prd', 'andthen:plan', 'andthen:spec', 'andthen:exec-spec', 'andthen:review']) {
+      final skill = wiring.skillRegistry.getByName(name);
+      expect(skill, isNotNull);
+      expect(skill!.path, startsWith(fixture.config.server.dataDir));
+      expect(skill.source, SkillSource.dataDirNative);
+      expect(skill.nativeHarnesses, {'claude'});
+    }
+    for (final canonical in const [
+      'andthen:prd',
+      'andthen:plan',
+      'andthen:spec',
+      'andthen:exec-spec',
+      'andthen:review',
+    ]) {
+      final codex = wiring.skillRegistry.resolveRef(canonical, 'codex');
+      expect(codex?.invocationName, canonical.replaceFirst('andthen:', 'andthen-'));
+      expect(codex?.skill.source, SkillSource.dataDirNative);
+
+      final claude = wiring.skillRegistry.resolveRef(canonical, 'claude');
+      expect(claude?.invocationName, canonical);
+      expect(claude?.skill.source, SkillSource.dataDirNative);
     }
   });
 

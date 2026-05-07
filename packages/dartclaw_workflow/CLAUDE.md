@@ -6,11 +6,11 @@
 
 Three workflows ship in `lib/src/workflow/definitions/` and load into the registry at startup:
 
-- **`spec-and-implement`** — single-feature pipeline driven by `FEATURE` (free text or FIS path). Discover → spec → `dartclaw-exec-spec` → integrated review.
+- **`spec-and-implement`** — single-feature pipeline driven by `FEATURE` (free text or FIS path). Discover → spec → `andthen:exec-spec` → integrated review.
 - **`plan-and-implement`** — multi-story milestone pipeline driven by `REQUIREMENTS`. Discover → PRD → plan + per-story FIS → parallel implement+quick-review (foreach with `MAX_PARALLEL`) → refactor → parallel plan-review + architecture-review → bounded remediation loop.
 - **`code-review`** — single-methodology review of a `TARGET` (PR/branch/module) + bounded remediation loop.
 
-All three orchestrate skills in the **`dartclaw-*` namespace** (`dartclaw-discover-project`, `dartclaw-prd`, `dartclaw-plan`, `dartclaw-exec-spec`, `dartclaw-quick-review`, `dartclaw-review`, `dartclaw-architecture`, `dartclaw-refactor`, `dartclaw-remediate-findings`) — never `andthen:*` plugin counterparts. The canonical DC-native inventory is `dcNativeSkillNames` in `lib/src/skills/skill_provisioner.dart`; do not wildcard-add or rename these without updating that list.
+Built-ins use canonical `andthen:<name>` references for AndThen-owned skills. Provider aliases are resolved by `SkillRegistry`: Codex searches `andthen-<name>`, Claude Code searches `andthen:<name>`. The three DartClaw-native skills remain exact `dartclaw-*` names (`dartclaw-discover-project`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`). The canonical DC-native inventory is `dcNativeSkillNames` in `lib/src/skills/skill_provisioner.dart`; do not wildcard-add or rename these without updating that list.
 
 Authoring steps in `plan-and-implement` are **artefact-aware** via `entryGate`s that read what `dartclaw-discover-project` resolved from the project's `Project Document Index` (`dev/bundle/docs/specs/<version>/` for DartClaw public exported bundles): `prd` skips when `project_index.active_prd != null`; `plan` skips when story specs are already present. For maintainer runs against the live public checkout, see root `CLAUDE.md` § Built-in DartClaw Workflows and `dev/tools/dartclaw-workflows/README.md`. Editing any of the three YAML files affects `built_in_workflow_contracts_test.dart` — keep it green.
 
@@ -19,7 +19,7 @@ Authoring steps in `plan-and-implement` are **artefact-aware** via `entryGate`s 
 - **Executor** — `WorkflowExecutor` (run loop, gate evaluation, per-step persistence, crash recovery, role-alias provider resolution).
 - **Step dispatch + iteration** — `step_dispatcher.dart` plus 3 step runners (`bash`, `approval`, `loop`) and 3 iteration controllers (`foreach`, `map`, `parallel_group`). Foreach/map produce a single aggregate output key; parallel_group produces one per branch.
 - **Output capture** — `OutputConfig` (sentinel-backed slots so absence vs explicit `null` round-trip distinctly) + `context_extractor.dart` (parses inline `<workflow-context>`, falls back to a second extraction turn).
-- **Skills subsystem** — `SkillRegistry` (step-time lookup), `SkillPromptBuilder` (prompt augmentation with `SKILL.md` body + step args), `SkillProvisioner` (startup AndThen clone gated by `AndthenNetworkPolicy` + DC-native skill copy from `packages/dartclaw_workflow/skills/`), `WorkspaceSkillLinker` (project/worktree native-link materialization and cleanup).
+- **Skills subsystem** — `SkillRegistry` (provider-aware canonical reference resolution), `SkillPromptBuilder` (prompt augmentation with `SKILL.md` body + step args), `SkillProvisioner` (DC-native skill copy from `packages/dartclaw_workflow/skills/`), `WorkspaceSkillLinker` (project/worktree native-link materialization and cleanup).
 - **Host ports** — `WorkflowGitPort` (worktree / merge / push / PR) and `WorkflowTurnAdapter` (turn execution); both injected by `dartclaw_server`. This package never calls `Process.run` for git nor spawns harnesses directly.
 
 ## Shape
@@ -28,7 +28,7 @@ Authoring steps in `plan-and-implement` are **artefact-aware** via `entryGate`s 
 - **Step types**: `bash_step_runner` (shell), `approval_step_runner` (human checkpoint), `loop_step_runner` (re-runs inner sequence until a gate fires), `foreach_iteration_runner` (sequential), `map_iteration_runner` (parallel up to `maxParallel`), `parallel_group_runner` (fixed parallel branches). Foreach/map produce one aggregate output key; parallel_group produces one per branch.
 - **Output capture**: agent emits a `<workflow-context>` payload inline → executor parses → outputs land in `OutputConfig`. Inline-parse failure triggers a second extraction turn; happy path is one turn.
 - **Iteration + worktrees**: `gitStrategy.worktree: auto` resolves to `per-map-item` when `maxParallel > 1`, else `inline` (via `WorkflowGitStrategy.effectiveWorktreeMode()`). Worktree-promotion inference depends on this resolution.
-- **Skills**: at step time, `SkillRegistry` looks up the skill → `SkillPromptBuilder` augments the prompt with the `SKILL.md` body + step arguments. `SkillProvisioner` clones AndThen at server startup (gated by `AndthenNetworkPolicy`) and installs `dartclaw-*` skills and agents into data-dir native Codex/Claude roots. `WorkspaceSkillLinker` exposes those payloads to configured projects and worktrees through per-skill native links.
+- **Skills**: at step time, `SkillRegistry` resolves the authored canonical skill reference for the effective provider → `SkillPromptBuilder` receives the provider-native invocation name. `SkillProvisioner` copies only DC-native skills into data-dir native Codex/Claude roots. `WorkspaceSkillLinker` exposes those exact DC-native payloads to configured projects and worktrees through per-skill native links.
 - **Host seam**: this package never calls `Process.run` for git nor spawns agents directly. The host (`dartclaw_server`) injects `WorkflowGitPort` (worktree / merge / push / PR) and `WorkflowTurnAdapter` (turn execution).
 
 ## Boundaries
@@ -64,7 +64,7 @@ Authoring steps in `plan-and-implement` are **artefact-aware** via `entryGate`s 
 - `lib/src/workflow/step_dispatcher.dart` + sibling `*_step_runner.dart` / `*_iteration_runner.dart` — step type plumbing.
 - `lib/src/workflow/workflow_turn_adapter.dart` + `workflow_git_port.dart` — host-injected git callbacks; do not import server impls.
 - `lib/src/workflow/skill_registry_impl.dart` + `skill_prompt_builder.dart` — skill lookup and prompt augmentation.
-- `lib/src/skills/skill_provisioner.dart` — startup AndThen clone + DC-native skill copy; honors `AndthenNetworkPolicy`.
-- `lib/src/skills/workspace_skill_linker.dart` — per-project/worktree `dartclaw-*` symlink materialization, copy fallback, git-exclude writes, and cleanup.
+- `lib/src/skills/skill_provisioner.dart` — DC-native skill copy into data-dir provider skill roots.
+- `lib/src/skills/workspace_skill_linker.dart` — per-project/worktree DC-native skill symlink materialization, copy fallback, git-exclude writes, and cleanup.
 - `lib/src/workflow/definitions/*.yaml` — shipped built-in workflows; changes affect the contract test.
 - `lib/src/workflow/validation/` — split validator rule files.

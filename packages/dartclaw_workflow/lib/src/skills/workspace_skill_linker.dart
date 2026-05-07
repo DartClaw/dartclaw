@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import 'skill_provisioner.dart' show dcNativeSkillNames;
+
 /// Creates a filesystem link from [linkPath] to [targetPath].
 typedef WorkspaceLinkFactory = void Function({required String targetPath, required String linkPath});
 
@@ -36,10 +38,12 @@ final class WorkspaceSkillLinker {
 
   static const managedMarkerName = '.dartclaw-managed';
   static const managedExcludePatterns = [
-    '/.claude/skills/dartclaw-*',
-    '/.agents/skills/dartclaw-*',
-    '/.claude/agents/dartclaw-*.md',
-    '/.codex/agents/dartclaw-*.toml',
+    '/.claude/skills/dartclaw-discover-project',
+    '/.claude/skills/dartclaw-validate-workflow',
+    '/.claude/skills/dartclaw-merge-resolve',
+    '/.agents/skills/dartclaw-discover-project',
+    '/.agents/skills/dartclaw-validate-workflow',
+    '/.agents/skills/dartclaw-merge-resolve',
   ];
 
   final WorkspaceLinkFactory _linkFactory;
@@ -260,7 +264,7 @@ Iterable<String> _dartclawNames(Iterable<String> names) {
   final normalized = <String>{};
   for (final raw in names) {
     final trimmed = raw.trim();
-    if (trimmed.startsWith('dartclaw-')) normalized.add(trimmed);
+    if (dcNativeSkillNames.contains(trimmed)) normalized.add(trimmed);
   }
   return normalized.toList()..sort();
 }
@@ -275,7 +279,7 @@ List<String> _discoverSkillNames(String dataDir) {
     for (final entry in dir.listSync(followLinks: false)) {
       if (entry is! Directory) continue;
       final name = p.basename(entry.path);
-      if (!name.startsWith('dartclaw-')) continue;
+      if (!dcNativeSkillNames.contains(name)) continue;
       if (File(p.join(entry.path, 'SKILL.md')).existsSync()) names.add(name);
     }
   }
@@ -290,7 +294,7 @@ List<String> _discoverAgentNames(String dirPath, String extension) {
     if (entry is! File) continue;
     if (p.extension(entry.path) != extension) continue;
     final name = p.basenameWithoutExtension(entry.path);
-    if (name.startsWith('dartclaw-')) names.add(name);
+    if (dcNativeSkillNames.contains(name)) names.add(name);
   }
   names.sort();
   return names;

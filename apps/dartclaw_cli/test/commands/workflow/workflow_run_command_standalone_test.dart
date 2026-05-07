@@ -162,11 +162,11 @@ steps:
       );
 
       expect(output, [
-        '--no-skill-bootstrap was set but DartClaw workflow skills referenced by "source-only-skill" '
+        '--no-skill-bootstrap was set but workflow skills referenced by "source-only-skill" '
             'are not installed in native harness skill roots for their execution providers: '
-            'dartclaw-discover-project (claude). '
-            'Pre-stage the skill bundle under the data-dir native skill roots and materialize the project workspace links, '
-            'or omit --no-skill-bootstrap to provision them automatically.',
+            'dartclaw-discover-project (provider claude, searched dartclaw-discover-project). '
+            'Install AndThen separately for AndThen-owned skills; omit --no-skill-bootstrap only provisions '
+            'DartClaw-native skills.',
       ]);
     });
 
@@ -207,11 +207,11 @@ steps:
       );
 
       expect(output, [
-        '--no-skill-bootstrap was set but DartClaw workflow skills referenced by "provider-mismatch" '
+        '--no-skill-bootstrap was set but workflow skills referenced by "provider-mismatch" '
             'are not installed in native harness skill roots for their execution providers: '
-            'dartclaw-discover-project (codex). '
-            'Pre-stage the skill bundle under the data-dir native skill roots and materialize the project workspace links, '
-            'or omit --no-skill-bootstrap to provision them automatically.',
+            'dartclaw-discover-project (provider codex, searched dartclaw-discover-project). '
+            'Install AndThen separately for AndThen-owned skills; omit --no-skill-bootstrap only provisions '
+            'DartClaw-native skills.',
       ]);
     });
 

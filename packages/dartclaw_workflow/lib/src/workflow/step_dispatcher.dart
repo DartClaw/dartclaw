@@ -49,7 +49,6 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     }
 
     final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: _roleDefaults);
-    final effectiveOutputs = _effectiveOutputsFor(step);
     final resolvedFirstPrompt = step.prompts != null
         ? _templateEngine.resolveWithMap(step.prompts!.first, context, mapCtx)
         : null;
@@ -58,7 +57,6 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             for (final key in step.inputs) key: context[key] ?? '',
           }, outputConfigs: _inputConfigsFor(definition, step.inputs))
         : null;
-    final skillDefaultPrompt = _skillDefaultPromptFor(step);
     final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
     final variableNames = _autoFrameVariableNames(step);
     final resolvedWorktreeMode = _resolvedWorktreeModeForScope(
@@ -83,6 +81,9 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     final effectiveProvider = continuedRootStep != null
         ? _resolveContinueSessionProvider(definition, step, continuedRootStep, resolved)
         : resolved.provider;
+    final resolvedSkill = _resolvedSkillFor(step, effectiveProvider);
+    final effectiveOutputs = _effectiveOutputsFor(step, resolvedSkill: resolvedSkill);
+    final skillDefaultPrompt = _skillDefaultPromptFor(step, resolvedSkill);
     final effectiveProjectId = mapCtx != null
         ? _resolveProjectIdWithMap(definition, continuedRootStep ?? step, context, mapCtx, resolved: resolved)
         : _resolveProjectId(definition, continuedRootStep ?? step, context, resolved: resolved);
@@ -141,7 +142,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     final emitOutcomeProtocol = !step.emitsOwnOutcome;
     final firstTaskPrompt = step.isMultiPrompt
         ? _skillPromptBuilder.build(
-            skill: step.skill,
+            skill: resolvedSkill?.invocationName ?? step.skill,
             resolvedPrompt: resolvedFirstPrompt,
             contextSummary: contextSummary,
             outputKeys: step.outputKeys,
@@ -154,7 +155,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             provider: effectiveProvider,
           )
         : _skillPromptBuilder.build(
-            skill: step.skill,
+            skill: resolvedSkill?.invocationName ?? step.skill,
             resolvedPrompt: resolvedFirstPrompt,
             contextSummary: contextSummary,
             outputs: effectiveOutputs,
@@ -175,7 +176,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       outputKeys: step.outputKeys,
       mapCtx: mapCtx,
     );
-    final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);
+    final structuredSchema = _buildStructuredOutputEnvelopeSchema(step, effectiveOutputs: effectiveOutputs);
     taskConfig = {...taskConfig, if (extraTaskConfig != null) ...extraTaskConfig};
     if (followUpPrompts.isNotEmpty) {
       taskConfig['_workflowFollowUpPrompts'] = followUpPrompts;

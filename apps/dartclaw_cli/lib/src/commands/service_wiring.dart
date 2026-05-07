@@ -131,8 +131,8 @@ class ServiceWiring {
   final AssetResolver assetResolver;
 
   /// When `false`, [wire] skips the [SkillProvisioner] bootstrap. Production
-  /// callers leave the default. Tests opt out when they don't pre-stage a fake
-  /// AndThen source cache and don't want network/clone cost.
+  /// callers leave the default. Tests opt out when they do not need native
+  /// workflow skill materialization.
   final bool runAndthenSkillsBootstrap;
 
   /// Environment passed to [SkillProvisioner] when [runAndthenSkillsBootstrap]
@@ -186,10 +186,9 @@ class ServiceWiring {
     final builtInSkillsSourceDir =
         resolvedAssets?.skillsDir ?? WorkflowSkillSourceResolver.resolveBuiltInSkillsSourceDir();
 
-    // 0.5. AndThen skills bootstrap — clone AndThen, install dartclaw-* skills
-    // into the data-dir native roots, and materialize configured project links.
+    // 0.5. DartClaw-native workflow skill bootstrap.
     if (runAndthenSkillsBootstrap) {
-      await bootstrapAndthenSkills(
+      await bootstrapWorkflowSkills(
         config: config,
         dataDir: dataDir,
         builtInSkillsSourceDir: builtInSkillsSourceDir,

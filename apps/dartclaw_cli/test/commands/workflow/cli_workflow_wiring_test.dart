@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_cli/src/commands/workflow/andthen_skill_bootstrap.dart' show bootstrapAndthenSkills;
+import 'package:dartclaw_cli/src/commands/workflow/andthen_skill_bootstrap.dart' show bootstrapWorkflowSkills;
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart'
     show restoreCheckoutBeforeWorkflowBranchDeletion;
@@ -109,14 +109,13 @@ void main() {
       providers: ProvidersConfig(
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
       ),
-      andthen: const AndthenConfig(network: AndthenNetworkPolicy.disabled),
       server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       projects: ProjectConfig(
         definitions: {'alpha': ProjectDefinition(id: 'alpha', remote: 'file:///tmp/alpha.git')},
       ),
     );
 
-    await bootstrapAndthenSkills(
+    await bootstrapWorkflowSkills(
       config: config,
       dataDir: tempDir.path,
       builtInSkillsSourceDir: builtInSkillsSource.path,
@@ -351,7 +350,7 @@ steps:
           id: 'review',
           name: 'Review',
           type: 'analysis',
-          skill: 'dartclaw-review',
+          skill: 'andthen:review',
           prompts: ['Inspect the change set.', 'Re-check the follow-up output.'],
         ),
       ],
@@ -526,10 +525,10 @@ steps:
     expect(captured.map((config) => config.cwd).toSet(), {runtimeCwd.path});
   });
 
-  test('discovers dartclaw workflow skills from data-dir native roots', () async {
+  test('discovers manually installed provider skills from data-dir native roots', () async {
     final dataClaudeSkills = p.join(tempDir.path, '.claude', 'skills');
     final dataAgentsSkills = p.join(tempDir.path, '.agents', 'skills');
-    for (final name in const ['dartclaw-prd', 'dartclaw-plan']) {
+    for (final name in const ['andthen:prd', 'andthen:plan']) {
       _writeSkill(dataClaudeSkills, name);
       _writeSkill(dataAgentsSkills, name);
     }
@@ -554,7 +553,7 @@ steps:
 
     await wiring.wire();
 
-    for (final name in const ['dartclaw-prd', 'dartclaw-plan']) {
+    for (final name in const ['andthen:prd', 'andthen:plan']) {
       final skill = wiring.skillRegistry.getByName(name);
       expect(skill, isNotNull);
       expect(skill!.path, startsWith(tempDir.path));
@@ -563,16 +562,15 @@ steps:
     }
   });
 
-  test('standalone wiring provisions AndThen skills before registering shipped workflows', () async {
-    _seedAndthenSrc(p.join(tempDir.path, 'andthen-src'), sha: 'standalone-head');
+  test('standalone wiring provisions DC-native skills before registering shipped workflows', () async {
     final fakeHome = p.join(tempDir.path, 'provision-home');
+    _seedProviderAndThenSkills(fakeHome);
     final runner = _FakeProvisionerProcessRunner();
     final config = DartclawConfig(
       agent: const AgentConfig(provider: 'claude'),
       providers: ProvidersConfig(
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
       ),
-      andthen: const AndthenConfig(network: AndthenNetworkPolicy.disabled),
       server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
     );
 
@@ -590,15 +588,23 @@ steps:
 
     await wiring.wire();
 
-    expect(File(p.join(tempDir.path, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(
+      File(p.join(tempDir.path, '.agents', 'skills', 'dartclaw-discover-project', 'SKILL.md')).existsSync(),
+      isTrue,
+    );
+    expect(_unexpectedDataDirSkillEntries(tempDir.path), isEmpty);
     for (final name in _shippedDartclawSkillRefs) {
-      expect(wiring.skillRegistry.getByName(name), isNotNull, reason: '$name should resolve after provisioning');
-      expect(wiring.skillRegistry.validateRef(name), isNull, reason: '$name validateRef should pass');
+      expect(wiring.skillRegistry.resolveRef(name, 'claude'), isNotNull, reason: '$name should resolve');
+      expect(
+        wiring.skillRegistry.validateRef(name, provider: 'claude'),
+        isNull,
+        reason: '$name validateRef should pass',
+      );
     }
 
     final registeredNames = wiring.registry.listAll().map((workflow) => workflow.name).toSet();
     expect(registeredNames, containsAll(['plan-and-implement', 'spec-and-implement', 'code-review']));
-    expect(runner.calls.where((call) => call.executable.endsWith('install-skills.sh')), hasLength(1));
+    expect(runner.calls.where((call) => call.executable.endsWith('install-skills.sh')), isEmpty);
   });
 
   test('dispose cleans up workflow task worktrees in headless mode', () async {
@@ -1211,6 +1217,17 @@ void _seedAndthenSrc(String srcDir, {required String sha}) {
   File(p.join(srcDir, '.git', 'HEAD_SHA')).writeAsStringSync(sha);
 }
 
+List<String> _unexpectedDataDirSkillEntries(String dataDir) {
+  final allowed = {'dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve'};
+  final roots = [Directory(p.join(dataDir, '.agents', 'skills')), Directory(p.join(dataDir, '.claude', 'skills'))];
+  return [
+    for (final root in roots)
+      if (root.existsSync())
+        for (final entity in root.listSync(followLinks: false))
+          if (entity is Directory && !allowed.contains(p.basename(entity.path))) entity.path,
+  ];
+}
+
 Directory _seedDcNativeSkillsSource(String sourceDir) {
   final dir = Directory(sourceDir)..createSync(recursive: true);
   for (final name in const ['dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve']) {
@@ -1285,13 +1302,21 @@ class _FakeProvisionerProcessRunner {
 }
 
 const _shippedDartclawSkillRefs = <String>[
-  'dartclaw-prd',
-  'dartclaw-spec',
-  'dartclaw-plan',
-  'dartclaw-exec-spec',
-  'dartclaw-architecture',
-  'dartclaw-review',
-  'dartclaw-quick-review',
-  'dartclaw-remediate-findings',
-  'dartclaw-refactor',
+  'andthen:prd',
+  'andthen:spec',
+  'andthen:plan',
+  'andthen:exec-spec',
+  'andthen:architecture',
+  'andthen:review',
+  'andthen:quick-review',
+  'andthen:remediate-findings',
+  'andthen:refactor',
 ];
+
+void _seedProviderAndThenSkills(String home) {
+  final claudeRoot = p.join(home, '.claude', 'skills');
+  for (final name in _shippedDartclawSkillRefs) {
+    final dir = Directory(p.join(claudeRoot, name))..createSync(recursive: true);
+    File(p.join(dir.path, 'SKILL.md')).writeAsStringSync('---\nname: $name\ndescription: fake $name\n---\n# $name\n');
+  }
+}

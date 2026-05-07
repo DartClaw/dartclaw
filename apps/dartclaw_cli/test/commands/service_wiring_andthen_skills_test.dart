@@ -66,7 +66,7 @@ void main() {
     );
   });
 
-  test('ServiceWiring andthen skills bootstrap (positive)', () async {
+  test('ServiceWiring workflow skills bootstrap (positive)', () async {
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_positive_skills_');
     final dataDir = tempDir.resolveSymbolicLinksSync();
     final fakeHome = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
@@ -78,8 +78,7 @@ void main() {
     });
 
     _seedAssetRoot(tempDir, createSkills: true);
-    _seedAndthenSrc(dataDir);
-    final runner = _FakeProcessRunner();
+    _seedProviderAndThenSkills(fakeHome.path);
     final logService = LogService.fromConfig(format: 'human', level: 'WARNING', redactor: LogRedactor());
     logService.install();
     addTearDown(logService.dispose);
@@ -99,14 +98,12 @@ void main() {
       messageRedactor: MessageRedactor(),
       assetResolver: AssetResolver(homeDir: tempDir.path, version: 'test'),
       skillProvisionerEnvironment: {'HOME': fakeHome.path},
-      skillProvisionerProcessRunner: runner.run,
     );
 
     final result = await wiring.wire();
     addTearDown(result.shutdownExtras);
 
-    expect(File(p.join(dataDir, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(dataDir, '.claude', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(_unexpectedDataDirSkillEntries(dataDir), isEmpty);
     for (final name in const ['dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve']) {
       expect(File(p.join(dataDir, '.agents', 'skills', name, 'SKILL.md')).existsSync(), isTrue, reason: name);
       expect(File(p.join(dataDir, '.claude', 'skills', name, 'SKILL.md')).existsSync(), isTrue, reason: name);
@@ -119,23 +116,22 @@ void main() {
         p.join(dataDir, '.claude', 'skills', name),
       );
     }
-    expect(File(p.join(dataDir, '.dartclaw-andthen-sha')).readAsStringSync(), 'fake-head');
+    expect(File(p.join(dataDir, '.dartclaw-native-skills')).existsSync(), isTrue);
     expect(_findDartclawEntries(fakeHome.path), isEmpty);
 
     // Wiring proof: SkillRegistry built by ServiceWiring.wire()
-    // must resolve every dartclaw-* skill the shipped workflow YAMLs reference.
+    // must resolve every AndThen skill the shipped workflow YAMLs reference.
     // Without this, plan-and-implement / spec-and-implement / code-review would
     // be silently excluded from the registry as unresolved skill refs.
     final skillRegistry = result.skillRegistry;
     for (final name in _shippedDartclawSkillRefs) {
       expect(
-        skillRegistry.getByName(name),
+        skillRegistry.resolveRef(name, 'claude'),
         isNotNull,
-        reason: '$name must resolve through the registry after data-dir native provisioning',
+        reason: '$name must resolve through provider-native discovery',
       );
-      expect(skillRegistry.validateRef(name), isNull, reason: '$name validateRef should pass');
+      expect(skillRegistry.validateRef(name, provider: 'claude'), isNull, reason: '$name validateRef should pass');
     }
-    expect(skillRegistry.getByName('dartclaw-prd'), isNotNull);
     for (final name in const ['dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve']) {
       expect(skillRegistry.getByName(name), isNotNull, reason: '$name DC-native skill must resolve');
     }
@@ -160,22 +156,17 @@ void main() {
   });
 }
 
-/// AndThen-derived `dartclaw-*` skills referenced by the shipped workflow
-/// definitions (`plan-and-implement.yaml`, `spec-and-implement.yaml`,
-/// `code-review.yaml`). Kept in sync with
-/// `rg "skill: dartclaw-" packages/dartclaw_workflow/lib/src/workflow/definitions/`
-/// minus the DC-native `dartclaw-discover-project`. Add to this list when a
-/// shipped YAML adds a new `skill: dartclaw-*` ref.
+/// AndThen-owned skills referenced by the shipped workflow definitions.
 const _shippedDartclawSkillRefs = <String>[
-  'dartclaw-prd',
-  'dartclaw-spec',
-  'dartclaw-plan',
-  'dartclaw-exec-spec',
-  'dartclaw-architecture',
-  'dartclaw-review',
-  'dartclaw-quick-review',
-  'dartclaw-remediate-findings',
-  'dartclaw-refactor',
+  'andthen:prd',
+  'andthen:spec',
+  'andthen:plan',
+  'andthen:exec-spec',
+  'andthen:architecture',
+  'andthen:review',
+  'andthen:quick-review',
+  'andthen:remediate-findings',
+  'andthen:refactor',
 ];
 
 Never _unexpectedExit(int code) {
@@ -191,6 +182,17 @@ List<String> _findDartclawEntries(String root) {
   ];
 }
 
+List<String> _unexpectedDataDirSkillEntries(String dataDir) {
+  final allowed = {'dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve'};
+  final roots = [Directory(p.join(dataDir, '.agents', 'skills')), Directory(p.join(dataDir, '.claude', 'skills'))];
+  return [
+    for (final root in roots)
+      if (root.existsSync())
+        for (final entity in root.listSync(followLinks: false))
+          if (entity is Directory && !allowed.contains(p.basename(entity.path))) entity.path,
+  ];
+}
+
 DartclawConfig _baseConfig(String dataDir, {String? projectA, String? projectB}) {
   return DartclawConfig(
     agent: const AgentConfig(provider: 'claude'),
@@ -199,7 +201,6 @@ DartclawConfig _baseConfig(String dataDir, {String? projectA, String? projectB})
       entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
     ),
     gateway: const GatewayConfig(authMode: 'none'),
-    andthen: const AndthenConfig(network: AndthenNetworkPolicy.disabled),
     projects: ProjectConfig(
       definitions: {
         if (projectA != null) 'project-a': ProjectDefinition(id: 'project-a', localPath: projectA, branch: 'main'),
@@ -231,69 +232,10 @@ Directory _seedAssetRoot(Directory tempDir, {required bool createSkills}) {
   return root;
 }
 
-void _seedAndthenSrc(String dataDir) {
-  final src = Directory(p.join(dataDir, 'andthen-src'))..createSync(recursive: true);
-  Directory(p.join(src.path, '.git')).createSync(recursive: true);
-  File(p.join(src.path, 'scripts', 'install-skills.sh')).createSync(recursive: true);
-}
-
-class _FakeProcessRunner {
-  Future<ProcessResult> run(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-    Map<String, String>? environment,
-  }) async {
-    if (executable == 'git' && arguments.contains('rev-parse')) {
-      return ProcessResult(0, 0, 'fake-head\n', '');
-    }
-    if (executable.endsWith('install-skills.sh')) {
-      String? skillsDir;
-      String? codexAgentsDir;
-      String? claudeSkillsDir;
-      String? claudeAgentsDir;
-      final userDefaults = arguments.contains('--claude-user');
-      for (var i = 0; i < arguments.length - 1; i++) {
-        switch (arguments[i]) {
-          case '--skills-dir':
-            skillsDir = arguments[i + 1];
-          case '--codex-agents-dir':
-            codexAgentsDir = arguments[i + 1];
-          case '--claude-skills-dir':
-            claudeSkillsDir = arguments[i + 1];
-          case '--claude-agents-dir':
-            claudeAgentsDir = arguments[i + 1];
-        }
-      }
-      if (userDefaults) {
-        final home = environment?['HOME'];
-        if (home == null || home.isEmpty) {
-          throw StateError('fake installer requires HOME for --claude-user');
-        }
-        skillsDir ??= p.join(home, '.agents', 'skills');
-        codexAgentsDir ??= p.join(home, '.codex', 'agents');
-        claudeSkillsDir ??= p.join(home, '.claude', 'skills');
-        claudeAgentsDir ??= p.join(home, '.claude', 'agents');
-      }
-      for (final dir in [skillsDir, codexAgentsDir, claudeSkillsDir, claudeAgentsDir].whereType<String>()) {
-        Directory(dir).createSync(recursive: true);
-      }
-      for (final dir in [skillsDir, claudeSkillsDir].whereType<String>()) {
-        for (final name in _fakeInstalledSkills) {
-          File(p.join(dir, name, 'SKILL.md'))
-            ..createSync(recursive: true)
-            ..writeAsStringSync('---\nname: $name\ndescription: $name (fake)\n---\n# $name\n');
-        }
-      }
-      return ProcessResult(0, 0, '', '');
-    }
-    return ProcessResult(0, 0, '', '');
+void _seedProviderAndThenSkills(String home) {
+  final claudeRoot = p.join(home, '.claude', 'skills');
+  for (final name in _shippedDartclawSkillRefs) {
+    final dir = Directory(p.join(claudeRoot, name))..createSync(recursive: true);
+    File(p.join(dir.path, 'SKILL.md')).writeAsStringSync('---\nname: $name\ndescription: $name\n---\n# $name\n');
   }
 }
-
-/// Skills the fake installer stages. Identical to [_shippedDartclawSkillRefs]
-/// (which already contains the canary `dartclaw-prd`), so the workflow-registry
-/// assertion in the positive bootstrap test catches a future YAML adding a
-/// `skill: dartclaw-<X>` that no one updated [_shippedDartclawSkillRefs] for —
-/// the missing skill won't get staged and the assertion will fail.
-const _fakeInstalledSkills = _shippedDartclawSkillRefs;

@@ -20,12 +20,12 @@ const _artifactCommitAuthorName = 'DartClaw Workflow';
 const _artifactCommitAuthorEmail = 'workflow@dartclaw.local';
 
 const _artifactProducingSkills = <String>{
-  'dartclaw-prd',
-  'dartclaw-plan',
-  'dartclaw-spec',
-  'dartclaw-review',
-  'dartclaw-architecture',
-  'dartclaw-remediate-findings',
+  'andthen:prd',
+  'andthen:plan',
+  'andthen:spec',
+  'andthen:review',
+  'andthen:architecture',
+  'andthen:remediate-findings',
 };
 
 /// Policy inputs needed to commit path artifacts after a successful step.

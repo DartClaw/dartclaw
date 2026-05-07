@@ -311,7 +311,7 @@ Future<WorkflowGitPromotionResult> _promoteWorkflowBranchLocallyUnlocked({
     );
     // Sweep pending changes in the integration worktree too. In inline mode
     // the integration branch is checked out in the project root while
-    // upstream artifact-producing steps (dartclaw-prd / dartclaw-plan) run
+    // upstream artifact-producing steps (andthen:prd / andthen:plan) run
     // there; anything they wrote that the artifact committer did not add
     // (intermediate files, STATE/LEARNINGS edits, untracked research docs)
     // would leave a dirty index/tree and fail MergeExecutor's pre-merge

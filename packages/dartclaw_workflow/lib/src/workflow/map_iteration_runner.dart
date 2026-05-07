@@ -263,12 +263,13 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
                 for (final key in step.inputs) key: context[key] ?? '',
               }, outputConfigs: _inputConfigsFor(definition, step.inputs))
             : null;
-        final effectiveOutputs = _effectiveOutputsFor(step);
-        final skillDefaultPrompt = _skillDefaultPromptFor(step);
+        final resolvedSkill = _resolvedSkillFor(step, resolved.provider);
+        final effectiveOutputs = _effectiveOutputsFor(step, resolvedSkill: resolvedSkill);
+        final skillDefaultPrompt = _skillDefaultPromptFor(step, resolvedSkill);
         final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
         final variableNames = _autoFrameVariableNames(step);
         final iterPrompt = _skillPromptBuilder.build(
-          skill: step.skill,
+          skill: resolvedSkill?.invocationName ?? step.skill,
           resolvedPrompt: resolvedPrompt,
           contextSummary: contextSummary,
           outputs: effectiveOutputs,

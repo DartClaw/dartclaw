@@ -7,7 +7,9 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
     for (final step in definition.steps) {
       if (step.skill == null) continue;
 
-      final error = skillRegistry!.validateRef(step.skill!);
+      final resolvedStep = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults);
+      final effectiveProvider = resolvedStep.provider;
+      final error = skillRegistry!.validateRef(step.skill!, provider: effectiveProvider);
       if (error != null) {
         errors.add(
           ValidationError(
@@ -19,18 +21,18 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
         continue; // Skip harness checks if skill doesn't exist.
       }
 
-      final stepProvider = step.provider;
+      final stepProvider = effectiveProvider;
       if (stepProvider != null) {
-        final isRoleAlias = workflowRoleDefaultAliases.contains(stepProvider);
         // Explicit provider: hard error if skill not native for that harness.
-        if (!stepProvider.startsWith('@') && !isRoleAlias && !skillRegistry!.isNativeFor(step.skill!, stepProvider)) {
-          final skill = skillRegistry!.getByName(step.skill!);
-          final available = skill?.nativeHarnesses.join(', ') ?? 'none';
+        if (!stepProvider.startsWith('@') && !skillRegistry!.isNativeFor(step.skill!, stepProvider)) {
+          final resolvedSkill = skillRegistry!.resolveRef(step.skill!, stepProvider);
+          final available = resolvedSkill?.skill.nativeHarnesses.join(', ') ?? 'none';
+          final searched = resolvedSkill?.invocationName ?? step.skill!;
           errors.add(
             ValidationError(
               message:
                   'Step "${step.id}": skill "${step.skill}" not available '
-                  'for provider "$stepProvider". '
+                  'for provider "$stepProvider" (searched "$searched"). '
                   'Skill is native for: $available. '
                   'Install it in the provider\'s skill directory or remove the '
                   'explicit provider.',
@@ -41,9 +43,11 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
         }
       }
 
-      if (stepProvider == null || workflowRoleDefaultAliases.contains(stepProvider)) {
+      if (step.provider == null || workflowRoleDefaultAliases.contains(step.provider)) {
         // Default provider: warn if skill only found in one harness.
-        final skill = skillRegistry!.getByName(step.skill!);
+        final skill = effectiveProvider == null
+            ? skillRegistry!.getByName(step.skill!)
+            : skillRegistry!.resolveRef(step.skill!, effectiveProvider)?.skill;
         if (skill != null && skill.nativeHarnesses.length == 1) {
           WorkflowDefinitionValidator._log.warning(
             'Step "${step.id}": skill "${step.skill}" found only in '

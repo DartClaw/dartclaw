@@ -43,23 +43,23 @@ The provider-specific activation hook already exists. The implementation must fe
 
 ## Success Criteria (Must Be TRUE)
 
-- [ ] Built-in workflow YAML references AndThen-owned skills with canonical `andthen:<name>` values, not `dartclaw-*` ported names.
-- [ ] `dartclaw-discover-project`, `dartclaw-validate-workflow`, and `dartclaw-merge-resolve` remain DartClaw-native exact skill names; no `dartclaw:` alias layer is introduced.
-- [ ] Codex invocation of canonical `andthen:spec` resolves to the native activation line `$andthen-spec`; Claude Code invocation resolves to `/andthen:spec`.
-- [ ] Workflow validation resolves canonical AndThen references against provider-specific aliases without requiring per-workflow `name_codex`, `name_claude`, or operator configuration.
-- [ ] Runtime prompt building uses the same provider-resolved invocation name that validation accepted.
-- [ ] DartClaw no longer clones AndThen or runs `install-skills.sh --prefix dartclaw- --display-brand DartClaw` to create DartClaw-branded copies of AndThen skills or agents.
-- [ ] DartClaw-native skill provisioning/linking remains available for the three DC-native skills only.
-- [ ] The retired `andthen.*` source/provisioning configuration surface is removed from public config, metadata, serialization, docs, and tests; legacy YAML keys may produce a warning, but they must not appear as active settings.
-- [ ] Missing AndThen installations fail with provider-specific, actionable diagnostics naming the canonical skill and the concrete provider alias that was searched.
-- [ ] User-facing docs and package AGENTS guidance describe the new canonical naming contract and remove stale claims that built-ins use `dartclaw-*` for AndThen-derived skills.
+- [x] Built-in workflow YAML references AndThen-owned skills with canonical `andthen:<name>` values, not `dartclaw-*` ported names.
+- [x] `dartclaw-discover-project`, `dartclaw-validate-workflow`, and `dartclaw-merge-resolve` remain DartClaw-native exact skill names; no `dartclaw:` alias layer is introduced.
+- [x] Codex invocation of canonical `andthen:spec` resolves to the native activation line `$andthen-spec`; Claude Code invocation resolves to `/andthen:spec`.
+- [x] Workflow validation resolves canonical AndThen references against provider-specific aliases without requiring per-workflow `name_codex`, `name_claude`, or operator configuration.
+- [x] Runtime prompt building uses the same provider-resolved invocation name that validation accepted.
+- [x] DartClaw no longer clones AndThen or runs `install-skills.sh --prefix dartclaw- --display-brand DartClaw` to create DartClaw-branded copies of AndThen skills or agents.
+- [x] DartClaw-native skill provisioning/linking remains available for the three DC-native skills only.
+- [x] The retired `andthen.*` source/provisioning configuration surface is removed from public config, metadata, serialization, docs, and tests; legacy YAML keys may produce a warning, but they must not appear as active settings.
+- [x] Missing AndThen installations fail with provider-specific, actionable diagnostics naming the canonical skill and the concrete provider alias that was searched.
+- [x] User-facing docs and package AGENTS guidance describe the new canonical naming contract and remove stale claims that built-ins use `dartclaw-*` for AndThen-derived skills.
 
 ### Health Metrics (Must NOT Regress)
 
-- [ ] Existing built-in workflow contract tests remain green after expected golden/name updates.
-- [ ] `dart analyze --fatal-warnings --fatal-infos` passes for touched packages.
-- [ ] Focused tests for `dartclaw_models`, `dartclaw_core`, `dartclaw_config`, `dartclaw_workflow`, `dartclaw_server`, and `dartclaw_cli` pass.
-- [ ] `dev/tools/check_versions.sh` and existing architecture/fitness gates are not weakened.
+- [x] Existing built-in workflow contract tests remain green after expected golden/name updates.
+- [x] `dart analyze --fatal-warnings --fatal-infos` passes for touched packages.
+- [x] Focused tests for `dartclaw_models`, `dartclaw_core`, `dartclaw_config`, `dartclaw_workflow`, `dartclaw_server`, and `dartclaw_cli` pass.
+- [x] `dev/tools/check_versions.sh` and existing architecture/fitness gates are not weakened.
 
 
 ## Scenarios
@@ -218,51 +218,51 @@ doc    | packages/dartclaw_workflow/AGENTS.md                                   
 
 ### Implementation Tasks
 
-- [ ] **TI01** Add provider-aware skill resolution to the workflow skill registry.
+- [x] **TI01** Add provider-aware skill resolution to the workflow skill registry.
   - Keep exact lookup for non-`andthen:` skill names. For `andthen:<name>`, resolve aliases deterministically: `codex -> andthen-<name>`, `claude -> andthen:<name>`.
   - **Verify**: New `skill_registry_impl_test.dart` cases prove `resolve(andthen:spec, codex)` matches discovered `andthen-spec`, `resolve(andthen:spec, claude)` matches discovered `andthen:spec`, and `resolve(custom-skill, codex)` still requires exact `custom-skill`.
 
-- [ ] **TI02** Thread resolved invocation names into validation and prompt building.
+- [x] **TI02** Thread resolved invocation names into validation and prompt building.
   - `WorkflowDefinitionValidator` should validate with effective provider role defaults. Runtime dispatch should resolve again with the same effective provider calculation, then pass the resolved invocation name to `SkillPromptBuilder`.
   - Skill default prompt/output lookup should use the matched discovered `SkillInfo` returned by resolution, not `getByName(step.skill)` on the canonical reference.
   - **Verify**: Focused validator and prompt-builder tests assert the exact activation lines `$andthen-spec` and `/andthen:spec` from canonical `skill: andthen:spec`, including a Codex case where default prompt/output metadata is discovered under `andthen-spec`.
 
-- [ ] **TI03** Update built-in workflow definitions from ported AndThen names to canonical AndThen references.
+- [x] **TI03** Update built-in workflow definitions from ported AndThen names to canonical AndThen references.
   - Change AndThen-owned steps only: `dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`, `dartclaw-exec-spec`, `dartclaw-review`, `dartclaw-remediate-findings`, `dartclaw-quick-review`, `dartclaw-architecture`, and `dartclaw-refactor` become `andthen:<name>`. Leave `dartclaw-discover-project` and `dartclaw-merge-resolve` exact.
   - Do not introduce `andthen:ops` or migrate `dartclaw-ops`; current built-ins do not contain that step, and DartClaw has no ported `andthen:ops` equivalent.
   - **Verify**: `rg "skill: dartclaw-(prd|plan|spec|exec-spec|review|remediate-findings|quick-review|architecture|refactor|ops)" packages/dartclaw_workflow/lib/src/workflow/definitions` returns zero; `rg "skill: dartclaw-(discover-project|merge-resolve)" ...` still finds the DC-native references.
 
-- [ ] **TI04** Remove AndThen-derived `dartclaw-*` provisioning and narrow provisioning/linking to DC-native skills only.
+- [x] **TI04** Remove AndThen-derived `dartclaw-*` provisioning and narrow provisioning/linking to DC-native skills only.
   - Stop cloning AndThen and running `install-skills.sh --prefix dartclaw- --display-brand DartClaw` for workflow startup. Retain only the copy/link behavior needed to expose `dcNativeSkillNames` to project/worktree native skill roots.
   - **Verify**: Tests prove fresh bootstrap creates `dartclaw-discover-project`, `dartclaw-validate-workflow`, and `dartclaw-merge-resolve`, but does not create `dartclaw-prd`, `dartclaw-spec`, or `dartclaw-review` in data-dir or workspace skill roots.
 
-- [ ] **TI05** Retire the active `andthen.*` source/provisioning config surface.
+- [x] **TI05** Retire the active `andthen.*` source/provisioning config surface.
   - Remove active config fields and UI/serialization metadata for `andthen.git_url`, `andthen.ref`, `andthen.network`, and `andthen.source_cache_dir`. Legacy YAML keys may be accepted only to emit warnings that DartClaw no longer provisions AndThen.
   - Remove or rewrite tests that assert active AndThen source-cache behavior; keep only compatibility-warning coverage if legacy parsing remains.
   - **Verify**: `rg "andthen\\.(git_url|ref|network|source_cache_dir)|AndthenConfig|AndthenNetworkPolicy" packages apps docs dev/state/STACK.md` returns no active-contract references except explicitly marked legacy warnings or removed-code migration notes.
 
-- [ ] **TI06** Replace standalone missing-skill preflight with provider-aware diagnostics.
+- [x] **TI06** Replace standalone missing-skill preflight with provider-aware diagnostics.
   - `_missingNativeSkillInstalls` and related CLI validation should search aliases through the registry resolver and report canonical/alias/provider triples.
   - **Verify**: CLI tests for missing `andthen:exec-spec` under Codex assert the error mentions `andthen:exec-spec`, `codex`, and `andthen-exec-spec`, and does not mention restarting the old `dartclaw-*` provisioner.
 
-- [ ] **TI07** Replace runtime hardcoded exact-name checks for AndThen-derived skills.
+- [x] **TI07** Replace runtime hardcoded exact-name checks for AndThen-derived skills.
   - Update artifact-producing skill detection, artifact commit classification, skill default lookup, resolved-definition emission, and any prompt/dispatch special cases that currently key on `dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`, `dartclaw-review`, `dartclaw-architecture`, or `dartclaw-remediate-findings`.
   - Preserve exact-name checks for DC-native skills where they are intentionally special, especially `dartclaw-discover-project` and `dartclaw-merge-resolve`.
   - **Verify**: `rg "dartclaw-(prd|plan|spec|exec-spec|review|remediate-findings|quick-review|architecture|refactor|ops)" packages/dartclaw_workflow/lib/src apps/dartclaw_cli/lib` returns no active runtime checks except explicitly marked legacy diagnostics or manual cleanup text.
 
-- [ ] **TI08** Update registry/listing surfaces so users can see canonical references and concrete provider names without extra config.
+- [x] **TI08** Update registry/listing surfaces so users can see canonical references and concrete provider names without extra config.
   - UI/API listing may show discovered concrete names, but validation messages and built-in workflow resolved output should show canonical `andthen:<name>` where authored.
   - **Verify**: `workflow show --resolved` for a built-in workflow displays `skill: andthen:spec` in the definition and does not rewrite the YAML to `andthen-spec`.
 
-- [ ] **TI09** Update tests and fixtures that stage or expect DartClaw-branded AndThen skills.
+- [x] **TI09** Update tests and fixtures that stage or expect DartClaw-branded AndThen skills.
   - Rewrite fake installers/fixtures in `server_builder_integration_test.dart`, `cli_workflow_wiring_test.dart`, `service_wiring_andthen_skills_test.dart`, built-in inventory tests, and workflow contract tests to stage `andthen-*` for Codex and `andthen:*` for Claude where needed.
   - **Verify**: `dart test packages/dartclaw_workflow/test/workflow/skill_registry_impl_test.dart packages/dartclaw_workflow/test/workflow/built_in_workflow_contracts_test.dart apps/dartclaw_cli/test/commands/service_wiring_andthen_skills_test.dart` passes.
 
-- [ ] **TI10** Rewrite user-facing docs and agent guidance.
+- [x] **TI10** Rewrite user-facing docs and agent guidance.
   - Update `docs/guide/andthen-skills.md`, `docs/guide/workflows.md`, root `AGENTS.md` / `CLAUDE.md`, and `packages/dartclaw_workflow/AGENTS.md` to describe canonical `andthen:<name>` references, provider aliases, and DC-native skill provisioning only.
   - **Verify**: `rg "AndThen-derived .*dartclaw|dartclaw-(prd|plan|spec|exec-spec|review|remediate-findings|quick-review|architecture|refactor|ops)" AGENTS.md CLAUDE.md docs packages/dartclaw_workflow/AGENTS.md` returns no stale claims except historical migration/manual-cleanup notes explicitly marked as legacy.
 
-- [ ] **TI11** Run focused validation gates for the touched surface.
+- [x] **TI11** Run focused validation gates for the touched surface.
   - Use package-scoped tests first; broaden only if failures suggest cross-package breakage.
   - **Verify**: `dart format --set-exit-if-changed packages/dartclaw_models packages/dartclaw_core packages/dartclaw_config packages/dartclaw_workflow packages/dartclaw_server apps/dartclaw_cli`; `dart analyze --fatal-warnings --fatal-infos`; focused tests from TI09; then any impacted CLI/server wiring tests.
 
@@ -295,10 +295,10 @@ doc    | packages/dartclaw_workflow/AGENTS.md                                   
 
 ## Final Validation Checklist
 
-- [ ] **All success criteria** met
-- [ ] **All tasks** fully completed, verified, and checkboxes checked
-- [ ] **No regressions** or breaking changes introduced beyond the scoped removal of DartClaw-branded AndThen provisioning
-- [ ] **Docs and agent guidance** updated to the new naming contract
+- [x] **All success criteria** met
+- [x] **All tasks** fully completed, verified, and checkboxes checked
+- [x] **No regressions** or breaking changes introduced beyond the scoped removal of DartClaw-branded AndThen provisioning
+- [x] **Docs and agent guidance** updated to the new naming contract
 
 
 ## Implementation Observations

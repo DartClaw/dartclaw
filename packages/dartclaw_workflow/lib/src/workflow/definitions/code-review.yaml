@@ -60,7 +60,7 @@ steps:
   # review skill select the right diffing strategy (PR vs branch vs plain target).
   - id: review-code
     name: Review Code
-    skill: dartclaw-review
+    skill: andthen:review
     # File-backed review: the remediation skill consumes a report path, so
     # this step writes the review artifact under the workflow runtime artifacts
     # directory and emits its absolute path.
@@ -75,7 +75,7 @@ steps:
     outputs:
       review_findings:
         format: path
-        description: Absolute path to the code review report file written by dartclaw-review in the --output-dir directory.
+        description: Absolute path to the code review report file written by andthen:review in the --output-dir directory.
       review-code.findings_count:
         format: json
         schema: non-negative-integer
@@ -98,7 +98,7 @@ steps:
       # on its edits before emitting a completed remediation result.
       - id: remediate
         name: Remediate Findings
-        skill: dartclaw-remediate-findings
+        skill: andthen:remediate-findings
         inputs: [project_index, review_findings]
         prompt: "--auto {{context.review_findings}}"
         outputs:
@@ -116,7 +116,7 @@ steps:
       # Re-run the code review on the remediated implementation to decide whether another pass is needed.
       - id: re-review
         name: Re-review
-        skill: dartclaw-review
+        skill: andthen:review
         # File-backed review: later remediation iterations consume this report path.
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
         inputs: [project_index, review_findings, remediation_summary, diff_summary]
@@ -124,7 +124,7 @@ steps:
         outputs:
           review_findings:
             format: path
-            description: Absolute path to the code review report file written by dartclaw-review in the --output-dir directory.
+            description: Absolute path to the code review report file written by andthen:review in the --output-dir directory.
           re-review.findings_count:
             format: json
             schema: non-negative-integer

@@ -39,82 +39,31 @@ void _runGit(String workingDirectory, List<String> args) {
   }
 }
 
-/// Stages skeletal `dartclaw-*` skills directly into the SkillRegistry's P1/P2
-/// scan locations under [searchRoot]. Used by tests that rely on built-in
-/// workflow definitions (which reference runtime-provisioned `dartclaw-*`
-/// skills) but don't exercise the SkillProvisioner bootstrap end-to-end.
-/// Without these, [WorkflowDefinitionValidator] excludes the workflows from
-/// the registry and route handlers return DEFINITION_NOT_FOUND.
-void _stageAndthenSkillStubs(String searchRoot) {
-  const skills = [
-    'dartclaw-prd',
-    'dartclaw-plan',
-    'dartclaw-spec',
-    'dartclaw-exec-spec',
-    'dartclaw-review',
-    'dartclaw-remediate-findings',
-    'dartclaw-quick-review',
-    'dartclaw-ops',
-    'dartclaw-architecture',
-    'dartclaw-refactor',
+/// Stages skeletal provider-owned AndThen skills directly into SkillRegistry
+/// scan locations under [searchRoot]. Tests that rely on shipped workflow
+/// definitions need these references resolvable while keeping skill bootstrap
+/// out of the specific behavior under test.
+void _stageProviderAndThenSkillStubs(String searchRoot) {
+  const refs = [
+    'andthen:prd',
+    'andthen:plan',
+    'andthen:spec',
+    'andthen:exec-spec',
+    'andthen:review',
+    'andthen:remediate-findings',
+    'andthen:quick-review',
+    'andthen:ops',
+    'andthen:architecture',
+    'andthen:refactor',
   ];
-  for (final tier in const ['.claude/skills', '.agents/skills']) {
-    for (final name in skills) {
-      File(p.join(searchRoot, tier, name, 'SKILL.md'))
+  for (final ref in refs) {
+    final codexAlias = ref.replaceFirst('andthen:', 'andthen-');
+    for (final entry in [(tier: '.claude/skills', name: ref), (tier: '.agents/skills', name: codexAlias)]) {
+      File(p.join(searchRoot, entry.tier, entry.name, 'SKILL.md'))
         ..createSync(recursive: true)
-        ..writeAsStringSync('---\nname: $name\n---\nbody\n');
+        ..writeAsStringSync('---\nname: "${entry.name}"\n---\nbody\n');
     }
   }
-}
-
-/// Pre-stages `<dataDir>/andthen-src/` as a real git repo with a fake
-/// `install-skills.sh` script so the SkillProvisioner can run end-to-end with
-/// `andthen.network: disabled` and produce installed `dartclaw-prd` / DC-native
-/// skills under the data-dir native roots. Required for tests that
-/// rely on built-in workflow definitions (which reference the runtime-provisioned
-/// `dartclaw-*` skills); without bootstrap, the workflow validator excludes them
-/// from the registry.
-void _stageFakeAndthenSrc(String dataDir) {
-  final srcDir = Directory(p.join(dataDir, 'andthen-src'))..createSync(recursive: true);
-  Directory(p.join(srcDir.path, 'scripts')).createSync(recursive: true);
-  File(p.join(srcDir.path, 'scripts', 'install-skills.sh')).writeAsStringSync('''
-#!/bin/sh
-set -eu
-SKILLS_DIR=""
-CLAUDE_SKILLS_DIR=""
-CODEX_AGENTS_DIR=""
-CLAUDE_AGENTS_DIR=""
-USER_DEFAULTS=0
-while [ \$# -gt 0 ]; do
-  case "\$1" in
-    --skills-dir) SKILLS_DIR="\$2"; shift 2 ;;
-    --codex-agents-dir) CODEX_AGENTS_DIR="\$2"; shift 2 ;;
-    --claude-skills-dir) CLAUDE_SKILLS_DIR="\$2"; shift 2 ;;
-    --claude-agents-dir) CLAUDE_AGENTS_DIR="\$2"; shift 2 ;;
-    --claude-user) USER_DEFAULTS=1; shift ;;
-    *) shift ;;
-  esac
-done
-if [ "\$USER_DEFAULTS" = "1" ]; then
-  : "\${HOME:?HOME required for --claude-user}"
-  SKILLS_DIR="\$HOME/.agents/skills"
-  CODEX_AGENTS_DIR="\$HOME/.codex/agents"
-  CLAUDE_SKILLS_DIR="\$HOME/.claude/skills"
-  CLAUDE_AGENTS_DIR="\$HOME/.claude/agents"
-fi
-mkdir -p "\$SKILLS_DIR" "\$CODEX_AGENTS_DIR" "\$CLAUDE_SKILLS_DIR" "\$CLAUDE_AGENTS_DIR"
-for name in dartclaw-prd dartclaw-plan dartclaw-spec dartclaw-exec-spec dartclaw-review dartclaw-remediate-findings dartclaw-quick-review dartclaw-ops dartclaw-architecture dartclaw-refactor; do
-  mkdir -p "\$SKILLS_DIR/\$name" "\$CLAUDE_SKILLS_DIR/\$name"
-  printf 'fake %s' "\$name" > "\$SKILLS_DIR/\$name/SKILL.md"
-  printf 'fake %s' "\$name" > "\$CLAUDE_SKILLS_DIR/\$name/SKILL.md"
-done
-''');
-  Process.runSync('chmod', ['+x', p.join(srcDir.path, 'scripts', 'install-skills.sh')]);
-  _runGit(srcDir.path, ['init', '-b', 'main']);
-  _runGit(srcDir.path, ['config', 'user.email', 'test@example.com']);
-  _runGit(srcDir.path, ['config', 'user.name', 'Test']);
-  _runGit(srcDir.path, ['add', '-A']);
-  _runGit(srcDir.path, ['commit', '-m', 'init']);
 }
 
 Never _unexpectedExit(int code) {
@@ -377,14 +326,8 @@ void main() {
     _runGit(projectDir.path, ['add', 'README.md']);
     _runGit(projectDir.path, ['commit', '-m', 'initial']);
 
-    // Built-in workflow definitions (e.g. spec-and-implement) reference
-    // runtime-provisioned `dartclaw-*` skills. The SkillRegistry scans
-    // `<projectDir>/.claude/skills/` and `<projectDir>/.agents/skills/` (P1/P2).
-    // Without those references resolving, the validator excludes the workflow
-    // and the route returns DEFINITION_NOT_FOUND instead of the ref-validation
-    // error under test. Bootstrap is disabled here to keep the test focused on
-    // workflow ref validation; staging stubs in P1/P2 is sufficient.
-    _stageAndthenSkillStubs(projectDir.path);
+    _stageProviderAndThenSkillStubs(tempDir.path);
+    _stageProviderAndThenSkillStubs(projectDir.path);
 
     final config = DartclawConfig(
       agent: const AgentConfig(provider: 'claude'),
@@ -435,8 +378,9 @@ void main() {
       ),
     );
 
-    expect(response.statusCode, 400);
-    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+    final responseBody = await response.readAsString();
+    expect(response.statusCode, 400, reason: responseBody);
+    final body = jsonDecode(responseBody) as Map<String, dynamic>;
     expect(((body['error'] as Map<String, dynamic>)['message'] as String), contains('Ref "missing/ref" not found'));
   });
 
@@ -520,7 +464,7 @@ void main() {
 
   test('ServiceWiring runs the AndThen skills bootstrap before wire() returns', () async {
     final provisionHome = Directory(p.join(tempDir.path, 'provision-home'))..createSync(recursive: true);
-    _stageFakeAndthenSrc(tempDir.path);
+    _stageProviderAndThenSkillStubs(provisionHome.path);
 
     final config = DartclawConfig(
       agent: const AgentConfig(provider: 'claude'),
@@ -529,7 +473,6 @@ void main() {
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
       ),
       gateway: const GatewayConfig(authMode: 'none'),
-      andthen: const AndthenConfig(network: AndthenNetworkPolicy.disabled),
       server: ServerConfig(
         dataDir: tempDir.path,
         staticDir: _staticDir(),
@@ -558,9 +501,6 @@ void main() {
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
 
-    // AndThen-derived skill installed by the fake installer in both data-dir native trees.
-    expect(File(p.join(tempDir.path, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(tempDir.path, '.claude', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
     // DC-native skills copied into both data-dir native trees by SkillProvisioner.
     for (final name in const ['dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve']) {
       expect(
@@ -575,7 +515,18 @@ void main() {
       );
     }
     // Marker written for the data-dir native destination.
-    expect(File(p.join(tempDir.path, '.dartclaw-andthen-sha')).existsSync(), isTrue);
-    expect(Directory(p.join(provisionHome.path, '.agents', 'skills')).existsSync(), isFalse);
+    expect(File(p.join(tempDir.path, '.dartclaw-native-skills')).existsSync(), isTrue);
+    expect(_unexpectedDataDirSkillEntries(tempDir.path), isEmpty);
   });
+}
+
+List<String> _unexpectedDataDirSkillEntries(String dataDir) {
+  final allowed = {'dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve'};
+  final roots = [Directory(p.join(dataDir, '.agents', 'skills')), Directory(p.join(dataDir, '.claude', 'skills'))];
+  return [
+    for (final root in roots)
+      if (root.existsSync())
+        for (final entity in root.listSync(followLinks: false))
+          if (entity is Directory && !allowed.contains(p.basename(entity.path))) entity.path,
+  ];
 }

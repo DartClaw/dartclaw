@@ -58,7 +58,7 @@ void main() {
           const WorkflowDefinition(
             name: 'wf',
             description: 'test',
-            steps: [WorkflowStep(id: 'prd', name: 'PRD', skill: 'dartclaw-prd')],
+            steps: [WorkflowStep(id: 'prd', name: 'PRD', skill: 'andthen:prd')],
           ),
         ),
         isTrue,
@@ -160,7 +160,7 @@ void main() {
       const reviewStep = WorkflowStep(
         id: 'plan-review',
         name: 'Review',
-        skill: 'dartclaw-review',
+        skill: 'andthen:review',
         outputs: {'review_findings': OutputConfig(format: OutputFormat.path)},
       );
 

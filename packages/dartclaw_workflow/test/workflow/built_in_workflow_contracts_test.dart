@@ -206,11 +206,13 @@ void main() {
     test('remediation steps pass exactly one report path source', () {
       final reportKeys = {'review_findings', 'architecture_review_findings'};
       final referencePattern = RegExp(r'\{\{\s*context\.([A-Za-z0-9_.-]+)\s*\}\}');
+      var checked = 0;
 
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
-          if (step.skill != 'dartclaw-remediate-findings') continue;
+          if (step.skill != 'andthen:remediate-findings') continue;
+          checked++;
           final references = referencePattern
               .allMatches(_allPromptText(step))
               .map((match) => match.group(1)!)
@@ -219,7 +221,7 @@ void main() {
           expect(
             references,
             hasLength(1),
-            reason: '$file → "${step.id}" must pass one report path to dartclaw-remediate-findings',
+            reason: '$file → "${step.id}" must pass one report path to andthen:remediate-findings',
           );
           expect(
             step.inputs,
@@ -228,15 +230,18 @@ void main() {
           );
         }
       }
+      expect(checked, greaterThan(0), reason: 'built-ins must include remediation steps');
     });
 
-    test('dartclaw-review report outputs request runtime absolute paths', () {
+    test('andthen:review report outputs request runtime absolute paths', () {
+      var checked = 0;
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
-          if (step.skill != 'dartclaw-review') continue;
+          if (step.skill != 'andthen:review') continue;
           final reviewFindings = step.outputs?['review_findings'];
           if (reviewFindings == null) continue;
+          checked++;
           expect(
             _allPromptText(step),
             contains('--output-dir "{{workflow.runtime_artifacts_dir}}/reviews"'),
@@ -260,6 +265,7 @@ void main() {
           );
         }
       }
+      expect(checked, greaterThan(0), reason: 'built-ins must include file-backed andthen:review steps');
     });
 
     test('split remediation loops consume fresh re-review reports after the first pass', () {
@@ -283,15 +289,18 @@ void main() {
 
     test('all remediation steps resolve to the executor role', () {
       const resolver = WorkflowDefinitionResolver();
+      var checked = 0;
 
       for (final file in _builtInWorkflows) {
         final resolved = resolver.resolve(_load(file));
         for (final step in _flattenedSteps(resolved)) {
-          if (step.skill != 'dartclaw-remediate-findings') continue;
+          if (step.skill != 'andthen:remediate-findings') continue;
+          checked++;
           expect(step.provider, '@executor', reason: '$file → "${step.id}" should run on @executor');
           expect(step.model, '@executor', reason: '$file → "${step.id}" should use the @executor model');
         }
       }
+      expect(checked, greaterThan(0), reason: 'built-ins must include remediation steps');
     });
   });
 
@@ -300,7 +309,7 @@ void main() {
     // opt into automation-safe execution via the prompt). Keep this list tight
     // — the moment a skill grows an `--auto` flag, drop it from here so the
     // contract assertion starts enforcing automation-safety on it.
-    const skillsWithoutAutoFlag = {'dartclaw-discover-project', 'dartclaw-refactor'};
+    const skillsWithoutAutoFlag = {'dartclaw-discover-project', 'andthen:refactor'};
 
     test('custom skill prompts are short and automation-safe when present', () {
       for (final file in _builtInWorkflows) {
@@ -329,10 +338,12 @@ void main() {
       expect(text, contains('--auto'));
     });
 
-    test('dartclaw-review steps pin reports to workflow runtime artifacts dir', () {
+    test('andthen:review steps pin reports to workflow runtime artifacts dir', () {
+      var checked = 0;
       for (final file in _builtInWorkflows) {
         final def = _load(file);
-        for (final step in _flattenedSteps(def).where((s) => s.skill == 'dartclaw-review')) {
+        for (final step in _flattenedSteps(def).where((s) => s.skill == 'andthen:review')) {
+          checked++;
           expect(
             _allPromptText(step),
             contains('--output-dir "{{workflow.runtime_artifacts_dir}}/reviews"'),
@@ -340,6 +351,7 @@ void main() {
           );
         }
       }
+      expect(checked, greaterThan(0), reason: 'built-ins must include andthen:review steps');
     });
 
     test('plan-and-implement: per-story result output classifies sibling failures as non-blocking', () {

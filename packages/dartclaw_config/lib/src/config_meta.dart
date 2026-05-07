@@ -1276,35 +1276,6 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.reloadable,
       min: 1,
     ),
-
-    // --- AndThen runtime-skill provisioning ---
-    // All four restart-required: changing them implies re-clone / re-install.
-    'andthen.git_url': FieldMeta(
-      yamlPath: 'andthen.git_url',
-      jsonKey: 'andthen.gitUrl',
-      type: ConfigFieldType.string,
-      mutability: ConfigMutability.restart,
-    ),
-    'andthen.ref': FieldMeta(
-      yamlPath: 'andthen.ref',
-      jsonKey: 'andthen.ref',
-      type: ConfigFieldType.string,
-      mutability: ConfigMutability.restart,
-    ),
-    'andthen.network': FieldMeta(
-      yamlPath: 'andthen.network',
-      jsonKey: 'andthen.network',
-      type: ConfigFieldType.enum_,
-      mutability: ConfigMutability.restart,
-      allowedValues: ['auto', 'required', 'disabled'],
-    ),
-    'andthen.source_cache_dir': FieldMeta(
-      yamlPath: 'andthen.source_cache_dir',
-      jsonKey: 'andthen.sourceCacheDir',
-      type: ConfigFieldType.string,
-      mutability: ConfigMutability.restart,
-      nullable: true,
-    ),
   };
 
   static Map<String, FieldMeta>? _byJsonKey;

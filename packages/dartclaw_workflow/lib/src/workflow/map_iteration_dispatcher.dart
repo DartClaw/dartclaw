@@ -181,7 +181,12 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
 
       StepValidationFailure? extractionFailure;
       try {
-        outputs = await _contextExtractor.extract(step, finalTask, effectiveOutputs: _effectiveOutputsFor(step));
+        final resolvedSkill = _resolvedSkillFor(step, resolved.provider);
+        outputs = await _contextExtractor.extract(
+          step,
+          finalTask,
+          effectiveOutputs: _effectiveOutputsFor(step, resolvedSkill: resolvedSkill),
+        );
       } on MissingArtifactFailure catch (e, st) {
         extractionFailure = StepValidationFailure(reason: e.toString(), missingArtifacts: e.missingPaths);
         WorkflowExecutor._log.warning(

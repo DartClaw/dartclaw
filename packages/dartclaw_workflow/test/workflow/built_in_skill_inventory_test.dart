@@ -50,12 +50,9 @@ void main() {
         skillDirs,
         equals(_expectedSkillDirs),
         reason:
-            'Post-ADR-025 (2026-04-27 amendment): DC-native skills are '
-            'dartclaw-discover-project, dartclaw-validate-workflow, and '
-            'dartclaw-merge-resolve (added S59). The 8 ported SYNC-VERBATIM skills '
-            'and dartclaw-update-state were removed; their functionality now resolves '
-            'via runtime-provisioned `dartclaw-*` skills installed by SkillProvisioner '
-            '(AndThen >= 0.14.3, prefix-rewritten to `dartclaw-` at install time).',
+            'Only DartClaw-native workflow skills ship in this package. AndThen-owned '
+            'skills are external provider capabilities referenced canonically as '
+            '`andthen:<name>` and resolved to provider-native aliases at validation/runtime.',
       );
     });
 

@@ -387,7 +387,6 @@ final class E2EFixture {
     if (provisionWorkflowSkills) {
       final sourceDir = _builtInSkillsSourceDir();
       final provisioner = SkillProvisioner(
-        config: config.andthen,
         dataDir: dataDir,
         dcNativeSkillsSourceDir: sourceDir,
         environment: environment,
@@ -571,16 +570,16 @@ final class E2EFixtureInstance {
     return wiring;
   }
 
-  void writeDataDirWorkflowSkills(Iterable<String> names) {
-    for (final root in [
-      p.join(config.server.dataDir, '.claude', 'skills'),
-      p.join(config.server.dataDir, '.agents', 'skills'),
-    ]) {
+  void writeDataDirWorkflowSkills({Iterable<String> codexNames = const [], Iterable<String> claudeNames = const []}) {
+    void write(String root, Iterable<String> names) {
       for (final name in names) {
         final skillDir = Directory(p.join(root, name))..createSync(recursive: true);
         File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('---\nname: $name\n---\n\n# $name\n');
       }
     }
+
+    write(p.join(config.server.dataDir, '.agents', 'skills'), codexNames);
+    write(p.join(config.server.dataDir, '.claude', 'skills'), claudeNames);
   }
 
   Future<void> dispose() async {

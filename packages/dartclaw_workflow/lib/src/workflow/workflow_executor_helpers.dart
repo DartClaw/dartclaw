@@ -21,20 +21,27 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   /// Returns the `workflow.default_prompt` declared in the step's skill
   /// frontmatter, or null when no registry is wired, the step has no skill,
   /// or the skill declares no default.
-  String? _skillDefaultPromptFor(WorkflowStep step) {
+  ResolvedSkillRef? _resolvedSkillFor(WorkflowStep step, String? provider) {
     final skill = step.skill;
     if (skill == null) return null;
-    return _skillRegistry?.getByName(skill)?.defaultPrompt;
+    if (_skillRegistry == null) return null;
+    return provider == null ? null : _skillRegistry.resolveRef(skill, provider);
+  }
+
+  String? _skillDefaultPromptFor(WorkflowStep step, ResolvedSkillRef? resolvedSkill) {
+    final skill = step.skill;
+    if (skill == null) return null;
+    return resolvedSkill?.skill.defaultPrompt ?? _skillRegistry?.getByName(skill)?.defaultPrompt;
   }
 
   /// Returns the effective `outputs:` for a step, shallow-merging the skill's
   /// `workflow.default_outputs` (keys only in the skill default are added;
   /// keys on the step win).
-  Map<String, OutputConfig>? _effectiveOutputsFor(WorkflowStep step) {
+  Map<String, OutputConfig>? _effectiveOutputsFor(WorkflowStep step, {ResolvedSkillRef? resolvedSkill}) {
     final explicit = step.outputs;
     final skill = step.skill;
     if (skill == null || _skillRegistry == null) return explicit;
-    final defaults = _skillRegistry.getByName(skill)?.defaultOutputs;
+    final defaults = resolvedSkill?.skill.defaultOutputs ?? _skillRegistry.getByName(skill)?.defaultOutputs;
     if (defaults == null || defaults.isEmpty) return explicit;
     if (explicit == null || explicit.isEmpty) return defaults;
     return {...defaults, ...explicit};
@@ -718,8 +725,10 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     skillPromptBuilder: _skillPromptBuilder,
   );
 
-  Map<String, dynamic>? _buildStructuredOutputEnvelopeSchema(WorkflowStep step) =>
-      workflow_task_factory.buildStructuredOutputEnvelopeSchema(step, _effectiveOutputsFor(step));
+  Map<String, dynamic>? _buildStructuredOutputEnvelopeSchema(
+    WorkflowStep step, {
+    Map<String, OutputConfig>? effectiveOutputs,
+  }) => workflow_task_factory.buildStructuredOutputEnvelopeSchema(step, effectiveOutputs ?? _effectiveOutputsFor(step));
 
   WorkflowStep? _resolveContinueSessionRootStep(WorkflowDefinition definition, WorkflowStep step) {
     final visited = <String>{step.id};

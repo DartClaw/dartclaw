@@ -124,61 +124,13 @@ void main() {
       expect(bashStep['extraStripPatterns'], ['CUSTOM_FLAG']);
     });
 
-    test('andthen section serializes defaults under camelCase keys', () {
+    test('retired andthen section is not serialized', () {
       final config = const DartclawConfig.defaults();
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
 
       final json = serializer.toJson(config, runtime: runtime);
-      final andthen = json['andthen'] as Map<String, dynamic>;
-      expect(andthen, {
-        'gitUrl': 'https://github.com/IT-HUSET/andthen',
-        'ref': 'latest',
-        'network': 'auto',
-        'sourceCacheDir': null,
-      });
-    });
-
-    test('andthen section reflects configured overrides', () {
-      final config = const DartclawConfig(
-        andthen: AndthenConfig(
-          gitUrl: 'https://example.com/andthen.git',
-          ref: 'v0.42.0',
-          network: AndthenNetworkPolicy.disabled,
-          sourceCacheDir: '/var/cache/dartclaw/andthen-src',
-        ),
-      );
-      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
-
-      final json = serializer.toJson(config, runtime: runtime);
-      expect(json['andthen'], {
-        'gitUrl': 'https://example.com/andthen.git',
-        'ref': 'v0.42.0',
-        'network': 'disabled',
-        'sourceCacheDir': '/var/cache/dartclaw/andthen-src',
-      });
-    });
-
-    test('andthen ConfigMeta keys lookup against the serialized JSON', () {
-      // Validates the contract relied on by `dartclaw config show/get`: every
-      // andthen.* meta entry must resolve to a value via lookupPath against
-      // toJson output (i.e. serializer keys match ConfigMeta.jsonKey).
-      final config = const DartclawConfig(
-        andthen: AndthenConfig(network: AndthenNetworkPolicy.required, sourceCacheDir: '/tmp/andthen-src'),
-      );
-      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
-      final json = serializer.toJson(config, runtime: runtime);
-
-      final andthenMeta = ConfigMeta.fields.entries.where((e) => e.key.startsWith('andthen.'));
-      expect(andthenMeta, hasLength(4));
-      for (final entry in andthenMeta) {
-        final segments = entry.value.jsonKey.split('.');
-        dynamic cursor = json;
-        for (final s in segments) {
-          expect(cursor, isA<Map<String, dynamic>>(), reason: 'meta key ${entry.value.jsonKey}');
-          cursor = (cursor as Map<String, dynamic>)[s];
-        }
-        expect(cursor, isNotNull, reason: 'meta key ${entry.value.jsonKey} resolved to null');
-      }
+      expect(json.containsKey('andthen'), isFalse);
+      expect(ConfigMeta.fields.keys.where((key) => key.startsWith('andthen.')), isEmpty);
     });
 
     test('gateway.token masked as "***" when non-null', () {

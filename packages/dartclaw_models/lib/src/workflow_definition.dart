@@ -12,7 +12,7 @@ enum OutputFormat {
   lines,
 
   /// Workspace-relative file path produced on disk by an artifact-producing
-  /// step (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`). Treated as text
+  /// step (`andthen:prd`, `andthen:plan`, `andthen:spec`). Treated as text
   /// at runtime; the distinct format surfaces intent in the workflow contract
   /// and lets the engine recognise artifact-producing outputs.
   path;
@@ -771,7 +771,7 @@ class WorkflowStep {
 /// Artifact auto-commit configuration nested under [WorkflowGitStrategy].
 ///
 /// When [commit] is true the workflow engine commits any files produced by
-/// artifact-producing steps (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`,
+/// artifact-producing steps (`andthen:prd`, `andthen:plan`, `andthen:spec`,
 /// or any step writing under `context.docs_project_index.artifact_locations.*`)
 /// to the workflow branch before per-map-item worktrees are dispatched, so the
 /// worktrees inherit the committed files via standard `git checkout`.

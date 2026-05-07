@@ -6,8 +6,6 @@ export 'package:dartclaw_models/dartclaw_models.dart';
 export 'src/advisor_config.dart' show AdvisorConfig;
 export 'src/agent_config.dart' show AgentConfig;
 export 'src/alerts_config.dart' show AlertsConfig, AlertTarget;
-export 'src/andthen_config.dart'
-    show AndthenConfig, AndthenNetworkPolicy, AndthenNetworkPolicyYaml, parseAndthenNetworkPolicy;
 export 'src/auth_config.dart' show AuthConfig;
 export 'src/canvas_config.dart' show CanvasConfig, CanvasShareConfig, CanvasWorkshopConfig;
 export 'src/config_delta.dart' show ConfigDelta;

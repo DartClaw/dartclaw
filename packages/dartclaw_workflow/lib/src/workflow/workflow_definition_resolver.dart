@@ -92,7 +92,8 @@ class WorkflowDefinitionResolver {
 
     // 2. Skill default_prompt / default_outputs from frontmatter.
     final skill = step.skill;
-    final skillInfo = (skill != null) ? _skillRegistry?.getByName(skill) : null;
+    final resolvedProvider = step.provider ?? matched?.provider;
+    final skillInfo = (skill != null) ? _skillInfoFor(skill, resolvedProvider) : null;
     final skillDefaultPrompt = skillInfo?.defaultPrompt;
     final skillDefaultOutputs = skillInfo?.defaultOutputs;
 
@@ -120,7 +121,7 @@ class WorkflowDefinitionResolver {
       skill: step.skill,
       prompts: resolvedPrompts,
       type: step.type,
-      provider: step.provider ?? matched?.provider,
+      provider: resolvedProvider,
       model: step.model ?? matched?.model,
       effort: step.effort ?? matched?.effort,
       timeoutSeconds: step.timeoutSeconds,
@@ -147,6 +148,17 @@ class WorkflowDefinitionResolver {
       autoFrameContext: step.autoFrameContext,
       workflowVariables: step.workflowVariables,
     );
+  }
+
+  SkillInfo? _skillInfoFor(String skill, String? provider) {
+    final registry = _skillRegistry;
+    if (registry == null) return null;
+    if (provider != null) {
+      return registry.resolveRef(skill, provider)?.skill ?? registry.getByName(skill);
+    }
+    return registry.getByName(skill) ??
+        registry.resolveRef(skill, 'codex')?.skill ??
+        registry.resolveRef(skill, 'claude')?.skill;
   }
 
   /// Replaces `{{KEY}}` occurrences in [input] with the corresponding value

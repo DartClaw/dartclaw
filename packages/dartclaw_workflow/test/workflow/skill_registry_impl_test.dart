@@ -164,6 +164,30 @@ void main() {
       expect(skill.nativeHarnesses, {'claude'});
     });
 
+    test('resolveRef maps canonical AndThen references to provider-native aliases', () {
+      final claudeSkills = Directory('${tmpDir.path}/home/.claude/skills')..createSync(recursive: true);
+      final agentsSkills = Directory('${tmpDir.path}/home/.agents/skills')..createSync(recursive: true);
+      makeSkill(claudeSkills, 'andthen-spec', name: 'andthen:spec');
+      makeSkill(agentsSkills, 'andthen-spec', name: 'andthen-spec');
+      makeSkill(agentsSkills, 'custom-skill', name: 'custom-skill');
+
+      final registry = makeRegistry();
+      registry.discover(
+        workspaceDir: workspaceDir.path,
+        dataDir: dataDir.path,
+        userClaudeSkillsDir: claudeSkills.path,
+        userAgentsSkillsDir: agentsSkills.path,
+        builtInSkillsDir: '/nonexistent',
+      );
+
+      expect(registry.resolveRef('andthen:spec', 'claude')?.invocationName, 'andthen:spec');
+      expect(registry.resolveRef('andthen:spec', 'claude')?.skill.name, 'andthen:spec');
+      expect(registry.resolveRef('andthen:spec', 'codex')?.invocationName, 'andthen-spec');
+      expect(registry.resolveRef('andthen:spec', 'codex')?.skill.name, 'andthen-spec');
+      expect(registry.resolveRef('custom-skill', 'codex')?.invocationName, 'custom-skill');
+      expect(registry.resolveRef('andthen:missing', 'codex'), isNull);
+    });
+
     test('missing SKILL.md -> directory skipped silently', () {
       final claudeSkills = Directory('${workspaceDir.path}/skills')..createSync();
       // Create a dir without SKILL.md
@@ -545,25 +569,17 @@ void main() {
       expect(error, contains('No skills discovered'));
     });
 
-    test('validateRef for missing dartclaw-* skill includes provisioning recovery hint', () {
-      final error = registry.validateRef('dartclaw-spec');
+    test('validateRef for missing canonical AndThen skill includes provider alias', () {
+      final error = registry.validateRef('andthen:spec', provider: 'codex');
       expect(error, isNotNull);
-      expect(error, contains('dartclaw-spec'), reason: 'error message should name the missing skill');
+      expect(error, contains('andthen:spec'), reason: 'error message should name the canonical skill');
       expect(error, contains('not found'), reason: 'error message should indicate skill was not found');
-      expect(
-        error,
-        contains('SkillProvisioner'),
-        reason: 'hint should point at the provisioner that owns dartclaw-* installs',
-      );
-      expect(
-        error,
-        contains('andthen.network'),
-        reason: 'hint should name the relevant config key the operator can fix',
-      );
-      expect(error, contains('dartclaw serve'), reason: 'hint should name the restart command');
+      expect(error, contains('codex'));
+      expect(error, contains('andthen-spec'));
+      expect(error, contains('Install AndThen'));
     });
 
-    test('validateRef for missing dartclaw-* skill with no skills discovered includes recovery hint', () {
+    test('validateRef for missing canonical AndThen skill with no skills discovered includes searched alias', () {
       final emptyWs = Directory('${tmpDir.path}/empty2')..createSync();
       final fresh = makeRegistry();
       fresh.discover(
@@ -573,17 +589,16 @@ void main() {
         userAgentsSkillsDir: '/nonexistent',
         builtInSkillsDir: '/nonexistent',
       );
-      final error = fresh.validateRef('dartclaw-plan');
+      final error = fresh.validateRef('andthen:plan', provider: 'claude');
       expect(error, isNotNull);
-      expect(error, contains('No skills discovered'));
-      expect(error, contains('SkillProvisioner'));
+      expect(error, contains('andthen:plan'));
+      expect(error, contains('claude'));
     });
 
     test('validateRef for non-dartclaw missing skill does NOT include provisioning recovery hint', () {
       final error = registry.validateRef('some-other-skill');
       expect(error, isNotNull);
       expect(error, isNot(contains('SkillProvisioner')));
-      expect(error, isNot(contains('andthen.network')));
     });
   });
 

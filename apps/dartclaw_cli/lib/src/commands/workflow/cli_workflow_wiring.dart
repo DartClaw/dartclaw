@@ -104,6 +104,14 @@ class CliWorkflowPrResult {
 typedef CliWorkflowPrCreator =
     Future<CliWorkflowPrResult> Function({required String runId, required String projectId, required String branch});
 
+String? _assetResolverHome(Map<String, String>? environment) {
+  final env = environment ?? Platform.environment;
+  final home = env['HOME']?.trim();
+  if (home != null && home.isNotEmpty) return home;
+  final userProfile = env['USERPROFILE']?.trim();
+  return userProfile == null || userProfile.isEmpty ? null : userProfile;
+}
+
 /// Minimal service graph for headless workflow execution.
 ///
 /// Constructs only what [WorkflowService] + [TaskExecutor] need to run
@@ -169,7 +177,7 @@ class CliWorkflowWiring {
        _harnessFactory = harnessFactory ?? HarnessFactory(),
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _taskDbFactory = taskDbFactory ?? openTaskDb,
-       assetResolver = assetResolver ?? AssetResolver();
+       assetResolver = assetResolver ?? AssetResolver(homeDir: _assetResolverHome(environment));
 
   Future<void> _materializeWorkflowSkillsForWorktree(String worktreePath) async {
     final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
@@ -203,7 +211,7 @@ class CliWorkflowWiring {
     final builtInSkillsSourceDir =
         resolvedAssets?.skillsDir ?? WorkflowSkillSourceResolver.resolveBuiltInSkillsSourceDir();
     if (runAndthenSkillsBootstrap) {
-      await bootstrapAndthenSkills(
+      await bootstrapWorkflowSkills(
         config: config,
         dataDir: dataDir,
         builtInSkillsSourceDir: builtInSkillsSourceDir,

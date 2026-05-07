@@ -78,15 +78,11 @@ All frontend assets are vendored in `packages/dartclaw_server/lib/src/static/`. 
 
 Themes: Catppuccin Mocha (dark) + Catppuccin Latte (light) for highlight.js.
 
-## AndThen Installation
+## AndThen Skills
 
-**AndThen is provisioned at runtime** — by both `dartclaw serve` and `dartclaw workflow run --standalone`. Both entry points share the `bootstrapAndthenSkills(...)` helper, which validates DC-native skill source completeness before invoking `SkillProvisioner.ensureCacheCurrent()`. DartClaw's built-in workflows reference AndThen-derived skills by their installed `dartclaw-*` names. On first contact, `SkillProvisioner` clones AndThen from `https://github.com/IT-HUSET/andthen` into the configured source cache (`<data_dir>/andthen-src/` by default) and runs AndThen's own `scripts/install-skills.sh` with explicit destination flags for `<dataDir>/.agents/skills/`, `<dataDir>/.codex/agents/`, `<dataDir>/.claude/skills/`, and `<dataDir>/.claude/agents/`. DartClaw-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`) are copied alongside.
+DartClaw built-in workflows reference AndThen-owned skills by canonical names such as `andthen:spec`. The workflow registry resolves those names to provider-native aliases (`andthen-spec` for Codex, `andthen:spec` for Claude Code). DartClaw no longer clones AndThen or creates DartClaw-branded copies of AndThen skills.
 
-Default behavior: clone-on-first-start, fast-forward `main` on subsequent starts, install into the data-dir native roots, and materialize per-skill links into configured project workspaces and new task worktrees. Configure via the `andthen.*` block in `dartclaw.yaml` (`git_url`, `ref`, `network`, `source_cache_dir`). See [Configuration](../guide/andthen-skills.md) for the full reference, including offline / air-gapped deploys (`andthen.network: disabled` + pre-staged source cache).
-
-Operators do not need to run `install-skills.sh` manually — DartClaw handles it.
-
-**Architecture Decision**: ADR-025 (AndThen as runtime prerequisite) — recorded in the private design repo. Implemented in 0.16.4 (S71).
+`SkillProvisioner` only copies the three DartClaw-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`) into the data-dir native skill roots and links those exact names into configured project workspaces.
 
 ## External Services & Binaries
 

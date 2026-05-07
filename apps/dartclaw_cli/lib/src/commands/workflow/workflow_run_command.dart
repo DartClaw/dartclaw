@@ -83,7 +83,7 @@ class WorkflowRunCommand extends Command<void> {
         'no-skill-bootstrap',
         negatable: false,
         help:
-            'Skip AndThen skill provisioning in standalone mode. Use when AndThen has been pre-staged or '
+            'Skip DartClaw-native workflow skill provisioning in standalone mode. Use when skills are pre-staged or '
             'when running in an installed/AOT layout that cannot resolve the built-in skill source.',
       );
   }
@@ -220,10 +220,10 @@ class WorkflowRunCommand extends Command<void> {
           // by WorkflowRegistry; with --no-skill-bootstrap that almost always
           // means workflow skills weren't pre-staged. Surface the hint.
           _stderrLine(
-            'Note: --no-skill-bootstrap was set. If "$workflowName" uses DartClaw workflow skills '
-            '(dartclaw-prd, dartclaw-plan, etc.), pre-stage the AndThen skill bundle under the data-dir '
-            'native skill roots and materialize the project workspace links, '
-            'or omit --no-skill-bootstrap to provision them automatically.',
+            'Note: --no-skill-bootstrap was set. If "$workflowName" uses DartClaw-native workflow skills, '
+            'pre-stage them under the data-dir native skill roots and materialize the project workspace links, '
+            'or omit --no-skill-bootstrap to provision those native skills automatically. '
+            'AndThen skills must be installed separately for the selected provider.',
           );
         }
         _exitFn(1);
@@ -232,11 +232,11 @@ class WorkflowRunCommand extends Command<void> {
         final missing = _missingNativeSkillInstalls(definition: definition, wiring: wiring, config: config);
         if (missing.isNotEmpty) {
           _stderrLine(
-            '--no-skill-bootstrap was set but DartClaw workflow skills referenced by "$workflowName" '
+            '--no-skill-bootstrap was set but workflow skills referenced by "$workflowName" '
             'are not installed in native harness skill roots for their execution providers: '
             '${_formatMissingNativeSkillInstalls(missing)}. '
-            'Pre-stage the skill bundle under the data-dir native skill roots and materialize the project workspace links, '
-            'or omit --no-skill-bootstrap to provision them automatically.',
+            'Install AndThen separately for AndThen-owned skills; omit --no-skill-bootstrap only provisions '
+            'DartClaw-native skills.',
           );
           _exitFn(1);
         }
@@ -812,34 +812,51 @@ String? _globalOptionString(ArgResults? results, String name) {
   }
 }
 
-Map<String, Set<String>> _missingNativeSkillInstalls({
+List<_MissingNativeSkillInstall> _missingNativeSkillInstalls({
   required WorkflowDefinition definition,
   required CliWorkflowWiring wiring,
   required DartclawConfig config,
 }) {
   final roleDefaults = _workflowRoleDefaults(config);
-  final missing = <String, Set<String>>{};
+  final missing = <_MissingNativeSkillInstall>[];
   for (final step in definition.steps) {
     final skillName = step.skill;
-    if (skillName == null || !skillName.startsWith('dartclaw-')) continue;
+    if (skillName == null) continue;
 
     final provider = _effectiveStepProvider(definition, step, config, roleDefaults);
-    final skill = wiring.skillRegistry.getByName(skillName);
-    if (skill == null || !skill.nativeHarnesses.contains(provider)) {
-      missing.putIfAbsent(skillName, () => <String>{}).add(provider);
+    final resolved = wiring.skillRegistry.resolveRef(skillName, provider);
+    if (resolved == null || !resolved.skill.nativeHarnesses.contains(provider)) {
+      missing.add(
+        _MissingNativeSkillInstall(
+          canonicalRef: skillName,
+          provider: provider,
+          searchedName: _providerSkillAlias(skillName, provider),
+        ),
+      );
     }
   }
   return missing;
 }
 
-String _formatMissingNativeSkillInstalls(Map<String, Set<String>> missing) {
-  final names = missing.keys.toList()..sort();
-  return names
-      .map((name) {
-        final providers = missing[name]!.toList()..sort();
-        return '$name (${providers.join(", ")})';
-      })
-      .join(', ');
+String _formatMissingNativeSkillInstalls(List<_MissingNativeSkillInstall> missing) =>
+    (missing.toList()..sort((a, b) => a.sortKey.compareTo(b.sortKey)))
+        .map((item) => '${item.canonicalRef} (provider ${item.provider}, searched ${item.searchedName})')
+        .join(', ');
+
+String _providerSkillAlias(String skillName, String provider) {
+  if (!skillName.startsWith('andthen:')) return skillName;
+  final suffix = skillName.substring('andthen:'.length);
+  return provider == 'codex' ? 'andthen-$suffix' : skillName;
+}
+
+final class _MissingNativeSkillInstall {
+  final String canonicalRef;
+  final String provider;
+  final String searchedName;
+
+  const _MissingNativeSkillInstall({required this.canonicalRef, required this.provider, required this.searchedName});
+
+  String get sortKey => '$canonicalRef\x00$provider\x00$searchedName';
 }
 
 Set<String> _requiredWorkflowProviders(WorkflowDefinition definition, DartclawConfig config) {

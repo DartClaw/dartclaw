@@ -96,7 +96,6 @@ void main() {
         expect(validator.validate({'host': 'localhost'}), isEmpty);
         expect(validator.validate({'agent.model': 'sonnet'}), isEmpty);
         expect(validator.validate({'agent.model': null}), isEmpty);
-        expect(validator.validate({'andthen.source_cache_dir': null}), isEmpty);
         expect(validator.validate({'channels.whatsapp.task_trigger.prefix': 'task:'}), isEmpty);
       });
     });

@@ -1536,72 +1536,13 @@ FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {
   return const FeaturesConfig();
 }
 
-const _knownAndthenKeys = {'git_url', 'ref', 'network', 'source_cache_dir'};
-
-AndthenConfig _parseAndthen(
-  Map<String, dynamic> yaml,
-  AndthenConfig defaults,
-  Map<String, String> env,
-  List<String> warns,
-) {
-  var gitUrl = defaults.gitUrl;
-  var ref = defaults.ref;
-  var network = defaults.network;
-  var sourceCacheDir = defaults.sourceCacheDir;
-
+void _warnRetiredAndthenConfig(Map<String, dynamic> yaml, List<String> warns) {
   final atMap = _sectionMap('andthen', yaml, warns);
-  if (atMap == null) return defaults;
+  if (atMap == null) return;
 
   for (final key in atMap.keys) {
-    if (key == 'install_scope') {
-      warns.add(
-        'andthen.install_scope is no longer supported (skills always install into the data dir); '
-        'remove it from your config to silence this warning',
-      );
-      continue;
-    }
-    if (!_knownAndthenKeys.contains(key)) {
-      warns.add('Unknown andthen config key: "$key" — ignoring');
-    }
+    warns.add('Ignoring retired andthen.$key config; DartClaw no longer provisions AndThen skills.');
   }
-
-  final gitUrlVal = atMap['git_url'];
-  if (gitUrlVal is String && gitUrlVal.isNotEmpty) {
-    gitUrl = gitUrlVal;
-  } else if (gitUrlVal != null) {
-    warns.add('Invalid type for andthen.git_url: "${gitUrlVal.runtimeType}" — using default');
-  }
-
-  final refVal = atMap['ref'];
-  if (refVal is String && refVal.isNotEmpty) {
-    ref = refVal;
-  } else if (refVal != null) {
-    warns.add('Invalid type for andthen.ref: "${refVal.runtimeType}" — using default');
-  }
-
-  final networkVal = atMap['network'];
-  if (networkVal != null) {
-    final parsed = parseAndthenNetworkPolicy(networkVal);
-    if (parsed != null) {
-      network = parsed;
-    } else {
-      warns.add('Invalid andthen.network: "$networkVal" — using default "${defaults.network.yamlValue}"');
-    }
-  }
-
-  final sourceCacheDirVal = atMap['source_cache_dir'];
-  if (sourceCacheDirVal is String) {
-    final resolved = expandHome(envSubstitute(sourceCacheDirVal, env: env).trim(), env: env);
-    if (resolved.isNotEmpty) {
-      sourceCacheDir = resolved;
-    } else {
-      warns.add('Invalid empty value for andthen.source_cache_dir — using default');
-    }
-  } else if (sourceCacheDirVal != null) {
-    warns.add('Invalid type for andthen.source_cache_dir: "${sourceCacheDirVal.runtimeType}" — using default');
-  }
-
-  return AndthenConfig(gitUrl: gitUrl, ref: ref, network: network, sourceCacheDir: sourceCacheDir);
 }
 
 int _parseInt(String key, String? cliValue, Object? yamlValue, int defaultValue, List<String> warns) {

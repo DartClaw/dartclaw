@@ -36,8 +36,8 @@ List<String> workflowSkillProjectDirs(config_tools.DartclawConfig config, {requi
   );
 }
 
-/// Provisions AndThen-derived `dartclaw-*` skills plus DC-native skills.
-Future<void> bootstrapAndthenSkills({
+/// Provisions DartClaw-native workflow skills into provider-native roots.
+Future<void> bootstrapWorkflowSkills({
   required config_tools.DartclawConfig config,
   required String dataDir,
   required String? builtInSkillsSourceDir,
@@ -61,7 +61,6 @@ Future<void> bootstrapAndthenSkills({
   }
 
   final provisioner = SkillProvisioner(
-    config: config.andthen,
     dataDir: dataDir,
     dcNativeSkillsSourceDir: builtInSkillsSourceDir,
     environment: environment,
@@ -87,7 +86,7 @@ Future<void> bootstrapAndthenSkills({
     // failures and the operator-facing wording should reflect that.
     throw SkillProvisionException(e.message);
   } on SkillProvisionException catch (e) {
-    throw SkillProvisionException('AndThen skills provisioning failed: ${e.message}');
+    throw SkillProvisionException('DartClaw-native skill provisioning failed: ${e.message}');
   }
 }
 

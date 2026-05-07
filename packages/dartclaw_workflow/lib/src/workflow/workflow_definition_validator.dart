@@ -81,7 +81,7 @@ class WorkflowDefinitionValidator {
   // exact flat keys before nested map paths.
   static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
 
-  static const _artifactProducingSkills = {'dartclaw-prd', 'dartclaw-plan', 'dartclaw-spec'};
+  static const _artifactProducingSkills = {'andthen:prd', 'andthen:plan', 'andthen:spec'};
   final _engine = WorkflowTemplateEngine();
   final WorkflowRoleDefaults roleDefaults;
 

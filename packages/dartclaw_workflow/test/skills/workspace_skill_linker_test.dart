@@ -22,7 +22,7 @@ void main() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });
 
-    test('materialize creates per-skill and per-agent symlinks idempotently', () {
+    test('materialize creates DC-native per-skill symlinks idempotently', () {
       var linkWrites = 0;
       final linker = WorkspaceSkillLinker(
         linkFactory: ({required targetPath, required linkPath}) {
@@ -41,20 +41,12 @@ void main() {
       );
 
       expect(
-        Link(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-prd')).targetSync(),
-        p.join(dataDir, '.claude', 'skills', 'dartclaw-prd'),
+        Link(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-discover-project')).targetSync(),
+        p.join(dataDir, '.claude', 'skills', 'dartclaw-discover-project'),
       );
       expect(
-        Link(p.join(workspaceDir, '.agents', 'skills', 'dartclaw-spec')).targetSync(),
-        p.join(dataDir, '.agents', 'skills', 'dartclaw-spec'),
-      );
-      expect(
-        Link(p.join(workspaceDir, '.claude', 'agents', 'dartclaw-exec-spec.md')).targetSync(),
-        p.join(dataDir, '.claude', 'agents', 'dartclaw-exec-spec.md'),
-      );
-      expect(
-        Link(p.join(workspaceDir, '.codex', 'agents', 'dartclaw-exec-spec.toml')).targetSync(),
-        p.join(dataDir, '.codex', 'agents', 'dartclaw-exec-spec.toml'),
+        Link(p.join(workspaceDir, '.agents', 'skills', 'dartclaw-merge-resolve')).targetSync(),
+        p.join(dataDir, '.agents', 'skills', 'dartclaw-merge-resolve'),
       );
 
       final writesAfterFirstRun = linkWrites;
@@ -124,8 +116,8 @@ void main() {
       );
 
       final exclude = File(p.join(effectiveGitDir.path, 'info', 'exclude')).readAsStringSync();
-      expect(exclude, contains('.claude/skills/dartclaw-*'));
-      expect(exclude, contains('.codex/agents/dartclaw-*.toml'));
+      expect(exclude, contains('/.claude/skills/dartclaw-discover-project'));
+      expect(exclude, contains('/.agents/skills/dartclaw-merge-resolve'));
     });
 
     test('materialized real git worktree remains porcelain-clean', () {
@@ -158,20 +150,20 @@ void main() {
     });
 
     test('stale symlink retargets to current data dir', () {
-      final staleTarget = p.join(tempDir.path, 'stale', 'dartclaw-prd');
-      final staleLink = Link(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-prd'));
+      final staleTarget = p.join(tempDir.path, 'stale', 'dartclaw-discover-project');
+      final staleLink = Link(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-discover-project'));
       staleLink.createSync(staleTarget, recursive: true);
       final linker = WorkspaceSkillLinker();
 
       linker.materialize(
         dataDir: dataDir,
         workspaceDir: workspaceDir,
-        skillNames: const ['dartclaw-prd'],
+        skillNames: const ['dartclaw-discover-project'],
         agentMdNames: const [],
         agentTomlNames: const [],
       );
 
-      expect(staleLink.targetSync(), p.join(dataDir, '.claude', 'skills', 'dartclaw-prd'));
+      expect(staleLink.targetSync(), p.join(dataDir, '.claude', 'skills', 'dartclaw-discover-project'));
     });
 
     test('copy fallback writes managed markers and refreshes only on fingerprint mismatch', () {
@@ -198,68 +190,40 @@ void main() {
       linker.materialize(
         dataDir: dataDir,
         workspaceDir: workspaceDir,
-        skillNames: const ['dartclaw-prd'],
+        skillNames: const ['dartclaw-discover-project'],
         agentMdNames: const [],
         agentTomlNames: const [],
       );
-      expect(File(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-prd', '.dartclaw-managed')).existsSync(), isTrue);
-      expect(File(p.join(workspaceDir, '.agents', 'skills', 'dartclaw-prd', '.dartclaw-managed')).existsSync(), isTrue);
+      expect(
+        File(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-discover-project', '.dartclaw-managed')).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(p.join(workspaceDir, '.agents', 'skills', 'dartclaw-discover-project', '.dartclaw-managed')).existsSync(),
+        isTrue,
+      );
       expect(copyWrites, 2);
 
       linker.materialize(
         dataDir: dataDir,
         workspaceDir: workspaceDir,
-        skillNames: const ['dartclaw-prd'],
+        skillNames: const ['dartclaw-discover-project'],
         agentMdNames: const [],
         agentTomlNames: const [],
       );
       expect(copyWrites, 2);
 
-      File(p.join(dataDir, '.claude', 'skills', 'dartclaw-prd', 'SKILL.md')).writeAsStringSync('changed\n');
+      File(
+        p.join(dataDir, '.claude', 'skills', 'dartclaw-discover-project', 'SKILL.md'),
+      ).writeAsStringSync('changed\n');
       linker.materialize(
         dataDir: dataDir,
         workspaceDir: workspaceDir,
-        skillNames: const ['dartclaw-prd'],
+        skillNames: const ['dartclaw-discover-project'],
         agentMdNames: const [],
         agentTomlNames: const [],
       );
       expect(copyWrites, 3);
-    });
-
-    test('copy fallback covers managed agent files and refreshes on source changes', () {
-      final linker = WorkspaceSkillLinker(
-        linkFactory: ({required targetPath, required linkPath}) {
-          throw const FileSystemException('symlinks unavailable');
-        },
-      );
-
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: const [],
-        agentMdNames: const ['dartclaw-exec-spec'],
-        agentTomlNames: const ['dartclaw-exec-spec'],
-      );
-
-      final claudeAgent = File(p.join(workspaceDir, '.claude', 'agents', 'dartclaw-exec-spec.md'));
-      final codexAgent = File(p.join(workspaceDir, '.codex', 'agents', 'dartclaw-exec-spec.toml'));
-      expect(claudeAgent.readAsStringSync(), '# dartclaw-exec-spec\n');
-      expect(codexAgent.readAsStringSync(), 'name = "dartclaw-exec-spec"\n');
-      expect(File('${claudeAgent.path}.${WorkspaceSkillLinker.managedMarkerName}').existsSync(), isTrue);
-      expect(File('${codexAgent.path}.${WorkspaceSkillLinker.managedMarkerName}').existsSync(), isTrue);
-
-      File(p.join(dataDir, '.claude', 'agents', 'dartclaw-exec-spec.md')).writeAsStringSync('# changed\n');
-      File(p.join(dataDir, '.codex', 'agents', 'dartclaw-exec-spec.toml')).writeAsStringSync('name = "changed"\n');
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: const [],
-        agentMdNames: const ['dartclaw-exec-spec'],
-        agentTomlNames: const ['dartclaw-exec-spec'],
-      );
-
-      expect(claudeAgent.readAsStringSync(), '# changed\n');
-      expect(codexAgent.readAsStringSync(), 'name = "changed"\n');
     });
 
     test('clean removes only managed artifacts and exact exclude lines', () {
@@ -276,14 +240,14 @@ void main() {
       linker.materialize(
         dataDir: dataDir,
         workspaceDir: workspaceDir,
-        skillNames: const ['dartclaw-prd'],
+        skillNames: const ['dartclaw-discover-project'],
         agentMdNames: const [],
         agentTomlNames: const [],
       );
       linker.clean(workspaceDir: workspaceDir);
 
-      expect(Directory(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-prd')).existsSync(), isFalse);
-      expect(Directory(p.join(workspaceDir, '.agents', 'skills', 'dartclaw-prd')).existsSync(), isFalse);
+      expect(Directory(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-discover-project')).existsSync(), isFalse);
+      expect(Directory(p.join(workspaceDir, '.agents', 'skills', 'dartclaw-discover-project')).existsSync(), isFalse);
       expect(File(p.join(operatorSkill.path, 'SKILL.md')).readAsStringSync(), 'operator\n');
       expect(File(p.join(workspaceDir, '.git', 'info', 'exclude')).readAsStringSync(), isEmpty);
 
@@ -308,16 +272,10 @@ ProcessResult _runGit(String workingDirectory, List<String> arguments) {
 
 void _seedDataDir(String dataDir) {
   for (final root in [p.join(dataDir, '.claude', 'skills'), p.join(dataDir, '.agents', 'skills')]) {
-    for (final name in const ['dartclaw-prd', 'dartclaw-spec']) {
+    for (final name in const ['dartclaw-discover-project', 'dartclaw-validate-workflow', 'dartclaw-merge-resolve']) {
       File(p.join(root, name, 'SKILL.md'))
         ..createSync(recursive: true)
         ..writeAsStringSync('---\nname: $name\n---\nbody\n');
     }
   }
-  File(p.join(dataDir, '.claude', 'agents', 'dartclaw-exec-spec.md'))
-    ..createSync(recursive: true)
-    ..writeAsStringSync('# dartclaw-exec-spec\n');
-  File(p.join(dataDir, '.codex', 'agents', 'dartclaw-exec-spec.toml'))
-    ..createSync(recursive: true)
-    ..writeAsStringSync('name = "dartclaw-exec-spec"\n');
 }

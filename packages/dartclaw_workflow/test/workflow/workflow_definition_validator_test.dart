@@ -18,18 +18,32 @@ class _FakeSkillRegistry implements SkillRegistry {
   SkillInfo? getByName(String name) => _skills[name];
 
   @override
-  String? validateRef(String skillRef) {
-    if (_skills.containsKey(skillRef)) return null;
+  ResolvedSkillRef? resolveRef(String skillRef, String provider) {
+    final invocationName = _providerSkillAlias(skillRef, provider);
+    final skill = _skills[invocationName];
+    if (skill == null) return null;
+    return ResolvedSkillRef(canonicalRef: skillRef, provider: provider, invocationName: invocationName, skill: skill);
+  }
+
+  @override
+  String? validateRef(String skillRef, {String? provider}) {
+    if (provider != null && resolveRef(skillRef, provider) != null) return null;
+    if (provider == null && _skills.containsKey(skillRef)) return null;
     final available = _skills.keys.toList()..sort();
     return 'Skill "$skillRef" not found. Available: ${available.join(', ')}';
   }
 
   @override
   bool isNativeFor(String skillName, String harnessType) {
-    final skill = _skills[skillName];
-    if (skill == null) return false;
-    return skill.nativeHarnesses.contains(harnessType);
+    final resolved = resolveRef(skillName, harnessType);
+    return resolved?.skill.nativeHarnesses.contains(harnessType) ?? false;
   }
+}
+
+String _providerSkillAlias(String skillName, String provider) {
+  if (!skillName.startsWith('andthen:')) return skillName;
+  final suffix = skillName.substring('andthen:'.length);
+  return provider == 'codex' ? 'andthen-$suffix' : skillName;
 }
 
 _FakeSkillRegistry _makeRegistry({
@@ -1045,10 +1059,10 @@ steps:
         if (userClaudeSkillsDir.existsSync()) userClaudeSkillsDir.deleteSync(recursive: true);
       });
 
-      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'dartclaw-review'))..createSync(recursive: true);
+      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'local-review'))..createSync(recursive: true);
       File(
         p.join(skillDir.path, 'SKILL.md'),
-      ).writeAsStringSync('---\nname: dartclaw-review\ndescription: Filesystem review skill\n---\n\n# review');
+      ).writeAsStringSync('---\nname: local-review\ndescription: Filesystem review skill\n---\n\n# review');
 
       final registry = SkillRegistryImpl();
       registry.discover(
@@ -1061,7 +1075,7 @@ steps:
 
       final validator = WorkflowDefinitionValidator()..skillRegistry = registry;
       final def = makeSkillDef(
-        const WorkflowStep(id: 's', name: 'S', skill: 'dartclaw-review', provider: 'claude', prompts: ['p']),
+        const WorkflowStep(id: 's', name: 'S', skill: 'local-review', provider: 'claude', prompts: ['p']),
       );
 
       expect(validator.validate(def).errors, isEmpty);
@@ -2175,7 +2189,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
           ],
         );
         final report = validator.validate(def);
@@ -2191,7 +2205,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
             WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 2),
           ],
         );
@@ -2208,7 +2222,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
             WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 1),
           ],
         );
@@ -2225,7 +2239,7 @@ steps:
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
           ],
         );
         final report = validator.validate(def);

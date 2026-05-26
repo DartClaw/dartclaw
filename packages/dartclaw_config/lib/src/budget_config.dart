@@ -35,8 +35,10 @@ class BudgetConfig {
   /// Whether budget enforcement is active (dailyTokens > 0).
   bool get enabled => dailyTokens > 0;
 
+  /// const BudgetConfig({this.dailyTokens = 0, this.action = Budg.
   const BudgetConfig({this.dailyTokens = 0, this.action = BudgetAction.warn, this.timezone = 'UTC'});
 
+  /// Creates a [BudgetConfig.defaults] value.
   const BudgetConfig.defaults() : this();
 
   @override

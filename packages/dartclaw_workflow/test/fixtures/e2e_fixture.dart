@@ -9,27 +9,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillProvisioner,
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
-typedef E2EProjectSetup = FutureOr<void> Function(String projectDir);
+import '../workflow/_support/workflow_test_paths.dart';
 
-String _fixturesRoot() {
-  var current = Directory.current;
-  while (true) {
-    final candidates = [
-      p.join(current.path, 'test', 'fixtures'),
-      p.join(current.path, 'packages', 'dartclaw_workflow', 'test', 'fixtures'),
-    ];
-    for (final candidate in candidates) {
-      if (Directory(candidate).existsSync()) {
-        return Directory(candidate).resolveSymbolicLinksSync();
-      }
-    }
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate workflow test fixtures');
-    }
-    current = parent;
-  }
-}
+typedef E2EProjectSetup = FutureOr<void> Function(String projectDir);
 
 void _copyDirectorySync(Directory source, Directory target) {
   target.createSync(recursive: true);
@@ -302,7 +284,7 @@ final class E2EFixture {
   }
 
   Future<E2EFixtureInstance> build() async {
-    final fixturesRoot = _fixturesRoot();
+    final fixturesRoot = workflowFixturesRoot();
     final profileDir = p.join(fixturesRoot, fixtureProfile);
     if (!Directory(profileDir).existsSync()) {
       throw StateError('Fixture profile does not exist: $profileDir');
@@ -387,7 +369,6 @@ final class E2EFixture {
     if (provisionWorkflowSkills) {
       final sourceDir = _builtInSkillsSourceDir();
       final provisioner = SkillProvisioner(
-        config: config.andthen,
         dataDir: dataDir,
         dcNativeSkillsSourceDir: sourceDir,
         environment: environment,
@@ -478,7 +459,7 @@ final class E2EFixture {
   /// in `e2e_fixture_test.dart` exercise this method to lock the templating
   /// shape across provider presets.
   String renderProfileYaml({required String dataDir, required String workflowWorkspaceDir, String? templatePath}) {
-    final path = templatePath ?? p.join(_fixturesRoot(), fixtureProfile, 'workflow_profile.yaml');
+    final path = templatePath ?? p.join(workflowFixturesRoot(), fixtureProfile, 'workflow_profile.yaml');
     final template = File(path).readAsStringSync();
     final providerBlock = _renderProvidersBlock();
     final credentialBlock = _renderProviderCredentialBlock();
@@ -553,6 +534,7 @@ final class E2EFixtureInstance {
     WorkflowStepOutputTransformer? outputTransformer,
     CliWorkflowPrCreator? prCreator,
     HarnessFactory? harnessFactory,
+    bool runAndthenSkillsBootstrap = false,
   }) async {
     final wiring = CliWorkflowWiring(
       config: config,
@@ -563,23 +545,23 @@ final class E2EFixtureInstance {
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
       workflowStepOutputTransformer: outputTransformer,
+      runAndthenSkillsBootstrap: runAndthenSkillsBootstrap,
       prCreator: prCreator,
     );
     await wiring.wire();
     return wiring;
   }
 
-  void writeUserTierWorkflowSkills(Iterable<String> names) {
-    final home = environment['HOME'];
-    if (home == null || home.isEmpty) {
-      throw StateError('E2E fixture requires HOME to write native user-tier workflow skills.');
-    }
-    for (final root in [p.join(home, '.claude', 'skills'), p.join(home, '.agents', 'skills')]) {
+  void writeDataDirWorkflowSkills({Iterable<String> codexNames = const [], Iterable<String> claudeNames = const []}) {
+    void write(String root, Iterable<String> names) {
       for (final name in names) {
         final skillDir = Directory(p.join(root, name))..createSync(recursive: true);
         File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('---\nname: $name\n---\n\n# $name\n');
       }
     }
+
+    write(p.join(config.server.dataDir, '.agents', 'skills'), codexNames);
+    write(p.join(config.server.dataDir, '.claude', 'skills'), claudeNames);
   }
 
   Future<void> dispose() async {

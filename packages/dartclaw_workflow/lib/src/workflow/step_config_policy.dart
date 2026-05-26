@@ -1,5 +1,5 @@
-import 'package:dartclaw_models/dartclaw_models.dart'
-    show OutputFormat, WorkflowDefinition, WorkflowGitStrategy, WorkflowStep;
+import 'workflow_definition.dart'
+    show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowGitStrategy, WorkflowStep, WorkflowTaskType;
 
 import 'step_config_resolver.dart';
 import 'workflow_context.dart';
@@ -44,41 +44,51 @@ bool stepNeedsWorktree(
   WorkflowStep step,
   ResolvedStepConfig resolved, {
   required String resolvedWorktreeMode,
+  Map<String, OutputConfig>? effectiveOutputs,
 }) {
   if (resolvedWorktreeMode == 'per-map-item') return true;
-  if (step.isForeachController || step.outputKeys.contains('project_index')) return false;
-  if (!shouldBindWorkflowProject(definition, step, resolved)) return false;
+  if (step.isForeachController) return false;
+  if (!shouldBindWorkflowProject(definition, step, resolved, effectiveOutputs: effectiveOutputs)) return false;
+  if (stepEmitsArtifactPath(step, effectiveOutputs: effectiveOutputs)) return true;
   final allowedTools = resolved.allowedTools;
   if (allowedTools != null) {
-    return allowedTools.contains('file_write');
+    return _allowsProjectMutation(allowedTools);
   }
-  return step.type == 'agent';
+  return step.taskType == WorkflowTaskType.agent;
 }
 
 /// Returns true when a step should be executed without write tools.
 bool stepIsReadOnly(WorkflowStep step, ResolvedStepConfig resolved) {
   final allowedTools = resolved.allowedTools;
   if (allowedTools != null) {
-    return !allowedTools.contains('file_write');
+    return !_allowsProjectMutation(allowedTools);
   }
   return false;
 }
 
 /// Returns true when any declared output is an artifact path.
-bool stepEmitsArtifactPath(WorkflowStep step) =>
-    step.outputs?.values.any((config) => config.format == OutputFormat.path) ?? false;
+bool stepEmitsArtifactPath(WorkflowStep step, {Map<String, OutputConfig>? effectiveOutputs}) =>
+    (effectiveOutputs ?? step.outputs)?.values.any((config) => config.format == OutputFormat.path) ?? false;
 
 /// Returns true when a workflow task should bind to a project checkout.
-bool shouldBindWorkflowProject(WorkflowDefinition definition, WorkflowStep step, ResolvedStepConfig resolved) {
+///
+/// Binding flows from explicit project-affecting step config: map scope,
+/// artifact-path outputs, mutating `allowedTools`, or a neutral agent step.
+/// Retired inputs such as `project_index` do not trigger binding.
+bool shouldBindWorkflowProject(
+  WorkflowDefinition definition,
+  WorkflowStep step,
+  ResolvedStepConfig resolved, {
+  Map<String, OutputConfig>? effectiveOutputs,
+}) {
   if (definition.project == null) return false;
   if (step.isMapStep) return true;
-  if (step.inputs.contains('project_index')) return true;
-  if (step.outputKeys.contains('project_index')) return true;
+  if (stepEmitsArtifactPath(step, effectiveOutputs: effectiveOutputs)) return true;
   final allowedTools = resolved.allowedTools;
   if (allowedTools != null) {
-    return allowedTools.contains('file_write');
+    return _allowsProjectMutation(allowedTools);
   }
-  return step.type == 'agent';
+  return step.taskType == WorkflowTaskType.agent;
 }
 
 /// Returns true when the step can mutate the workflow project branch.
@@ -90,9 +100,12 @@ bool stepTouchesProjectBranch(
   if (definition.project == null) return false;
   final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults);
   if (!shouldBindWorkflowProject(definition, step, resolved)) return false;
-  if (step.isForeachController || step.outputKeys.contains('project_index')) return false;
+  if (step.isForeachController) return false;
   return !stepIsReadOnly(step, resolved);
 }
+
+bool _allowsProjectMutation(List<String> allowedTools) =>
+    allowedTools.contains('file_write') || allowedTools.contains('file_edit');
 
 /// Resolves the runtime `maxParallel` value for map and foreach scopes.
 int? resolveMaxParallel(Object? raw, WorkflowContext context, String stepId, {WorkflowTemplateEngine? templateEngine}) {
@@ -122,8 +135,8 @@ bool isPromotionAwareScope(
       effectivePromotion(strategy, resolvedWorktreeMode: resolvedWorktreeMode) != 'none';
 }
 
-/// Returns true when per-map-item git bootstrap is required.
-bool requiresPerMapItemBootstrap(
+/// Returns true when per-map-item git isolation is required.
+bool requiresPerMapItemGitIsolation(
   WorkflowDefinition definition,
   WorkflowContext context, {
   required WorkflowTemplateEngine templateEngine,
@@ -144,3 +157,10 @@ bool requiresPerMapItemBootstrap(
   }
   return false;
 }
+
+/// Legacy alias retained for callers using the previous name.
+bool requiresPerMapItemBootstrap(
+  WorkflowDefinition definition,
+  WorkflowContext context, {
+  required WorkflowTemplateEngine templateEngine,
+}) => requiresPerMapItemGitIsolation(definition, context, templateEngine: templateEngine);

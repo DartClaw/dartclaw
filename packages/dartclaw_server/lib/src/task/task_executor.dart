@@ -2,23 +2,26 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository, WorkflowWorktreeBinding;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../behavior/behavior_file_service.dart';
 import '../container/container_dispatcher.dart';
-import '../harness_pool.dart';
-import '../turn_manager.dart';
-import '../turn_runner.dart';
+import '../turn_manager.dart' show TurnManager;
+import '../turn_runner.dart' show TurnRunner;
 import 'agent_observer.dart';
 import 'artifact_collector.dart';
 import 'goal_service.dart';
 import 'task_budget_policy.dart';
 import 'task_config_view.dart';
 import 'task_event_recorder.dart';
+import 'task_executor_limits.dart';
+import 'task_executor_runners.dart';
+import 'task_executor_services.dart';
 import 'task_file_guard.dart';
 import 'task_project_ref.dart';
 import 'task_read_only_guard.dart';
@@ -38,59 +41,40 @@ part 'task_executor_helpers.dart';
 /// using the primary runner directly when it is idle (S06 behavior).
 class TaskExecutor {
   TaskExecutor({
-    required TaskService tasks,
-    GoalService? goals,
-    required SessionService sessions,
-    required MessageService messages,
-    required TurnManager turns,
-    required ArtifactCollector artifactCollector,
-    WorktreeManager? worktreeManager,
-    TaskFileGuard? taskFileGuard,
-    AgentObserver? observer,
-    TurnTraceService? traceService,
-    TaskEventRecorder? eventRecorder,
-    WorkflowCliRunner? workflowCliRunner,
-    WorkflowStepExecutionRepository? workflowStepExecutionRepository,
-    SqliteWorkflowRunRepository? workflowRunRepository,
+    required TaskExecutorServices services,
+    required TaskExecutorRunners runners,
+    TaskExecutorLimits limits = const TaskExecutorLimits(),
     Future<void> Function()? onSpawnNeeded,
     Future<void> Function(String taskId)? onAutoAccept,
-    ProjectService? projectService,
-    String? workspaceDir,
-    int? maxMemoryBytes,
-    String? compactInstructions,
-    String identifierPreservation = 'strict',
-    String? identifierInstructions,
-    KvService? kvService,
-    TaskBudgetConfig? budgetConfig,
-    EventBus? eventBus,
+    String? workspaceRoot,
     String? dataDir,
     this.pollInterval = const Duration(seconds: 2),
-  }) : _tasks = tasks,
-       _goals = goals,
-       _sessions = sessions,
-       _messages = messages,
-       _turns = turns,
-       _pool = turns.pool,
-       _artifactCollector = artifactCollector,
-       _worktreeManager = worktreeManager,
-       _taskFileGuard = taskFileGuard,
-       _observer = observer,
-       _traceService = traceService,
-       _eventRecorder = eventRecorder,
-       _workflowCliRunner = workflowCliRunner,
-       _workflowStepExecutionRepository = workflowStepExecutionRepository,
-       _workflowRunRepository = workflowRunRepository,
+  }) : _tasks = services.tasks,
+       _goals = services.goals,
+       _sessions = services.sessions,
+       _messages = services.messages,
+       _turns = runners.turns,
+       _pool = runners.turns.pool,
+       _artifactCollector = services.artifactCollector,
+       _worktreeManager = services.worktreeManager,
+       _taskFileGuard = services.taskFileGuard,
+       _observer = runners.observer,
+       _traceService = services.traceService,
+       _eventRecorder = services.eventRecorder,
+       _workflowCliRunner = runners.workflowCliRunner,
+       _workflowStepExecutionRepository = services.workflowStepExecutionRepository,
+       _workflowRunRepository = services.workflowRunRepository,
        _onSpawnNeeded = onSpawnNeeded,
        _onAutoAccept = onAutoAccept,
-       _projectService = projectService,
-       _workspaceDir = workspaceDir,
-       _maxMemoryBytes = maxMemoryBytes,
-       _compactInstructions = compactInstructions,
-       _identifierPreservation = identifierPreservation,
-       _identifierInstructions = identifierInstructions,
-       _kv = kvService,
-       _budgetConfig = budgetConfig,
-       _eventBus = eventBus,
+       _projectService = services.projectService,
+       _workspaceRoot = workspaceRoot,
+       _maxMemoryBytes = limits.maxMemoryBytes,
+       _compactInstructions = limits.compactInstructions,
+       _identifierPreservation = limits.identifierPreservation,
+       _identifierInstructions = limits.identifierInstructions,
+       _kv = services.kvService,
+       _budgetConfig = limits.budgetConfig,
+       _eventBus = services.eventBus,
        _dataDir = dataDir;
 
   static final _log = Logger('TaskExecutor');
@@ -110,14 +94,14 @@ class TaskExecutor {
   final TaskEventRecorder? _eventRecorder;
   final WorkflowCliRunner? _workflowCliRunner;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
-  final SqliteWorkflowRunRepository? _workflowRunRepository;
+  final WorkflowRunRepository? _workflowRunRepository;
   final Future<void> Function()? _onSpawnNeeded;
   final Future<void> Function(String taskId)? _onAutoAccept;
   final ProjectService? _projectService;
-  final String? _workspaceDir;
+  final String? _workspaceRoot;
   final int? _maxMemoryBytes;
   final String? _compactInstructions;
-  final String _identifierPreservation;
+  final IdentifierPreservationMode _identifierPreservation;
   final String? _identifierInstructions;
   final KvService? _kv;
   final TaskBudgetConfig? _budgetConfig;
@@ -162,8 +146,8 @@ class TaskExecutor {
   Timer? _timer;
   Future<bool>? _inFlightPoll;
 
-  void hydrateWorkflowSharedWorktreeBinding(WorkflowWorktreeBinding binding, {required String workflowRunId}) {
-    _worktreeBinder.hydrateWorkflowSharedWorktreeBinding(binding, workflowRunId: workflowRunId);
+  void hydrateWorkflowSharedWorktreeBinding(WorkflowWorktreeBinding binding) {
+    _worktreeBinder.hydrate(binding);
   }
 
   void start() {
@@ -194,6 +178,9 @@ class TaskExecutor {
     return future;
   }
 
+  Future<void> _failForProject(Task task, String projectId) =>
+      _failureHandler.markFailedOrRetry(task, errorSummary: 'Project "$projectId" not found', retryable: false);
+
   Future<bool> _pollOnceInner() async {
     // Pool mode: dispatch as many queued tasks as there are compatible idle runners.
     if (_pool.maxConcurrentTasks > 0) {
@@ -220,7 +207,7 @@ class TaskExecutor {
         }
 
         final profile = resolveProfile(task.type);
-        final runner = _runnerPoolCoordinator.acquireRunnerForTask(task, profile);
+        final runner = _runnerPoolCoordinator.acquireRunnerForTask(task, profile) as TurnRunner?;
         if (runner == null) {
           continue;
         }
@@ -327,11 +314,7 @@ class TaskExecutor {
         if (projectId != null) {
           project = await projectService.get(projectId);
           if (project == null) {
-            await _failureHandler.markFailedOrRetry(
-              task,
-              errorSummary: 'Project "$projectId" not found',
-              retryable: false,
-            );
+            await _failForProject(task, projectId);
             return;
           }
           if (project.status == ProjectStatus.error) {
@@ -353,7 +336,7 @@ class TaskExecutor {
             return;
           }
         } else {
-          project = await projectService.getDefaultProject();
+          project = await projectService.defaultProject;
         }
         final explicitBaseRef = _taskBaseRef(task);
         final effectiveBaseRef = await _resolveEffectiveBaseRef(task, project, explicitBaseRef: explicitBaseRef);
@@ -396,6 +379,7 @@ class TaskExecutor {
           if (!prepared) {
             return;
           }
+          task = await _tasks.updateFields(task.id, worktreeJson: {'path': project.localPath, 'branch': inlineBaseRef});
         }
       }
 
@@ -497,7 +481,7 @@ class TaskExecutor {
         task = await _tasks.updateFields(task.id, sessionId: session.id);
       }
 
-      // Pre-turn budget check — fail-safe open policy.
+      // Pre-turn budget check – fail-safe open policy.
       final goalForBudget = task.goalId != null ? await _goals?.get(task.goalId!) : null;
       final (budgetVerdict, budgetWarningMessage) = await _budgetPolicy.checkBudget(
         task,
@@ -531,7 +515,9 @@ class TaskExecutor {
           workingDirectory: worktreeInfo?.path ?? projectDirForTask,
           modelOverride: modelOverride,
           effortOverride: effortOverride,
-          sandboxOverride: _isReadOnlyTask(task) ? 'read-only' : null,
+          allowedTools: _allowedTools(task),
+          readOnly: _isReadOnlyTask(task),
+          sandboxOverride: null,
         );
         _observer?.recordTurn(
           runnerIndex,
@@ -601,7 +587,7 @@ class TaskExecutor {
       // Create task-scoped BehaviorFileService for workflow tasks first.
       BehaviorFileService? taskBehavior;
       final workflowWorkspaceDir = _worktreeBinder.workflowWorkspaceDir(task);
-      final workspaceDir = _workspaceDir;
+      final workspaceRoot = _workspaceRoot;
       if (workflowWorkspaceDir != null && workflowWorkspaceDir.trim().isNotEmpty) {
         taskBehavior = BehaviorFileService(
           workspaceDir: workflowWorkspaceDir,
@@ -611,9 +597,9 @@ class TaskExecutor {
           identifierPreservation: _identifierPreservation,
           identifierInstructions: _identifierInstructions,
         );
-      } else if (projectDirForTask != null && workspaceDir != null) {
+      } else if (projectDirForTask != null && workspaceRoot != null) {
         taskBehavior = BehaviorFileService(
-          workspaceDir: workspaceDir,
+          workspaceDir: workspaceRoot,
           projectDir: projectDirForTask,
           maxMemoryBytes: _maxMemoryBytes,
           compactInstructions: _compactInstructions,

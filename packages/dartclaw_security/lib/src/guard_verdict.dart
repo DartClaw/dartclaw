@@ -26,6 +26,7 @@ sealed class GuardVerdict {
 
 /// Successful guard verdict with no explanatory message.
 final class GuardPass extends GuardVerdict {
+  /// Creates a [GuardPass] verdict.
   const GuardPass();
 
   @override
@@ -41,6 +42,7 @@ final class GuardWarn extends GuardVerdict {
   /// Warning message returned by the guard.
   final String message;
 
+  /// Creates a [GuardWarn] verdict carrying [message].
   const GuardWarn(this.message);
 
   @override
@@ -53,6 +55,7 @@ final class GuardBlock extends GuardVerdict {
   /// Block reason returned by the guard.
   final String message;
 
+  /// Creates a [GuardBlock] verdict carrying [message].
   const GuardBlock(this.message);
 
   @override

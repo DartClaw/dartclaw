@@ -90,8 +90,8 @@ void main() {
       expect(stepStatusFromTask(run, 0, _makeTask(status: TaskStatus.rejected)), 'failed');
     });
 
-    test('interrupted task -> pending (fallback)', () {
-      expect(stepStatusFromTask(run, 0, _makeTask(status: TaskStatus.interrupted)), 'pending');
+    test('interrupted task -> interrupted', () {
+      expect(stepStatusFromTask(run, 0, _makeTask(status: TaskStatus.interrupted)), 'interrupted');
     });
   });
 

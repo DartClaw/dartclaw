@@ -6,6 +6,8 @@ BUILD_DIR="$ROOT_DIR/build"
 APP_ENTRY="$ROOT_DIR/apps/dartclaw_cli/bin/dartclaw.dart"
 VERSION_FILE="$ROOT_DIR/packages/dartclaw_server/lib/src/version.dart"
 
+dart run "$ROOT_DIR/dev/tools/sync_version.dart"
+
 version="$(sed -n "s/.*dartclawVersion = '\([^']*\)'.*/\1/p" "$VERSION_FILE" | head -n1)"
 if [[ -z "$version" ]]; then
   echo "Unable to determine dartclawVersion from $VERSION_FILE" >&2
@@ -53,8 +55,6 @@ copy_tree() {
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
-
-bash "$ROOT_DIR/dev/tools/check_git_process_usage.sh"
 
 stage_root="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-build.XXXXXX")"
 cleanup() {

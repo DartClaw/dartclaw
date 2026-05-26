@@ -2,10 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -140,7 +141,7 @@ void main() {
   });
 
   test('reserves turn and returns turnId', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.reserveTurn(session.id);
 
     expect(turnId, isNotEmpty);
@@ -159,7 +160,7 @@ void main() {
 
   test('executes turn and produces TurnOutcome.completed', () async {
     _scheduleTurnCompletion(worker, responseText: 'Hello from runner!');
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Hi');
 
     final turnId = await runner.startTurn(session.id, [
@@ -175,7 +176,7 @@ void main() {
 
   test('handles agent failure and produces TurnOutcome.failed', () async {
     _scheduleTurnCompletion(worker, error: StateError('simulated crash'));
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'Will fail'},
@@ -188,7 +189,7 @@ void main() {
   });
 
   test('cancels active turn', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'Cancel me'},
@@ -203,7 +204,7 @@ void main() {
 
   test('waitForOutcome returns completed outcome', () async {
     _scheduleTurnCompletion(worker, responseText: 'Done');
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'Test'},
@@ -220,7 +221,7 @@ void main() {
   });
 
   test('releaseTurn removes persisted turn state and fails the pending outcome', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.reserveTurn(session.id);
 
     expect((await turnState.getAll())[session.id]?.turnId, equals(turnId));
@@ -249,7 +250,7 @@ void main() {
   });
 
   test('persists and cleans turn state via store', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     _scheduleTurnCompletion(worker, responseText: 'Tracked', delay: const Duration(milliseconds: 100));
 
     final turnId = await runner.startTurn(session.id, [
@@ -277,7 +278,7 @@ void main() {
       turnState: turnState,
       kvService: kvService,
     );
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     _scheduleTurnCompletion(
       costWorker,
       responseText: 'No cost',
@@ -325,7 +326,7 @@ void main() {
       turnState: turnState,
       kvService: kvService,
     );
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     _scheduleTurnCompletion(
       cachedWorker,
       responseText: 'Cached',
@@ -355,7 +356,7 @@ void main() {
       turnState: turnState,
       kvService: kvService,
     );
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     _scheduleTurnCompletion(boundedWorker, responseText: 'bounded');
 
     final turnId = await boundedRunner.startTurn(session.id, [
@@ -379,7 +380,7 @@ void main() {
       kvService: kvService,
       providerId: 'codex',
     );
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     _scheduleTurnCompletion(codexWorker, result: _turnResult(inputTokens: 2, outputTokens: 1, cachedInputTokens: 5));
     final firstTurnId = await codexRunner.startTurn(session.id, [
@@ -428,7 +429,7 @@ void main() {
       turnState: turnState,
       kvService: kvService,
     );
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     // Values chosen so both weights produce non-zero integer contributions.
     _scheduleTurnCompletion(
       cachedWorker,
@@ -469,7 +470,7 @@ void main() {
       kvService: kvService,
       providerId: 'claude',
     );
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     _scheduleTurnCompletion(
       codexWorker,
@@ -493,7 +494,7 @@ void main() {
   });
 
   test('defaults session cost provider to claude and treats missing cache_read_tokens as zero', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     _scheduleTurnCompletion(worker, result: _turnResult(inputTokens: 4, outputTokens: 6, totalCostUsd: 0.50));
     final turnId = await runner.startTurn(session.id, [
@@ -507,7 +508,7 @@ void main() {
   });
 
   test('tool call correlation produces ToolCallRecord with correct fields', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     unawaited(() async {
       await worker.turnInvoked;
@@ -531,7 +532,7 @@ void main() {
   });
 
   test('incomplete tool call produces ToolCallRecord with success: false and errorType: incomplete', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     unawaited(() async {
       await worker.turnInvoked;
@@ -554,7 +555,7 @@ void main() {
   });
 
   test('turnDuration is set on TurnOutcome', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     _scheduleTurnCompletion(worker, responseText: 'done', delay: const Duration(milliseconds: 5));
 
@@ -578,7 +579,7 @@ void main() {
       kvService: kvService,
       resetService: resetService,
     );
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     unawaited(() async {
       await worker.turnInvoked;
@@ -602,7 +603,7 @@ void main() {
   });
 
   test('failed tool call produces ToolCallRecord with success: false and errorType: tool_error', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
 
     unawaited(() async {
       await worker.turnInvoked;
@@ -627,7 +628,7 @@ void main() {
   });
 
   test('progressEvents emits TextDelta, ToolStarted, ToolCompleted in correct order', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     final events = <TurnProgressEvent>[];
     final sub = runner.progressEvents.listen(events.add);
     addTearDown(sub.cancel);
@@ -658,7 +659,7 @@ void main() {
   });
 
   test('progressEvents snapshot has correct textLength and toolCallCount', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     final events = <TurnProgressEvent>[];
     final sub = runner.progressEvents.listen(events.add);
     addTearDown(sub.cancel);
@@ -708,7 +709,7 @@ void main() {
   });
 
   test('progressEvents not emitted for unrelated events (SystemInitEvent)', () async {
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     final events = <TurnProgressEvent>[];
     final sub = runner.progressEvents.listen(events.add);
     addTearDown(sub.cancel);
@@ -753,7 +754,7 @@ void main() {
       // Never complete the worker turn — it's the hung-sub-agent case.
       // The turn invocation awaits indefinitely; only the stall monitor
       // surfaces the silence.
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
 
       final turnId = await stallRunner.startTurn(session.id, [
         {'role': 'user', 'content': 'stall'},
@@ -788,7 +789,7 @@ void main() {
         worker.completeSuccess(_turnResult(inputTokens: 1, outputTokens: 1));
       }());
 
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       final turnId = await stallRunner.startTurn(session.id, [
         {'role': 'user', 'content': 'warn only'},
       ]);
@@ -817,7 +818,7 @@ void main() {
       });
       addTearDown(sub.cancel);
 
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       final turnId = await stallRunner.startTurn(session.id, [
         {'role': 'user', 'content': 'stall with event'},
       ]);

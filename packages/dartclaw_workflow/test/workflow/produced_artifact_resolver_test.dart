@@ -27,7 +27,7 @@ void main() {
           id: 'plan',
           name: 'Plan',
           outputs: {
-            'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+            'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
             'plan': OutputConfig(format: OutputFormat.path),
           },
         ),
@@ -55,6 +55,31 @@ void main() {
         'docs/plans/p/fis/s02.md',
         'docs/plans/p/plan.md',
       ]);
+    });
+
+    test('normalizes open story status and drops terminal stories', () {
+      final resolution = resolveStorySpecPaths({
+        'story_specs': {
+          'items': [
+            {'id': 'S01', 'dependencies': <String>[], 'spec_path': 'fis/s01.md', 'status': 'spec-ready'},
+            // Underscore typo – the LLM is supposed to emit `spec-ready`; we
+            // coerce the typo to `pending` so downstream `entryGate` checks
+            // do not silently miss.
+            {'id': 'S02', 'dependencies': <String>[], 'spec_path': 'fis/s02.md', 'status': 'spec_ready'},
+            // Missing status – emit-and-normalize per FIS rule 6.
+            {'id': 'S03', 'dependencies': <String>[], 'spec_path': 'fis/s03.md'},
+            {'id': 'S04', 'dependencies': <String>[], 'spec_path': 'fis/s04.md', 'status': 'done'},
+            // Blocked is an AndThen status enum member that remains resumable.
+            {'id': 'S05', 'dependencies': <String>[], 'spec_path': 'fis/s05.md', 'status': 'blocked'},
+            {'id': 'S06', 'dependencies': <String>[], 'spec_path': 'fis/s06.md', 'status': 'skipped'},
+          ],
+        },
+      });
+
+      final items = (resolution.outputs['story_specs'] as Map<String, dynamic>)['items'] as List;
+      expect(items.map((item) => (item as Map)['id']), ['S01', 'S02', 'S03', 'S05']);
+      expect(items.map((item) => (item as Map)['status']), ['spec-ready', 'pending', 'pending', 'blocked']);
+      expect(resolution.specPaths, ['fis/s01.md', 'fis/s02.md', 'fis/s03.md', 'fis/s05.md']);
     });
 
     test('normalizes story spec paths idempotently', () {

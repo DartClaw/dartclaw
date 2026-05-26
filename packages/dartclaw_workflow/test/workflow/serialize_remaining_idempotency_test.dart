@@ -4,6 +4,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ContextExtractor,
@@ -20,7 +22,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowExecutor,
-        WorkflowGitBootstrapResult,
+        WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishStrategy,
@@ -210,8 +212,8 @@ WorkflowDefinition _mergeResolveDefinition({required int maxParallel}) {
     description: 'Merge-resolve test workflow',
     project: '{{PROJECT}}',
     gitStrategy: const WorkflowGitStrategy(
-      bootstrap: true,
-      worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+      integrationBranch: true,
+      worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
       promotion: 'merge',
       publish: WorkflowGitPublishStrategy(enabled: false),
       mergeResolve: MergeResolveConfig(
@@ -224,7 +226,7 @@ WorkflowDefinition _mergeResolveDefinition({required int maxParallel}) {
       WorkflowStep(
         id: 'pipeline',
         name: 'Story Pipeline',
-        type: 'foreach',
+        type: WorkflowTaskType.foreach,
         mapOver: 'stories',
         maxParallel: maxParallel,
         foreachSteps: const ['implement'],
@@ -292,8 +294,8 @@ WorkflowTurnAdapter _adapter({required Set<String> conflictingStoryIds}) {
     reserveTurn: (_) => Future.value('turn-1'),
     executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
     waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-    bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-        const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+    initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+        const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
     promoteWorkflowBranch:
         ({
           required runId,
@@ -324,7 +326,7 @@ WorkflowStepOutputTransformer _codingWithMergeResolveFailTransformer() {
       };
     }
     final result = Map<String, dynamic>.from(outputs);
-    if (step.type == 'coding') {
+    if (step.type == WorkflowTaskType.agent) {
       result['${step.id}.branch'] = 'story-branch-${task.id}';
     }
     return result;

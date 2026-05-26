@@ -1,4 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show Project, ProjectStatus, PrConfig, PrStrategy;
+import 'package:dartclaw_config/dartclaw_config.dart' show PrConfig, PrStrategy, Project, ProjectStatus;
 import 'package:dartclaw_server/src/templates/loader.dart';
 import 'package:dartclaw_server/src/templates/project_form.dart';
 import 'package:dartclaw_server/src/templates/projects.dart';
@@ -23,6 +23,7 @@ void main() {
     activeWorkflows: <SidebarActiveWorkflow>[],
     showChannels: false,
     tasksEnabled: false,
+    activeSessionId: null,
   );
   const navItems = <NavItem>[
     (label: 'Projects', href: '/projects', active: true, navGroup: 'system', icon: 'folder-git'),

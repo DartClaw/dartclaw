@@ -12,8 +12,10 @@ import 'task_service.dart';
 
 part 'task_budget_policy_failure.dart';
 
+/// Reports whether a turn may proceed under current token-budget policy.
 enum BudgetVerdict { proceed, exceeded }
 
+/// Captures cumulative cost telemetry for a single session.
 final class SessionCostSnapshot {
   final int totalTokens;
   final int turnCount;
@@ -21,6 +23,7 @@ final class SessionCostSnapshot {
   const SessionCostSnapshot({required this.totalTokens, required this.turnCount});
 }
 
+/// Reports a budget-exceeded outcome for a [Task].
 typedef BudgetFailureHandler =
     Future<void> Function(Task task, {required String errorSummary, required bool retryable});
 

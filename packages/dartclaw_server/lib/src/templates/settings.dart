@@ -1,3 +1,4 @@
+import '../web/channel_status.dart';
 import 'components.dart';
 import 'guard_config_summary.dart';
 import 'helpers.dart';
@@ -23,18 +24,15 @@ String settingsTemplate({
   int providerHealthyCount = 0,
   int providerDegradedCount = 0,
   bool whatsAppEnabled = false,
-  String whatsAppStatusLabel = 'Disabled',
-  String whatsAppStatusClass = 'status-badge-muted',
+  ChannelStatus whatsAppStatus = ChannelStatus.disabled,
   String? whatsAppPhone,
   int whatsAppPendingCount = 0,
   bool signalEnabled = false,
   String? signalPhone,
-  String signalStatusLabel = 'Disabled',
-  String signalStatusClass = 'status-badge-muted',
+  ChannelStatus signalStatus = ChannelStatus.disabled,
   int signalPendingCount = 0,
   bool googleChatEnabled = false,
-  String googleChatStatusLabel = 'Disabled',
-  String googleChatStatusClass = 'status-badge-muted',
+  ChannelStatus googleChatStatus = ChannelStatus.disabled,
   int googleChatPendingCount = 0,
   bool guardsEnabled = false,
   bool guardFailOpen = false,
@@ -53,21 +51,20 @@ String settingsTemplate({
 
   // Pre-render status badges.
   final healthBadgeHtml = statusBadgeTemplate(variant: healthVariant, text: healthLabel);
-  final whatsAppBadgeVariant = _badgeVariantFromClass(whatsAppStatusClass);
-  final whatsAppStatusBadgeHtml = statusBadgeTemplate(variant: whatsAppBadgeVariant, text: whatsAppStatusLabel);
-  final signalBadgeVariant = _badgeVariantFromClass(signalStatusClass);
-  final signalStatusBadgeHtml = statusBadgeTemplate(variant: signalBadgeVariant, text: signalStatusLabel);
-  final googleChatBadgeVariant = _badgeVariantFromClass(googleChatStatusClass);
-  final googleChatStatusBadgeHtml = statusBadgeTemplate(variant: googleChatBadgeVariant, text: googleChatStatusLabel);
+  final whatsAppStatusBadgeHtml = statusBadgeTemplate(variant: whatsAppStatus.badgeVariant, text: whatsAppStatus.label);
+  final signalStatusBadgeHtml = statusBadgeTemplate(variant: signalStatus.badgeVariant, text: signalStatus.label);
+  final googleChatStatusBadgeHtml = statusBadgeTemplate(
+    variant: googleChatStatus.badgeVariant,
+    text: googleChatStatus.label,
+  );
 
   // Pre-render provider health badges.
+  const badgePrefix = 'status-badge-';
   final providersWithBadges = providers.map((p) {
     final badgeClass = p['healthBadgeClass']?.toString() ?? 'status-badge-muted';
+    final badgeVariant = badgeClass.startsWith(badgePrefix) ? badgeClass.substring(badgePrefix.length) : 'muted';
     final badgeLabel = p['healthLabel']?.toString() ?? '';
-    return {
-      ...p,
-      'statusBadgeHtml': statusBadgeTemplate(variant: _badgeVariantFromClass(badgeClass), text: badgeLabel),
-    };
+    return {...p, 'statusBadgeHtml': statusBadgeTemplate(variant: badgeVariant, text: badgeLabel)};
   }).toList();
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
@@ -114,12 +111,4 @@ String settingsTemplate({
     appName: appName,
     scripts: standardShellScripts(const ['/static/settings.js']),
   );
-}
-
-/// Extracts the variant suffix from a `status-badge-{variant}` class string.
-/// Returns `'muted'` as a safe fallback.
-String _badgeVariantFromClass(String badgeClass) {
-  const prefix = 'status-badge-';
-  if (badgeClass.startsWith(prefix)) return badgeClass.substring(prefix.length);
-  return 'muted';
 }

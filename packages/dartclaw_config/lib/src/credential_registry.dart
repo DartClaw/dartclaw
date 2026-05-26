@@ -13,6 +13,7 @@ class CredentialRegistry {
   final CredentialsConfig _credentials;
   final Map<String, String> _env;
 
+  /// CredentialRegistry({required CredentialsConfig credentials, .
   CredentialRegistry({required CredentialsConfig credentials, Map<String, String>? env})
     : _credentials = credentials,
       _env = env ?? const {};

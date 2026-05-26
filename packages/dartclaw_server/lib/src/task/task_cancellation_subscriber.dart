@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
-import '../turn_manager.dart';
 import 'task_service.dart';
 
 /// Cancels active turns when running tasks are transitioned to `cancelled`.

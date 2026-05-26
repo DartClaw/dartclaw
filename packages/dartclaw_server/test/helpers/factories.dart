@@ -1,4 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
 
 /// Creates a [Project] with sensible defaults for testing.
 ///

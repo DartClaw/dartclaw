@@ -8,7 +8,7 @@
 # CLI workflow mode:
 #   bash dev/tools/dartclaw-workflows/run.sh workflow list
 #   bash dev/tools/dartclaw-workflows/run.sh workflow run spec-and-implement -v 'FEATURE=...'
-#   bash dev/tools/dartclaw-workflows/run.sh workflow run plan-and-implement -v 'REQUIREMENTS=...'
+#   bash dev/tools/dartclaw-workflows/run.sh workflow run plan-and-implement -v 'FEATURE=...'
 #
 # By default the host is AOT-compiled to a content-addressed file under
 # ${DATA_DIR}/bin/dartclaw-<key> and exec'd. Concurrent invocations cannot
@@ -20,17 +20,28 @@
 # Escape hatches:
 #   DARTCLAW_WORKFLOWS_JIT=1       run via `dart run` (live source, no isolation)
 #   DARTCLAW_WORKFLOWS_REBUILD=1   force AOT rebuild even if the cache key matches
+#   DARTCLAW_WORKFLOWS_PREFER_SOURCE=0
+#                                  fall back to default asset-resolver order
+#                                  (asset cache wins over source tree). The
+#                                  maintainer profile sets this to 1 by default
+#                                  so live edits to skills/workflow YAMLs apply.
+#                                  Currently consulted only by `workflow run
+#                                  --standalone`; this script invokes only
+#                                  standalone, so the gap is latent.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 DATA_DIR="${DARTCLAW_WORKFLOWS_DATA_DIR:-${SCRIPT_DIR}/.data}"
+CACHE_DIR="${DARTCLAW_WORKFLOWS_CACHE_DIR:-${SCRIPT_DIR}/.cache}"
 TEMPLATE_CONFIG="${SCRIPT_DIR}/dartclaw.yaml"
 RUNTIME_CONFIG="${DATA_DIR}/dartclaw.runtime.yaml"
 ENTRY="${REPO_ROOT}/apps/dartclaw_cli/bin/dartclaw.dart"
 BIN_DIR="${DATA_DIR}/bin"
 BIN_TO_EXEC=""
+CUSTOM_WORKFLOWS_SRC="${SCRIPT_DIR}/custom-workflows"
+CUSTOM_WORKFLOWS_LINK="${DATA_DIR}/workflows/custom"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -55,12 +66,45 @@ escape_sed() {
   printf '%s\n' "$val"
 }
 
+# Expose `dev/tools/dartclaw-workflows/custom-workflows/` to the registry as
+# the instance-scoped custom workflow directory. The host scans
+# `<dataDir>/workflows/custom/`, so we symlink it at that path. The data dir
+# is gitignored, so no symlink ever lands at the repo root.
+prepare_custom_workflows() {
+  [ -d "$CUSTOM_WORKFLOWS_SRC" ] || return 0
+
+  mkdir -p "$(dirname "$CUSTOM_WORKFLOWS_LINK")"
+
+  local legacy_definitions="${DATA_DIR}/workflows/definitions"
+  if [ -d "$legacy_definitions" ]; then
+    echo "[dartclaw-workflows] legacy directory $legacy_definitions is no longer used; built-ins now materialize into ${DATA_DIR}/workflows/built-in/. Safe to: rm -rf \"$legacy_definitions\"" >&2
+  fi
+
+  if [ -L "$CUSTOM_WORKFLOWS_LINK" ]; then
+    local existing
+    existing="$(readlink "$CUSTOM_WORKFLOWS_LINK" || true)"
+    if [ "$existing" = "$CUSTOM_WORKFLOWS_SRC" ]; then
+      return 0
+    fi
+    echo "[dartclaw-workflows] refreshing custom workflow symlink at $CUSTOM_WORKFLOWS_LINK" >&2
+    rm -f "$CUSTOM_WORKFLOWS_LINK"
+  elif [ -e "$CUSTOM_WORKFLOWS_LINK" ]; then
+    echo "[dartclaw-workflows] $CUSTOM_WORKFLOWS_LINK exists and is not a symlink; skipping inline-workflow link setup" >&2
+    return 0
+  fi
+
+  ln -s "$CUSTOM_WORKFLOWS_SRC" "$CUSTOM_WORKFLOWS_LINK"
+}
+
 prepare_runtime_config() {
-  local data_dir_abs
+  local data_dir_abs cache_dir_abs
   mkdir -p "$DATA_DIR"
+  mkdir -p "$CACHE_DIR"
   data_dir_abs="$(cd "$DATA_DIR" && pwd)"
+  cache_dir_abs="$(cd "$CACHE_DIR" && pwd)"
 
   sed -e "s|__DATA_DIR__|$(escape_sed "$data_dir_abs")|g" \
+      -e "s|__CACHE_DIR__|$(escape_sed "$cache_dir_abs")|g" \
       -e "s|__REPO_ROOT__|$(escape_sed "$REPO_ROOT")|g" \
       "$TEMPLATE_CONFIG" > "$RUNTIME_CONFIG"
 }
@@ -188,7 +232,20 @@ require_command shasum
 require_command awk
 require_git_repo
 
+# Maintainer profile always runs against the live source tree. Tell the
+# standalone CLI to prefer the checked-out skills/workflow-YAMLs over any
+# `~/.dartclaw/assets/v<version>/` install — otherwise a stale asset cache
+# (e.g. left over from a `dartclaw init` for an earlier dev cycle) wins and
+# materializes outdated workflow definitions, silently excluding them at
+# load time when their skill refs no longer resolve.
+# Use `${X-1}` (no colon): only substitutes when the var is unset. An explicit
+# empty-string override (e.g. `DARTCLAW_WORKFLOWS_PREFER_SOURCE=`) passes
+# through and the Dart side reads it as "off" — `:-1` would silently turn that
+# back into "on".
+export DARTCLAW_WORKFLOWS_PREFER_SOURCE="${DARTCLAW_WORKFLOWS_PREFER_SOURCE-1}"
+
 prepare_runtime_config
+prepare_custom_workflows
 
 # For built-in implementation workflows, always target the seeded project. If
 # the caller does not pass BRANCH explicitly, use the checkout's current branch

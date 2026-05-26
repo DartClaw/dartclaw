@@ -1,9 +1,8 @@
 import 'dart:async';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show BusyTurnException;
 import 'package:logging/logging.dart';
-
-import '../turn_manager.dart';
 
 /// Per-session Completer-based locks with a global concurrency cap.
 ///

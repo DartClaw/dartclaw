@@ -1,11 +1,18 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
+import 'package:dartclaw_cli/src/commands/workflow/andthen_skill_bootstrap.dart' show bootstrapWorkflowSkills;
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
+import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart'
+    show restoreCheckoutBeforeWorkflowBranchDeletion;
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show SkillSource, WorkflowDefinition, WorkflowStep, WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -83,7 +90,8 @@ void main() {
 
     await wiring.wire();
 
-    expect(wiring.skillRegistry.getByName('dartclaw-discover-project'), isNotNull);
+    expect(wiring.skillRegistry.getByName('dartclaw-discover-andthen-spec'), isNotNull);
+    expect(wiring.skillRegistry.getByName('dartclaw-discover-andthen-plan'), isNotNull);
 
     for (final projectId in ['alpha', 'beta']) {
       final projectSkillDir = p.join(
@@ -92,15 +100,40 @@ void main() {
         projectId,
         '.claude',
         'skills',
-        'dartclaw-discover-project',
+        'dartclaw-discover-andthen-spec',
       );
       expect(Directory(projectSkillDir).existsSync(), isFalse);
     }
   });
 
+  test('skill bootstrap does not create remote project clone directories before initialization', () async {
+    _seedAndthenSrc(p.join(tempDir.path, 'andthen-src'), sha: 'bootstrap-head');
+    final builtInSkillsSource = _seedDcNativeSkillsSource(p.join(tempDir.path, 'built-in-skills'));
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', remote: 'file:///tmp/alpha.git')},
+      ),
+    );
+
+    await bootstrapWorkflowSkills(
+      config: config,
+      dataDir: tempDir.path,
+      builtInSkillsSourceDir: builtInSkillsSource.path,
+      processRunner: _FakeProvisionerProcessRunner().run,
+      environment: {'HOME': p.join(tempDir.path, 'fake-home')},
+    );
+
+    final cloneDir = Directory(p.join(tempDir.path, 'projects', 'alpha'));
+    expect(cloneDir.existsSync(), isFalse);
+  });
+
   test('excludes custom workflows that reference missing skills', () async {
-    final workspaceWorkflowsDir = Directory(p.join(tempDir.path, 'workflows', 'definitions'))
-      ..createSync(recursive: true);
+    final workspaceWorkflowsDir = Directory(p.join(tempDir.path, 'workflows', 'custom'))..createSync(recursive: true);
     File(p.join(workspaceWorkflowsDir.path, 'invalid.yaml')).writeAsStringSync('''
 name: invalid-missing-skill
 description: Should be rejected
@@ -218,7 +251,7 @@ steps:
         'BRANCH': WorkflowVariable(required: false, description: 'Requested branch'),
       },
       steps: const [
-        WorkflowStep(id: 'check', name: 'Check', type: 'analysis', prompts: ['Say OK']),
+        WorkflowStep(id: 'check', name: 'Check', taskType: WorkflowTaskType.agent, prompts: ['Say OK']),
       ],
     );
 
@@ -234,6 +267,59 @@ steps:
           allOf([contains('feature/local'), contains('expected "main"')]),
         ),
       ),
+    );
+  });
+
+  test('workflow start rejects option-shaped BRANCH before git ref lookup', () async {
+    final projectDir = Directory(p.join(tempDir.path, 'local-project'))..createSync(recursive: true);
+    _runGit(projectDir.path, ['init', '-b', 'main']);
+    _runGit(projectDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(projectDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('hello\n');
+    _runGit(projectDir.path, ['add', 'README.md']);
+    _runGit(projectDir.path, ['commit', '-m', 'initial']);
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path, branch: 'main')},
+      ),
+    );
+
+    final wiring = CliWorkflowWiring(
+      config: config,
+      dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
+      environment: {'HOME': p.join(tempDir.path, 'fake-home')},
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+    );
+    addTearDown(wiring.dispose);
+    await wiring.wire();
+
+    final definition = WorkflowDefinition(
+      name: 'branch-guard',
+      description: 'Checks local-path branch safety',
+      variables: const {
+        'PROJECT': WorkflowVariable(required: true, description: 'Target project'),
+        'BRANCH': WorkflowVariable(required: false, description: 'Requested branch'),
+      },
+      steps: const [
+        WorkflowStep(id: 'check', name: 'Check', taskType: WorkflowTaskType.agent, prompts: ['Say OK']),
+      ],
+    );
+
+    await expectLater(
+      () => wiring.workflowService.start(definition, const {
+        'PROJECT': 'alpha',
+        'BRANCH': '--upload-pack=/tmp/pwn',
+      }, headless: true),
+      throwsFormatException,
     );
   });
 
@@ -279,7 +365,7 @@ steps:
         'BRANCH': WorkflowVariable(required: false, description: 'Requested branch'),
       },
       steps: const [
-        WorkflowStep(id: 'check', name: 'Check', type: 'analysis', prompts: ['Say OK']),
+        WorkflowStep(id: 'check', name: 'Check', taskType: WorkflowTaskType.agent, prompts: ['Say OK']),
       ],
     );
 
@@ -320,8 +406,8 @@ steps:
         WorkflowStep(
           id: 'review',
           name: 'Review',
-          type: 'analysis',
-          skill: 'dartclaw-review',
+          taskType: WorkflowTaskType.agent,
+          skill: 'andthen:review',
           prompts: ['Inspect the change set.', 'Re-check the follow-up output.'],
         ),
       ],
@@ -496,13 +582,12 @@ steps:
     expect(captured.map((config) => config.cwd).toSet(), {runtimeCwd.path});
   });
 
-  test('discovers dartclaw workflow skills from native user-tier roots', () async {
-    final fakeHome = p.join(tempDir.path, 'native-home');
-    final userClaudeSkills = p.join(fakeHome, '.claude', 'skills');
-    final userAgentsSkills = p.join(fakeHome, '.agents', 'skills');
-    for (final name in const ['dartclaw-prd', 'dartclaw-plan']) {
-      _writeSkill(userClaudeSkills, name);
-      _writeSkill(userAgentsSkills, name);
+  test('discovers manually installed provider skills from data-dir native roots', () async {
+    final dataClaudeSkills = p.join(tempDir.path, '.claude', 'skills');
+    final dataAgentsSkills = p.join(tempDir.path, '.agents', 'skills');
+    for (final name in const ['andthen:prd', 'andthen:plan']) {
+      _writeSkill(dataClaudeSkills, name);
+      _writeSkill(dataAgentsSkills, name);
     }
 
     final config = DartclawConfig(
@@ -517,7 +602,6 @@ steps:
       config: config,
       dataDir: tempDir.path,
       runAndthenSkillsBootstrap: false,
-      environment: {'HOME': fakeHome},
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
@@ -526,25 +610,24 @@ steps:
 
     await wiring.wire();
 
-    for (final name in const ['dartclaw-prd', 'dartclaw-plan']) {
+    for (final name in const ['andthen:prd', 'andthen:plan']) {
       final skill = wiring.skillRegistry.getByName(name);
       expect(skill, isNotNull);
-      expect(skill!.path, startsWith(fakeHome));
-      expect(skill.source, SkillSource.userClaude);
+      expect(skill!.path, startsWith(tempDir.path));
+      expect(skill.source, SkillSource.dataDirNative);
       expect(skill.nativeHarnesses, {'claude', 'codex'});
     }
   });
 
-  test('standalone wiring provisions AndThen skills before registering shipped workflows', () async {
-    _seedAndthenSrc(p.join(tempDir.path, 'andthen-src'), sha: 'standalone-head');
+  test('standalone wiring provisions DC-native skills before registering shipped workflows', () async {
     final fakeHome = p.join(tempDir.path, 'provision-home');
+    _seedProviderAndThenSkills(fakeHome);
     final runner = _FakeProvisionerProcessRunner();
     final config = DartclawConfig(
       agent: const AgentConfig(provider: 'claude'),
       providers: ProvidersConfig(
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
       ),
-      andthen: const AndthenConfig(network: AndthenNetworkPolicy.disabled),
       server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
     );
 
@@ -562,15 +645,23 @@ steps:
 
     await wiring.wire();
 
-    expect(File(p.join(fakeHome, '.agents', 'skills', 'dartclaw-prd', 'SKILL.md')).existsSync(), isTrue);
+    expect(
+      File(p.join(tempDir.path, '.agents', 'skills', 'dartclaw-discover-andthen-spec', 'SKILL.md')).existsSync(),
+      isTrue,
+    );
+    expect(_unexpectedDataDirSkillEntries(tempDir.path), isEmpty);
     for (final name in _shippedDartclawSkillRefs) {
-      expect(wiring.skillRegistry.getByName(name), isNotNull, reason: '$name should resolve after provisioning');
-      expect(wiring.skillRegistry.validateRef(name), isNull, reason: '$name validateRef should pass');
+      expect(wiring.skillRegistry.resolveRef(name, 'claude'), isNotNull, reason: '$name should resolve');
+      expect(
+        wiring.skillRegistry.validateRef(name, provider: 'claude'),
+        isNull,
+        reason: '$name validateRef should pass',
+      );
     }
 
     final registeredNames = wiring.registry.listAll().map((workflow) => workflow.name).toSet();
     expect(registeredNames, containsAll(['plan-and-implement', 'spec-and-implement', 'code-review']));
-    expect(runner.calls.where((call) => call.executable.endsWith('install-skills.sh')), hasLength(1));
+    expect(runner.calls.where((call) => call.executable.endsWith('install-skills.sh')), isEmpty);
   });
 
   test('dispose cleans up workflow task worktrees in headless mode', () async {
@@ -655,6 +746,124 @@ steps:
     expect((branchResult.stdout as String).trim(), isEmpty);
   });
 
+  test('workflow cleanup restores checkout before deleting current workflow branch', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+
+    _runGit(repoDir.path, ['init', '-b', 'main']);
+    _runGit(repoDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(repoDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# test\n');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'initial']);
+    _runGit(repoDir.path, ['checkout', '-b', 'feat/0.16.5']);
+    _runGit(repoDir.path, ['checkout', '-b', 'dartclaw/workflow/run123/integration']);
+
+    final restoreError = await restoreCheckoutBeforeWorkflowBranchDeletion(
+      projectDir: repoDir.path,
+      workflowBranches: const {'dartclaw/workflow/run123/integration'},
+      restoreRef: 'feat/0.16.5',
+    );
+
+    expect(restoreError, isNull);
+    final currentBranch = Process.runSync('git', ['branch', '--show-current'], workingDirectory: repoDir.path);
+    expect(currentBranch.exitCode, 0);
+    expect((currentBranch.stdout as String).trim(), 'feat/0.16.5');
+    _runGit(repoDir.path, ['branch', '--delete', '--force', 'dartclaw/workflow/run123/integration']);
+  });
+
+  test('workflow cleanup can restore from remote-tracking branch ref', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+
+    _runGit(repoDir.path, ['init', '-b', 'main']);
+    _runGit(repoDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(repoDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# test\n');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'initial']);
+    _runGit(repoDir.path, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+    _runGit(repoDir.path, ['checkout', '-b', 'dartclaw/workflow/run123/integration']);
+
+    final restoreError = await restoreCheckoutBeforeWorkflowBranchDeletion(
+      projectDir: repoDir.path,
+      workflowBranches: const {'dartclaw/workflow/run123/integration'},
+      restoreRef: 'origin/main',
+    );
+
+    expect(restoreError, isNull);
+    final currentBranch = Process.runSync('git', ['branch', '--show-current'], workingDirectory: repoDir.path);
+    expect(currentBranch.exitCode, 0);
+    expect((currentBranch.stdout as String).trim(), isEmpty);
+    final head = Process.runSync('git', ['rev-parse', 'HEAD'], workingDirectory: repoDir.path);
+    final remoteHead = Process.runSync('git', ['rev-parse', 'origin/main'], workingDirectory: repoDir.path);
+    expect(head.exitCode, 0);
+    expect(remoteHead.exitCode, 0);
+    expect((head.stdout as String).trim(), (remoteHead.stdout as String).trim());
+    _runGit(repoDir.path, ['branch', '--delete', '--force', 'dartclaw/workflow/run123/integration']);
+  });
+
+  test('workflow cleanup restores remote-tracking ref exactly when local branch is stale', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+
+    _runGit(repoDir.path, ['init', '-b', 'main']);
+    _runGit(repoDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(repoDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# local main\n');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'local-main']);
+    final localMain = Process.runSync('git', ['rev-parse', 'HEAD'], workingDirectory: repoDir.path);
+    _runGit(repoDir.path, ['checkout', '--orphan', 'remote-state']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# remote main\n');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'remote-main']);
+    _runGit(repoDir.path, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+    final remoteMain = Process.runSync('git', ['rev-parse', 'HEAD'], workingDirectory: repoDir.path);
+    _runGit(repoDir.path, ['checkout', 'main']);
+    _runGit(repoDir.path, ['checkout', '-b', 'dartclaw/workflow/run123/integration']);
+
+    final restoreError = await restoreCheckoutBeforeWorkflowBranchDeletion(
+      projectDir: repoDir.path,
+      workflowBranches: const {'dartclaw/workflow/run123/integration'},
+      restoreRef: 'origin/main',
+    );
+
+    expect(restoreError, isNull);
+    final currentBranch = Process.runSync('git', ['branch', '--show-current'], workingDirectory: repoDir.path);
+    final head = Process.runSync('git', ['rev-parse', 'HEAD'], workingDirectory: repoDir.path);
+    expect(currentBranch.exitCode, 0);
+    expect((currentBranch.stdout as String).trim(), isEmpty);
+    expect(head.exitCode, 0);
+    expect((head.stdout as String).trim(), (remoteMain.stdout as String).trim());
+    expect((head.stdout as String).trim(), isNot((localMain.stdout as String).trim()));
+    _runGit(repoDir.path, ['branch', '--delete', '--force', 'dartclaw/workflow/run123/integration']);
+    _runGit(repoDir.path, ['branch', '--delete', '--force', 'remote-state']);
+  });
+
+  test('workflow cleanup does not switch away from dirty workflow branch', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+
+    _runGit(repoDir.path, ['init', '-b', 'main']);
+    _runGit(repoDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(repoDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# test\n');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'initial']);
+    _runGit(repoDir.path, ['checkout', '-b', 'feat/0.16.5']);
+    _runGit(repoDir.path, ['checkout', '-b', 'dartclaw/workflow/run123/integration']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# dirty workflow edit\n');
+
+    final restoreError = await restoreCheckoutBeforeWorkflowBranchDeletion(
+      projectDir: repoDir.path,
+      workflowBranches: const {'dartclaw/workflow/run123/integration'},
+      restoreRef: 'feat/0.16.5',
+    );
+
+    expect(restoreError, contains('uncommitted changes'));
+    final currentBranch = Process.runSync('git', ['branch', '--show-current'], workingDirectory: repoDir.path);
+    expect(currentBranch.exitCode, 0);
+    expect((currentBranch.stdout as String).trim(), 'dartclaw/workflow/run123/integration');
+    expect(File(p.join(repoDir.path, 'README.md')).readAsStringSync(), '# dirty workflow edit\n');
+  });
+
   test('local project fallback resolves against runtime cwd instead of launch cwd', () async {
     final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-repo'))..createSync(recursive: true);
@@ -698,7 +907,7 @@ steps:
           'BRANCH': WorkflowVariable(required: false, description: 'Requested branch'),
         },
         steps: const [
-          WorkflowStep(id: 'check', name: 'Check', type: 'analysis', prompts: ['Say OK']),
+          WorkflowStep(id: 'check', name: 'Check', taskType: WorkflowTaskType.agent, prompts: ['Say OK']),
         ],
       );
 
@@ -792,6 +1001,116 @@ steps:
     ], workingDirectory: projectDir.path);
     expect(projectBranchResult.exitCode, 0);
     expect((projectBranchResult.stdout as String).trim(), isEmpty);
+  });
+
+  test('tracked workflow git cleanup preserves non-terminal runs for resume', () async {
+    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
+    final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
+    final projectDir = Directory(p.join(tempDir.path, 'project-alpha'))..createSync(recursive: true);
+    final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
+
+    _runGit(projectDir.path, ['init', '-b', 'main']);
+    _runGit(projectDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(projectDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('# project\n');
+    _runGit(projectDir.path, ['add', 'README.md']);
+    _runGit(projectDir.path, ['commit', '-m', 'initial']);
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path)},
+      ),
+    );
+
+    final savedCwd = Directory.current;
+    Directory.current = launchDir;
+    CliWorkflowWiring? wiring;
+    String? worktreePath;
+    String? workflowBranch;
+    try {
+      wiring = CliWorkflowWiring(
+        config: config,
+        dataDir: tempDir.path,
+        runAndthenSkillsBootstrap: false,
+        environment: {'HOME': p.join(tempDir.path, 'fake-home')},
+        runtimeCwd: runtimeCwd.path,
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+      );
+      await wiring.wire();
+
+      final definition = WorkflowDefinition(
+        name: 'approval-hold',
+        description: 'Stops in a non-terminal approval state',
+        variables: const {
+          'PROJECT': WorkflowVariable(required: true, description: 'Target project'),
+          'BRANCH': WorkflowVariable(required: true, description: 'Requested branch'),
+        },
+        steps: const [
+          WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
+        ],
+      );
+
+      final run = await wiring.workflowService.start(definition, const {
+        'PROJECT': 'alpha',
+        'BRANCH': 'main',
+      }, headless: true);
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (DateTime.now().isBefore(deadline)) {
+        final updated = await wiring.workflowService.get(run.id);
+        if (updated?.status == WorkflowRunStatus.awaitingApproval) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect((await wiring.workflowService.get(run.id))?.status, WorkflowRunStatus.awaitingApproval);
+
+      workflowBranch = 'dartclaw/workflow/${run.id.replaceAll('-', '')}/integration';
+      const taskBranch = 'dartclaw/task-wf-active';
+      worktreePath = p.join(workspaceDir.path, '.dartclaw', 'worktrees', 'wf-active');
+      _runGit(projectDir.path, ['branch', workflowBranch, 'main']);
+      _runGit(projectDir.path, ['worktree', 'add', worktreePath, '-b', taskBranch, workflowBranch]);
+
+      final task = await wiring.taskService.create(
+        id: 'active-task',
+        title: 'Active workflow task',
+        description: 'Tracks a resumable workflow worktree',
+        type: TaskType.coding,
+        projectId: 'alpha',
+        workflowRunId: run.id,
+      );
+      await wiring.taskService.updateFields(
+        task.id,
+        worktreeJson: {
+          'path': worktreePath,
+          'branch': taskBranch,
+          'createdAt': DateTime.parse('2026-01-01T00:00:00Z').toIso8601String(),
+        },
+      );
+
+      await wiring.dispose();
+      wiring = null;
+    } finally {
+      Directory.current = savedCwd;
+      if (wiring != null) {
+        await wiring.dispose();
+      }
+    }
+
+    expect(Directory(worktreePath).existsSync(), isTrue);
+    final workflowBranchResult = Process.runSync('git', [
+      'branch',
+      '--list',
+      workflowBranch,
+    ], workingDirectory: projectDir.path);
+    expect(workflowBranchResult.exitCode, 0);
+    expect((workflowBranchResult.stdout as String).trim(), workflowBranch);
   });
 
   test('standalone coding tasks use the configured project clone instead of cwd', () async {
@@ -955,6 +1274,37 @@ void _seedAndthenSrc(String srcDir, {required String sha}) {
   File(p.join(srcDir, '.git', 'HEAD_SHA')).writeAsStringSync(sha);
 }
 
+List<String> _unexpectedDataDirSkillEntries(String dataDir) {
+  final allowed = {
+    'dartclaw-discover-andthen-spec',
+    'dartclaw-discover-andthen-plan',
+    'dartclaw-validate-workflow',
+    'dartclaw-merge-resolve',
+  };
+  final roots = [Directory(p.join(dataDir, '.agents', 'skills')), Directory(p.join(dataDir, '.claude', 'skills'))];
+  return [
+    for (final root in roots)
+      if (root.existsSync())
+        for (final entity in root.listSync(followLinks: false))
+          if (entity is Directory && !allowed.contains(p.basename(entity.path))) entity.path,
+  ];
+}
+
+Directory _seedDcNativeSkillsSource(String sourceDir) {
+  final dir = Directory(sourceDir)..createSync(recursive: true);
+  for (final name in const [
+    'dartclaw-discover-andthen-spec',
+    'dartclaw-discover-andthen-plan',
+    'dartclaw-validate-workflow',
+    'dartclaw-merge-resolve',
+  ]) {
+    File(p.join(dir.path, name, 'SKILL.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('---\nname: $name\n---\n\n# $name\n');
+  }
+  return dir;
+}
+
 class _FakeProvisionerProcessRunner {
   final List<({String executable, List<String> arguments, String? workingDirectory})> calls = [];
 
@@ -977,12 +1327,15 @@ class _FakeProvisionerProcessRunner {
     }
     if (executable.endsWith('install-skills.sh')) {
       String? skillsDir;
+      String? codexAgentsDir;
       String? claudeSkillsDir;
       String? claudeAgentsDir;
       for (var i = 0; i < arguments.length - 1; i++) {
         switch (arguments[i]) {
           case '--skills-dir':
             skillsDir = arguments[i + 1];
+          case '--codex-agents-dir':
+            codexAgentsDir = arguments[i + 1];
           case '--claude-skills-dir':
             claudeSkillsDir = arguments[i + 1];
           case '--claude-agents-dir':
@@ -995,10 +1348,11 @@ class _FakeProvisionerProcessRunner {
           return ProcessResult(0, 2, '', 'HOME is required for --claude-user');
         }
         skillsDir ??= p.join(home, '.agents', 'skills');
+        codexAgentsDir ??= p.join(home, '.codex', 'agents');
         claudeSkillsDir ??= p.join(home, '.claude', 'skills');
         claudeAgentsDir ??= p.join(home, '.claude', 'agents');
       }
-      for (final dir in [skillsDir, claudeSkillsDir, claudeAgentsDir].whereType<String>()) {
+      for (final dir in [skillsDir, codexAgentsDir, claudeSkillsDir, claudeAgentsDir].whereType<String>()) {
         Directory(dir).createSync(recursive: true);
       }
       for (final dir in [skillsDir, claudeSkillsDir].whereType<String>()) {
@@ -1015,13 +1369,21 @@ class _FakeProvisionerProcessRunner {
 }
 
 const _shippedDartclawSkillRefs = <String>[
-  'dartclaw-prd',
-  'dartclaw-spec',
-  'dartclaw-plan',
-  'dartclaw-exec-spec',
-  'dartclaw-architecture',
-  'dartclaw-review',
-  'dartclaw-quick-review',
-  'dartclaw-remediate-findings',
-  'dartclaw-refactor',
+  'andthen:prd',
+  'andthen:spec',
+  'andthen:plan',
+  'andthen:exec-spec',
+  'andthen:architecture',
+  'andthen:review',
+  'andthen:quick-review',
+  'andthen:remediate-findings',
+  'andthen:simplify-code',
 ];
+
+void _seedProviderAndThenSkills(String home) {
+  final claudeRoot = p.join(home, '.claude', 'skills');
+  for (final name in _shippedDartclawSkillRefs) {
+    final dir = Directory(p.join(claudeRoot, name))..createSync(recursive: true);
+    File(p.join(dir.path, 'SKILL.md')).writeAsStringSync('---\nname: $name\ndescription: fake $name\n---\n# $name\n');
+  }
+}

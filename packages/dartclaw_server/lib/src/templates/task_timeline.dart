@@ -1,16 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        TaskEvent,
-        TaskEventKind,
-        StatusChanged,
-        ToolCalled,
-        ArtifactCreated,
-        StructuredOutputInlineUsed,
-        StructuredOutputFallbackUsed,
-        PushBack,
-        TokenUpdate,
-        TaskErrorEvent,
-        Compaction;
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskEvent, TaskEventKind;
 
 import '../task/tool_call_summary.dart';
 import 'helpers.dart';
@@ -68,10 +56,11 @@ String timelineEventItemHtml(TaskEvent event) {
 bool eventMatchesFilter(TaskEventKind kind, String? filter) {
   if (filter == null || filter == 'all') return true;
   return switch (filter) {
-    'status' => kind is StatusChanged || kind is PushBack || kind is TokenUpdate,
-    'tools' => kind is ToolCalled,
-    'artifacts' => kind is ArtifactCreated,
-    'errors' => kind is TaskErrorEvent,
+    'status' =>
+      kind == TaskEventKind.statusChanged || kind == TaskEventKind.pushBack || kind == TaskEventKind.tokenUpdate,
+    'tools' => kind == TaskEventKind.toolCalled,
+    'artifacts' => kind == TaskEventKind.artifactCreated,
+    'errors' => kind == TaskEventKind.taskError,
     _ => true,
   };
 }
@@ -89,7 +78,7 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
   final success = details['success'] as bool?;
   final iconClass = eventIconClass(kind, newStatus: newStatus);
   final kindClass = eventKindClass(kind, success: success);
-  final isStatusChanged = kind is StatusChanged;
+  final isStatusChanged = kind == TaskEventKind.statusChanged;
 
   String label;
   String? detail;
@@ -99,11 +88,11 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
   String? statusLabel;
 
   switch (kind) {
-    case StatusChanged():
+    case TaskEventKind.statusChanged:
       label = titleCase(newStatus ?? 'unknown');
       statusBadgeClassVal = statusBadgeClass(newStatus);
       statusLabel = titleCase(newStatus ?? 'unknown');
-    case ToolCalled():
+    case TaskEventKind.toolCalled:
       final name = details['name']?.toString() ?? '(unknown tool)';
       final context = details['context']?.toString();
       label = formatToolEventText(name, context: context, maxLength: 80);
@@ -111,17 +100,17 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
       if (errorType != null) {
         detail = truncate(errorType, 60);
       }
-    case ArtifactCreated():
+    case TaskEventKind.artifactCreated:
       label = details['name']?.toString() ?? '(artifact)';
       final artifactKind = details['kind']?.toString();
       if (artifactKind != null) {
         detailBadge = titleCase(artifactKind);
         detailBadgeClass = 'type-badge-$artifactKind';
       }
-    case StructuredOutputInlineUsed():
+    case TaskEventKind.structuredOutputInlineUsed:
       label = 'Structured output used inline';
       detail = truncate(details['outputKey']?.toString() ?? '(output)', 60);
-    case StructuredOutputFallbackUsed():
+    case TaskEventKind.structuredOutputFallbackUsed:
       label = 'Structured output fallback';
       final outputKey = details['outputKey']?.toString();
       final failureReason = details['failureReason']?.toString();
@@ -130,21 +119,21 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
       } else if (outputKey != null) {
         detail = outputKey;
       }
-    case PushBack():
+    case TaskEventKind.pushBack:
       label = 'Push-back';
       final comment = details['comment']?.toString();
       if (comment != null && comment.isNotEmpty) detail = truncate(comment, 120);
-    case TokenUpdate():
+    case TaskEventKind.tokenUpdate:
       final input = (details['inputTokens'] as num?)?.toInt() ?? 0;
       final output = (details['outputTokens'] as num?)?.toInt() ?? 0;
       label = '${formatNumber(input)} in / ${formatNumber(output)} out';
       final cacheRead = (details['cacheReadTokens'] as num?)?.toInt() ?? 0;
       if (cacheRead > 0) detail = '${formatNumber(cacheRead)} cache read';
-    case TaskErrorEvent():
+    case TaskEventKind.taskError:
       label = 'Error';
       final message = details['message']?.toString();
       if (message != null && message.isNotEmpty) detail = truncate(message, 120);
-    case Compaction():
+    case TaskEventKind.compaction:
       label = 'Compaction';
       final trigger = details['trigger']?.toString();
       final preTokens = details['preTokens'];

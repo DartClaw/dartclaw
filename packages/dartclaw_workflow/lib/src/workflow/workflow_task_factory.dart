@@ -1,18 +1,9 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        AgentExecution,
-        OutputConfig,
-        OutputFormat,
-        Task,
-        TaskStatus,
-        TaskStatusChangedEvent,
-        TaskType,
-        WorkflowDefinition,
-        WorkflowRun,
-        WorkflowStep,
-        WorkflowStepExecution;
+    show AgentExecution, Task, TaskStatus, TaskStatusChangedEvent, TaskType, WorkflowStepExecution;
+import 'workflow_definition.dart' show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowStep;
+import 'workflow_run.dart' show WorkflowRun;
 
 import 'map_context.dart';
 import 'output_resolver.dart';
@@ -122,6 +113,7 @@ Map<String, dynamic> buildStepConfig(
   required String resolvedWorktreeMode,
   required String effectivePromotion,
   required String workflowWorkspaceDir,
+  Map<String, OutputConfig>? effectiveOutputs,
 }) {
   final config = <String, dynamic>{};
   if (resolved.model != null) config['model'] = resolved.model;
@@ -133,7 +125,13 @@ Map<String, dynamic> buildStepConfig(
   if (isReadOnlyStep) {
     config['readOnly'] = true;
   }
-  if (step_config_policy.stepNeedsWorktree(definition, step, resolved, resolvedWorktreeMode: resolvedWorktreeMode)) {
+  if (step_config_policy.stepNeedsWorktree(
+    definition,
+    step,
+    resolved,
+    resolvedWorktreeMode: resolvedWorktreeMode,
+    effectiveOutputs: effectiveOutputs,
+  )) {
     config['_workflowNeedsWorktree'] = true;
   }
   final branch = context.variables['BRANCH']?.trim();
@@ -141,7 +139,7 @@ Map<String, dynamic> buildStepConfig(
     config['_baseRef'] = branch;
   }
   final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
-  if (integrationBranch != null && integrationBranch.isNotEmpty && definition.gitStrategy?.bootstrap == true) {
+  if (integrationBranch != null && integrationBranch.isNotEmpty && definition.gitStrategy?.integrationBranch == true) {
     config['_baseRef'] = integrationBranch;
   }
   final strategy = definition.gitStrategy;
@@ -149,7 +147,7 @@ Map<String, dynamic> buildStepConfig(
     config['_workflowGit'] = {
       'runId': run.id,
       'worktree': resolvedWorktreeMode,
-      'bootstrap': strategy.bootstrap,
+      'integrationBranch': strategy.integrationBranch,
       'promotion': effectivePromotion,
     };
   }
@@ -181,6 +179,7 @@ List<String> buildOneShotFollowUpPrompts(
             resolvedPrompt: resolvedPrompt,
             outputs: effectiveOutputs,
             outputKeys: outputKeys,
+            outputExamples: step.outputExamples,
             emitStepOutcomeProtocol: !step.emitsOwnOutcome,
           )
         : resolvedPrompt;
@@ -260,7 +259,7 @@ WorkflowStepExecution buildWorkflowStepExecutionFromConfig({
     workflowRunId: runId,
     stepIndex: stepIndex,
     stepId: step.id,
-    stepType: step.type,
+    stepType: step.taskType.toJson(),
     gitJson: encodeJsonString(taskConfig['_workflowGit']),
     providerSessionId: trimmedString(taskConfig['_continueProviderSessionId']),
     structuredSchemaJson: encodeJsonString(taskConfig['_workflowStructuredSchema']),

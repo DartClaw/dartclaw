@@ -1,4 +1,13 @@
-import 'package:dartclaw_models/dartclaw_models.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        OutputConfig,
+        OutputFormat,
+        WorkflowDefinition,
+        WorkflowGitStrategy,
+        WorkflowGitWorktreeStrategy,
+        WorkflowRoleDefaults,
+        WorkflowStep;
 import 'package:dartclaw_workflow/src/workflow/step_config_policy.dart';
 import 'package:dartclaw_workflow/src/workflow/step_config_resolver.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_context.dart';
@@ -12,7 +21,9 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'wf',
         description: 'test',
-        gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.auto),
+        ),
         steps: const [
           WorkflowStep(id: 'map', name: 'Map', prompts: ['p'], mapOver: 'items', maxParallel: 2),
         ],
@@ -77,6 +88,10 @@ void main() {
         stepIsReadOnly(const WorkflowStep(id: 's', name: 'S'), const ResolvedStepConfig(allowedTools: ['file_write'])),
         isFalse,
       );
+      expect(
+        stepIsReadOnly(const WorkflowStep(id: 's', name: 'S'), const ResolvedStepConfig(allowedTools: ['file_edit'])),
+        isFalse,
+      );
     });
 
     test('stepEmitsArtifactPath detects path outputs', () {
@@ -92,7 +107,72 @@ void main() {
       );
     });
 
-    test('shouldBindWorkflowProject binds project-index consumers and mutating agent steps', () {
+    test('stepNeedsWorktree binds read-only path outputs for inline metadata', () {
+      const definition = WorkflowDefinition(name: 'wf', description: 'test', project: 'proj', steps: []);
+
+      expect(
+        stepNeedsWorktree(
+          definition,
+          const WorkflowStep(
+            id: 'detect-spec-input',
+            name: 'Detect Spec Input',
+            skill: 'dartclaw-discover-andthen-spec',
+            allowedTools: ['shell', 'file_read'],
+            outputs: {'spec_path': OutputConfig(format: OutputFormat.path)},
+          ),
+          const ResolvedStepConfig(allowedTools: ['shell', 'file_read']),
+          resolvedWorktreeMode: 'inline',
+        ),
+        isTrue,
+      );
+      expect(
+        stepNeedsWorktree(
+          definition,
+          const WorkflowStep(
+            id: 'custom-discover',
+            name: 'Custom Discover',
+            allowedTools: ['shell', 'file_read'],
+            outputs: {'prd': OutputConfig(format: OutputFormat.path)},
+          ),
+          const ResolvedStepConfig(allowedTools: ['shell', 'file_read']),
+          resolvedWorktreeMode: 'inline',
+        ),
+        isTrue,
+      );
+      expect(
+        stepNeedsWorktree(
+          definition,
+          const WorkflowStep(
+            id: 'mixed-discover',
+            name: 'Mixed Discover',
+            allowedTools: ['shell', 'file_read'],
+            outputs: {
+              'project_index': OutputConfig(format: OutputFormat.json),
+              'prd': OutputConfig(format: OutputFormat.path),
+            },
+          ),
+          const ResolvedStepConfig(allowedTools: ['shell', 'file_read']),
+          resolvedWorktreeMode: 'inline',
+        ),
+        isTrue,
+      );
+      expect(
+        stepNeedsWorktree(
+          definition,
+          const WorkflowStep(
+            id: 'default-output-discover',
+            name: 'Default Output Discover',
+            allowedTools: ['shell', 'file_read'],
+          ),
+          const ResolvedStepConfig(allowedTools: ['shell', 'file_read']),
+          resolvedWorktreeMode: 'inline',
+          effectiveOutputs: {'prd': const OutputConfig(format: OutputFormat.path)},
+        ),
+        isTrue,
+      );
+    });
+
+    test('shouldBindWorkflowProject ignores retired project_index consumers and binds mutating agent steps', () {
       const definition = WorkflowDefinition(name: 'wf', description: 'test', project: 'proj', steps: []);
 
       expect(
@@ -105,6 +185,14 @@ void main() {
           const WorkflowStep(id: 'review', name: 'Review', inputs: ['project_index']),
           const ResolvedStepConfig(allowedTools: ['file_read']),
         ),
+        isFalse,
+      );
+      expect(
+        shouldBindWorkflowProject(
+          definition,
+          const WorkflowStep(id: 'edit', name: 'Edit'),
+          const ResolvedStepConfig(allowedTools: ['file_read', 'file_edit']),
+        ),
         isTrue,
       );
     });
@@ -115,7 +203,7 @@ void main() {
         description: 'test',
         project: 'proj',
         steps: const [
-          WorkflowStep(id: 'readonly', name: 'Readonly', type: 'research'),
+          WorkflowStep(id: 'readonly', name: 'Readonly', type: WorkflowTaskType.agent, allowedTools: ['file_read']),
           WorkflowStep(id: 'write', name: 'Write'),
         ],
       );
@@ -124,34 +212,34 @@ void main() {
       expect(stepTouchesProjectBranch(definition, definition.steps.last, roleDefaults: roleDefaults), isTrue);
     });
 
-    test('removed semantic step types do not drive project binding through policy', () {
+    test('read-only tool policy does not drive project binding', () {
       const definition = WorkflowDefinition(name: 'wf', description: 'test', project: 'proj', steps: []);
 
       expect(
         shouldBindWorkflowProject(
           definition,
-          const WorkflowStep(id: 'analysis', name: 'Analysis', type: 'analysis'),
+          const WorkflowStep(id: 'analysis', name: 'Analysis', type: WorkflowTaskType.agent),
           const ResolvedStepConfig(allowedTools: ['file_read']),
         ),
         isFalse,
-        reason: 'removed type: analysis with only file_read should not bind the project',
+        reason: 'agent step with only file_read should not bind the project',
       );
 
       expect(
         shouldBindWorkflowProject(
           definition,
-          const WorkflowStep(id: 'research', name: 'Research', type: 'research'),
+          const WorkflowStep(id: 'research', name: 'Research', type: WorkflowTaskType.agent),
           const ResolvedStepConfig(allowedTools: ['file_read']),
         ),
         isFalse,
-        reason: 'removed type: research with only file_read should not bind the project',
+        reason: 'agent step with only file_read should not bind the project',
       );
     });
 
     test('stepIsReadOnly opts out when allowedTools includes file_write', () {
       expect(
         stepIsReadOnly(
-          const WorkflowStep(id: 'w', name: 'Writing', type: 'writing'),
+          const WorkflowStep(id: 'w', name: 'Writing', type: WorkflowTaskType.agent),
           const ResolvedStepConfig(allowedTools: ['file_write']),
         ),
         isFalse,
@@ -160,7 +248,7 @@ void main() {
 
       expect(
         stepIsReadOnly(
-          const WorkflowStep(id: 'a', name: 'Analysis', type: 'analysis'),
+          const WorkflowStep(id: 'a', name: 'Analysis', type: WorkflowTaskType.agent),
           const ResolvedStepConfig(allowedTools: ['file_write', 'file_read']),
         ),
         isFalse,
@@ -168,7 +256,10 @@ void main() {
       );
 
       expect(
-        stepIsReadOnly(const WorkflowStep(id: 'a2', name: 'Analysis2', type: 'analysis'), const ResolvedStepConfig()),
+        stepIsReadOnly(
+          const WorkflowStep(id: 'a2', name: 'Analysis2', type: WorkflowTaskType.agent),
+          const ResolvedStepConfig(),
+        ),
         isFalse,
         reason: 'removed semantic types no longer imply read-only mode',
       );

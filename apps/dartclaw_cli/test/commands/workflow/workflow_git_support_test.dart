@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart';
 import 'package:dartclaw_server/dartclaw_server.dart' show PushAuthFailure, PushSuccess;
 import 'package:path/path.dart' as p;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitPromotionSuccess, WorkflowPublishStatus;
 import 'package:test/test.dart';
 
 Future<ProcessResult> _git(String workingDirectory, List<String> arguments) {

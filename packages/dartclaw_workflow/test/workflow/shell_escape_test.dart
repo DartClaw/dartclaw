@@ -1,4 +1,4 @@
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show shellEscape;
+import 'package:dartclaw_workflow/src/workflow/shell_escape.dart' show shellEscape;
 import 'package:test/test.dart';
 
 void main() {

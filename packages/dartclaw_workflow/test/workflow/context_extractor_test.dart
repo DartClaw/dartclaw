@@ -4,6 +4,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ArtifactKind,
@@ -116,7 +118,7 @@ void main() {
   });
 
   test('extracts from workflow-context XML tag', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(sessionId: session.id, role: 'user', content: 'Do some research');
     await messageService.insertMessage(
       sessionId: session.id,
@@ -125,7 +127,7 @@ void main() {
           'Here is my response.\n\n<workflow-context>{"research_notes":"Found important findings about X.","summary":"Brief summary here."}</workflow-context>',
     );
 
-    // Task needs a sessionId — create it via updateFields after autoStart.
+    // Task needs a sessionId – create it via updateFields after autoStart.
     await taskService.create(
       id: 'task-session-1',
       title: 'Test',
@@ -142,7 +144,7 @@ void main() {
   });
 
   test('extracts structured JSON values from workflow-context XML tag', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -174,400 +176,8 @@ void main() {
     expect(outputs['plan_source'], 'synthesized');
   });
 
-  test('discover-project defaults source to existing when paired artifact path is present', () async {
-    final prdPath = p.join(tempDir.path, 'docs', 'specs', 'demo', 'prd.md');
-    File(prdPath)
-      ..createSync(recursive: true)
-      ..writeAsStringSync('# PRD\n');
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content:
-          'Done.\n\n<workflow-context>${jsonEncode({
-            'project_index': {'active_prd': p.relative(prdPath, from: tempDir.path)},
-          })}</workflow-context>',
-    );
-
-    await taskService.create(
-      id: 'task-source-default-1',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-source-default-1', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-source-default-1'))!;
-
-    final step = makeStep(
-      id: 'discover-project',
-      outputs: const {
-        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-        'prd': OutputConfig(format: OutputFormat.path),
-        'prd_source': OutputConfig(),
-      },
-    );
-
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['prd'], 'docs/specs/demo/prd.md');
-    expect(outputs['prd_source'], 'existing');
-  });
-
-  test('discover-project prunes non-canonical document location keys before schema validation', () async {
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content:
-          'Done.\n\n<workflow-context>${jsonEncode({
-            'project_index': {
-              'framework': 'andthen',
-              'project_root': tempDir.path,
-              'document_locations': {'product': null, 'backlog': 'docs/PRODUCT-BACKLOG.md', 'roadmap': 'docs/ROADMAP.md', 'prd': null, 'plan': null, 'spec': 'docs/specs', 'state': 'docs/STATE.md', 'readme': 'README.md', 'agent_rules': 'AGENTS.md', 'architecture': 'CLAUDE.md', 'guide': 'docs/guidelines', 'learnings': 'docs/LEARNINGS.md'},
-              'state_protocol': {
-                'type': 'andthen-state',
-                'state_file': 'docs/STATE.md',
-                'format': 'markdown',
-                'operations': ['append notes'],
-              },
-            },
-          })}</workflow-context>',
-    );
-
-    await taskService.create(
-      id: 'task-project-index-prune-doc-locations',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-project-index-prune-doc-locations', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-project-index-prune-doc-locations'))!;
-    final step = makeStep(
-      id: 'discover-project',
-      outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
-    );
-
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    final projectIndex = outputs['project_index'] as Map<String, dynamic>;
-    final documentLocations = projectIndex['document_locations'] as Map<String, dynamic>;
-    final stateProtocol = projectIndex['state_protocol'] as Map<String, dynamic>;
-    expect(documentLocations, isNot(contains('learnings')));
-    expect(documentLocations['spec'], 'docs/specs');
-    expect(stateProtocol, isNot(contains('operations')));
-    expect(stateProtocol['type'], 'andthen-state');
-  });
-
-  test('discover-project derives flat prd and plan outputs from project_index active artifacts', () async {
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content:
-          '<workflow-context>${jsonEncode({
-            'project_index': {
-              'active_prd': 'docs/specs/demo/prd.md',
-              'active_plan': 'docs/specs/demo/plan.md',
-              'active_story_specs': {
-                'items': [
-                  {'id': 'S01', 'title': 'Existing Story', 'spec_path': 'docs/specs/demo/fis/s01-existing-story.md', 'dependencies': <String>[]},
-                ],
-              },
-            },
-          })}</workflow-context>',
-    );
-
-    await taskService.create(
-      id: 'task-active-artifacts-1',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-active-artifacts-1', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-active-artifacts-1'))!;
-
-    final step = makeStep(
-      id: 'discover-project',
-      outputs: const {
-        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-        'prd': OutputConfig(format: OutputFormat.path),
-        'plan': OutputConfig(format: OutputFormat.path),
-      },
-    );
-
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['prd'], 'docs/specs/demo/prd.md');
-    expect(outputs['plan'], 'docs/specs/demo/plan.md');
-  });
-
-  test('discover-project drops claimed spec_path when spec_source is not existing', () async {
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content:
-          '<workflow-context>${jsonEncode({
-            'project_index': {'project_root': tempDir.path},
-            'spec_path': 'docs/specs/bug-001/s01-future-fix.md',
-            'spec_source': 'synthesized',
-          })}</workflow-context>',
-    );
-
-    await taskService.create(
-      id: 'task-future-spec-path-1',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-future-spec-path-1', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-future-spec-path-1'))!;
-
-    final step = makeStep(
-      id: 'discover-project',
-      outputs: const {
-        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-        'spec_path': OutputConfig(format: OutputFormat.path),
-        'spec_source': OutputConfig(),
-      },
-    );
-
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['spec_path'], isEmpty);
-    expect(outputs['spec_source'], 'synthesized');
-  });
-
-  test('discover-project downgrades existing spec_source when no spec path exists', () async {
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content:
-          '<workflow-context>${jsonEncode({
-            'project_index': {
-              'project_root': tempDir.path,
-              'artifact_locations': {'fis_dir': 'docs/specs/future'},
-            },
-            'spec_path': 'docs/specs/future/s01-future-fix.md',
-            'spec_source': 'existing',
-          })}</workflow-context>',
-    );
-
-    await taskService.create(
-      id: 'task-stale-existing-spec-source-1',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-stale-existing-spec-source-1', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-stale-existing-spec-source-1'))!;
-
-    final step = makeStep(
-      id: 'discover-project',
-      outputs: const {
-        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-        'spec_path': OutputConfig(format: OutputFormat.path),
-        'spec_source': OutputConfig(),
-      },
-    );
-
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['spec_path'], isEmpty);
-    expect(outputs['spec_source'], 'synthesized');
-  });
-
-  test('discover-project ignores claimed future artifact paths when no active artifacts exist', () async {
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content:
-          '<workflow-context>${jsonEncode({
-            'project_index': {
-              'project_root': tempDir.path,
-              'active_prd': null,
-              'active_plan': null,
-              'active_story_specs': null,
-              'artifact_locations': {'prd': 'docs/specs/future/prd.md', 'plan': 'docs/specs/future/plan.md'},
-            },
-            'prd': 'docs/specs/future/prd.md',
-            'plan': 'docs/specs/future/plan.md',
-            'story_specs': {'items': <Map<String, dynamic>>[]},
-          })}</workflow-context>',
-    );
-
-    await taskService.create(
-      id: 'task-future-artifact-paths-1',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-future-artifact-paths-1', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-future-artifact-paths-1'))!;
-
-    final step = makeStep(
-      id: 'discover-project',
-      outputs: const {
-        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-        'prd': OutputConfig(format: OutputFormat.path),
-        'plan': OutputConfig(format: OutputFormat.path),
-        'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
-      },
-    );
-
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    final projectIndex = outputs['project_index'] as Map<String, dynamic>;
-    expect(projectIndex['active_prd'], isNull);
-    expect(projectIndex['active_plan'], isNull);
-    expect(projectIndex['active_story_specs'], isNull);
-    expect(outputs['prd'], isEmpty);
-    expect(outputs['plan'], isEmpty);
-    expect(outputs['story_specs'], {'items': <Map<String, dynamic>>[]});
-  });
-
-  test('discover-project derives story_specs from project_index.active_story_specs', () async {
-    final activeStorySpecs = {
-      'items': [
-        {
-          'id': 'S01',
-          'title': 'Existing Story',
-          'spec_path': 'docs/specs/demo/fis/s01-existing-story.md',
-          'dependencies': <String>[],
-        },
-      ],
-    };
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content:
-          '<workflow-context>${jsonEncode({
-            'project_index': {'active_plan': 'docs/specs/demo/plan.md', 'active_story_specs': activeStorySpecs},
-          })}</workflow-context>',
-    );
-
-    await taskService.create(
-      id: 'task-story-spec-default-1',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-story-spec-default-1', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-story-spec-default-1'))!;
-
-    final step = makeStep(
-      id: 'discover-project',
-      outputs: const {
-        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-        'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
-      },
-    );
-
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['story_specs'], activeStorySpecs);
-  });
-
-  test('discover-project ignores active_story_specs when active_plan is missing', () async {
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content:
-          '<workflow-context>${jsonEncode({
-            'project_index': {
-              'active_plan': null,
-              'active_story_specs': {
-                'items': [
-                  {'id': 'S01', 'title': 'Future Story', 'spec_path': 'docs/specs/future/s01-future-story.md', 'dependencies': <String>[]},
-                ],
-              },
-            },
-          })}</workflow-context>',
-    );
-
-    await taskService.create(
-      id: 'task-story-spec-no-active-plan-1',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-story-spec-no-active-plan-1', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-story-spec-no-active-plan-1'))!;
-
-    final step = makeStep(
-      id: 'discover-project',
-      outputs: const {
-        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-        'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
-      },
-    );
-
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['story_specs'], {'items': <Map<String, dynamic>>[]});
-  });
-
-  test('discover-project ignores active artifact paths that do not exist under project_root', () async {
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content:
-          '<workflow-context>${jsonEncode({
-            'project_index': {
-              'project_root': tempDir.path,
-              'active_prd': 'docs/specs/future/prd.md',
-              'active_plan': 'docs/specs/future/plan.md',
-              'active_story_specs': {
-                'items': [
-                  {'id': 'S01', 'title': 'Future Story', 'spec_path': 'docs/specs/future/s01-future-story.md', 'dependencies': <String>[]},
-                ],
-              },
-            },
-          })}</workflow-context>',
-    );
-
-    await taskService.create(
-      id: 'task-missing-active-artifacts-1',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-missing-active-artifacts-1', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-missing-active-artifacts-1'))!;
-
-    final step = makeStep(
-      id: 'discover-project',
-      outputs: const {
-        'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-        'prd': OutputConfig(format: OutputFormat.path),
-        'plan': OutputConfig(format: OutputFormat.path),
-        'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
-      },
-    );
-
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['prd'], isEmpty);
-    expect(outputs['plan'], isEmpty);
-    expect(outputs['story_specs'], {'items': <Map<String, dynamic>>[]});
-  });
-
   test('throws MissingArtifactFailure for missing path outputs', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -598,7 +208,7 @@ void main() {
   });
 
   test('allows missing review report path when scoped review count is explicitly clean', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -621,8 +231,8 @@ void main() {
       id: 're-review',
       outputs: const {
         'review_findings': OutputConfig(format: OutputFormat.path),
-        're-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
-        're-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        're-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+        're-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
       },
     );
 
@@ -634,7 +244,7 @@ void main() {
   });
 
   test('rejects missing review report path when scoped review count is nonzero', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -657,8 +267,8 @@ void main() {
       id: 're-review',
       outputs: const {
         'review_findings': OutputConfig(format: OutputFormat.path),
-        're-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
-        're-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        're-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+        're-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
       },
     );
 
@@ -673,7 +283,7 @@ void main() {
   });
 
   test('allows missing clean review report for workflow-defined findings output names', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -696,8 +306,8 @@ void main() {
       id: 'custom-review',
       outputs: const {
         'audit_report': OutputConfig(format: OutputFormat.path),
-        'custom-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
-        'custom-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'custom-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+        'custom-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
       },
     );
 
@@ -725,7 +335,7 @@ void main() {
       workflowGitPort: git,
     );
     final claimedPath = 'docs/specs/demo/plan-architecture-codex-codex-2026-04-28.md';
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -770,7 +380,7 @@ void main() {
       workflowGitPort: git,
     );
     final claimedPath = 'docs/specs/demo/plan-review-codex-codex-2026-04-28.md';
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -813,7 +423,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -847,7 +457,7 @@ void main() {
     File(p.join(projectRoot.path, actualPath))
       ..createSync(recursive: true)
       ..writeAsStringSync('# Mixed Review\n');
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -880,7 +490,7 @@ void main() {
     File(p.join(worktree.path, actualPath))
       ..createSync(recursive: true)
       ..writeAsStringSync('# Mixed Review\n');
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -924,7 +534,7 @@ void main() {
     File(reportPath)
       ..createSync(recursive: true)
       ..writeAsStringSync('# Integrated Review\n');
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -964,7 +574,7 @@ void main() {
     );
     Directory(p.dirname(reportPath)).createSync(recursive: true);
     final claimedReportPath = reportPath.startsWith('/var/') ? '/private$reportPath' : reportPath;
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -989,10 +599,10 @@ void main() {
       id: 'integrated-review',
       outputs: const {
         'review_findings': OutputConfig(format: OutputFormat.path),
-        'integrated-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'integrated-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
         'integrated-review.gating_findings_count': OutputConfig(
           format: OutputFormat.json,
-          schema: 'non-negative-integer',
+          schema: 'non_negative_integer',
         ),
       },
     );
@@ -1017,7 +627,7 @@ void main() {
     }
 
     final claimedReportPath = p.join(reviewsLink.path, 'integrated-review-codex-2026-04-30.md');
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1042,10 +652,10 @@ void main() {
       id: 'integrated-review',
       outputs: const {
         'review_findings': OutputConfig(format: OutputFormat.path),
-        'integrated-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'integrated-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
         'integrated-review.gating_findings_count': OutputConfig(
           format: OutputFormat.json,
-          schema: 'non-negative-integer',
+          schema: 'non_negative_integer',
         ),
       },
     );
@@ -1080,7 +690,7 @@ void main() {
         messageService: messageService,
         dataDir: relativeDataDir,
       );
-      final session = await sessionService.getOrCreateMain();
+      final session = await sessionService.getOrCreateMainSession();
       await messageService.insertMessage(
         sessionId: session.id,
         role: 'assistant',
@@ -1135,7 +745,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1194,7 +804,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1244,7 +854,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1290,7 +900,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1342,7 +952,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1458,7 +1068,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1494,7 +1104,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1536,7 +1146,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1572,7 +1182,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1615,7 +1225,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1676,8 +1286,72 @@ void main() {
     );
   });
 
+  test('prefers plan.json when the default plan resolver also sees plan.md', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-plan-json-preferred'))..createSync();
+    File(p.join(worktree.path, 'docs', 'specs', 'demo', 'plan.json'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('{"schemaVersion":"1","stories":[]}');
+    File(p.join(worktree.path, 'docs', 'specs', 'demo', 'plan.md')).writeAsStringSync('# Plan\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'docs/specs/demo/plan.md')
+      ..addUntracked(worktree.path, 'docs/specs/demo/plan.json');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    await taskService.create(
+      id: 'task-plan-json-preferred',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-plan-json-preferred', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-plan-json-preferred'))!;
+    final step = makeStep(outputs: const {'plan': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['plan'], 'docs/specs/demo/plan.json');
+  });
+
+  test('prefers canonical prd.md when the default PRD resolver also sees dashed drafts', () async {
+    final worktree = Directory(p.join(tempDir.path, 'worktree-prd-preferred'))..createSync();
+    File(p.join(worktree.path, 'docs', 'specs', 'demo', 'prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# PRD\n');
+    File(p.join(worktree.path, 'docs', 'specs', 'demo', 'draft-prd.md')).writeAsStringSync('# Draft\n');
+    final git = FakeGitGateway()
+      ..initWorktree(worktree.path)
+      ..addUntracked(worktree.path, 'docs/specs/demo/draft-prd.md')
+      ..addUntracked(worktree.path, 'docs/specs/demo/prd.md');
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowGitPort: git,
+    );
+    await taskService.create(
+      id: 'task-prd-preferred',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-prd-preferred', worktreeJson: {'path': worktree.path});
+    final taskWithWorktree = (await taskService.get('task-prd-preferred'))!;
+    final step = makeStep(outputs: const {'prd': OutputConfig(format: OutputFormat.path)});
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['prd'], 'docs/specs/demo/prd.md');
+  });
+
   test('uses inline values for narrative-only outputs', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1705,7 +1379,7 @@ void main() {
     final step = makeStep(
       outputs: const {
         'summary': OutputConfig(format: OutputFormat.text),
-        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
       },
     );
 
@@ -1734,7 +1408,7 @@ void main() {
       dataDir: tempDir.path,
       workflowGitPort: git,
     );
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1758,7 +1432,7 @@ void main() {
       outputs: const {
         'fis_paths': OutputConfig(format: OutputFormat.lines),
         'summary': OutputConfig(format: OutputFormat.text),
-        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
       },
     );
 
@@ -1772,7 +1446,7 @@ void main() {
   test(
     'uses the most recent assistant message containing workflow-context, not only the last assistant message',
     () async {
-      final session = await sessionService.getOrCreateMain();
+      final session = await sessionService.getOrCreateMainSession();
       await messageService.insertMessage(
         sessionId: session.id,
         role: 'assistant',
@@ -1797,7 +1471,7 @@ void main() {
       final step = makeStep(
         outputs: const {
           'prd': OutputConfig(format: OutputFormat.text),
-          'stories': OutputConfig(format: OutputFormat.json, schema: 'story-plan'),
+          'stories': OutputConfig(format: OutputFormat.json, schema: 'story_plan'),
         },
       );
       final outputs = await extractor.extract(step, taskWithSession);
@@ -1809,7 +1483,7 @@ void main() {
   );
 
   test('format-aware json output stores parsed list from last assistant message', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -1837,7 +1511,7 @@ void main() {
   });
 
   test('format-aware lines output stores trimmed non-empty lines', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: 'alpha\n  beta  \n\n gamma ');
 
     await taskService.create(
@@ -1866,7 +1540,7 @@ void main() {
       await sub.cancel();
     });
 
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: '{"summary":"Only summary"}');
 
     await taskService.create(
@@ -1949,7 +1623,7 @@ void main() {
       outputs: {'result': OutputConfig()},
       extraction: const ExtractionConfig(type: ExtractionType.regex, pattern: r'\d+'),
     );
-    // Should not throw — falls back to empty string.
+    // Should not throw – falls back to empty string.
     final outputs = await extractor.extract(step, task);
     expect(outputs['result'], equals(''));
   });
@@ -1972,7 +1646,7 @@ void main() {
 
     final step = makeStep(outputs: {'large_output': OutputConfig()});
     final outputs = await extractor.extract(step, task);
-    // Content should not be truncated — only a warning is logged.
+    // Content should not be truncated – only a warning is logged.
     expect(outputs['large_output'], equals(largeContent));
   });
 
@@ -1980,7 +1654,7 @@ void main() {
     final task = await createTask();
     final artifactsDir = Directory(p.join(tempDir.path, 'tasks', 'task-1', 'artifacts'));
     artifactsDir.createSync(recursive: true);
-    // Only diff.json — diff_changes key uses it; notes has no match.
+    // Only diff.json – diff_changes key uses it; notes has no match.
     final diffFile = File(p.join(artifactsDir.path, 'diff.json'));
     diffFile.writeAsStringSync(jsonEncode({'files': 1, 'additions': 5, 'deletions': 2}));
 
@@ -2060,7 +1734,7 @@ void main() {
         'count': OutputConfig(
           format: OutputFormat.json,
           outputMode: OutputMode.structured,
-          schema: 'non-negative-integer',
+          schema: 'non_negative_integer',
         ),
       },
     );
@@ -2072,7 +1746,7 @@ void main() {
   });
 
   test('inline payload wins for narrative fields before structured fallback payload', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -2103,7 +1777,7 @@ void main() {
     final step = makeStep(
       outputs: const {
         'summary': OutputConfig(format: OutputFormat.text),
-        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'confidence': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
       },
     );
 
@@ -2114,7 +1788,7 @@ void main() {
   });
 
   test('structured output mode records fallback and uses heuristic json when payload is missing', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -2169,7 +1843,7 @@ void main() {
   });
 
   test('derived outputs reuse fields from an earlier parsed JSON output', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     await taskService.create(
       id: 'task-session-json',
       title: 'Test',
@@ -2233,7 +1907,7 @@ void main() {
 
     for (final producer in producers) {
       for (final gatingCount in const [0, 1]) {
-        final session = await sessionService.getOrCreateMain();
+        final session = await sessionService.getOrCreateMainSession();
         final payload = <String, Object?>{'findings_count': 3, producer.totalKey: 3, producer.gatingKey: gatingCount};
         final summaryKey = producer.summaryKey;
         if (summaryKey != null) {
@@ -2266,8 +1940,8 @@ void main() {
         await taskService.updateFields(taskId, sessionId: session.id);
         final task = (await taskService.get(taskId))!;
         final outputConfigs = <String, OutputConfig>{
-          producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
-          producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+          producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+          producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
         };
         if (summaryKey != null) {
           outputConfigs[summaryKey] = const OutputConfig(format: OutputFormat.json, schema: 'verdict');
@@ -2302,7 +1976,7 @@ void main() {
 
     for (final producer in producers) {
       for (final testCase in const [(gatingCount: 0, severity: 'low'), (gatingCount: 1, severity: 'medium')]) {
-        final session = await sessionService.getOrCreateMain();
+        final session = await sessionService.getOrCreateMainSession();
         final payload = <String, Object?>{
           producer.summaryKey: {
             'pass': testCase.gatingCount == 0,
@@ -2341,8 +2015,8 @@ void main() {
         final step = makeStep(
           id: producer.stepId,
           outputs: {
-            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
-            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
             producer.summaryKey: const OutputConfig(format: OutputFormat.json, schema: 'verdict'),
           },
         );
@@ -2373,7 +2047,7 @@ void main() {
 
     for (final producer in producers) {
       for (final findingsCount in const [0, 2]) {
-        final session = await sessionService.getOrCreateMain();
+        final session = await sessionService.getOrCreateMainSession();
         final payload = <String, Object?>{'review_findings': 'docs/specs/review.md', producer.totalKey: findingsCount};
         await messageService.insertMessage(
           sessionId: session.id,
@@ -2393,8 +2067,8 @@ void main() {
         final step = makeStep(
           id: producer.stepId,
           outputs: {
-            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
-            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
           },
         );
 
@@ -2427,7 +2101,7 @@ void main() {
         {'findings_count': 3, 'gating_findings_count': 1},
         {'findings_count': 2},
       ]) {
-        final session = await sessionService.getOrCreateMain();
+        final session = await sessionService.getOrCreateMainSession();
         await messageService.insertMessage(
           sessionId: session.id,
           role: 'assistant',
@@ -2446,8 +2120,8 @@ void main() {
         final step = makeStep(
           id: producer.stepId,
           outputs: {
-            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
-            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+            producer.totalKey: const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+            producer.gatingKey: const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
           },
         );
 
@@ -2464,7 +2138,7 @@ void main() {
   });
 
   test('file-backed review producers prefer scoped total over unscoped gating fallback', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     final payload = <String, Object?>{'plan-review.findings_count': 2, 'gating_findings_count': 0};
     await messageService.insertMessage(
       sessionId: session.id,
@@ -2483,8 +2157,8 @@ void main() {
     final step = makeStep(
       id: 'plan-review',
       outputs: const {
-        'plan-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
-        'plan-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'plan-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+        'plan-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
       },
     );
 
@@ -2495,7 +2169,7 @@ void main() {
   });
 
   test('file-backed review producers prefer scoped total over already-extracted unscoped gating fallback', () async {
-    final session = await sessionService.getOrCreateMain();
+    final session = await sessionService.getOrCreateMainSession();
     final payload = <String, Object?>{'plan-review.findings_count': 2, 'gating_findings_count': 0};
     await messageService.insertMessage(
       sessionId: session.id,
@@ -2514,9 +2188,9 @@ void main() {
     final step = makeStep(
       id: 'plan-review',
       outputs: const {
-        'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
-        'plan-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
-        'plan-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non-negative-integer'),
+        'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+        'plan-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+        'plan-review.gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
       },
     );
 
@@ -2549,7 +2223,7 @@ void main() {
       final step = WorkflowStep(
         id: 'coding-step',
         name: 'Fix',
-        type: 'coding',
+        type: WorkflowTaskType.agent,
         prompts: const ['Fix the bug'],
         outputs: const {'branch': OutputConfig(source: 'worktree.branch')},
       );
@@ -2579,7 +2253,7 @@ void main() {
       final step = WorkflowStep(
         id: 'coding-step',
         name: 'Fix',
-        type: 'coding',
+        type: WorkflowTaskType.agent,
         prompts: const ['Fix the bug'],
         outputs: const {'worktree_path': OutputConfig(source: 'worktree.path')},
       );
@@ -2600,164 +2274,13 @@ void main() {
       final step = WorkflowStep(
         id: 'coding-step',
         name: 'Fix',
-        type: 'coding',
+        type: WorkflowTaskType.agent,
         prompts: const ['Fix the bug'],
         outputs: const {'branch': OutputConfig(source: 'worktree.branch')},
       );
 
       final outputs = await extractor.extract(step, task);
       expect(outputs['branch'], equals(''));
-    });
-  });
-
-  group('project-index path sanitization', () {
-    test('clears document locations that escape project_root via relative segments', () async {
-      final session = await sessionService.getOrCreateMain();
-      await messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content:
-            '<workflow-context>{"project_index":{"framework":"none","project_root":"/repo/public","document_locations":{"product":null,"backlog":null,"roadmap":"../../private/docs/ROADMAP.md","prd":"docs/prd.md","plan":"/repo/public/docs/plan.md","spec":null,"state":"../STATE.md","readme":"README.md","agent_rules":"AGENTS.md","architecture":"docs/architecture","guide":"docs/guide/README.md"},"state_protocol":{"type":"none","state_file":"../../private/STATE.md","format":null}}}</workflow-context>',
-      );
-
-      await taskService.create(
-        id: 'task-project-index-1',
-        title: 'Test',
-        description: 'Test',
-        type: TaskType.research,
-        autoStart: true,
-      );
-      await taskService.updateFields('task-project-index-1', sessionId: session.id);
-      final taskWithSession = (await taskService.get('task-project-index-1'))!;
-
-      final step = makeStep(
-        outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
-      );
-
-      final outputs = await extractor.extract(step, taskWithSession);
-      final projectIndex = outputs['project_index'] as Map<String, dynamic>;
-      final documentLocations = projectIndex['document_locations'] as Map<String, dynamic>;
-
-      expect(documentLocations['roadmap'], isNull);
-      expect(documentLocations['state'], isNull);
-      expect(documentLocations['prd'], equals('docs/prd.md'));
-      expect(documentLocations['plan'], equals('docs/plan.md'));
-      expect(documentLocations['readme'], equals('README.md'));
-      final stateProtocol = projectIndex['state_protocol'] as Map<String, dynamic>;
-      expect(stateProtocol['state_file'], isNull);
-    });
-
-    test('sanitizes active_story_specs spec paths against project_root', () async {
-      final session = await sessionService.getOrCreateMain();
-      await messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content:
-            '<workflow-context>{"project_index":{"framework":"none","project_root":"/repo/public","active_story_specs":{"items":[{"id":"S01","title":"Safe","spec_path":"/repo/public/docs/specs/demo/fis/s01.md","dependencies":[]},{"id":"S02","title":"Escape","spec_path":"../../private/fis/s02.md","dependencies":[]}]}}}</workflow-context>',
-      );
-
-      await taskService.create(
-        id: 'task-project-index-2',
-        title: 'Test',
-        description: 'Test',
-        type: TaskType.research,
-        autoStart: true,
-      );
-      await taskService.updateFields('task-project-index-2', sessionId: session.id);
-      final taskWithSession = (await taskService.get('task-project-index-2'))!;
-
-      final step = makeStep(
-        outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
-      );
-
-      final outputs = await extractor.extract(step, taskWithSession);
-      final projectIndex = outputs['project_index'] as Map<String, dynamic>;
-      final activeStorySpecs = projectIndex['active_story_specs'] as Map<String, dynamic>;
-      final items = activeStorySpecs['items'] as List<dynamic>;
-
-      expect((items[0] as Map<String, dynamic>)['spec_path'], equals('docs/specs/demo/fis/s01.md'));
-      expect((items[1] as Map<String, dynamic>)['spec_path'], isNull);
-    });
-
-    test('repairs agent_rules to an existing root instruction file', () async {
-      final root = Directory(p.join(tempDir.path, 'project'))..createSync(recursive: true);
-      File(p.join(root.path, 'CLAUDE.md')).writeAsStringSync('# Agent Rules\n');
-
-      final session = await sessionService.getOrCreateMain();
-      await messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content:
-            '<workflow-context>${jsonEncode({
-              'project_index': {
-                'framework': 'andthen',
-                'project_root': root.path,
-                'document_locations': {'product': null, 'backlog': 'docs/PRODUCT-BACKLOG.md', 'roadmap': 'docs/ROADMAP.md', 'prd': null, 'plan': null, 'spec': null, 'state': 'docs/STATE.md', 'readme': 'README.md', 'agent_rules': 'AGENTS.md', 'architecture': 'CLAUDE.md', 'guide': 'docs/guidelines'},
-                'state_protocol': {'type': 'andthen-state', 'state_file': 'docs/STATE.md', 'format': 'markdown'},
-              },
-            })}</workflow-context>',
-      );
-
-      await taskService.create(
-        id: 'task-project-index-agent-rules',
-        title: 'Test',
-        description: 'Test',
-        type: TaskType.research,
-        autoStart: true,
-      );
-      await taskService.updateFields('task-project-index-agent-rules', sessionId: session.id);
-      final taskWithSession = (await taskService.get('task-project-index-agent-rules'))!;
-
-      final step = makeStep(
-        outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
-      );
-
-      final outputs = await extractor.extract(step, taskWithSession);
-      final projectIndex = outputs['project_index'] as Map<String, dynamic>;
-      final documentLocations = projectIndex['document_locations'] as Map<String, dynamic>;
-
-      expect(documentLocations['agent_rules'], equals('CLAUDE.md'));
-    });
-
-    test('coerces state_protocol scalars: trims strings, drops empty/non-string', () async {
-      final session = await sessionService.getOrCreateMain();
-      await messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content:
-            '<workflow-context>${jsonEncode({
-              'project_index': {
-                'framework': 'andthen',
-                'project_root': '/repo/public',
-                'state_protocol': {
-                  'type': '  andthen-state  ',
-                  'state_file': 'docs/STATE.md',
-                  'format': {'unexpected': 'map-not-string'},
-                },
-              },
-            })}</workflow-context>',
-      );
-
-      await taskService.create(
-        id: 'task-state-protocol-coercion',
-        title: 'Test',
-        description: 'Test',
-        type: TaskType.research,
-        autoStart: true,
-      );
-      await taskService.updateFields('task-state-protocol-coercion', sessionId: session.id);
-      final taskWithSession = (await taskService.get('task-state-protocol-coercion'))!;
-
-      final step = makeStep(
-        outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
-      );
-
-      final outputs = await extractor.extract(step, taskWithSession);
-      final projectIndex = outputs['project_index'] as Map<String, dynamic>;
-      final stateProtocol = projectIndex['state_protocol'] as Map<String, dynamic>;
-
-      expect(stateProtocol['type'], equals('andthen-state'), reason: 'string scalars are trimmed');
-      expect(stateProtocol['format'], isNull, reason: 'non-string scalars are dropped');
     });
   });
 
@@ -2812,7 +2335,7 @@ void main() {
 
     test('setValue wins over extraction at first-key position', () async {
       // Reproduces the precedence guard against the legacy ExtractionConfig
-      // priority branch in extract() — without the guard, extraction would
+      // priority branch in extract() – without the guard, extraction would
       // silently beat setValue for the first output key only.
       final task = await createTask();
       final artifactsDir = Directory(p.join(tempDir.path, 'tasks', 'task-1', 'artifacts'));

@@ -52,10 +52,10 @@ class FakeGowaManager extends GowaManager {
   }
 
   @override
-  Future<GowaStatus> getStatus() async => statusResult;
+  Future<GowaStatus> status() async => statusResult;
 
   @override
-  Future<GowaLoginQr> getLoginQr() async => loginQrResult;
+  Future<GowaLoginQr> loginQr() async => loginQrResult;
 }
 
 class FakeChannelManager extends ChannelManager {
@@ -290,7 +290,7 @@ void main() {
       expect(responses.first.text, contains('Claude'));
     });
 
-    test('connect sets ownJid from GOWA getStatus deviceId', () async {
+    test('connect sets ownJid from GOWA status deviceId', () async {
       gowa.statusResult = (isConnected: true, isLoggedIn: true, deviceId: '1234567890@s.whatsapp.net');
       final mg = MentionGating(requireMention: true, mentionPatterns: [], ownJid: '');
       final ch = WhatsAppChannel(

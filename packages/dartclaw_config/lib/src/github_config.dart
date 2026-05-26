@@ -2,12 +2,21 @@ import 'dart:io';
 
 import 'dartclaw_config.dart';
 
+/// class GitHubWorkflowTrigger {.
 class GitHubWorkflowTrigger {
+  /// event.
   final String event;
+
+  /// actions.
   final List<String> actions;
+
+  /// labels.
   final List<String> labels;
+
+  /// workflow.
   final String workflow;
 
+  /// Creates a [GitHubWorkflowTrigger] value.
   const GitHubWorkflowTrigger({
     required this.event,
     required this.actions,
@@ -16,12 +25,21 @@ class GitHubWorkflowTrigger {
   });
 }
 
+/// class GitHubWebhookConfig {.
 class GitHubWebhookConfig {
+  /// enabled.
   final bool enabled;
+
+  /// webhookSecret.
   final String? webhookSecret;
+
+  /// webhookPath.
   final String webhookPath;
+
+  /// triggers.
   final List<GitHubWorkflowTrigger> triggers;
 
+  /// Creates a [GitHubWebhookConfig] value.
   const GitHubWebhookConfig({
     this.enabled = false,
     this.webhookSecret,
@@ -36,13 +54,16 @@ class GitHubWebhookConfig {
     ],
   });
 
+  /// Creates a [GitHubWebhookConfig.defaults] value.
   const GitHubWebhookConfig.defaults() : this();
 }
 
+/// void ensureGitHubWebhookConfigRegistered() {.
 void ensureGitHubWebhookConfigRegistered() {
   DartclawConfig.registerExtensionParser('github', (yaml, warns) => parseGitHubWebhookConfig(yaml, warns));
 }
 
+/// GitHubWebhookConfig parseGitHubWebhookConfig(Map<String, dyn.
 GitHubWebhookConfig parseGitHubWebhookConfig(Map<String, dynamic> yaml, List<String> warns) {
   final enabled = yaml['enabled'] == true;
   final webhookSecret = _expandEnv(yaml['webhook_secret'] as String?);

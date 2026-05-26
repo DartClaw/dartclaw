@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:args/args.dart' show ArgResults;
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
@@ -12,6 +11,7 @@ import 'package:path/path.dart' as p;
 import '../workflow_skill_source_resolver.dart';
 
 import '../../dartclaw_api_client.dart';
+import '../cli_global_options.dart';
 import '../config_loader.dart';
 import '../serve_command.dart' show ExitFn, WriteLine;
 import 'workflow_list_command.dart' show buildWorkflowRegistry;
@@ -124,7 +124,7 @@ class WorkflowShowCommand extends Command<void> {
     required String? stepId,
     required bool asJson,
   }) async {
-    final config = _config ?? loadCliConfig(configPath: _globalOptionString(globalResults, 'config'));
+    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
     final registry = await buildWorkflowRegistry(config, assetResolver: _assetResolver);
     var definition = registry.getByName(name);
     var authoredYaml = registry.authoredYaml(name);
@@ -154,15 +154,18 @@ class WorkflowShowCommand extends Command<void> {
     // skill-declared default_prompt / default_outputs just like the server.
     final resolvedAssets = _assetResolver.resolve();
     final builtInSkillsDir = resolvedAssets?.skillsDir ?? WorkflowSkillSourceResolver.resolveBuiltInSkillsSourceDir();
-    final userSkillRoots = workflowUserSkillRoots(_environment);
+    final dataDirSkillRoots = workflowDataDirSkillRoots(config.server.dataDir);
+    final userSkillRoots = workflowOptionalUserSkillRoots(_environment);
     final skills = SkillRegistryImpl()
       ..discover(
         projectDirs: workflowSkillProjectDirs(config, fallbackCwd: _projectFallbackCwd ?? Directory.current.path),
         workspaceDir: config.workspaceDir,
         dataDir: config.server.dataDir,
         builtInSkillsDir: builtInSkillsDir,
-        userClaudeSkillsDir: userSkillRoots.claudeSkillsDir,
-        userAgentsSkillsDir: userSkillRoots.agentsSkillsDir,
+        dataDirClaudeSkillsDir: dataDirSkillRoots.claudeSkillsDir,
+        dataDirAgentsSkillsDir: dataDirSkillRoots.agentsSkillsDir,
+        userClaudeSkillsDir: userSkillRoots?.claudeSkillsDir,
+        userAgentsSkillsDir: userSkillRoots?.agentsSkillsDir,
       );
     final resolver = WorkflowDefinitionResolver(skillRegistry: skills);
     final resolvedDef = resolver.resolve(definition);
@@ -189,20 +192,11 @@ class WorkflowShowCommand extends Command<void> {
 
   DartclawApiClient _resolveApiClient() {
     if (_apiClient != null) return _apiClient;
-    final config = _config ?? loadCliConfig(configPath: _globalOptionString(globalResults, 'config'));
+    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
     return DartclawApiClient.fromConfig(
       config: config,
-      serverOverride: _globalOptionString(globalResults, 'server'),
-      tokenOverride: _globalOptionString(globalResults, 'token'),
+      serverOverride: serverOverride(globalResults),
+      tokenOverride: globalOptionString(globalResults, 'token'),
     );
-  }
-}
-
-String? _globalOptionString(ArgResults? results, String name) {
-  if (results == null) return null;
-  try {
-    return results[name] as String?;
-  } on ArgumentError {
-    return null;
   }
 }

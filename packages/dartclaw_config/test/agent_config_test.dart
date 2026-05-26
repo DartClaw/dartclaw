@@ -32,7 +32,7 @@ agent:
 ''');
 
       expect(config.agent.provider, 'claude');
-      expect(config.warnings, anyElement(contains('Invalid type for agent.provider')));
+      expect(config.warnings, anyElement(contains('Invalid type for provider')));
     });
   });
 }

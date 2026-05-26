@@ -55,6 +55,7 @@ The interface has three main areas:
 - **Workflow launch form**: The `/workflows` page now includes an inline launch form on each workflow definition card
 - **Validation**: Required workflow variables are validated inline before a run starts
 - **Redirect**: Successful launches navigate directly to `/workflows/<runId>`
+- **Other trigger surfaces**: Chat `/workflow run` commands and the GitHub PR webhook share the same launch path — see [Workflow Triggers](workflows.md#workflow-triggers) for the full surface
 
 ### Keyboard Shortcuts
 
@@ -545,7 +546,7 @@ The route returns the created run as JSON. Missing required variables produce a 
 
 ## Memory MCP Tools
 
-These tools are available to the agent during conversations. They're exposed via an MCP server in the Deno worker and bridge back to the Dart host for storage.
+These tools are available to the agent during conversations. They're exposed via an in-process MCP server inside the Dart host, and agents reach them over the JSONL control protocol.
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|

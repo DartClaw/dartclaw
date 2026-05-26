@@ -1,14 +1,23 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
 import 'package:dartclaw_server/src/api/chat_command_handler.dart';
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show InMemoryDefinitionSource, WorkflowDefinitionSource, WorkflowService;
+    show
+        InMemoryDefinitionSource,
+        WorkflowDefinition,
+        WorkflowDefinitionSource,
+        WorkflowRun,
+        WorkflowRunStatus,
+        WorkflowService,
+        WorkflowStep,
+        WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';

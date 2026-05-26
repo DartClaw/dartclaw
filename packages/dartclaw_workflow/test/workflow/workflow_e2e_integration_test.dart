@@ -9,7 +9,7 @@ import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show KvService, MessageService, Task, TaskEventCreatedEvent, WorkflowStepCompletedEvent;
-import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowDefinition, WorkflowStep;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
@@ -30,7 +30,16 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../fixtures/e2e_fixture.dart';
+import '_support/workflow_test_paths.dart';
 import 'workflow_e2e_test_support.dart';
+
+typedef _WorkflowE2eProcessRunner =
+    Future<ProcessResult> Function(
+      String executable,
+      List<String> arguments, {
+      String? workingDirectory,
+      Map<String, String>? environment,
+    });
 
 WorkflowStepOutputTransformer _forceSinglePlanReviewRemediationLoop({
   required String remediationPlan,
@@ -147,7 +156,7 @@ class WorkflowExecutionRecorder {
 
   // Per-task accumulator for TaskEvent rows so they land in the preserved
   // per-step artifact alongside messages. The backing task_events.db lives
-  // inside the test's temp runtime directory and gets wiped in tearDown —
+  // inside the test's temp runtime directory and gets wiped in tearDown –
   // without this capture, post-test inspection would have to infer event
   // kinds from transcripts (S25 TI11 follow-up).
   final Map<String, List<Map<String, dynamic>>> _taskEventsByTaskId = {};
@@ -321,7 +330,7 @@ class WorkflowExecutionRecorder {
           inputTokensNew: _tokenMetric(task.configJson, 'inputTokensNew'),
           cacheReadTokens: _tokenMetric(task.configJson, 'cacheReadTokens'),
           outputTokens: _tokenMetric(task.configJson, 'outputTokens'),
-          // Post-completion task config (token metrics, agent results) — matches
+          // Post-completion task config (token metrics, agent results) – matches
           // _writeArtifact's post-completion shape so trace and persisted artifact agree.
           configJson: Map<String, dynamic>.from(task.configJson),
           worktreeJson: task.worktreeJson ?? pending.worktreeJson,
@@ -513,11 +522,6 @@ void expectStepInputContains(WorkflowExecutionRecorder recorder, String stepKey,
   }
 }
 
-void expectStepInputContainsProjectIndex(WorkflowExecutionRecorder recorder, String stepKey) {
-  final inputs = recorder.tracesForStep(stepKey).map((trace) => trace.inputs).toList(growable: false);
-  expectStepInputsContainProjectIndex(inputs, stepKey);
-}
-
 void expectWorktreeRecorded(WorkflowExecutionRecorder recorder, String stepKey) {
   final stepTraces = recorder.tracesForStep(stepKey);
   if (stepTraces.isEmpty) {
@@ -678,7 +682,7 @@ void expectPublishFailureNotSilent(dynamic completedRun, WorkflowRunStatus final
     fail('Workflow terminated in failed state during publish: ${publishError ?? '(no error detail)'}');
   }
   // Non-publish failures (e.g. earlier step failure) are the test's existing
-  // concern — don't double-report here.
+  // concern – don't double-report here.
 }
 
 /// Asserts the workflow's publish callback produced a valid PR URL that
@@ -709,7 +713,7 @@ void expectWorkflowCreatedPr(Map<String, dynamic> contextJson, {required String?
   }
   expect(contextData['publish.remote'], 'origin', reason: 'publish.remote should be "origin"');
 
-  // Resolve the URL against GitHub to confirm the PR exists — catches the
+  // Resolve the URL against GitHub to confirm the PR exists – catches the
   // case where the context carries a well-shaped but fabricated URL.
   final prView = Process.runSync('gh', ['pr', 'view', prUrl, '--json', 'url']);
   expect(prView.exitCode, 0, reason: 'gh pr view failed for $prUrl: ${prView.stderr}');
@@ -751,6 +755,16 @@ Future<String?> _githubTokenFromEnvOrGh() async {
 }
 
 Future<void> _cloneTodoAppFixtureRepo(String targetDir, {String? githubToken}) async {
+  await _cloneTodoAppFixtureRepoWithRunner(targetDir, githubToken: githubToken);
+}
+
+Future<void> _cloneTodoAppFixtureRepoWithRunner(
+  String targetDir, {
+  String? githubToken,
+  _WorkflowE2eProcessRunner runProcess = Process.run,
+  Map<String, String>? environment,
+  Directory? cacheRootOverride,
+}) async {
   Directory(targetDir).parent.createSync(recursive: true);
 
   // Clone never needs write access. Prefer public HTTPS so the checkout never
@@ -759,37 +773,227 @@ Future<void> _cloneTodoAppFixtureRepo(String targetDir, {String? githubToken}) a
   final resolvedToken = githubToken?.trim();
   const publicCloneUri = 'https://github.com/DartClaw/workflow-test-todo-app.git';
   final cloneEnv = <String, String>{'GIT_TERMINAL_PROMPT': '0'};
+  final env = environment ?? Platform.environment;
+  final offline = env['DARTCLAW_E2E_FIXTURE_OFFLINE']?.trim().toLowerCase() == 'true';
+  final cacheRoot = cacheRootOverride ?? Directory(p.join(workflowFixturesRoot(), '.cache', 'workflow-test-todo-app'));
 
-  var usedAuthenticatedFallback = false;
-  var result = await Process.run('git', ['clone', '--depth', '1', publicCloneUri, targetDir], environment: cloneEnv);
-  if (result.exitCode != 0 && resolvedToken != null && resolvedToken.isNotEmpty) {
-    usedAuthenticatedFallback = true;
-    final authenticatedCloneUri = Uri(
-      scheme: 'https',
-      userInfo: 'x-access-token:$resolvedToken',
-      host: 'github.com',
-      path: '/DartClaw/workflow-test-todo-app.git',
-    ).toString();
-    result = await Process.run('git', [
-      'clone',
-      '--depth',
-      '1',
-      authenticatedCloneUri,
-      targetDir,
-    ], environment: cloneEnv);
+  _GitCredentialHelper? credentialHelper;
+  try {
+    String? remoteHeadSha;
+    if (!offline) {
+      var result = await runProcess('git', ['ls-remote', publicCloneUri, 'HEAD'], environment: cloneEnv);
+      if (result.exitCode != 0 && resolvedToken != null && resolvedToken.isNotEmpty) {
+        credentialHelper ??= _GitCredentialHelper.create(resolvedToken);
+        result = await runProcess(
+          'git',
+          credentialHelper.arguments(['ls-remote', publicCloneUri, 'HEAD']),
+          environment: cloneEnv,
+        );
+      }
+      if (result.exitCode != 0) {
+        throw StateError(
+          'Failed to resolve workflow-test-todo-app fixture HEAD over HTTPS: '
+          '${_redactGitOutput(result.stderr, resolvedToken)}\n'
+          'Tip: set GITHUB_TOKEN for authenticated HTTPS if GitHub rate-limits anonymous ls-remote.',
+        );
+      }
+      remoteHeadSha = _parseLsRemoteHead(result.stdout as String);
+    }
+
+    final cacheDir = offline ? _latestUsableFixtureCache(cacheRoot) : Directory(p.join(cacheRoot.path, remoteHeadSha!));
+    if (cacheDir == null) {
+      throw StateError(
+        'DARTCLAW_E2E_FIXTURE_OFFLINE=true requires a valid cached workflow-test-todo-app fixture under '
+        '${cacheRoot.path}.',
+      );
+    }
+    if (!cacheDir.existsSync()) {
+      if (offline) {
+        throw StateError(
+          'DARTCLAW_E2E_FIXTURE_OFFLINE=true requires a valid cached workflow-test-todo-app fixture under '
+          '${cacheRoot.path}.',
+        );
+      }
+
+      cacheDir.parent.createSync(recursive: true);
+      final stagingDir = Directory('${cacheDir.path}.tmp.${DateTime.now().microsecondsSinceEpoch}');
+      if (stagingDir.existsSync()) {
+        stagingDir.deleteSync(recursive: true);
+      }
+      final cloneArgs = ['clone', '--depth', '1', publicCloneUri, stagingDir.path];
+      var result = await runProcess('git', cloneArgs, environment: cloneEnv);
+      if (result.exitCode != 0 && resolvedToken != null && resolvedToken.isNotEmpty) {
+        credentialHelper ??= _GitCredentialHelper.create(resolvedToken);
+        result = await runProcess('git', credentialHelper.arguments(cloneArgs), environment: cloneEnv);
+      }
+      if (result.exitCode != 0) {
+        if (stagingDir.existsSync()) {
+          stagingDir.deleteSync(recursive: true);
+        }
+        throw StateError(
+          'Failed to clone workflow-test-todo-app fixture repo over HTTPS: '
+          '${_redactGitOutput(result.stderr, resolvedToken)}\n'
+          'Tip: set GITHUB_TOKEN for authenticated HTTPS if GitHub rate-limits anonymous clone.',
+        );
+      }
+      await _setOriginUrl(stagingDir.path, publicCloneUri);
+      try {
+        stagingDir.renameSync(cacheDir.path);
+      } on FileSystemException {
+        if (stagingDir.existsSync()) {
+          stagingDir.deleteSync(recursive: true);
+        }
+        if (!_isUsableFixtureCache(cacheDir)) {
+          rethrow;
+        }
+      }
+    }
+    if (!_isUsableFixtureCache(cacheDir)) {
+      throw StateError('Invalid cached workflow-test-todo-app fixture under ${cacheDir.path}.');
+    }
+    await _setOriginUrl(cacheDir.path, publicCloneUri);
+
+    final target = Directory(targetDir);
+    if (target.existsSync()) {
+      target.deleteSync(recursive: true);
+    }
+    await _cloneCachedFixtureRepo(cacheDir, target);
+    await _setOriginUrl(targetDir, publicCloneUri);
+    Process.runSync('git', ['config', 'user.name', 'Workflow E2E Test'], workingDirectory: targetDir);
+    Process.runSync('git', ['config', 'user.email', 'workflow-e2e@example.com'], workingDirectory: targetDir);
+    assertKnownDefectsBacklogEntries(targetDir);
+  } finally {
+    credentialHelper?.dispose();
   }
+}
+
+String _parseLsRemoteHead(String output) {
+  final line = output.split('\n').map((value) => value.trim()).firstWhere((value) => value.isNotEmpty);
+  final sha = line.split(RegExp(r'\s+')).first;
+  if (sha.isEmpty) {
+    throw StateError('Unable to parse workflow-test-todo-app HEAD SHA from ls-remote output: $output');
+  }
+  return sha;
+}
+
+Directory? _latestUsableFixtureCache(Directory cacheRoot) {
+  if (!cacheRoot.existsSync()) return null;
+  final candidates = cacheRoot.listSync().whereType<Directory>().toList();
+  if (candidates.isEmpty) return null;
+  candidates.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+  for (final candidate in candidates) {
+    if (_isUsableFixtureCache(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+bool _isUsableFixtureCache(Directory cacheDir) =>
+    Directory(p.join(cacheDir.path, '.git')).existsSync() &&
+    File(p.join(cacheDir.path, 'docs', 'PRODUCT-BACKLOG.md')).existsSync();
+
+Future<void> _cloneCachedFixtureRepo(Directory cacheDir, Directory target) async {
+  final result = await Process.run('git', ['clone', '--no-hardlinks', cacheDir.path, target.path]);
   if (result.exitCode != 0) {
     throw StateError(
-      'Failed to clone workflow-test-todo-app fixture repo over HTTPS: ${result.stderr}\n'
-      'Tip: set GITHUB_TOKEN for authenticated HTTPS if GitHub rate-limits anonymous clone.',
+      'Failed to clone cached workflow-test-todo-app fixture from ${cacheDir.path}: ${_redactGitOutput(result.stderr)}',
     );
   }
-  if (usedAuthenticatedFallback) {
-    await _setOriginUrl(targetDir, publicCloneUri);
+}
+
+String _redactGitOutput(Object? output, [String? token]) {
+  var text = output?.toString() ?? '';
+  if (token != null && token.isNotEmpty) {
+    text = text.replaceAll(token, '<redacted>');
   }
-  Process.runSync('git', ['config', 'user.name', 'Workflow E2E Test'], workingDirectory: targetDir);
-  Process.runSync('git', ['config', 'user.email', 'workflow-e2e@example.com'], workingDirectory: targetDir);
-  assertKnownDefectsBacklogEntries(targetDir);
+  return text.replaceAll(RegExp(r'x-access-token:[^@\s]+@'), 'x-access-token:<redacted>@');
+}
+
+String _shellSingleQuotedBody(String value) => value.replaceAll("'", "'\"'\"'");
+
+final class _GitCredentialHelper {
+  final Directory _directory;
+  final String path;
+
+  _GitCredentialHelper._(this._directory, this.path);
+
+  static _GitCredentialHelper create(String token) {
+    final directory = Directory.systemTemp.createTempSync('dartclaw_fixture_git_credentials_');
+    final helper = File(p.join(directory.path, 'credential-helper'));
+    final escapedToken = _shellSingleQuotedBody(token);
+    helper.writeAsStringSync(
+      '#!/bin/sh\n'
+      'if [ "\$1" = "get" ]; then\n'
+      "  printf '%s\\n' 'username=x-access-token' 'password=$escapedToken'\n"
+      'fi\n',
+    );
+    Process.runSync('chmod', ['700', directory.path]);
+    Process.runSync('chmod', ['700', helper.path]);
+    return _GitCredentialHelper._(directory, helper.path);
+  }
+
+  List<String> arguments(List<String> gitCommand) => [
+    '-c',
+    'credential.helper=',
+    '-c',
+    'credential.helper=$path',
+    ...gitCommand,
+  ];
+
+  void dispose() {
+    if (_directory.existsSync()) {
+      _directory.deleteSync(recursive: true);
+    }
+  }
+}
+
+_WorkflowE2eProcessRunner _fakeFixtureGitRunner({
+  required List<String> heads,
+  required void Function(String targetDir) onClone,
+}) {
+  var headIndex = 0;
+  return (executable, arguments, {workingDirectory, environment}) async {
+    if (executable != 'git') return ProcessResult(0, 1, '', 'unexpected executable $executable');
+    final gitArguments = _stripGitConfigArguments(arguments);
+    if (gitArguments.length >= 3 && gitArguments[0] == 'ls-remote') {
+      final sha = heads[headIndex < heads.length ? headIndex : heads.length - 1];
+      headIndex++;
+      return ProcessResult(0, 0, '$sha\tHEAD\n', '');
+    }
+    if (gitArguments.length >= 4 && gitArguments[0] == 'clone') {
+      onClone(gitArguments.last);
+      return ProcessResult(0, 0, '', '');
+    }
+    return ProcessResult(0, 1, '', 'unexpected git arguments: ${arguments.join(' ')}');
+  };
+}
+
+List<String> _stripGitConfigArguments(List<String> arguments) {
+  var index = 0;
+  while (index + 1 < arguments.length && arguments[index] == '-c') {
+    index += 2;
+  }
+  return arguments.sublist(index);
+}
+
+void _writeKnownDefectsFixture(String targetDir, {required String marker}) {
+  final dir = Directory(targetDir)..createSync(recursive: true);
+  File(p.join(dir.path, 'docs', 'PRODUCT-BACKLOG.md'))
+    ..parent.createSync(recursive: true)
+    ..writeAsStringSync('BUG-001\nBUG-002\nBUG-003\n');
+  File(p.join(dir.path, 'marker.txt')).writeAsStringSync(marker);
+  Process.runSync('git', ['init'], workingDirectory: dir.path);
+  Process.runSync('git', ['config', 'user.name', 'Workflow E2E Test'], workingDirectory: dir.path);
+  Process.runSync('git', ['config', 'user.email', 'workflow-e2e@example.com'], workingDirectory: dir.path);
+  Process.runSync('git', [
+    'remote',
+    'add',
+    'origin',
+    'https://github.com/DartClaw/workflow-test-todo-app.git',
+  ], workingDirectory: dir.path);
+  Process.runSync('git', ['add', '.'], workingDirectory: dir.path);
+  Process.runSync('git', ['commit', '-m', 'fixture'], workingDirectory: dir.path);
 }
 
 Future<void> _setOriginUrl(String projectDir, String url) async {
@@ -829,6 +1033,197 @@ Future<void> _redirectOriginToLocalBareRemote(String projectDir) async {
 // ---------------------------------------------------------------------------
 
 void main() {
+  group('workflow fixture clone cache', () {
+    late Directory tempDir;
+    late Directory cacheRoot;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('workflow_fixture_cache_test_');
+      cacheRoot = Directory(p.join(tempDir.path, 'cache'));
+    });
+
+    tearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+
+    test('second run reuses cached clone for the same remote HEAD SHA', () async {
+      var cloneCount = 0;
+      final runner = _fakeFixtureGitRunner(
+        heads: ['abc123', 'abc123'],
+        onClone: (targetDir) {
+          cloneCount++;
+          _writeKnownDefectsFixture(targetDir, marker: 'clone-$cloneCount');
+        },
+      );
+
+      await _cloneTodoAppFixtureRepoWithRunner(
+        p.join(tempDir.path, 'target-1'),
+        runProcess: runner,
+        cacheRootOverride: cacheRoot,
+      );
+      await _cloneTodoAppFixtureRepoWithRunner(
+        p.join(tempDir.path, 'target-2'),
+        runProcess: runner,
+        cacheRootOverride: cacheRoot,
+      );
+
+      expect(cloneCount, 1);
+      expect(File(p.join(tempDir.path, 'target-2', 'marker.txt')).readAsStringSync(), 'clone-1');
+      expect(File(p.join(tempDir.path, 'target-2', '.git', 'objects', 'info', 'alternates')).existsSync(), isFalse);
+    });
+
+    test('SHA change forces a fresh cached clone', () async {
+      var cloneCount = 0;
+      final runner = _fakeFixtureGitRunner(
+        heads: ['abc123', 'def456'],
+        onClone: (targetDir) {
+          cloneCount++;
+          _writeKnownDefectsFixture(targetDir, marker: 'clone-$cloneCount');
+        },
+      );
+
+      await _cloneTodoAppFixtureRepoWithRunner(
+        p.join(tempDir.path, 'target-1'),
+        runProcess: runner,
+        cacheRootOverride: cacheRoot,
+      );
+      await _cloneTodoAppFixtureRepoWithRunner(
+        p.join(tempDir.path, 'target-2'),
+        runProcess: runner,
+        cacheRootOverride: cacheRoot,
+      );
+
+      expect(cloneCount, 2);
+      expect(File(p.join(tempDir.path, 'target-2', 'marker.txt')).readAsStringSync(), 'clone-2');
+    });
+
+    test('offline flag skips ls-remote and reuses cache', () async {
+      _writeKnownDefectsFixture(p.join(cacheRoot.path, 'abc123'), marker: 'cached');
+      var processCalled = false;
+
+      await _cloneTodoAppFixtureRepoWithRunner(
+        p.join(tempDir.path, 'target'),
+        runProcess: (executable, arguments, {workingDirectory, environment}) async {
+          processCalled = true;
+          return ProcessResult(0, 1, '', 'unexpected process call');
+        },
+        environment: {'DARTCLAW_E2E_FIXTURE_OFFLINE': 'true'},
+        cacheRootOverride: cacheRoot,
+      );
+
+      expect(processCalled, isFalse);
+      expect(File(p.join(tempDir.path, 'target', 'marker.txt')).readAsStringSync(), 'cached');
+    });
+
+    test('offline flag skips newer invalid caches and reuses older valid cache', () async {
+      final olderCache = Directory(p.join(cacheRoot.path, 'abc123'));
+      final newerCache = Directory(p.join(cacheRoot.path, 'def456'))..createSync(recursive: true);
+      _writeKnownDefectsFixture(olderCache.path, marker: 'older-valid');
+      Process.runSync('touch', ['-t', '202601010000', olderCache.path]);
+      Process.runSync('touch', ['-t', '202601020000', newerCache.path]);
+
+      await _cloneTodoAppFixtureRepoWithRunner(
+        p.join(tempDir.path, 'target'),
+        runProcess: (executable, arguments, {workingDirectory, environment}) async =>
+            ProcessResult(0, 1, '', 'unexpected process call'),
+        environment: {'DARTCLAW_E2E_FIXTURE_OFFLINE': 'true'},
+        cacheRootOverride: cacheRoot,
+      );
+
+      expect(File(p.join(tempDir.path, 'target', 'marker.txt')).readAsStringSync(), 'older-valid');
+    });
+
+    test('offline cache rejects incomplete cached fixture before copy', () async {
+      Directory(p.join(cacheRoot.path, 'abc123')).createSync(recursive: true);
+
+      expect(
+        () => _cloneTodoAppFixtureRepoWithRunner(
+          p.join(tempDir.path, 'target'),
+          runProcess: (executable, arguments, {workingDirectory, environment}) async =>
+              ProcessResult(0, 1, '', 'unexpected process call'),
+          environment: {'DARTCLAW_E2E_FIXTURE_OFFLINE': 'true'},
+          cacheRootOverride: cacheRoot,
+        ),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('requires a valid cached'))),
+      );
+    });
+
+    test('cached fixture still fails fast when known defects are missing', () async {
+      final cacheDir = p.join(cacheRoot.path, 'abc123');
+      _writeKnownDefectsFixture(cacheDir, marker: 'cached');
+      File(p.join(cacheDir, 'docs', 'PRODUCT-BACKLOG.md')).writeAsStringSync('BUG-001\nBUG-002\n');
+      Process.runSync('git', ['add', 'docs/PRODUCT-BACKLOG.md'], workingDirectory: cacheDir);
+      Process.runSync('git', ['commit', '-m', 'corrupt known defects'], workingDirectory: cacheDir);
+
+      await expectLater(
+        () => _cloneTodoAppFixtureRepoWithRunner(
+          p.join(tempDir.path, 'target'),
+          runProcess: (executable, arguments, {workingDirectory, environment}) async =>
+              ProcessResult(0, 1, '', 'unexpected process call'),
+          environment: {'DARTCLAW_E2E_FIXTURE_OFFLINE': 'true'},
+          cacheRootOverride: cacheRoot,
+        ),
+        throwsA(
+          isA<TestFailure>().having((failure) => failure.message, 'message', contains(fixtureSeedRegressionMessage)),
+        ),
+      );
+    });
+
+    test('cached clone origin is sanitized before target reuse', () async {
+      final cacheDir = p.join(cacheRoot.path, 'abc123');
+      _writeKnownDefectsFixture(cacheDir, marker: 'cached');
+      await _setOriginUrl(cacheDir, 'https://x-access-token:secret@github.com/DartClaw/workflow-test-todo-app.git');
+
+      await _cloneTodoAppFixtureRepoWithRunner(
+        p.join(tempDir.path, 'target'),
+        runProcess: (executable, arguments, {workingDirectory, environment}) async =>
+            ProcessResult(0, 1, '', 'unexpected process call'),
+        environment: {'DARTCLAW_E2E_FIXTURE_OFFLINE': 'true'},
+        cacheRootOverride: cacheRoot,
+      );
+
+      final cacheOrigin = Process.runSync('git', ['remote', 'get-url', 'origin'], workingDirectory: cacheDir);
+      final targetOrigin = Process.runSync('git', [
+        'remote',
+        'get-url',
+        'origin',
+      ], workingDirectory: p.join(tempDir.path, 'target'));
+      expect((cacheOrigin.stdout as String).trim(), 'https://github.com/DartClaw/workflow-test-todo-app.git');
+      expect((targetOrigin.stdout as String).trim(), 'https://github.com/DartClaw/workflow-test-todo-app.git');
+    });
+
+    test('authenticated fallback keeps GitHub token out of git arguments and errors', () async {
+      const token = 'secret-token';
+      final calls = <List<String>>[];
+
+      await expectLater(
+        () => _cloneTodoAppFixtureRepoWithRunner(
+          p.join(tempDir.path, 'target'),
+          githubToken: token,
+          runProcess: (executable, arguments, {workingDirectory, environment}) async {
+            calls.add(arguments);
+            return ProcessResult(
+              0,
+              1,
+              '',
+              'fatal: https://x-access-token:$token@github.com/DartClaw/workflow-test-todo-app.git $token',
+            );
+          },
+          cacheRootOverride: cacheRoot,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            allOf(isNot(contains(token)), contains('x-access-token:<redacted>@'), contains('<redacted>')),
+          ),
+        ),
+      );
+
+      expect(calls.expand((arguments) => arguments).join('\n'), isNot(contains(token)));
+    });
+  });
+
   late String fixtureDir;
   late DartclawConfig config;
   E2EFixtureInstance? fixture;
@@ -842,7 +1237,7 @@ void main() {
   CliWorkflowWiring? wiring;
   LogService? logService;
 
-  // EventBus diagnostic subscriptions — cancelled in tearDownAll.
+  // EventBus diagnostic subscriptions – cancelled in tearDownAll.
   final diagnosticSubs = <StreamSubscription<Object>>[];
 
   setUpAll(() async {
@@ -942,7 +1337,7 @@ void main() {
       '--title',
       title,
       '--body',
-      'Automated e2e integration test PR — will be auto-closed.',
+      'Automated e2e integration test PR – will be auto-closed.',
       '--draft',
     ], workingDirectory: fixtureDir);
     if (result.exitCode != 0) {
@@ -972,7 +1367,7 @@ void main() {
       workflowStepOutputTransformer: outputTransformer,
       prCreator: canCreateGitHubPr
           ? ({required runId, required projectId, required branch}) async {
-              // Mirror the server-backed PrCreator contract: never throw — surface
+              // Mirror the server-backed PrCreator contract: never throw – surface
               // errors as status='failed' so the workflow's publish step records a
               // clean failure and the test's `expect(finalStatus, isNot(failed))`
               // safety net below reports it clearly.
@@ -1073,14 +1468,15 @@ void main() {
     //
     // The FEATURE text references a defect tracked in the fixture repo's
     // docs/PRODUCT-BACKLOG.md. The agent is expected to consult the backlog
-    // via discover-project / spec steps rather than reason from the prose
-    // description alone — this exercises the project-index → spec handoff
-    // that a trivial "create a markdown file" prompt cannot.
+    // via the spec step rather than reason from the prose description
+    // alone – this exercises whether the spec skill can locate and read
+    // project documents on its own (CLAUDE.md/AGENTS.md navigation), which
+    // a trivial "create a markdown file" prompt cannot.
     final variables = {
       'FEATURE':
           'Fix BUG-001 from docs/PRODUCT-BACKLOG.md (Known Defects section): '
           'the sidebar incomplete-count is not updated when a todo is deleted. '
-          'Follow the codebase\'s existing HTMX out-of-band swap pattern — '
+          'Follow the codebase\'s existing HTMX out-of-band swap pattern – '
           'see how toggle_todo updates the same count in its response.',
       'PROJECT': 'workflow-test-todo-app',
       'BRANCH': 'main',
@@ -1104,14 +1500,11 @@ void main() {
     expectWorkflowFinalStatus(finalStatus: finalStatus, requireCompleted: requireCompleted, runId: run.id);
 
     // Core pipeline steps that must ALWAYS appear in order. Gated/optional
-    // steps (revise-spec runs only when spec_source=synthesized & confidence<7;
+    // steps (revise-spec runs only when spec_confidence is in (0, 7);
     // remediate/re-review only when integrated-review finds issues) are
-    // excluded — assert their runs separately if they occur.
-    final expectedOrder = ['discover-project', 'spec', 'implement', 'integrated-review'];
+    // excluded – assert their runs separately if they occur.
+    final expectedOrder = ['spec', 'implement', 'integrated-review'];
     expectStepOrder(recorder, expectedOrder);
-
-    // Assert context handoff: discover output flows into spec
-    expectStepInputContainsProjectIndex(recorder, 'spec');
 
     // Assert worktrees were recorded for coding steps
     expectWorktreeRecorded(recorder, 'implement');
@@ -1122,7 +1515,7 @@ void main() {
     // step completing with real usage.
     expectPreservedArtifactsHaveNonZeroTokenKeys(
       artifactDir,
-      agentSteps: const ['discover-project', 'spec', 'implement', 'integrated-review', 'architecture-review'],
+      agentSteps: const ['spec', 'implement', 'integrated-review', 'architecture-review'],
     );
     expectStepArtifactOutputs(artifactDir, 'integrated-review', const {
       'review_findings',
@@ -1139,7 +1532,7 @@ void main() {
 
     // Safety net: publish step runs at the end of the workflow. A `failed`
     // terminal state here usually means the publish callback (push or PR
-    // creation) errored — surface that up front so the test doesn't pass
+    // creation) errored – surface that up front so the test doesn't pass
     // silently by skipping the publish block below.
     expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);
 
@@ -1210,17 +1603,30 @@ void main() {
     // Chosen so the two story worktrees touch disjoint files and can merge
     // without conflict, while still exercising the full plan → parallel
     // implement → review → remediate pipeline against a realistic codebase.
-    final variables = {
-      'REQUIREMENTS':
-          'Fix BUG-002 and BUG-003 from docs/PRODUCT-BACKLOG.md (Known Defects section) '
-          'as two independent, thin stories. '
-          'Story 1: BUG-002 — due dates set in the edit dialog do not persist after save. '
-          'Story 2: BUG-003 — quick-add todos have no default priority. '
-          'Keep each story isolated to its own files; they must merge without conflict.',
-      'PROJECT': 'workflow-test-todo-app',
-      'BRANCH': 'main',
-      'MAX_PARALLEL': '2',
-    };
+    const prdPath = 'docs/specs/e2e-plan-and-implement/prd.md';
+    File(p.join(fixtureDir, prdPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        '# Product Feature Document\n\n'
+        'Fix BUG-002 and BUG-003 from docs/PRODUCT-BACKLOG.md (Known Defects section) '
+        'as two independent, thin stories.\n\n'
+        'Story 1: BUG-002 - due dates set in the edit dialog do not persist after save.\n'
+        'Story 2: BUG-003 - quick-add todos have no default priority.\n\n'
+        'Keep each story isolated to its own files; they must merge without conflict.\n',
+      );
+    final addPrd = await Process.run('git', ['add', prdPath], workingDirectory: fixtureDir);
+    if (addPrd.exitCode != 0) {
+      fail('Failed to stage plan-and-implement PRD fixture: ${addPrd.stderr}');
+    }
+    final commitPrd = await Process.run('git', [
+      'commit',
+      '-qm',
+      'Add plan-and-implement PRD fixture',
+    ], workingDirectory: fixtureDir);
+    if (commitPrd.exitCode != 0) {
+      fail('Failed to commit plan-and-implement PRD fixture: ${commitPrd.stderr}');
+    }
+    final variables = {'FEATURE': prdPath, 'PROJECT': 'workflow-test-todo-app', 'BRANCH': 'main', 'MAX_PARALLEL': '2'};
     final run = await w.workflowService.start(definition, variables, headless: true);
     final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
 
@@ -1239,12 +1645,11 @@ void main() {
     // This E2E forces at least one remediation-loop iteration when plan-review
     // would otherwise be clean, so the remediation loop should always appear.
     final coreSteps = [
-      'discover-project',
-      'prd',
+      'discover-plan-state',
       'plan',
       'implement',
       'quick-review',
-      'refactor',
+      'simplify-code',
       'remediate',
       'remediate-architecture',
       're-review',
@@ -1258,14 +1663,10 @@ void main() {
       expect(reviewIndex, lessThan(remediateIndex), reason: '$reviewStep should run before remediation');
     }
 
-    // merged plan step now emits both stories and story_specs in a single pass — runs exactly once.
+    // merged plan step now emits both stories and story_specs in a single pass – runs exactly once.
     expect(recorder.count('plan'), 1, reason: 'plan should run exactly once');
-    expect(recorder.count('prd'), 1, reason: 'prd should run exactly once');
-    expect(
-      recorder.count('revise-prd'),
-      inInclusiveRange(0, 1),
-      reason: 'revise-prd should be skipped on high-confidence PRDs and run at most once otherwise',
-    );
+    expect(recorder.count('prd'), 0, reason: 'plan-and-implement requires a discovered PRD');
+    expect(recorder.count('revise-prd'), 0, reason: 'plan-and-implement no longer revises PRDs');
 
     expect(
       recorder.count('implement'),
@@ -1339,7 +1740,7 @@ void main() {
     expectIsolationDiagnostics(artifactDir, fixture!);
     expectCommittedPlanArtifacts(projectDir: fixtureDir, artifactDir: artifactDir);
 
-    // Safety net — see spec-and-implement test above for rationale.
+    // Safety net – see spec-and-implement test above for rationale.
     expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);
 
     // Publish assertions only when completed

@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowDefinition, WorkflowVariable;
+import 'workflow_definition.dart' show WorkflowDefinition, WorkflowVariable;
 
 import 'workflow_definition_resolver.dart';
 

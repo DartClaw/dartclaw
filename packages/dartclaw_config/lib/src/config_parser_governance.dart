@@ -1,136 +1,141 @@
 part of 'dartclaw_config.dart';
 
+// Legacy CLI-aware helpers — kept here so config_parser.dart can stay under the LOC budget.
+// These handle both CLI overrides and YAML values; readX helpers only handle YAML.
+
+int _parseInt(String key, String? cliValue, Object? yamlValue, int defaultValue, List<String> warns) {
+  if (cliValue != null) {
+    final parsed = int.tryParse(cliValue);
+    if (parsed != null) return parsed;
+    warns.add('Invalid CLI value for $key: "$cliValue" — using default');
+  }
+  if (yamlValue != null) {
+    if (yamlValue is int) return yamlValue;
+    if (yamlValue is String) {
+      final parsed = int.tryParse(yamlValue);
+      if (parsed != null) return parsed;
+    }
+    // reason: legacy CLI-aware helper; readX can't handle CLI overrides
+    warns.add('Invalid type for $key: "${yamlValue.runtimeType}" — using default');
+  }
+  return defaultValue;
+}
+
+bool _parseBool(String key, String? cliValue, Object? yamlValue, bool defaultValue, List<String> warns) {
+  if (cliValue != null) {
+    if (cliValue == 'true') return true;
+    if (cliValue == 'false') return false;
+    warns.add('Invalid CLI value for $key: "$cliValue" — using default');
+  }
+  if (yamlValue is bool) return yamlValue;
+  return defaultValue;
+}
+
+String _parseString(
+  String key,
+  String? cliValue,
+  Object? yamlValue,
+  String defaultValue,
+  Map<String, String> env,
+  List<String> warns,
+) {
+  if (cliValue != null) return cliValue;
+  return _yamlString(key, yamlValue, defaultValue, env, warns);
+}
+
+String _yamlString(String key, Object? yamlValue, String defaultValue, Map<String, String> env, List<String> warns) {
+  if (yamlValue == null) return defaultValue;
+  if (yamlValue is! String) {
+    // reason: legacy env-substituting string helper used with CLI-override callers
+    warns.add('Invalid type for $key: "${yamlValue.runtimeType}" — using default');
+    return defaultValue;
+  }
+  return envSubstitute(yamlValue, env: env);
+}
+
+String? _yamlStringOrNull(String key, Object? yamlValue, Map<String, String> env, List<String> warns) {
+  if (yamlValue == null) return null;
+  if (yamlValue is! String) {
+    // reason: legacy env-substituting nullable-string helper used with CLI-override callers
+    warns.add('Invalid type for $key: "${yamlValue.runtimeType}" — ignoring');
+    return null;
+  }
+  return envSubstitute(yamlValue, env: env);
+}
+
 GovernanceConfig _parseGovernance(Map<String, dynamic> yaml, GovernanceConfig defaults, List<String> warns) {
   final govMap = _sectionMap('governance', yaml, warns);
   if (govMap == null) return defaults;
 
-  var adminSenders = defaults.adminSenders;
-  final adminRaw = govMap['admin_senders'];
-  if (adminRaw is List) {
-    adminSenders = adminRaw.whereType<String>().toList();
-  } else if (adminRaw != null) {
-    warns.add('Invalid type for governance.admin_senders: "${adminRaw.runtimeType}" — using default');
-  }
+  final adminSenders =
+      readStringList('admin_senders', govMap, warns, defaultValue: defaults.adminSenders) ?? defaults.adminSenders;
 
   var rateLimits = defaults.rateLimits;
-  final rateLimitsRaw = govMap['rate_limits'];
-  if (rateLimitsRaw is Map) {
+  final rateLimitsMap = readMap('rate_limits', govMap, warns);
+  if (rateLimitsMap != null) {
     var perSender = rateLimits.perSender;
     var global = rateLimits.global;
 
-    final perSenderRaw = rateLimitsRaw['per_sender'];
-    if (perSenderRaw is Map) {
-      final messages = _parseInt(
-        'governance.rate_limits.per_sender.messages',
-        null,
-        perSenderRaw['messages'],
-        perSender.messages,
-        warns,
-      );
-      final windowMinutes = _parseInt(
-        'governance.rate_limits.per_sender.window',
-        null,
-        _parseDurationMinutes(perSenderRaw['window']),
-        perSender.windowMinutes,
-        warns,
-      );
-      final maxQueued = _parseInt(
-        'governance.rate_limits.per_sender.max_queued',
-        null,
-        perSenderRaw['max_queued'],
-        perSender.maxQueued,
-        warns,
-      );
-      final maxPauseQueued = _parseInt(
-        'governance.rate_limits.per_sender.max_pause_queued',
-        null,
-        perSenderRaw['max_pause_queued'],
-        perSender.maxPauseQueued,
-        warns,
-      );
+    final perSenderMap = readMap('per_sender', rateLimitsMap, warns);
+    if (perSenderMap != null) {
       perSender = PerSenderRateLimitConfig(
-        messages: messages,
-        windowMinutes: windowMinutes,
-        maxQueued: maxQueued,
-        maxPauseQueued: maxPauseQueued,
+        messages: readInt('messages', perSenderMap, warns, defaultValue: perSender.messages) ?? perSender.messages,
+        windowMinutes: _parseDurationMinutes(perSenderMap['window']) ?? perSender.windowMinutes,
+        maxQueued: readInt('max_queued', perSenderMap, warns, defaultValue: perSender.maxQueued) ?? perSender.maxQueued,
+        maxPauseQueued:
+            readInt('max_pause_queued', perSenderMap, warns, defaultValue: perSender.maxPauseQueued) ??
+            perSender.maxPauseQueued,
       );
-    } else if (perSenderRaw != null) {
-      warns.add('Invalid type for governance.rate_limits.per_sender: "${perSenderRaw.runtimeType}" — using defaults');
     }
 
-    final globalRaw = rateLimitsRaw['global'];
-    if (globalRaw is Map) {
-      final turns = _parseInt('governance.rate_limits.global.turns', null, globalRaw['turns'], global.turns, warns);
-      final windowMinutes = _parseInt(
-        'governance.rate_limits.global.window',
-        null,
-        _parseDurationMinutes(globalRaw['window']),
-        global.windowMinutes,
-        warns,
+    final globalMap = readMap('global', rateLimitsMap, warns);
+    if (globalMap != null) {
+      global = GlobalRateLimitConfig(
+        turns: readInt('turns', globalMap, warns, defaultValue: global.turns) ?? global.turns,
+        windowMinutes: _parseDurationMinutes(globalMap['window']) ?? global.windowMinutes,
       );
-      global = GlobalRateLimitConfig(turns: turns, windowMinutes: windowMinutes);
-    } else if (globalRaw != null) {
-      warns.add('Invalid type for governance.rate_limits.global: "${globalRaw.runtimeType}" — using defaults');
     }
 
     rateLimits = RateLimitsConfig(perSender: perSender, global: global);
-  } else if (rateLimitsRaw != null) {
-    warns.add('Invalid type for governance.rate_limits: "${rateLimitsRaw.runtimeType}" — using defaults');
   }
 
   var queueStrategy = defaults.queueStrategy;
-  final queueStrategyRaw = govMap['queue_strategy'];
-  if (queueStrategyRaw is String) {
+  final queueStrategyRaw = readString('queue_strategy', govMap, warns);
+  if (queueStrategyRaw != null) {
     final parsed = QueueStrategy.fromYaml(queueStrategyRaw);
     if (parsed != null) {
       queueStrategy = parsed;
     } else {
       warns.add('Unknown governance.queue_strategy: "$queueStrategyRaw" — using default "${queueStrategy.name}"');
     }
-  } else if (queueStrategyRaw != null) {
-    warns.add('Invalid type for governance.queue_strategy: "${queueStrategyRaw.runtimeType}" — using default');
   }
 
   var crowdCoding = defaults.crowdCoding;
-  final crowdCodingRaw = govMap['crowd_coding'];
-  if (crowdCodingRaw is Map) {
+  final crowdCodingMap = readMap('crowd_coding', govMap, warns);
+  if (crowdCodingMap != null) {
+    final modelRaw = readString('model', crowdCodingMap, warns);
     var model = crowdCoding.model;
-    final modelRaw = crowdCodingRaw['model'];
-    if (modelRaw is String) {
+    if (modelRaw != null) {
       model = modelRaw;
       _warnIfUnrecognizedModel(warns, 'governance.crowd_coding.model', model);
-    } else if (modelRaw != null) {
-      warns.add('Invalid type for governance.crowd_coding.model: "${modelRaw.runtimeType}" — using default');
     }
-
-    var effort = crowdCoding.effort;
-    final effortRaw = crowdCodingRaw['effort'];
-    if (effortRaw is String) {
-      effort = effortRaw;
-    } else if (effortRaw != null) {
-      warns.add('Invalid type for governance.crowd_coding.effort: "${effortRaw.runtimeType}" — using default');
-    }
-
+    final effort = readString('effort', crowdCodingMap, warns, defaultValue: crowdCoding.effort) ?? crowdCoding.effort;
     crowdCoding = CrowdCodingConfig(model: model, effort: effort);
-  } else if (crowdCodingRaw != null) {
-    warns.add('Invalid type for governance.crowd_coding: "${crowdCodingRaw.runtimeType}" — using defaults');
   }
 
   var turnProgress = defaults.turnProgress;
-  final turnProgressRaw = govMap['turn_progress'];
-  if (turnProgressRaw is Map) {
-    final parsedTimeout = tryParseDuration(turnProgressRaw['stall_timeout']);
+  final turnProgressMap = readMap('turn_progress', govMap, warns);
+  if (turnProgressMap != null) {
+    final stallTimeoutRaw = turnProgressMap['stall_timeout'];
+    final parsedTimeout = tryParseDuration(stallTimeoutRaw);
     final stallTimeout = parsedTimeout ?? turnProgress.stallTimeout;
-    if (turnProgressRaw['stall_timeout'] != null && parsedTimeout == null) {
-      warns.add(
-        'Invalid value for governance.turn_progress.stall_timeout: '
-        '"${turnProgressRaw['stall_timeout']}" — using default',
-      );
+    if (stallTimeoutRaw != null && parsedTimeout == null) {
+      warns.add('Invalid value for governance.turn_progress.stall_timeout: "$stallTimeoutRaw" — using default');
     }
 
     var stallAction = turnProgress.stallAction;
-    final stallActionRaw = turnProgressRaw['stall_action'];
-    if (stallActionRaw is String) {
+    final stallActionRaw = readString('stall_action', turnProgressMap, warns);
+    if (stallActionRaw != null) {
       final parsed = TurnProgressAction.fromYaml(stallActionRaw);
       if (parsed != null) {
         stallAction = parsed;
@@ -140,31 +145,19 @@ GovernanceConfig _parseGovernance(Map<String, dynamic> yaml, GovernanceConfig de
           '"$stallActionRaw" — using default "${turnProgress.stallAction.name}"',
         );
       }
-    } else if (stallActionRaw != null) {
-      warns.add(
-        'Invalid type for governance.turn_progress.stall_action: '
-        '"${stallActionRaw.runtimeType}" — using default',
-      );
     }
 
     turnProgress = TurnProgressConfig(stallTimeout: stallTimeout, stallAction: stallAction);
-  } else if (turnProgressRaw != null) {
-    warns.add('Invalid type for governance.turn_progress: "${turnProgressRaw.runtimeType}" — using defaults');
   }
 
   var budget = defaults.budget;
-  final budgetRaw = govMap['budget'];
-  if (budgetRaw is Map) {
-    final dailyTokens = _parseInt(
-      'governance.budget.daily_tokens',
-      null,
-      budgetRaw['daily_tokens'],
-      budget.dailyTokens,
-      warns,
-    );
+  final budgetMap = readMap('budget', govMap, warns);
+  if (budgetMap != null) {
+    final dailyTokens =
+        readInt('daily_tokens', budgetMap, warns, defaultValue: budget.dailyTokens) ?? budget.dailyTokens;
     var action = budget.action;
-    final actionRaw = budgetRaw['action'];
-    if (actionRaw is String) {
+    final actionRaw = readString('action', budgetMap, warns);
+    if (actionRaw != null) {
       final parsedAction = BudgetAction.fromYaml(actionRaw);
       if (parsedAction != null) {
         action = parsedAction;
@@ -172,54 +165,37 @@ GovernanceConfig _parseGovernance(Map<String, dynamic> yaml, GovernanceConfig de
         warns.add('Unknown governance.budget.action: "$actionRaw" — using default "${budget.action.name}"');
       }
     }
-    var timezone = budget.timezone;
-    final timezoneRaw = budgetRaw['timezone'];
-    if (timezoneRaw is String && timezoneRaw.isNotEmpty) timezone = timezoneRaw;
+    final timezoneRaw = readString('timezone', budgetMap, warns);
+    final timezone = (timezoneRaw != null && timezoneRaw.isNotEmpty) ? timezoneRaw : budget.timezone;
 
     budget = BudgetConfig(dailyTokens: dailyTokens, action: action, timezone: timezone);
-  } else if (budgetRaw != null) {
-    warns.add('Invalid type for governance.budget: "${budgetRaw.runtimeType}" — using defaults');
   }
 
   var loopDetection = defaults.loopDetection;
-  final loopRaw = govMap['loop_detection'];
-  if (loopRaw is Map) {
-    var enabled = loopDetection.enabled;
-    final enabledRaw = loopRaw['enabled'];
-    if (enabledRaw is bool) enabled = enabledRaw;
-
-    final maxConsecutiveTurns = _parseInt(
-      'governance.loop_detection.max_consecutive_turns',
-      null,
-      loopRaw['max_consecutive_turns'],
-      loopDetection.maxConsecutiveTurns,
-      warns,
-    );
-    final maxTokensPerMinute = _parseInt(
-      'governance.loop_detection.max_tokens_per_minute',
-      null,
-      loopRaw['max_tokens_per_minute'],
-      loopDetection.maxTokensPerMinute,
-      warns,
-    );
-    final velocityWindowMinutes = _parseInt(
-      'governance.loop_detection.velocity_window_minutes',
-      null,
-      loopRaw['velocity_window_minutes'],
-      loopDetection.velocityWindowMinutes,
-      warns,
-    );
-    final maxConsecutiveIdenticalToolCalls = _parseInt(
-      'governance.loop_detection.max_consecutive_identical_tool_calls',
-      null,
-      loopRaw['max_consecutive_identical_tool_calls'],
-      loopDetection.maxConsecutiveIdenticalToolCalls,
-      warns,
-    );
+  final loopMap = readMap('loop_detection', govMap, warns);
+  if (loopMap != null) {
+    final enabled = readBool('enabled', loopMap, warns, defaultValue: loopDetection.enabled) ?? loopDetection.enabled;
+    final maxConsecutiveTurns =
+        readInt('max_consecutive_turns', loopMap, warns, defaultValue: loopDetection.maxConsecutiveTurns) ??
+        loopDetection.maxConsecutiveTurns;
+    final maxTokensPerMinute =
+        readInt('max_tokens_per_minute', loopMap, warns, defaultValue: loopDetection.maxTokensPerMinute) ??
+        loopDetection.maxTokensPerMinute;
+    final velocityWindowMinutes =
+        readInt('velocity_window_minutes', loopMap, warns, defaultValue: loopDetection.velocityWindowMinutes) ??
+        loopDetection.velocityWindowMinutes;
+    final maxConsecutiveIdenticalToolCalls =
+        readInt(
+          'max_consecutive_identical_tool_calls',
+          loopMap,
+          warns,
+          defaultValue: loopDetection.maxConsecutiveIdenticalToolCalls,
+        ) ??
+        loopDetection.maxConsecutiveIdenticalToolCalls;
 
     var action = loopDetection.action;
-    final actionRaw = loopRaw['action'];
-    if (actionRaw is String) {
+    final actionRaw = readString('action', loopMap, warns);
+    if (actionRaw != null) {
       final parsedAction = LoopAction.fromYaml(actionRaw);
       if (parsedAction != null) {
         action = parsedAction;
@@ -238,8 +214,6 @@ GovernanceConfig _parseGovernance(Map<String, dynamic> yaml, GovernanceConfig de
       maxConsecutiveIdenticalToolCalls: maxConsecutiveIdenticalToolCalls,
       action: action,
     );
-  } else if (loopRaw != null) {
-    warns.add('Invalid type for governance.loop_detection: "${loopRaw.runtimeType}" — using defaults');
   }
 
   return GovernanceConfig(
@@ -257,18 +231,12 @@ CanvasConfig _parseCanvas(Map<String, dynamic> yaml, CanvasConfig defaults, List
   final canvasMap = _sectionMap('canvas', yaml, warns);
   if (canvasMap == null) return defaults;
 
-  var enabled = defaults.enabled;
-  final enabledRaw = canvasMap['enabled'];
-  if (enabledRaw is bool) {
-    enabled = enabledRaw;
-  } else if (enabledRaw != null) {
-    warns.add('Invalid type for canvas.enabled: "${enabledRaw.runtimeType}" — using default');
-  }
+  final enabled = readBool('enabled', canvasMap, warns, defaultValue: defaults.enabled) ?? defaults.enabled;
 
   var share = defaults.share;
-  final shareRaw = canvasMap['share'];
-  if (shareRaw is Map) {
-    final defaultPermissionRaw = shareRaw['default_permission'];
+  final shareMap = readMap('share', canvasMap, warns);
+  if (shareMap != null) {
+    final defaultPermissionRaw = shareMap['default_permission'];
     final defaultPermission = switch (defaultPermissionRaw) {
       String value when value.trim() == 'view' || value.trim() == 'interact' => value.trim(),
       String value => () {
@@ -283,22 +251,11 @@ CanvasConfig _parseCanvas(Map<String, dynamic> yaml, CanvasConfig defaults, List
         return share.defaultPermission;
       }(),
     };
-    final defaultTtlMinutes = _parseInt(
-      'canvas.share.default_ttl',
-      null,
-      _parseDurationMinutes(shareRaw['default_ttl']),
-      share.defaultTtlMinutes,
-      warns,
-    );
-    final maxConnections = _parseInt(
-      'canvas.share.max_connections',
-      null,
-      shareRaw['max_connections'],
-      share.maxConnections,
-      warns,
-    );
-    final autoShare = shareRaw['auto_share'] is bool ? shareRaw['auto_share'] as bool : share.autoShare;
-    final showQr = shareRaw['show_qr'] is bool ? shareRaw['show_qr'] as bool : share.showQr;
+    final defaultTtlMinutes = _parseDurationMinutes(shareMap['default_ttl']) ?? share.defaultTtlMinutes;
+    final maxConnections =
+        readInt('max_connections', shareMap, warns, defaultValue: share.maxConnections) ?? share.maxConnections;
+    final autoShare = readBool('auto_share', shareMap, warns, defaultValue: share.autoShare) ?? share.autoShare;
+    final showQr = readBool('show_qr', shareMap, warns, defaultValue: share.showQr) ?? share.showQr;
     share = CanvasShareConfig(
       defaultPermission: defaultPermission,
       defaultTtlMinutes: defaultTtlMinutes,
@@ -306,24 +263,21 @@ CanvasConfig _parseCanvas(Map<String, dynamic> yaml, CanvasConfig defaults, List
       autoShare: autoShare,
       showQr: showQr,
     );
-  } else if (shareRaw != null) {
-    warns.add('Invalid type for canvas.share: "${shareRaw.runtimeType}" — using defaults');
   }
 
   var workshopMode = defaults.workshopMode;
-  final workshopRaw = canvasMap['workshop_mode'];
-  if (workshopRaw is Map) {
+  final workshopMap = readMap('workshop_mode', canvasMap, warns);
+  if (workshopMap != null) {
     workshopMode = CanvasWorkshopConfig(
-      taskBoard: workshopRaw['task_board'] is bool ? workshopRaw['task_board'] as bool : workshopMode.taskBoard,
-      showContributorStats: workshopRaw['show_contributor_stats'] is bool
-          ? workshopRaw['show_contributor_stats'] as bool
-          : workshopMode.showContributorStats,
-      showBudgetBar: workshopRaw['show_budget_bar'] is bool
-          ? workshopRaw['show_budget_bar'] as bool
-          : workshopMode.showBudgetBar,
+      taskBoard:
+          readBool('task_board', workshopMap, warns, defaultValue: workshopMode.taskBoard) ?? workshopMode.taskBoard,
+      showContributorStats:
+          readBool('show_contributor_stats', workshopMap, warns, defaultValue: workshopMode.showContributorStats) ??
+          workshopMode.showContributorStats,
+      showBudgetBar:
+          readBool('show_budget_bar', workshopMap, warns, defaultValue: workshopMode.showBudgetBar) ??
+          workshopMode.showBudgetBar,
     );
-  } else if (workshopRaw != null) {
-    warns.add('Invalid type for canvas.workshop_mode: "${workshopRaw.runtimeType}" — using defaults');
   }
 
   return CanvasConfig(enabled: enabled, share: share, workshopMode: workshopMode);
@@ -352,14 +306,10 @@ int? _parseDurationMinutes(Object? value) {
   List<String> warns,
 ) {
   const empty = (convertedJobs: <Map<String, dynamic>>[], taskDefs: <ScheduledTaskDefinition>[]);
-  final automationRaw = yaml['automation'];
-  if (automationRaw == null) return empty;
-  if (automationRaw is! Map) {
-    warns.add('Invalid type for automation: "${automationRaw.runtimeType}" — using defaults');
-    return empty;
-  }
+  final automationMap = readMap('automation', yaml, warns);
+  if (automationMap == null) return empty;
 
-  final tasksRaw = automationRaw['scheduled_tasks'];
+  final tasksRaw = automationMap['scheduled_tasks'];
   if (tasksRaw == null) return empty;
   if (tasksRaw is! List) {
     warns.add('Invalid type for automation.scheduled_tasks: "${tasksRaw.runtimeType}" — expected list');
@@ -391,35 +341,28 @@ AlertsConfig _parseAlerts(Map<String, dynamic> yaml, AlertsConfig defaults, List
   final alertsMap = _sectionMap('alerts', yaml, warns);
   if (alertsMap == null) return defaults;
 
-  var enabled = defaults.enabled;
-  final enabledRaw = alertsMap['enabled'];
-  if (enabledRaw is bool) {
-    enabled = enabledRaw;
-  } else if (enabledRaw != null) {
-    warns.add('Invalid type for alerts.enabled: "${enabledRaw.runtimeType}" — using default');
-  }
+  final enabled = readBool('enabled', alertsMap, warns, defaultValue: defaults.enabled) ?? defaults.enabled;
 
   var cooldownSeconds = defaults.cooldownSeconds;
-  final cooldownRaw = alertsMap['cooldown_seconds'];
-  if (cooldownRaw is int && cooldownRaw >= 1) {
-    cooldownSeconds = cooldownRaw;
-  } else if (cooldownRaw is int) {
-    warns.add('alerts.cooldown_seconds must be >= 1 — using default');
-  } else if (cooldownRaw != null) {
-    warns.add('Invalid type for alerts.cooldown_seconds: "${cooldownRaw.runtimeType}" — using default');
+  final cooldownRead = readInt('cooldown_seconds', alertsMap, warns, defaultValue: defaults.cooldownSeconds);
+  if (cooldownRead != null) {
+    if (cooldownRead >= 1) {
+      cooldownSeconds = cooldownRead;
+    } else {
+      warns.add('alerts.cooldown_seconds must be >= 1 — using default');
+    }
   }
 
   var burstThreshold = defaults.burstThreshold;
-  final burstRaw = alertsMap['burst_threshold'];
-  if (burstRaw is int && burstRaw >= 1) {
-    burstThreshold = burstRaw;
-  } else if (burstRaw is int) {
-    warns.add('alerts.burst_threshold must be >= 1 — using default');
-  } else if (burstRaw != null) {
-    warns.add('Invalid type for alerts.burst_threshold: "${burstRaw.runtimeType}" — using default');
+  final burstRead = readInt('burst_threshold', alertsMap, warns, defaultValue: defaults.burstThreshold);
+  if (burstRead != null) {
+    if (burstRead >= 1) {
+      burstThreshold = burstRead;
+    } else {
+      warns.add('alerts.burst_threshold must be >= 1 — using default');
+    }
   }
 
-  // Parse targets: list of {channel, recipient} maps
   final targets = <AlertTarget>[];
   final targetsRaw = alertsMap['targets'];
   if (targetsRaw is List) {
@@ -444,7 +387,6 @@ AlertsConfig _parseAlerts(Map<String, dynamic> yaml, AlertsConfig defaults, List
     warns.add('Invalid type for alerts.targets: "${targetsRaw.runtimeType}" — using default');
   }
 
-  // Parse routes: map of event-type-string -> list of target indices
   final routes = <String, List<String>>{};
   final routesRaw = alertsMap['routes'];
   if (routesRaw is Map) {

@@ -4,28 +4,31 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         EventBus,
+        MapIterationCompletedEvent,
+        MapStepCompletedEvent,
         LoopIterationCompletedEvent,
         ParallelGroupCompletedEvent,
         Task,
         TaskStatusChangedEvent,
         WorkflowApprovalRequestedEvent,
         WorkflowApprovalResolvedEvent,
-        WorkflowDefinition,
-        WorkflowRun,
-        WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent;
-import 'package:logging/logging.dart';
-import 'package:shelf/shelf.dart';
-import 'package:shelf_router/shelf_router.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         SkillRegistry,
+        WorkflowDefinition,
         WorkflowDefinitionResolver,
         WorkflowDefinitionSource,
+        WorkflowRun,
+        WorkflowRunStatus,
         WorkflowService,
         WorkflowSummary,
+        WorkflowTaskType,
         stepStatusFromTask;
+import 'package:logging/logging.dart';
+import 'package:shelf/shelf.dart';
+import 'package:shelf_router/shelf_router.dart';
 
 import '../task/task_service.dart';
 import 'api_helpers.dart';
@@ -467,12 +470,12 @@ Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks
       'index': i,
       'id': step.id,
       'name': step.name,
-      'type': step.type,
-      'status': _stepStatusWithApproval(run, i, step.id, step.type, task),
+      'type': step.taskType.toJson(),
+      'status': _stepStatusWithApproval(run, i, step.id, step.taskType, task),
       'taskId': task?.id,
     };
     // Attach approval metadata for approval-type steps.
-    if (step.type == 'approval') {
+    if (step.taskType == WorkflowTaskType.approval) {
       final approvalStatus = run.contextJson['${step.id}.approval.status'];
       if (approvalStatus != null) {
         stepEntry['approval'] = {
@@ -503,8 +506,8 @@ Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks
 }
 
 /// Returns step status, handling approval-type steps which have no child task.
-String _stepStatusWithApproval(WorkflowRun run, int index, String stepId, String stepType, Task? task) {
-  if (stepType == 'approval') {
+String _stepStatusWithApproval(WorkflowRun run, int index, String stepId, WorkflowTaskType stepType, Task? task) {
+  if (stepType == WorkflowTaskType.approval) {
     final approvalStatus = run.contextJson['$stepId.approval.status'];
     return switch (approvalStatus) {
       'pending' => 'awaiting_approval',
@@ -598,9 +601,13 @@ Future<Response> _workflowRunSseHandler(
     });
   });
 
-  final stepCompletedSub = eventBus.on<WorkflowStepCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+  final stepCompletedSub = eventBus.on<WorkflowStepCompletedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) async {
     childTaskIds.add(event.taskId);
-    _sendSse(controller, {
+    final task = event.taskId.isEmpty ? null : await tasks.get(event.taskId);
+    final displayScope = event.displayScope ?? _taskDisplayScope(task);
+    final payload = <String, dynamic>{
       'type': 'workflow_step_completed',
       'runId': event.runId,
       'stepId': event.stepId,
@@ -609,7 +616,11 @@ Future<Response> _workflowRunSseHandler(
       'taskId': event.taskId,
       'success': event.success,
       'tokenCount': event.tokenCount,
-    });
+    };
+    if (displayScope != null) {
+      payload['displayScope'] = displayScope;
+    }
+    _sendSse(controller, payload);
   });
 
   final parallelSub = eventBus.on<ParallelGroupCompletedEvent>().where((e) => e.runId == runId).listen((event) {
@@ -634,17 +645,54 @@ Future<Response> _workflowRunSseHandler(
     });
   });
 
-  final taskStatusSub = eventBus.on<TaskStatusChangedEvent>().where((e) => childTaskIds.contains(e.taskId)).listen((
-    event,
-  ) async {
-    final task = await tasks.get(event.taskId);
+  final mapIterationSub = eventBus.on<MapIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
     _sendSse(controller, {
+      'type': 'map_iteration_completed',
+      'runId': event.runId,
+      'stepId': event.stepId,
+      'iterationIndex': event.iterationIndex,
+      'totalIterations': event.totalIterations,
+      if (event.itemId != null) 'itemId': event.itemId,
+      if (event.itemId != null) 'displayScope': event.itemId,
+      'taskId': event.taskId,
+      'success': event.success,
+      'tokenCount': event.tokenCount,
+    });
+  });
+
+  final mapStepSub = eventBus.on<MapStepCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    _sendSse(controller, {
+      'type': 'map_step_completed',
+      'runId': event.runId,
+      'stepId': event.stepId,
+      'stepName': event.stepName,
+      'totalIterations': event.totalIterations,
+      'successCount': event.successCount,
+      'failureCount': event.failureCount,
+      'cancelledCount': event.cancelledCount,
+      'totalTokens': event.totalTokens,
+    });
+  });
+
+  final taskStatusSub = eventBus.on<TaskStatusChangedEvent>().listen((event) async {
+    final task = await tasks.get(event.taskId);
+    if (task?.workflowRunId != runId) return;
+    childTaskIds.add(event.taskId);
+    final displayScope = _taskDisplayScope(task);
+    final payload = <String, dynamic>{
       'type': 'task_status_changed',
       'taskId': event.taskId,
-      if (task?.stepIndex != null) 'stepIndex': task!.stepIndex,
       'oldStatus': event.oldStatus.name,
       'newStatus': event.newStatus.name,
-    });
+    };
+    final stepIndex = task?.stepIndex;
+    if (stepIndex != null) {
+      payload['stepIndex'] = stepIndex;
+    }
+    if (displayScope != null) {
+      payload['displayScope'] = displayScope;
+    }
+    _sendSse(controller, payload);
   });
 
   final approvalRequestedSub = eventBus.on<WorkflowApprovalRequestedEvent>().where((e) => e.runId == runId).listen((
@@ -678,6 +726,8 @@ Future<Response> _workflowRunSseHandler(
     stepCompletedSub.cancel();
     parallelSub.cancel();
     loopSub.cancel();
+    mapIterationSub.cancel();
+    mapStepSub.cancel();
     taskStatusSub.cancel();
     approvalRequestedSub.cancel();
     approvalResolvedSub.cancel();
@@ -696,4 +746,11 @@ void _sendSse(StreamController<List<int>> controller, Map<String, dynamic> data)
   } catch (_) {
     // Client disconnected — cleaned up by onCancel.
   }
+}
+
+String? _taskDisplayScope(Task? task) {
+  final scope = task?.configJson['displayScope'];
+  if (scope is! String) return null;
+  final trimmed = scope.trim();
+  return trimmed.isEmpty ? null : trimmed;
 }

@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';

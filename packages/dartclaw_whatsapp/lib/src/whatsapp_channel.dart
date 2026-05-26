@@ -50,7 +50,7 @@ class WhatsAppChannel extends Channel {
 
     // Retrieve own JID from GOWA status for mention gating
     try {
-      final status = await gowa.getStatus();
+      final status = await gowa.status();
       final deviceId = status.deviceId;
       if (deviceId != null && deviceId.isNotEmpty) {
         mentionGating.ownJid = deviceId;

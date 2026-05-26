@@ -46,7 +46,7 @@ class HealthService {
   set pubsubReporter(PubSubHealthReporter? reporter) => _pubsubReporter = reporter;
 
   /// Returns the current Pub/Sub health status, or null if not configured.
-  Map<String, dynamic>? get pubsubHealth => _pubsubReporter?.getStatus();
+  Map<String, dynamic>? get pubsubHealth => _pubsubReporter?.status;
 
   Future<Map<String, dynamic>> getStatus() async {
     _refreshCacheIfNeeded();
@@ -79,7 +79,7 @@ class HealthService {
 
     final pubsubReporter = _pubsubReporter;
     if (pubsubReporter != null) {
-      result['pubsub'] = pubsubReporter.getStatus();
+      result['pubsub'] = pubsubReporter.status;
     }
 
     return result;

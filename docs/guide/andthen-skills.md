@@ -1,99 +1,34 @@
 # AndThen Skills
 
-DartClaw's built-in workflows (`spec-and-implement`, `plan-and-implement`, `code-review`) reference AndThen-derived skills through DartClaw's installed namespace (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`, `dartclaw-exec-spec`, `dartclaw-review`, `dartclaw-remediate-findings`, `dartclaw-quick-review`, `dartclaw-ops`). At `dartclaw serve` startup, and before `dartclaw workflow run --standalone`, DartClaw clones AndThen and runs AndThen's native installer with DartClaw branding:
+DartClaw's built-in workflows reference AndThen-owned skills by canonical logical names such as `andthen:spec`, `andthen:plan`, `andthen:exec-spec`, and `andthen:review`.
 
-```bash
-install-skills.sh --prefix dartclaw- --display-brand DartClaw --claude-user
-```
+DartClaw does not clone AndThen, run AndThen's installer, or create DartClaw-branded copies of AndThen skills. Install AndThen for the provider you run workflows with, then DartClaw resolves the canonical workflow reference to the provider-native skill name:
 
-This installs into the native user-tier skill roots used by the harnesses:
+| Provider | Canonical reference | Provider-native name |
+|---|---|---|
+| Codex | `andthen:spec` | `andthen-spec` |
+| Claude Code | `andthen:spec` | `andthen:spec` |
 
-- `~/.agents/skills` for Codex
-- `~/.codex/agents` for Codex agents
-- `~/.claude/skills` for Claude Code
-- `~/.claude/agents` for Claude Code agents
+Unknown providers use the authored skill name exactly.
 
-DartClaw-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`) ship with DartClaw and are copied into the same user-tier skill roots. AndThen's installer also installs its DartClaw-prefixed Codex and Claude agent definitions into the native agent roots. DartClaw does not inline skill bodies into workflow prompts; Codex currently loads skill metadata into initial context and reads full `SKILL.md` instructions from disk only when a skill is invoked or opened.
+## DartClaw-Native Skills
 
-## Configuration
+Four skills are owned by DartClaw and keep their exact installed names:
 
-All settings live under the top-level `andthen:` block in `dartclaw.yaml`. Defaults are shown.
+- `dartclaw-discover-andthen-spec`
+- `dartclaw-discover-andthen-plan`
+- `dartclaw-validate-workflow`
+- `dartclaw-merge-resolve`
 
-```yaml
-andthen:
-  git_url: https://github.com/IT-HUSET/andthen   # upstream to clone
-  ref: latest                                    # 'latest' = fetch + fast-forward main
-  network: auto                                  # auto | required | disabled
-```
+At `dartclaw serve` startup, and before `dartclaw workflow run --standalone`, DartClaw copies those bundled skills into:
 
-All three keys require a server restart (`dartclaw serve` re-init) to take effect.
+- `<dataDir>/.agents/skills/` for Codex
+- `<dataDir>/.claude/skills/` for Claude Code
 
-### `git_url`
+Configured project workspaces receive links or managed fallback copies for those exact DartClaw-native skill directories only.
 
-The HTTPS URL to clone. Defaults to `https://github.com/IT-HUSET/andthen`. No GitHub auth is configured by DartClaw for this clone; if your fork is private, the clone must be reachable by your local Git environment or it will fail with a clear `git` error.
+## Diagnostics
 
-### `ref`
+When a workflow references an AndThen skill that is not installed for the effective provider, validation names the canonical reference, the provider, and the concrete provider-native name that was searched. For example, a Codex workflow step using `andthen:exec-spec` searches for `andthen-exec-spec`.
 
-What to check out:
-
-- `latest` (default) — `git fetch origin && git checkout main && git reset --hard origin/main` on every startup. Tracks upstream `main`. Convenient for development.
-- A tag, branch, or 40-character SHA — passed to `git checkout`. Pin a tag or SHA for production deployments to keep skill behavior stable across restarts.
-
-### `network`
-
-Controls how `<data_dir>/andthen-src/` is acquired or refreshed:
-
-- `auto` (default) — try clone or fetch + fast-forward; on network failure, fall back to the cached source if one exists. Fails only when there is no cache and the network is unreachable.
-- `required` — same network call, no fallback. Fails startup on network failure. Use for deployments where stale skills are unacceptable.
-- `disabled` — no clone, no fetch. Requires a pre-staged `<data_dir>/andthen-src/`. Fails startup if the cache is absent.
-
-### Offline / air-gapped install
-
-For environments without outbound network:
-
-```bash
-# On a connected machine:
-git clone https://github.com/IT-HUSET/andthen /tmp/andthen-src
-git -C /tmp/andthen-src checkout v0.16.0   # or the SHA you want to pin
-
-# Transfer /tmp/andthen-src/ into the air-gapped host as <data_dir>/andthen-src/
-# Then in dartclaw.yaml:
-andthen:
-  ref: v0.16.0
-  network: disabled
-```
-
-`SkillProvisioner` uses the staged clone directly, runs the installer locally, and writes the marker.
-
-## Marker File and Re-Install Gate
-
-The Codex skill root (`~/.agents/skills`) carries a `.dartclaw-andthen-sha` marker containing the AndThen commit SHA the destination was last installed from. On each provisioning run `SkillProvisioner` skips the install only when:
-
-- the marker exists and matches the current `<data_dir>/andthen-src/` HEAD SHA, and
-- `dartclaw-prd/SKILL.md` exists in both the Codex and Claude skill trees, and
-- the Codex and Claude agent directories exist, and
-- all three DartClaw-native skills exist in both Codex and Claude skill trees.
-
-Any miss, including a manually deleted skill, a half-finished install, or marker drift, forces the repair path on the next provisioning run. This means you do not need to remember to bump the marker; `dartclaw serve` and standalone workflow runs self-heal.
-
-`dartclaw workflow show --resolved --standalone` is read-only: it does not clone or install AndThen by itself. It reads skill defaults from the same native user-tier roots as standalone execution, so use `dartclaw serve` or `dartclaw workflow run --standalone` first when those `dartclaw-*` skills have not been installed yet.
-
-## Resetting a Managed Install
-
-The canonical way to force a full reinstall is to remove the SHA marker from the Codex skill root:
-
-```bash
-rm -f ~/.agents/skills/.dartclaw-andthen-sha
-```
-
-On the next `dartclaw serve` start, the provisioner sees the missing marker and re-runs the installer and DC-native skill copy, restoring all `dartclaw-*` skills and agents into the Codex (`~/.agents/skills`, `~/.codex/agents`) and Claude Code (`~/.claude/skills`, `~/.claude/agents`) roots. You do not need to enumerate individual skill directories.
-
-Note: if upstream drops a skill or agent between versions, the reinstall does not delete the stale entry — the installer only adds or overwrites. Remove the specific leftover directory or file manually if you need a clean state after a version that removed skills.
-
-If you also want to re-clone AndThen from scratch (e.g., after changing `andthen.git_url`), delete `<data_dir>/andthen-src/` in addition to the marker.
-
-## Namespace Contract
-
-- AndThen-derived skills are installed as `dartclaw-*` names, owned upstream and refreshed via the configured `ref`. Do not hand-edit them; changes will be overwritten on the next install. Fork the upstream and point `andthen.git_url` at your fork instead.
-- The three DartClaw-native skills are also `dartclaw-*` names, owned in this repo (`packages/dartclaw_workflow/skills/`). They are copied without rename or transformation.
-- Built-in workflow YAMLs reference both families directly by their installed names and rely on the harnesses' native skill loaders.
+Legacy `andthen:` configuration keys in `dartclaw.yaml` are ignored with warnings. They no longer control any active clone, cache, network, or source-management behavior.

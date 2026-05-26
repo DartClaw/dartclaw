@@ -12,6 +12,7 @@ class TaskBudgetConfig {
   /// injected warning the agent to wrap up.
   final double warningThreshold;
 
+  /// const TaskBudgetConfig({this.defaultMaxTokens, this.warningT.
   const TaskBudgetConfig({this.defaultMaxTokens, this.warningThreshold = 0.8});
 
   /// Default configuration — no budget limits, 80% warning threshold.
@@ -33,16 +34,28 @@ class TaskBudgetConfig {
 
 /// Configuration for the task subsystem.
 class TaskConfig {
+  /// maxConcurrent.
   final int maxConcurrent;
+
+  /// artifactRetentionDays.
   final int artifactRetentionDays;
+
+  /// completionAction.
   final String completionAction;
+
+  /// worktreeBaseRef.
   final String worktreeBaseRef;
+
+  /// worktreeStaleTimeoutHours.
   final int worktreeStaleTimeoutHours;
+
+  /// worktreeMergeStrategy.
   final String worktreeMergeStrategy;
 
   /// Per-task token budget configuration.
   final TaskBudgetConfig budget;
 
+  /// Creates a [TaskConfig] value.
   const TaskConfig({
     this.maxConcurrent = 3,
     this.artifactRetentionDays = 0,

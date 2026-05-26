@@ -1,0 +1,242 @@
+{
+  "schemaVersion": "1",
+  "prd": "prd.md",
+  "references": [
+    "technical-research.md",
+    "../0.17/fis/s08-chat-composer.md",
+    "../../../../dartclaw-public/dev/guidelines/HTMX-GUIDELINES.md",
+    "../../../../dartclaw-public/dev/guidelines/TRELLIS-GUIDELINES.md"
+  ],
+  "overview": {
+    "summary": "DartClaw 0.16.6 adopts Stimulus as the Web UI browser interaction layer while preserving the existing HTMX, Trellis, static-asset, and zero-Node architecture. The plan keeps the migration sequential because the foundation contract drives every later page migration, and the completion story removes legacy patterns only after the high-traffic surfaces have moved.\n\nAll FIS files already exist and are preserved as spec-ready during this migration from legacy plan.md to plan.json. The markdown plan remains a human-facing companion only; plan.json is the runtime ledger for downstream workflow skills.",
+    "phases": [
+      {
+        "id": "P1",
+        "name": "Foundation",
+        "waves": [
+          "W1"
+        ]
+      },
+      {
+        "id": "P2",
+        "name": "Core Migration",
+        "waves": [
+          "W2"
+        ]
+      },
+      {
+        "id": "P3",
+        "name": "Completion",
+        "waves": [
+          "W3"
+        ]
+      },
+      {
+        "id": "P4",
+        "name": "Documentation and Verification",
+        "waves": [
+          "W4"
+        ]
+      }
+    ]
+  },
+  "sharedDecisions": [
+    {
+      "title": "Stimulus is the primary browser behavior layer",
+      "description": "S01 establishes the loading, naming, CSP, and lifecycle contract that S02, S04, and S05 consume.",
+      "stories": [
+        "S01",
+        "S02",
+        "S04",
+        "S05"
+      ]
+    },
+    {
+      "title": "HTMX and Trellis remain the rendering architecture",
+      "description": "All migration stories must treat Stimulus as the behavior layer, not as a replacement for server-rendered HTMX and Trellis pages.",
+      "stories": [
+        "S01",
+        "S02",
+        "S04"
+      ]
+    },
+    {
+      "title": "Legacy page-global behavior is removed only after migration",
+      "description": "S01 and S02 may preserve transitional compatibility, while S04 owns the final removal gate and documented exceptions.",
+      "stories": [
+        "S01",
+        "S02",
+        "S04"
+      ]
+    },
+    {
+      "title": "Downstream 0.17 UI specs follow the migrated architecture",
+      "description": "S05 synchronizes the 0.17 composer FIS and planning docs after the 0.16.6 interaction layer is in place.",
+      "stories": [
+        "S05"
+      ]
+    }
+  ],
+  "bindingConstraints": [
+    {
+      "featureId": "FR1",
+      "anchor": "prd.md#fr1-stimulus-foundation-and-integration-contract",
+      "verbatim": "Stimulus is integrated as a static browser asset without Node/npm tooling"
+    },
+    {
+      "featureId": "FR1",
+      "anchor": "prd.md#fr1-stimulus-foundation-and-integration-contract",
+      "verbatim": "The resulting integration remains compatible with DartClaw's CSP model"
+    },
+    {
+      "featureId": "FR2",
+      "anchor": "prd.md#fr2-shared-shell-and-page-behavior-migration",
+      "verbatim": "Core pages including chat, tasks, workflows, projects, settings, scheduling, memory, and health use Stimulus as their primary behavior layer"
+    },
+    {
+      "featureId": "FR3",
+      "anchor": "prd.md#fr3-legacy-pattern-removal-and-unification",
+      "verbatim": "The legacy page-global initialization pattern is no longer the main interaction model after 0.16.6"
+    },
+    {
+      "featureId": "FR4",
+      "anchor": "prd.md#fr4-documentation-and-spec-synchronization",
+      "verbatim": "Relevant private architecture/docs are updated to describe the Stimulus-based interaction model"
+    }
+  ],
+  "stories": [
+    {
+      "id": "S01",
+      "name": "Stimulus Foundation and Loading Contract",
+      "phase": "P1",
+      "wave": "W1",
+      "dependsOn": [],
+      "parallel": false,
+      "risk": "medium",
+      "status": "spec-ready",
+      "fis": "fis/s01-stimulus-foundation.md",
+      "scope": "Integrate Stimulus into the current static asset model without Node/npm tooling and define the controller contract for the Web UI. This story includes asset loading, vendoring and pinning policy, controller bootstrapping, HTMX lifecycle coordination, naming conventions, and migration rules for server-rendered templates. It excludes page-by-page migration, which happens in later stories.",
+      "sourceRefs": [
+        "US01",
+        "US02",
+        "US04",
+        "FR1",
+        "prd.md#fr1-stimulus-foundation-and-integration-contract"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "technical-research.md",
+        "../../../../dartclaw-public/dev/guidelines/HTMX-GUIDELINES.md",
+        "../../../../dartclaw-public/dev/guidelines/TRELLIS-GUIDELINES.md"
+      ],
+      "notes": "Locks down the integration contract that all later stories must follow."
+    },
+    {
+      "id": "S02",
+      "name": "Core Migration - Shell, Feature Pages and Admin/Ops Pages",
+      "phase": "P2",
+      "wave": "W2",
+      "dependsOn": [
+        "S01"
+      ],
+      "parallel": false,
+      "risk": "high",
+      "status": "spec-ready",
+      "fis": "fis/s02-core-migration.md",
+      "scope": "Migrate shell-level, feature-level, and admin/ops interactions to Stimulus in one coordinated pass. Covers shared shell behavior, chat, tasks, workflows, projects, settings, channel detail, scheduling, memory, and health. It excludes remaining special surfaces and final legacy cleanup from S04.",
+      "sourceRefs": [
+        "US01",
+        "US02",
+        "US03",
+        "FR2",
+        "prd.md#fr2-shared-shell-and-page-behavior-migration"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "technical-research.md",
+        "../0.17/fis/s08-chat-composer.md"
+      ],
+      "notes": "Consolidates the former S02 and S03 scope into one story to preserve the 1:1 story-to-FIS invariant."
+    },
+    {
+      "id": "S04",
+      "name": "Special Surfaces Migration and Legacy Pattern Removal",
+      "phase": "P3",
+      "wave": "W3",
+      "dependsOn": [
+        "S02"
+      ],
+      "parallel": false,
+      "risk": "high",
+      "status": "spec-ready",
+      "fis": "fis/s04-special-surfaces-legacy-removal.md",
+      "scope": "Migrate the remaining browser-facing pages with JavaScript behavior, including special and standalone surfaces, and remove the legacy page-global interaction pattern as the primary implementation model. Any unavoidable exclusion must be explicit, narrow, and documented. This story is the completion gate for full adoption.",
+      "sourceRefs": [
+        "US01",
+        "US03",
+        "FR2",
+        "FR3",
+        "prd.md#fr3-legacy-pattern-removal-and-unification"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "technical-research.md"
+      ],
+      "notes": "The S03 identifier is intentionally absent because its former admin/ops scope was consolidated into S02."
+    },
+    {
+      "id": "S05",
+      "name": "Docs, Spec Sync and Final Verification",
+      "phase": "P4",
+      "wave": "W4",
+      "dependsOn": [
+        "S04"
+      ],
+      "parallel": false,
+      "risk": "medium",
+      "status": "spec-ready",
+      "fis": "fis/s05-docs-sync-verification.md",
+      "scope": "Update the private docs and downstream specs affected by the migration, then run the final verification pass for the milestone. This story includes architecture and documentation sync, roadmap and state consistency, and an explicit update to the 0.17 composer FIS so future work reflects the migrated UI reality. It excludes new UI feature work beyond proof and synchronization.",
+      "sourceRefs": [
+        "US05",
+        "FR4",
+        "prd.md#fr4-documentation-and-spec-synchronization"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "prd.md",
+        "technical-research.md",
+        "../0.17/fis/s08-chat-composer.md",
+        "../../ROADMAP.md",
+        "../../../../dartclaw-public/dev/state/STATE.md"
+      ],
+      "notes": "Use the current 0.17 composer FIS path, not the older consolidated filename from the draft PRD."
+    }
+  ],
+  "riskSummary": [
+    {
+      "story": "S01",
+      "risk": "medium",
+      "mitigation": "Lock down loading, CSP compatibility, controller naming, and HTMX lifecycle behavior before migration work starts."
+    },
+    {
+      "story": "S02",
+      "risk": "high",
+      "mitigation": "Migrate the shell, core pages, and admin/ops pages as one coordinated slice with explicit shared controller boundaries and visual smoke coverage."
+    },
+    {
+      "story": "S04",
+      "risk": "high",
+      "mitigation": "Treat special surfaces and legacy removal as the adoption gate, with any retained exception documented narrowly."
+    },
+    {
+      "story": "S05",
+      "risk": "medium",
+      "mitigation": "Make doc/spec synchronization and final smoke verification part of the milestone, not a follow-up."
+    }
+  ],
+  "executionNotes": "Migrated from legacy plan.md to plan.json on 2026-05-08 13:00 CEST. Existing FIS files were preserved and all stories remain spec-ready.\n\nExecution order is sequential: S01 -> S02 -> S04 -> S05. Run each story with dartclaw-exec-spec against its FIS file, and route future status or FIS changes through andthen-ops rather than editing plan.json directly.",
+  "metadata": {
+    "immutableDigest": "sha256:95c77e3f7cf22b3d5505aecbadf4ee2d2cfce3dff0677e4bda22fa40eda6459d"
+  }
+}

@@ -8,7 +8,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show Project, ProjectStatus, SessionType;
+import 'package:dartclaw_config/dartclaw_config.dart' show Project, ProjectStatus;
+import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ArtifactKind,
@@ -20,12 +21,13 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowGitArtifactsStrategy,
-        WorkflowGitBootstrapResult,
+        WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
         WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
+        WorkflowGitWorktreeMode,
         WorkflowGitWorktreeStrategy,
         WorkflowLoop,
         WorkflowRun,
@@ -108,7 +110,7 @@ void main() {
       description: 'Artifact failure workflow',
       project: 'proj',
       gitStrategy: const WorkflowGitStrategy(
-        worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+        worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
         artifacts: WorkflowGitArtifactsStrategy(commit: true),
       ),
       steps: const [
@@ -223,8 +225,8 @@ void main() {
       description: 'Workflow-owned git tasks should advance on accepted.',
       project: '{{PROJECT}}',
       gitStrategy: const WorkflowGitStrategy(
-        bootstrap: true,
-        worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+        integrationBranch: true,
+        worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
         promotion: 'merge',
         publish: WorkflowGitPublishStrategy(enabled: false),
       ),
@@ -243,8 +245,8 @@ void main() {
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
         waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+            const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
         promoteWorkflowBranch:
             ({
               required runId,
@@ -365,8 +367,8 @@ void main() {
       description: 'Loop-owned git tasks should promote after accepted completion.',
       project: '{{PROJECT}}',
       gitStrategy: const WorkflowGitStrategy(
-        bootstrap: true,
-        worktree: WorkflowGitWorktreeStrategy(mode: 'per-task'),
+        integrationBranch: true,
+        worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perTask),
         publish: WorkflowGitPublishStrategy(enabled: false),
       ),
       steps: const [
@@ -392,8 +394,8 @@ void main() {
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
         waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+            const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
         promoteWorkflowBranch:
             ({
               required runId,
@@ -615,9 +617,9 @@ void main() {
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
         waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
           capturedBaseRef = baseRef;
-          return const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test');
+          return const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test');
         },
       ),
     );
@@ -625,7 +627,7 @@ void main() {
     final definition = WorkflowDefinition(
       name: 'bootstrap-no-branch',
       description: 'Bootstrap resolves the base ref upstream',
-      gitStrategy: const WorkflowGitStrategy(bootstrap: true),
+      gitStrategy: const WorkflowGitStrategy(integrationBranch: true),
       steps: const [],
     );
 
@@ -820,6 +822,170 @@ void main() {
     expect(showResult.stdout, contains('# local path test'));
   });
 
+  test('detect-spec-input validation falls back to workflow project localPath', () async {
+    final projectDir = Directory(p.join(h.tempDir.path, 'active-root-project'))..createSync(recursive: true);
+    File(p.join(projectDir.path, 'dev/specs/demo/fis/s01-story.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Story\n\n## Scope\n');
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-project',
+          name: 'My Project',
+          remoteUrl: '',
+          localPath: projectDir.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
+        ),
+      ],
+    );
+    final executor = h.makeExecutor(projectService: projectService);
+    final definition = WorkflowDefinition(
+      name: 'active-root-fallback',
+      description: 'Active root fallback workflow',
+      project: '{{PROJECT}}',
+      variables: const {'PROJECT': WorkflowVariable(required: false)},
+      steps: const [
+        WorkflowStep(
+          id: 'detect-spec-input',
+          name: 'Detect Spec Input',
+          skill: 'dartclaw-discover-andthen-spec',
+          prompts: ['detect'],
+          allowedTools: ['file_read'],
+          outputs: {'spec_source': OutputConfig(), 'spec_path': OutputConfig()},
+        ),
+      ],
+    );
+    final run = h.makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'my-project'});
+    await h.repository.insert(run);
+    final context = WorkflowContext(
+      variables: const {'PROJECT': 'my-project', 'FEATURE': 'dev/specs/demo/fis/s01-story.md'},
+    );
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      final session = await h.sessionService.createSession(type: SessionType.task);
+      await h.taskService.updateFields(e.taskId, sessionId: session.id);
+      await h.messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content:
+            '<workflow-context>${jsonEncode({'spec_source': 'existing', 'spec_path': 'dev/specs/demo/fis/s01-story.md'})}</workflow-context>',
+      );
+      await h.completeTask(e.taskId);
+    });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById(run.id);
+    expect(finalRun?.status, WorkflowRunStatus.completed);
+    expect(context['spec_path'], 'dev/specs/demo/fis/s01-story.md');
+  });
+
+  test('active workspace root is stable after workflow startup', () async {
+    final initialProjectDir = Directory(p.join(h.tempDir.path, 'active-root-initial'))..createSync(recursive: true);
+    final changedProjectDir = Directory(p.join(h.tempDir.path, 'active-root-changed'))..createSync(recursive: true);
+    File(p.join(initialProjectDir.path, 'dev/specs/demo/fis/s01-story.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Story\n\n## Scope\n');
+    final initialProject = Project(
+      id: 'my-project',
+      name: 'My Project',
+      remoteUrl: '',
+      localPath: initialProjectDir.path,
+      defaultBranch: 'main',
+      status: ProjectStatus.ready,
+      createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
+    );
+    final projectService = FakeProjectService(projects: [initialProject]);
+    final executor = h.makeExecutor(projectService: projectService);
+    final definition = WorkflowDefinition(
+      name: 'active-root-stable',
+      description: 'Stable active root workflow',
+      project: '{{PROJECT}}',
+      variables: const {'PROJECT': WorkflowVariable(required: false)},
+      steps: const [
+        WorkflowStep(
+          id: 'detect-spec-input',
+          name: 'Detect Spec Input',
+          skill: 'dartclaw-discover-andthen-spec',
+          prompts: ['detect'],
+          allowedTools: ['file_read'],
+          outputs: {'spec_source': OutputConfig(), 'spec_path': OutputConfig()},
+        ),
+      ],
+    );
+    final run = h.makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'my-project'});
+    await h.repository.insert(run);
+    final context = WorkflowContext(
+      variables: const {'PROJECT': 'my-project', 'FEATURE': 'dev/specs/demo/fis/s01-story.md'},
+    );
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      projectService.seed(initialProject.copyWith(localPath: changedProjectDir.path));
+      final session = await h.sessionService.createSession(type: SessionType.task);
+      await h.taskService.updateFields(e.taskId, sessionId: session.id);
+      await h.messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content:
+            '<workflow-context>${jsonEncode({'spec_source': 'existing', 'spec_path': 'dev/specs/demo/fis/s01-story.md'})}</workflow-context>',
+      );
+      await h.completeTask(e.taskId);
+    });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById(run.id);
+    expect(finalRun?.status, WorkflowRunStatus.completed);
+    expect(projectService.getCalls, ['my-project']);
+    expect(context['spec_path'], 'dev/specs/demo/fis/s01-story.md');
+  });
+
+  test('detect-spec-input validation fails closed without an active workspace root', () async {
+    final definition = WorkflowDefinition(
+      name: 'missing-active-root',
+      description: 'Missing active root workflow',
+      steps: const [
+        WorkflowStep(
+          id: 'detect-spec-input',
+          name: 'Detect Spec Input',
+          skill: 'dartclaw-discover-andthen-spec',
+          prompts: ['detect'],
+          allowedTools: ['file_read'],
+          outputs: {'spec_source': OutputConfig(), 'spec_path': OutputConfig()},
+        ),
+      ],
+    );
+    final run = h.makeRun(definition).copyWith(variablesJson: const {'FEATURE': 'dev/specs/demo/fis/s01-story.md'});
+    await h.repository.insert(run);
+    final context = WorkflowContext(variables: const {'FEATURE': 'dev/specs/demo/fis/s01-story.md'});
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      final session = await h.sessionService.createSession(type: SessionType.task);
+      await h.taskService.updateFields(e.taskId, sessionId: session.id);
+      await h.messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content:
+            '<workflow-context>${jsonEncode({'spec_source': 'existing', 'spec_path': 'dev/specs/demo/fis/s01-story.md'})}</workflow-context>',
+      );
+      await h.completeTask(e.taskId);
+    });
+
+    await h.executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById(run.id);
+    expect(finalRun?.status, WorkflowRunStatus.failed);
+    expect(finalRun?.errorMessage, contains('active workspace root'));
+  });
+
   test('step failure pauses workflow', () async {
     final definition = h.makeDefinition(
       steps: [
@@ -927,7 +1093,7 @@ void main() {
     );
   });
 
-  test('workflow-level project does not bind read-only steps without project-index context', () async {
+  test('workflow-level project does not bind read-only steps without project_index context', () async {
     const definition = WorkflowDefinition(
       name: 'workflow-project-analysis-unbound',
       description: 'Read-only workflow steps should not bind workflow-level project ids.',
@@ -947,10 +1113,10 @@ void main() {
     expect(task.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
   });
 
-  test('workflow-level project binds project-aware read-only steps without forcing a worktree', () async {
+  test('workflow-level project does not bind retired project_index read-only steps', () async {
     const definition = WorkflowDefinition(
       name: 'workflow-project-readonly-bound',
-      description: 'Project-aware review steps should target the workflow project inline.',
+      description: 'Retired project_index inputs do not imply workflow project binding.',
       project: '{{PROJECT}}',
       steps: [
         WorkflowStep(
@@ -974,7 +1140,7 @@ void main() {
       runId: 'run-readonly-bound',
     );
 
-    expect(task.projectId, 'demo-project');
+    expect(task.projectId, isNull);
     expect(task.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
   });
 
@@ -998,7 +1164,7 @@ void main() {
     expect(task.configJson['_workflowNeedsWorktree'], isTrue);
   });
 
-  test('workflow-level project binds project-index agent steps', () async {
+  test('workflow-level project binds project_index agent steps', () async {
     const definition = WorkflowDefinition(
       name: 'workflow-project-index-bound',
       description: 'Workflow project binding is declared once at workflow level.',

@@ -68,7 +68,7 @@ void main() {
           WorkflowStep(
             id: 'review',
             name: 'Review',
-            type: 'analysis',
+            type: WorkflowTaskType.agent,
             prompts: ['Review'],
             entryGate: 'prd_source == synthesized',
           ),
@@ -101,7 +101,10 @@ void main() {
             maxParallel: 2,
           ),
         ],
-        gitStrategy: WorkflowGitStrategy(bootstrap: true, worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        gitStrategy: WorkflowGitStrategy(
+          integrationBranch: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.auto),
+        ),
       );
 
       final yaml = resolver.emitYaml(resolver.resolve(def));
@@ -117,7 +120,7 @@ void main() {
           WorkflowStep(
             id: 'stories',
             name: 'Stories',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             mapAlias: 'storyResult',
             foreachSteps: ['implement'],
@@ -147,7 +150,7 @@ void main() {
             outputs: {'project_index': OutputConfig()},
           ),
           WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement']),
-          WorkflowStep(id: 'check', name: 'Check', type: 'bash', prompts: null, workdir: '.'),
+          WorkflowStep(id: 'check', name: 'Check', type: WorkflowTaskType.bash, prompts: null, workdir: '.'),
         ],
       );
 
@@ -159,9 +162,9 @@ void main() {
 
       final reparsed = parser.parse(yaml, sourcePath: 'resolved:project-demo');
       expect(reparsed.project, 'demo-project');
-      expect(reparsed.steps.first.type, 'agent');
-      expect(reparsed.steps[1].type, 'agent');
-      expect(reparsed.steps[2].type, 'bash');
+      expect(reparsed.steps.first.type, WorkflowTaskType.agent);
+      expect(reparsed.steps[1].type, WorkflowTaskType.agent);
+      expect(reparsed.steps[2].type, WorkflowTaskType.bash);
     });
 
     test('variable substitution replaces {{VAR}} but leaves {{context.*}} alone', () {
@@ -173,7 +176,7 @@ void main() {
           const WorkflowStep(
             id: 'step-1',
             name: 'Example',
-            type: 'analysis',
+            type: WorkflowTaskType.agent,
             prompts: ['Build {{REQUIREMENTS}} using {{context.prior_step.output}}.'],
             outputs: {'result': OutputConfig()},
           ),

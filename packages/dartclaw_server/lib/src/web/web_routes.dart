@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
@@ -29,15 +27,15 @@ import '../templates/session_info.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
 import '../runtime_config.dart';
-import '../sidebar_live_state.dart';
 import '../task/agent_observer.dart';
 import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
-import '../turn_manager.dart';
 import 'dashboard_page.dart';
 import 'page_registry.dart';
 import 'page_support.dart';
+import 'session_usage.dart';
+import 'sidebar_data_builder.dart';
 import 'sidebar_feature_visibility.dart';
 import 'system_pages.dart';
 import 'web_utils.dart';
@@ -129,6 +127,15 @@ Router webRoutes(
     );
   }
   final systemNav = registry.navItems(activePage: '');
+  final sidebarBuilder = SidebarDataBuilder(
+    sessions: sessions,
+    kvService: kvService,
+    defaultProvider: defaultProvider,
+    showChannels: visibility.showChannels,
+    tasksEnabled: taskService != null && eventBus != null,
+    taskService: taskService,
+    workflowService: workflowService,
+  );
   final pageContext = PageContext(
     sessions: sessions,
     appDisplay: appDisplay,
@@ -146,15 +153,7 @@ Router webRoutes(
     threadBindingStore: threadBindingStore,
     workflowService: workflowService,
     definitionSource: workflowDefinitionSource,
-    buildSidebarData: () => buildSidebarData(
-      sessions,
-      kvService: kvService,
-      defaultProvider: defaultProvider,
-      showChannels: visibility.showChannels,
-      tasksEnabled: taskService != null && eventBus != null,
-      taskService: taskService,
-      workflowService: workflowService,
-    ),
+    sidebar: sidebarBuilder,
     restartBannerHtml: () => restartBannerHtml(appDisplay.dataDir),
     buildNavItems: ({required String activePage}) => registry.navItems(activePage: activePage),
   );
@@ -218,28 +217,8 @@ Router webRoutes(
       return _redirect(request, '/sessions/${all.first.id}');
     }
 
-    final sidebarData = await buildSidebarData(
-      sessions,
-      kvService: kvService,
-      defaultProvider: defaultProvider,
-      showChannels: visibility.showChannels,
-      tasksEnabled: taskService != null && eventBus != null,
-      taskService: taskService,
-      workflowService: workflowService,
-    );
-    final sidebar = sidebarTemplate(
-      mainSession: sidebarData.main,
-      dmChannels: sidebarData.dmChannels,
-      groupChannels: sidebarData.groupChannels,
-      activeEntries: sidebarData.activeEntries,
-      archivedEntries: sidebarData.archivedEntries,
-      activeTasks: sidebarData.activeTasks,
-      activeWorkflows: sidebarData.activeWorkflows,
-      showChannels: sidebarData.showChannels,
-      tasksEnabled: sidebarData.tasksEnabled,
-      navItems: systemNav,
-      appName: appDisplay.name,
-    );
+    final sidebarData = await pageContext.sidebar.build();
+    final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appDisplay.name);
     final topbar = topbarTemplate(appName: appDisplay.name);
     final main = emptyAppStateTemplate(appName: appDisplay.name);
     final bodyHtml = '<div class="shell">$sidebar$topbar$main</div>';
@@ -259,15 +238,7 @@ Router webRoutes(
       final session = await sessions.getSession(id);
       if (session == null) return _htmlNotFound('Session not found: $id');
 
-      final sidebarData = await buildSidebarData(
-        sessions,
-        kvService: kvService,
-        defaultProvider: defaultProvider,
-        showChannels: visibility.showChannels,
-        tasksEnabled: taskService != null && eventBus != null,
-        taskService: taskService,
-        workflowService: workflowService,
-      );
+      final sidebarData = await pageContext.sidebar.build(activeSessionId: id);
       final msgs = await messages.getMessagesTail(id);
       final messageList = msgs
           .map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null))
@@ -275,20 +246,7 @@ Router webRoutes(
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
       final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
 
-      final sidebar = sidebarTemplate(
-        mainSession: sidebarData.main,
-        dmChannels: sidebarData.dmChannels,
-        groupChannels: sidebarData.groupChannels,
-        activeEntries: sidebarData.activeEntries,
-        archivedEntries: sidebarData.archivedEntries,
-        activeTasks: sidebarData.activeTasks,
-        activeWorkflows: sidebarData.activeWorkflows,
-        showChannels: sidebarData.showChannels,
-        tasksEnabled: sidebarData.tasksEnabled,
-        activeSessionId: id,
-        navItems: systemNav,
-        appName: appDisplay.name,
-      );
+      final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appDisplay.name);
       final topbar = topbarTemplate(
         title: session.title,
         sessionId: id,
@@ -396,20 +354,12 @@ Router webRoutes(
           .reversed
           .toList();
 
-      final usage = await _readSessionUsage(kvService, id, defaultProvider: defaultProvider);
+      final usage = await readSessionUsage(kvService, id, defaultProvider: defaultProvider);
       final page = sessionInfoTemplate(
         sessionId: id,
         sessionTitle: session.title ?? '',
         messageCount: msgs.length,
-        sidebarData: await buildSidebarData(
-          sessions,
-          kvService: kvService,
-          defaultProvider: defaultProvider,
-          showChannels: visibility.showChannels,
-          tasksEnabled: taskService != null && eventBus != null,
-          taskService: taskService,
-          workflowService: workflowService,
-        ),
+        sidebarData: await pageContext.sidebar.build(),
         navItems: systemNav,
         createdAt: session.createdAt.toIso8601String(),
         defaultProvider: defaultProvider,
@@ -456,15 +406,7 @@ Router webRoutes(
         return _htmlNotFound('Unknown channel type: $type');
       }
 
-      final sidebarData = await buildSidebarData(
-        sessions,
-        kvService: kvService,
-        defaultProvider: defaultProvider,
-        showChannels: visibility.showChannels,
-        tasksEnabled: taskService != null && eventBus != null,
-        taskService: taskService,
-        workflowService: workflowService,
-      );
+      final sidebarData = await pageContext.sidebar.build();
 
       if (type == 'whatsapp') {
         final channel = whatsAppChannel;
@@ -630,174 +572,12 @@ Router webRoutes(
   return router;
 }
 
-Future<
-  ({
-    int? inputTokens,
-    int? outputTokens,
-    int? cachedInputTokens,
-    int? effectiveTokens,
-    double? estimatedCostUsd,
-    String provider,
-  })
->
-_readSessionUsage(KvService? kvService, String sessionId, {String defaultProvider = 'claude'}) async {
-  if (kvService == null) {
-    return (
-      inputTokens: null,
-      outputTokens: null,
-      cachedInputTokens: null,
-      effectiveTokens: null,
-      estimatedCostUsd: null,
-      provider: defaultProvider,
-    );
-  }
-
-  final raw = await kvService.get('session_cost:$sessionId');
-  if (raw == null) {
-    return (
-      inputTokens: null,
-      outputTokens: null,
-      cachedInputTokens: null,
-      effectiveTokens: null,
-      estimatedCostUsd: null,
-      provider: defaultProvider,
-    );
-  }
-
-  try {
-    final decoded = jsonDecode(raw);
-    if (decoded is! Map<String, dynamic>) {
-      return (
-        inputTokens: null,
-        outputTokens: null,
-        cachedInputTokens: null,
-        effectiveTokens: null,
-        estimatedCostUsd: null,
-        provider: defaultProvider,
-      );
-    }
-
-    // Prefer canonical field names (written by TurnRunner post-S06);
-    // fall back to legacy 'cached_input_tokens' for KV entries written
-    // by older versions.
-    final cacheReadTokens =
-        (decoded['cache_read_tokens'] as num?)?.toInt() ?? (decoded['cached_input_tokens'] as num?)?.toInt();
-    return (
-      inputTokens: (decoded['input_tokens'] as num?)?.toInt(),
-      outputTokens: (decoded['output_tokens'] as num?)?.toInt(),
-      cachedInputTokens: cacheReadTokens,
-      effectiveTokens: (decoded['effective_tokens'] as num?)?.toInt(),
-      estimatedCostUsd: (decoded['estimated_cost_usd'] as num?)?.toDouble(),
-      provider: switch (decoded['provider']) {
-        final String value when value.trim().isNotEmpty => value,
-        _ => defaultProvider,
-      },
-    );
-  } catch (e) {
-    return (
-      inputTokens: null,
-      outputTokens: null,
-      cachedInputTokens: null,
-      effectiveTokens: null,
-      estimatedCostUsd: null,
-      provider: defaultProvider,
-    );
-  }
-}
-
 String? _sanitizeNextPath(String? rawValue) {
   final trimmed = rawValue?.trim();
   if (trimmed == null || trimmed.isEmpty) return null;
   if (!trimmed.startsWith('/')) return null;
   if (trimmed.startsWith('//')) return null;
   return trimmed;
-}
-
-// ---------------------------------------------------------------------------
-// Sidebar data helper
-// ---------------------------------------------------------------------------
-
-/// Fetches and partitions all sessions for sidebar rendering.
-Future<SidebarData> buildSidebarData(
-  SessionService sessions, {
-  KvService? kvService,
-  String defaultProvider = 'claude',
-  bool showChannels = true,
-  bool tasksEnabled = false,
-  TaskService? taskService,
-  WorkflowService? workflowService,
-}) async {
-  final all = await sessions.listSessions();
-  SidebarSession? main;
-  final dmChannels = <SidebarSession>[];
-  final groupChannels = <SidebarSession>[];
-  final activeEntries = <SidebarSession>[];
-  final archivedEntries = <SidebarSession>[];
-
-  for (final s in all) {
-    final provider = await _resolveSidebarProvider(s, kvService, defaultProvider: defaultProvider);
-    final entry = (id: s.id, title: s.title ?? '', type: s.type, provider: provider);
-    switch (s.type) {
-      case SessionType.main:
-        main = entry;
-      case SessionType.channel:
-        if (_isGroupChannel(s.channelKey)) {
-          groupChannels.add(entry);
-        } else {
-          dmChannels.add(entry);
-        }
-      case SessionType.cron:
-        break; // hidden from sidebar
-      case SessionType.task:
-        break; // task sessions managed via /tasks page
-      case SessionType.user:
-        activeEntries.add(entry);
-      case SessionType.archive:
-        archivedEntries.add(entry);
-    }
-  }
-
-  final List<SidebarActiveTask> activeTasks = tasksEnabled && taskService != null
-      ? await buildActiveSidebarTasks(taskService)
-      : const [];
-  final List<SidebarActiveWorkflow> activeWorkflows = tasksEnabled && taskService != null && workflowService != null
-      ? await buildActiveSidebarWorkflows(workflowService, taskService)
-      : const [];
-
-  return (
-    main: main,
-    dmChannels: dmChannels,
-    groupChannels: groupChannels,
-    activeEntries: activeEntries,
-    archivedEntries: archivedEntries,
-    activeTasks: activeTasks,
-    activeWorkflows: activeWorkflows,
-    showChannels: showChannels,
-    tasksEnabled: tasksEnabled,
-  );
-}
-
-Future<String> _resolveSidebarProvider(
-  Session session,
-  KvService? kvService, {
-  String defaultProvider = 'claude',
-}) async {
-  final sessionProvider = session.provider?.trim();
-  if (sessionProvider != null && sessionProvider.isNotEmpty) {
-    return ProviderIdentity.normalize(sessionProvider);
-  }
-  final usage = await _readSessionUsage(kvService, session.id, defaultProvider: defaultProvider);
-  return usage.provider;
-}
-
-/// Returns true if the channel key represents a group session.
-bool _isGroupChannel(String? channelKey) {
-  if (channelKey == null) return false;
-  try {
-    return SessionKey.parse(channelKey).scope == 'group';
-  } catch (e) {
-    return false;
-  }
 }
 
 // ---------------------------------------------------------------------------

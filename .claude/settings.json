@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc 'cd \"$CLAUDE_PROJECT_DIR\" && dart format --line-length=120 . >/dev/null && printf \"{}\"'",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

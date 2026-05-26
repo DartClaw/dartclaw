@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -126,11 +129,13 @@ void main() {
   group('reviewMode enforcement', () {
     test('null reviewMode — all task types go to review (current default)', () async {
       final executor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: turns,
-        artifactCollector: collector,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+        ),
+        runners: TaskExecutorRunners(turns: turns),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);
@@ -150,11 +155,13 @@ void main() {
 
     test('mandatory — research task goes to review', () async {
       final executor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: turns,
-        artifactCollector: collector,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+        ),
+        runners: TaskExecutorRunners(turns: turns),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);
@@ -175,11 +182,13 @@ void main() {
 
     test('auto-accept — task transitions directly to accepted', () async {
       final executor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: turns,
-        artifactCollector: collector,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+        ),
+        runners: TaskExecutorRunners(turns: turns),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);
@@ -200,11 +209,13 @@ void main() {
 
     test('coding-only + coding task — goes to review', () async {
       final executor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: turns,
-        artifactCollector: collector,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+        ),
+        runners: TaskExecutorRunners(turns: turns),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);
@@ -225,11 +236,13 @@ void main() {
 
     test('coding-only + research task — goes to accepted', () async {
       final executor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: turns,
-        artifactCollector: collector,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+        ),
+        runners: TaskExecutorRunners(turns: turns),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);
@@ -250,11 +263,13 @@ void main() {
 
     test('unknown reviewMode — logs warning and defaults to review', () async {
       final executor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: turns,
-        artifactCollector: collector,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+        ),
+        runners: TaskExecutorRunners(turns: turns),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);
@@ -295,11 +310,13 @@ void main() {
       final poolTurns = TurnManager.fromPool(pool: pool);
 
       final executor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: poolTurns,
-        artifactCollector: collector,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+        ),
+        runners: TaskExecutorRunners(turns: poolTurns),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);
@@ -402,11 +419,13 @@ void main() {
       final poolTurns = TurnManager.fromPool(pool: pool);
 
       final executor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: poolTurns,
-        artifactCollector: collector,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+        ),
+        runners: TaskExecutorRunners(turns: poolTurns),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);

@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_server/src/auth/auth_utils.dart';
 import 'package:shelf/shelf.dart';
@@ -35,10 +35,10 @@ class _FakeGowaManager extends GowaManager {
   Future<void> sendMedia(String jid, String filePath, {String? caption}) async {}
 
   @override
-  Future<GowaStatus> getStatus() async => (isConnected: false, isLoggedIn: false, deviceId: null);
+  Future<GowaStatus> status() async => (isConnected: false, isLoggedIn: false, deviceId: null);
 
   @override
-  Future<GowaLoginQr> getLoginQr() async => (url: null, durationSeconds: 60);
+  Future<GowaLoginQr> loginQr() async => (url: null, durationSeconds: 60);
 }
 
 class _FakeChannelManager extends ChannelManager {

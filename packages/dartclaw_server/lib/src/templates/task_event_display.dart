@@ -1,45 +1,34 @@
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        TaskEventKind,
-        StatusChanged,
-        ToolCalled,
-        ArtifactCreated,
-        StructuredOutputInlineUsed,
-        StructuredOutputFallbackUsed,
-        PushBack,
-        TokenUpdate,
-        TaskErrorEvent,
-        Compaction;
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskEventKind;
 
 /// CSS icon class for a given [TaskEventKind].
 ///
 /// Returns the `.icon-*` class name (without the `icon` base class).
 String eventIconClass(TaskEventKind kind, {String? newStatus}) {
   return switch (kind) {
-    StatusChanged() => _statusChangedIconClass(newStatus),
-    ToolCalled() => 'icon-wrench',
-    ArtifactCreated() => 'icon-file-text',
-    StructuredOutputInlineUsed() => 'icon-file-json',
-    StructuredOutputFallbackUsed() => 'icon-file-warning',
-    PushBack() => 'icon-message-circle',
-    TokenUpdate() => 'icon-gauge',
-    TaskErrorEvent() => 'icon-triangle-alert',
-    Compaction() => 'icon-layers',
+    TaskEventKind.statusChanged => _statusChangedIconClass(newStatus),
+    TaskEventKind.toolCalled => 'icon-wrench',
+    TaskEventKind.artifactCreated => 'icon-file-text',
+    TaskEventKind.structuredOutputInlineUsed => 'icon-file-json',
+    TaskEventKind.structuredOutputFallbackUsed => 'icon-file-warning',
+    TaskEventKind.pushBack => 'icon-message-circle',
+    TaskEventKind.tokenUpdate => 'icon-gauge',
+    TaskEventKind.taskError => 'icon-triangle-alert',
+    TaskEventKind.compaction => 'icon-layers',
   };
 }
 
 /// CSS kind class for per-kind color accent on `.tl-event`.
 String eventKindClass(TaskEventKind kind, {bool? success}) {
   return switch (kind) {
-    StatusChanged() => 'tl-event-status',
-    ToolCalled() => (success == false) ? 'tl-event-error' : 'tl-event-tool',
-    ArtifactCreated() => 'tl-event-artifact',
-    StructuredOutputInlineUsed() => 'tl-event-tool',
-    StructuredOutputFallbackUsed() => 'tl-event-warning',
-    PushBack() => 'tl-event-pushback',
-    TokenUpdate() => 'tl-event-token',
-    TaskErrorEvent() => 'tl-event-error',
-    Compaction() => 'tl-event-compaction',
+    TaskEventKind.statusChanged => 'tl-event-status',
+    TaskEventKind.toolCalled => (success == false) ? 'tl-event-error' : 'tl-event-tool',
+    TaskEventKind.artifactCreated => 'tl-event-artifact',
+    TaskEventKind.structuredOutputInlineUsed => 'tl-event-tool',
+    TaskEventKind.structuredOutputFallbackUsed => 'tl-event-warning',
+    TaskEventKind.pushBack => 'tl-event-pushback',
+    TaskEventKind.tokenUpdate => 'tl-event-token',
+    TaskEventKind.taskError => 'tl-event-error',
+    TaskEventKind.compaction => 'tl-event-compaction',
   };
 }
 
@@ -54,15 +43,15 @@ String statusBadgeClass(String? statusName) {
 /// Used by the `/tasks` dashboard preview and SSE `task_event` payloads.
 String compactEventIconClass(TaskEventKind kind) {
   return switch (kind) {
-    StatusChanged() => 'task-event-icon-status',
-    ToolCalled() => 'task-event-icon-tool',
-    ArtifactCreated() => 'task-event-icon-artifact',
-    StructuredOutputInlineUsed() => 'task-event-icon-tool',
-    StructuredOutputFallbackUsed() => 'task-event-icon-warning',
-    PushBack() => 'task-event-icon-pushback',
-    TokenUpdate() => 'task-event-icon-token',
-    TaskErrorEvent() => 'task-event-icon-error',
-    Compaction() => 'task-event-icon-compaction',
+    TaskEventKind.statusChanged => 'task-event-icon-status',
+    TaskEventKind.toolCalled => 'task-event-icon-tool',
+    TaskEventKind.artifactCreated => 'task-event-icon-artifact',
+    TaskEventKind.structuredOutputInlineUsed => 'task-event-icon-tool',
+    TaskEventKind.structuredOutputFallbackUsed => 'task-event-icon-warning',
+    TaskEventKind.pushBack => 'task-event-icon-pushback',
+    TaskEventKind.tokenUpdate => 'task-event-icon-token',
+    TaskEventKind.taskError => 'task-event-icon-error',
+    TaskEventKind.compaction => 'task-event-icon-compaction',
   };
 }
 
@@ -71,15 +60,15 @@ String compactEventIconClass(TaskEventKind kind) {
 /// Used by the `/tasks` dashboard preview and SSE `task_event` payloads.
 String compactEventIconChar(TaskEventKind kind) {
   return switch (kind) {
-    StatusChanged() => '\u25CF', // ● filled circle
-    ToolCalled() => '\uD83D\uDD27', // 🔧 wrench
-    ArtifactCreated() => '\uD83D\uDCC4', // 📄 page
-    StructuredOutputInlineUsed() => '\uD83D\uDCE5', // 📥 inbox tray
-    StructuredOutputFallbackUsed() => '\u26A0', // ⚠ warning
-    PushBack() => '\uD83D\uDCAC', // 💬 speech bubble
-    TokenUpdate() => '\uD83D\uDCCA', // 📊 chart
-    TaskErrorEvent() => '\u26A0', // ⚠ warning
-    Compaction() => '\u2293', // ⊓ compaction
+    TaskEventKind.statusChanged => '●', // ● filled circle
+    TaskEventKind.toolCalled => '🔧', // 🔧 wrench
+    TaskEventKind.artifactCreated => '📄', // 📄 page
+    TaskEventKind.structuredOutputInlineUsed => '📥', // 📥 inbox tray
+    TaskEventKind.structuredOutputFallbackUsed => '⚠', // ⚠ warning
+    TaskEventKind.pushBack => '💬', // 💬 speech bubble
+    TaskEventKind.tokenUpdate => '📊', // 📊 chart
+    TaskEventKind.taskError => '⚠', // ⚠ warning
+    TaskEventKind.compaction => '⊓', // ⊓ compaction
   };
 }
 

@@ -12,11 +12,39 @@ const storySpecsSchemaBody = {
         'properties': {
           'id': {'type': 'string', 'description': 'Story identifier used by downstream foreach steps.'},
           'title': {'type': 'string', 'description': 'Concise story title for display and logs.'},
-          'spec_path': {'type': 'string', 'description': 'Workspace-relative path to the authoritative FIS file.'},
+          'spec_path': {
+            'type': 'string',
+            'description': 'Workspace-relative argument-safe path to the authoritative sNN-style FIS markdown file.',
+          },
           'dependencies': {
             'type': 'array',
             'description': 'Ordered prerequisite story IDs for dependency-aware fan-out.',
             'items': {'type': 'string'},
+          },
+          'parallel': {'type': 'boolean', 'description': 'Whether this story may run in parallel with wave siblings.'},
+          'wave': {'type': 'string', 'description': 'Wave identifier from the source plan.'},
+          'phase': {'type': 'string', 'description': 'Phase identifier from the source plan.'},
+          'risk': {
+            'type': 'string',
+            'enum': ['low', 'medium', 'high'],
+            'description': 'Risk level from the source plan.',
+          },
+          'status': {
+            'type': 'string',
+            'enum': ['pending', 'spec-ready', 'in-progress', 'done', 'skipped', 'blocked'],
+            'description': 'Current story status from the source plan.',
+          },
+          'fis_source': {
+            'type': 'string',
+            'enum': ['existing', 'synthesized'],
+            'description': 'Whether the FIS was reused from disk or synthesized by the plan step.',
+          },
+          'spec_confidence': {
+            'type': 'integer',
+            'minimum': 0,
+            'maximum': 10,
+            'description':
+                'Planner confidence for synthesized FIS content. Meaningful only when fis_source is synthesized.',
           },
         },
       },
@@ -25,9 +53,3 @@ const storySpecsSchemaBody = {
 };
 
 const storySpecsSchema = {'type': 'object', ...storySpecsSchemaBody};
-
-const nullableStorySpecsSchema = {
-  'type': ['object', 'null'],
-  ...storySpecsSchemaBody,
-  'description': 'Story-spec records parsed from the active plan.',
-};

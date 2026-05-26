@@ -10,6 +10,7 @@ import '../dashboard_page.dart';
 import '../page_support.dart';
 import '../web_utils.dart';
 
+/// Renders the system-health dashboard page.
 class HealthDashboardPage extends DashboardPage {
   HealthDashboardPage({this.healthService, this.workerStateGetter, this.auditReader, this.pubsubHealthGetter});
 
@@ -36,7 +37,7 @@ class HealthDashboardPage extends DashboardPage {
     final verdictFilter = params['verdict'];
     final guardFilter = params['guard'];
     final allSessions = await context.sessions.listSessions();
-    final sidebarData = await context.buildSidebarData();
+    final sidebarData = await context.sidebar.build();
     final status = await getStatus(healthService, workerStateGetter, allSessions.length);
     final totalArtifactDiskBytes = await _totalArtifactDiskBytes(context.appDisplay.dataDir);
     final auditPage =

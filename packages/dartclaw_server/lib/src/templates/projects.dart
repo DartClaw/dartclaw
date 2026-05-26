@@ -1,4 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show Project, ProjectStatus, PrStrategy;
+import 'package:dartclaw_config/dartclaw_config.dart' show PrStrategy, Project, ProjectStatus;
 
 import 'helpers.dart';
 import 'layout.dart';

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -18,18 +19,32 @@ class _FakeSkillRegistry implements SkillRegistry {
   SkillInfo? getByName(String name) => _skills[name];
 
   @override
-  String? validateRef(String skillRef) {
-    if (_skills.containsKey(skillRef)) return null;
+  ResolvedSkillRef? resolveRef(String skillRef, String provider) {
+    final invocationName = _providerSkillAlias(skillRef, provider);
+    final skill = _skills[invocationName];
+    if (skill == null) return null;
+    return ResolvedSkillRef(canonicalRef: skillRef, provider: provider, invocationName: invocationName, skill: skill);
+  }
+
+  @override
+  String? validateRef(String skillRef, {String? provider}) {
+    if (provider != null && resolveRef(skillRef, provider) != null) return null;
+    if (provider == null && _skills.containsKey(skillRef)) return null;
     final available = _skills.keys.toList()..sort();
     return 'Skill "$skillRef" not found. Available: ${available.join(', ')}';
   }
 
   @override
   bool isNativeFor(String skillName, String harnessType) {
-    final skill = _skills[skillName];
-    if (skill == null) return false;
-    return skill.nativeHarnesses.contains(harnessType);
+    final resolved = resolveRef(skillName, harnessType);
+    return resolved?.skill.nativeHarnesses.contains(harnessType) ?? false;
   }
+}
+
+String _providerSkillAlias(String skillName, String provider) {
+  if (!skillName.startsWith('andthen:')) return skillName;
+  final suffix = skillName.substring('andthen:'.length);
+  return provider == 'codex' ? 'andthen-$suffix' : skillName;
 }
 
 _FakeSkillRegistry _makeRegistry({
@@ -75,6 +90,7 @@ WorkflowDefinition _buildDef({
   List<WorkflowStep> steps = const [],
   List<WorkflowLoop> loops = const [],
   List<WorkflowNode>? nodes,
+  WorkflowGitStrategy? gitStrategy,
 }) {
   return WorkflowDefinition(
     name: name,
@@ -87,6 +103,7 @@ WorkflowDefinition _buildDef({
         : steps,
     loops: loops,
     nodes: nodes,
+    gitStrategy: gitStrategy,
   );
 }
 
@@ -106,6 +123,36 @@ WorkflowStep _step({
   gate: gate,
 );
 
+WorkflowStep _reviewSourceStep({required String id, Map<String, OutputConfig>? outputs}) => WorkflowStep(
+  id: id,
+  name: id,
+  prompts: const ['p'],
+  outputs:
+      outputs ??
+      {
+        'review_findings': const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+        '$id.findings_count': const OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
+        '$id.gating_findings_count': const OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
+      },
+);
+
+WorkflowStep _aggregateReviewsStep({
+  List<String>? aggregateReviews = const ['review-a'],
+  Map<String, OutputConfig>? outputs,
+}) => WorkflowStep(
+  id: 'review-aggregate',
+  name: 'Review Aggregate',
+  type: WorkflowTaskType.aggregateReviews,
+  aggregateReviews: aggregateReviews,
+  outputs:
+      outputs ??
+      const {
+        'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+        'findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
+        'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
+      },
+);
+
 void main() {
   late WorkflowDefinitionValidator validator;
 
@@ -119,6 +166,67 @@ void main() {
       final report = validator.validate(def);
       expect(report.errors, isEmpty);
       expect(report.warnings, isEmpty);
+    });
+
+    group('Codex allowedTools policy warnings', () {
+      test('returns one warning per non-read-only Codex allowedTools step', () async {
+        final records = <LogRecord>[];
+        final previousLevel = Logger.root.level;
+        Logger.root.level = Level.ALL;
+        final sub = Logger('WorkflowDefinitionValidator').onRecord.listen(records.add);
+        addTearDown(() async {
+          await sub.cancel();
+          Logger.root.level = previousLevel;
+        });
+        final codexValidator = WorkflowDefinitionValidator(
+          roleDefaults: const WorkflowRoleDefaults(executor: WorkflowRoleDefault(provider: 'codex')),
+        );
+        final def = _buildDef(
+          name: 'codex-policy',
+          steps: const [
+            WorkflowStep(
+              id: 'implement',
+              name: 'Implement',
+              provider: '@executor',
+              allowedTools: ['shell', 'file_read', 'file_write'],
+              prompts: ['p'],
+            ),
+          ],
+        );
+
+        final first = codexValidator.validate(def);
+        final second = codexValidator.validate(def);
+        await pumpEventQueue();
+
+        expect(first.warnings, hasLength(1));
+        expect(second.warnings, hasLength(1));
+        final warnings = records.where((record) => record.level == Level.WARNING).toList();
+        expect(warnings, isEmpty);
+      });
+
+      test('does not warn for read-only Codex allowedTools', () {
+        final codexValidator = WorkflowDefinitionValidator(
+          roleDefaults: const WorkflowRoleDefaults(executor: WorkflowRoleDefault(provider: 'codex')),
+        );
+        final def = _buildDef(
+          steps: const [
+            WorkflowStep(
+              id: 'inspect',
+              name: 'Inspect',
+              provider: '@executor',
+              allowedTools: ['shell', 'file_read'],
+              prompts: ['p'],
+            ),
+          ],
+        );
+
+        final report = codexValidator.validate(def);
+
+        expect(
+          report.warnings.where((warning) => warning.message.contains('Codex CLI has no native tool allowlist')),
+          isEmpty,
+        );
+      });
     });
 
     group('required fields', () {
@@ -283,6 +391,85 @@ steps:
         final def = _buildDef(steps: [_step(prompt: 'Use {{context.key}}')]);
         final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), false);
+      });
+
+      test('known workflow system reference validates', () {
+        final def = _buildDef(steps: [_step(prompt: 'Use {{workflow.runtime_artifacts_dir}}')]);
+        expect(validator.validate(def).errors, isEmpty);
+      });
+
+      test('unknown workflow system reference names key and known set', () {
+        final def = _buildDef(steps: [_step(prompt: 'Use {{workflow.frobnozzle}}')]);
+        final errors = validator.validate(def).errors;
+
+        expect(errors, hasLength(1));
+        expect(errors.single.type, ValidationErrorType.invalidReference);
+        expect(errors.single.message, contains('workflow.frobnozzle'));
+        expect(errors.single.message, contains('workflow.runtime_artifacts_dir'));
+      });
+
+      test('adding a workflow system key to the inventory makes validation succeed', () {
+        final customValidator = WorkflowDefinitionValidator(
+          templateEngine: WorkflowTemplateEngine(
+            knownWorkflowSystemVariableKeys: {
+              ...WorkflowTemplateEngine.knownWorkflowSystemVariables,
+              'workflow.new_key',
+            },
+          ),
+        );
+        final def = _buildDef(steps: [_step(prompt: 'Use {{workflow.new_key}}')]);
+
+        expect(customValidator.validate(def).errors, isEmpty);
+      });
+
+      test('unknown workflow system reference in bash workdir is rejected', () {
+        final def = _buildDef(
+          steps: const [
+            WorkflowStep(
+              id: 's1',
+              name: 'Shell',
+              type: WorkflowTaskType.bash,
+              prompts: ['pwd'],
+              workdir: '{{workflow.frobnozzle}}',
+            ),
+          ],
+        );
+        final errors = validator.validate(def).errors;
+
+        expect(errors, hasLength(1));
+        expect(errors.single.message, contains('Step "s1" workdir'));
+        expect(errors.single.message, contains('workflow.frobnozzle'));
+      });
+
+      test('unknown workflow system reference in artifact commit template is rejected', () {
+        final def = _buildDef(
+          gitStrategy: const WorkflowGitStrategy(
+            artifacts: WorkflowGitArtifactsStrategy(commitMessage: 'commit {{workflow.frobnozzle}}'),
+          ),
+        );
+        final errors = validator.validate(def).errors;
+
+        expect(errors, hasLength(1));
+        expect(errors.single.message, contains('gitStrategy.artifacts.commitMessage'));
+        expect(errors.single.message, contains('workflow.frobnozzle'));
+      });
+
+      test('unknown workflow system reference in external artifact mount is rejected', () {
+        final def = _buildDef(
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(
+              externalArtifactMount: WorkflowGitExternalArtifactMount(
+                fromProject: '{{PROJECT}}',
+                source: '{{workflow.frobnozzle}}',
+              ),
+            ),
+          ),
+        );
+        final errors = validator.validate(def).errors;
+
+        expect(errors, hasLength(1));
+        expect(errors.single.message, contains('gitStrategy.worktree.externalArtifactMount.source'));
+        expect(errors.single.message, contains('workflow.frobnozzle'));
       });
 
       test('workflowVariables entry missing from variables block produces invalidReference error', () {
@@ -474,6 +661,112 @@ steps:
         expect(validator.validate(def).errors, isEmpty);
       });
 
+      test('loop gates accept bare context keys', () {
+        final def = _buildDef(
+          steps: [
+            _step(
+              id: 'review-aggregate',
+              outputs: {
+                'gating_findings_count': const OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
+              },
+            ),
+            _step(
+              id: 's1',
+              outputs: {
+                'gating_findings_count': const OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
+              },
+            ),
+          ],
+          loops: [
+            const WorkflowLoop(
+              id: 'lp',
+              steps: ['s1'],
+              maxIterations: 3,
+              entryGate: 'gating_findings_count > 0',
+              exitGate: 'gating_findings_count == 0',
+            ),
+          ],
+        );
+
+        expect(validator.validate(def).errors, isEmpty);
+      });
+
+      test('loop gates reject unknown bare context keys', () {
+        final def = _buildDef(
+          steps: [
+            _step(
+              id: 'review-aggregate',
+              outputs: {
+                'gating_findings_count': const OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
+              },
+            ),
+            _step(id: 's1'),
+          ],
+          loops: [
+            const WorkflowLoop(
+              id: 'lp',
+              steps: ['s1'],
+              maxIterations: 3,
+              entryGate: 'gating_finding_count > 0',
+              exitGate: 'gating_findings_count == 0',
+            ),
+          ],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(
+          errors,
+          contains(
+            isA<ValidationError>()
+                .having((error) => error.type, 'type', ValidationErrorType.invalidReference)
+                .having((error) => error.loopId, 'loopId', 'lp')
+                .having((error) => error.message, 'message', contains('gating_finding_count')),
+          ),
+        );
+      });
+
+      test('loop entryGate rejects bare keys produced only inside the loop body', () {
+        // The entry gate is evaluated before the first child step runs, so a bare key
+        // emitted only inside the loop body would resolve to zero on iteration 1 and
+        // silently skip the loop. The exit gate may still reference the same key.
+        final def = _buildDef(
+          steps: [
+            _step(
+              id: 'inner',
+              outputs: {
+                'gating_findings_count': const OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
+              },
+            ),
+          ],
+          loops: [
+            const WorkflowLoop(
+              id: 'lp',
+              steps: ['inner'],
+              maxIterations: 3,
+              entryGate: 'gating_findings_count > 0',
+              exitGate: 'gating_findings_count == 0',
+            ),
+          ],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(
+          errors,
+          contains(
+            isA<ValidationError>()
+                .having((error) => error.type, 'type', ValidationErrorType.invalidReference)
+                .having((error) => error.loopId, 'loopId', 'lp')
+                .having((error) => error.message, 'message', contains('gating_findings_count'))
+                .having((error) => error.message, 'message', contains('inside the loop body')),
+          ),
+        );
+        // exitGate should be accepted — no invalidReference error on the same loop for that gate.
+        final exitGateErrors = errors.where(
+          (e) => e.type == ValidationErrorType.invalidReference && e.loopId == 'lp' && e.message.contains('exitGate'),
+        );
+        expect(exitGateErrors, isEmpty);
+      });
+
       test('invalid loop entryGate produces invalidGate error', () {
         final def = _buildDef(
           steps: [_step(id: 's1')],
@@ -613,7 +906,7 @@ steps:
             WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'gemini'),
           ],
         );
-        // No continuityProviders arg — validation skipped entirely.
+        // No continuityProviders arg – validation skipped entirely.
         expect(
           validator.validate(def).errors.any((e) => e.type == ValidationErrorType.unsupportedProviderCapability),
           false,
@@ -777,7 +1070,7 @@ steps:
         stepDefaults: const [StepConfigDefault(match: 'review*', model: 'claude-opus-4')],
       );
       final errors = validator.validate(def).errors;
-      // No ValidationError should be added — only a logger warning.
+      // No ValidationError should be added – only a logger warning.
       expect(errors, isEmpty);
     });
 
@@ -833,8 +1126,8 @@ steps:
           WorkflowStep(id: 's', name: 'S', prompts: ['p']),
         ],
         gitStrategy: const WorkflowGitStrategy(
-          bootstrap: true,
-          worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
+          integrationBranch: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.shared),
           promotion: 'merge',
           publish: WorkflowGitPublishStrategy(enabled: true),
         ),
@@ -842,7 +1135,7 @@ steps:
       expect(validator.validate(def).errors, isEmpty);
     });
 
-    test('bootstrap workflows warn when BRANCH defaults to main', () {
+    test('integration branch workflows warn when BRANCH defaults to main', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
@@ -850,46 +1143,67 @@ steps:
         steps: const [
           WorkflowStep(id: 's', name: 'S', prompts: ['p']),
         ],
-        gitStrategy: const WorkflowGitStrategy(bootstrap: true),
+        gitStrategy: const WorkflowGitStrategy(integrationBranch: true),
       );
 
       final report = validator.validate(def);
       expect(report.errors, isEmpty);
       expect(report.warnings, hasLength(1));
       expect(report.warnings.single.message, contains('variables.BRANCH.default: "main"'));
-      expect(report.warnings.single.message, contains('gitStrategy.bootstrap: true'));
+      expect(report.warnings.single.message, contains('gitStrategy.integrationBranch: true'));
     });
 
-    test('invalid gitStrategy enum-like values produce validation errors', () {
+    test('legacy bootstrap key emits migration warning', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
         steps: const [
           WorkflowStep(id: 's', name: 'S', prompts: ['p']),
         ],
-        gitStrategy: const WorkflowGitStrategy(
-          worktree: WorkflowGitWorktreeStrategy(mode: 'invalid-worktree'),
-          promotion: 'invalid-promotion',
-        ),
+        gitStrategy: const WorkflowGitStrategy(integrationBranch: true, legacyBootstrapKey: true),
+      );
+
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
+      expect(report.warnings, hasLength(1));
+      expect(report.warnings.single.message, contains('gitStrategy.bootstrap is deprecated'));
+      expect(report.warnings.single.message, contains('gitStrategy.integrationBranch'));
+    });
+
+    test('invalid gitStrategy worktree mode fails during model hydration', () {
+      expect(() => WorkflowGitWorktreeStrategy.fromJson('invalid-worktree'), throwsFormatException);
+    });
+
+    test('invalid gitStrategy promotion produces validation error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+        gitStrategy: const WorkflowGitStrategy(promotion: 'invalid-promotion'),
       );
 
       final errors = validator.validate(def).errors;
-      expect(errors, hasLength(2));
-      expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.worktree'));
+      expect(errors, hasLength(1));
       expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.promotion'));
     });
 
     test('auto and inline worktree values are accepted', () {
-      for (final worktreeMode in ['auto', 'inline']) {
+      for (final worktreeMode in [WorkflowGitWorktreeMode.auto, WorkflowGitWorktreeMode.inline]) {
         final def = WorkflowDefinition(
-          name: 'wf-$worktreeMode',
+          name: 'wf-${worktreeMode.toJson()}',
           description: 'd',
           steps: const [
             WorkflowStep(id: 's', name: 'S', prompts: ['p']),
           ],
           gitStrategy: WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: worktreeMode)),
         );
-        expect(validator.validate(def).errors, isEmpty, reason: 'worktree mode "$worktreeMode" should validate');
+        expect(
+          validator.validate(def).errors,
+          isEmpty,
+          reason: 'worktree mode "${worktreeMode.toJson()}" should validate',
+        );
       }
     });
   });
@@ -922,6 +1236,20 @@ steps:
       expect(errors.first.type, ValidationErrorType.invalidReference);
       expect(errors.first.stepId, 's');
       expect(errors.first.message, contains('nonexistent-skill'));
+    });
+
+    test('pre-rename plan discovery skill reference is rejected', () {
+      const oldPlanSkill =
+          'dartclaw-discover-'
+          'plan-state';
+      final validator = WorkflowDefinitionValidator()
+        ..skillRegistry = _makeRegistry(claudeSkills: {'dartclaw-discover-andthen-plan'});
+      final def = makeSkillDef(WorkflowStep(id: 's', name: 'S', skill: oldPlanSkill, prompts: const ['p']));
+      final errors = validator.validate(def).errors;
+
+      expect(errors, hasLength(1));
+      expect(errors.first.type, ValidationErrorType.invalidReference);
+      expect(errors.first.message, contains(oldPlanSkill));
     });
 
     test('missing skill reference with unknown role-alias provider collects both errors', () {
@@ -1028,10 +1356,10 @@ steps:
         if (userClaudeSkillsDir.existsSync()) userClaudeSkillsDir.deleteSync(recursive: true);
       });
 
-      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'dartclaw-review'))..createSync(recursive: true);
+      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'local-review'))..createSync(recursive: true);
       File(
         p.join(skillDir.path, 'SKILL.md'),
-      ).writeAsStringSync('---\nname: dartclaw-review\ndescription: Filesystem review skill\n---\n\n# review');
+      ).writeAsStringSync('---\nname: local-review\ndescription: Filesystem review skill\n---\n\n# review');
 
       final registry = SkillRegistryImpl();
       registry.discover(
@@ -1044,7 +1372,7 @@ steps:
 
       final validator = WorkflowDefinitionValidator()..skillRegistry = registry;
       final def = makeSkillDef(
-        const WorkflowStep(id: 's', name: 'S', skill: 'dartclaw-review', provider: 'claude', prompts: ['p']),
+        const WorkflowStep(id: 's', name: 'S', skill: 'local-review', provider: 'claude', prompts: ['p']),
       );
 
       expect(validator.validate(def).errors, isEmpty);
@@ -1062,7 +1390,7 @@ steps:
         ),
       );
       final errors = validator.validate(def).errors;
-      // No validation error — only a log warning.
+      // No validation error – only a log warning.
       expect(errors, isEmpty);
     });
 
@@ -1073,7 +1401,7 @@ steps:
           id: 's',
           name: 'S',
           skill: 'review-code',
-          // No prompts — skill-only step.
+          // No prompts – skill-only step.
         ),
       );
       final errors = validator.validate(def).errors;
@@ -1258,7 +1586,7 @@ steps:
           WorkflowStep(
             id: 'pipeline',
             name: 'Pipeline',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['implement'],
             outputs: {'story_results': OutputConfig(), 'implementation_results': OutputConfig()},
@@ -1287,7 +1615,7 @@ steps:
           WorkflowStep(
             id: 'pipeline',
             name: 'Pipeline',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['implement'],
             outputs: {'story_results': OutputConfig()},
@@ -1299,63 +1627,349 @@ steps:
     });
   });
 
-  group('hybrid step validation rules', () {
-    test('unknown step type produces an error', () {
-      final def = WorkflowDefinition(
-        name: 'wf',
-        description: 'd',
-        steps: const [
-          WorkflowStep(id: 's', name: 'S', type: 'unknown-future-type', prompts: ['p']),
+  group('aggregate-reviews validation rules', () {
+    test('valid aggregate-reviews step produces no errors', () {
+      final def = _buildDef(
+        steps: [
+          _reviewSourceStep(id: 'review-a'),
+          _aggregateReviewsStep(),
         ],
       );
-      final report = validator.validate(def);
+
+      expect(validator.validate(def).errors, isEmpty);
+    });
+
+    test('rejects missing or empty aggregateReviews', () {
+      for (final aggregateReviews in <List<String>?>[null, const []]) {
+        final def = _buildDef(
+          steps: [
+            _reviewSourceStep(id: 'review-a'),
+            _aggregateReviewsStep(aggregateReviews: aggregateReviews),
+          ],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(
+          errors,
+          contains(
+            isA<ValidationError>()
+                .having((error) => error.stepId, 'stepId', 'review-aggregate')
+                .having((error) => error.message, 'message', contains('aggregateReviews'))
+                .having((error) => error.message, 'message', contains('at least one upstream step id')),
+          ),
+        );
+      }
+    });
+
+    test('rejects unknown or non-prior upstream step ids', () {
+      final def = _buildDef(
+        steps: [
+          _reviewSourceStep(id: 'review-a'),
+          _aggregateReviewsStep(aggregateReviews: const ['review-a', 'review-typo', 'later-review']),
+          _reviewSourceStep(id: 'later-review'),
+        ],
+      );
+
+      final errors = validator.validate(def).errors;
       expect(
-        report.errors.any(
-          (e) =>
-              e.type == ValidationErrorType.hybridStepConstraint &&
-              e.stepId == 's' &&
-              e.message.contains('uses removed step type "unknown-future-type"'),
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((error) => error.stepId, 'stepId', 'review-aggregate')
+              .having((error) => error.type, 'type', ValidationErrorType.invalidReference)
+              .having((error) => error.message, 'message', contains('review-typo'))
+              .having((error) => error.message, 'message', contains('valid prior step ids')),
         ),
-        isTrue,
-        reason: 'Unknown type should produce an error',
+      );
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((error) => error.stepId, 'stepId', 'review-aggregate')
+              .having((error) => error.message, 'message', contains('later-review')),
+        ),
+      );
+    });
+
+    test('rejects upstream steps without count outputs', () {
+      final def = _buildDef(
+        steps: [
+          _reviewSourceStep(
+            id: 'review-a',
+            outputs: const {'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path')},
+          ),
+          _aggregateReviewsStep(),
+        ],
+      );
+
+      final errors = validator.validate(def).errors;
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((error) => error.stepId, 'stepId', 'review-aggregate')
+              .having((error) => error.message, 'message', contains('review-a.findings_count'))
+              .having((error) => error.message, 'message', contains('review-a')),
+        ),
+      );
+    });
+
+    test('rejects upstream count keys scoped to a different source id', () {
+      // The runner only reads "$sourceId.findings_count" / "$sourceId.gating_findings_count";
+      // a count key carrying a different source prefix would silently contribute 0 at runtime.
+      final def = _buildDef(
+        steps: [
+          _reviewSourceStep(
+            id: 'review-a',
+            outputs: const {
+              'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+              // Mis-scoped: prefix is "review-b" instead of "review-a".
+              'review-b.findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
+              'review-b.gating_findings_count': OutputConfig(
+                format: OutputFormat.json,
+                schema: 'gating_findings_count',
+              ),
+            },
+          ),
+          _aggregateReviewsStep(),
+        ],
+      );
+
+      final errors = validator.validate(def).errors;
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((error) => error.stepId, 'stepId', 'review-aggregate')
+              .having((error) => error.message, 'message', contains('source-scoped'))
+              .having((error) => error.message, 'message', contains('review-a.findings_count')),
+        ),
+      );
+    });
+
+    test('rejects duplicate report-path output keys across aggregate sources', () {
+      // Two sources both write to the same context key for their review-report path —
+      // the merged context is last-writer-wins, so the aggregator would emit the same
+      // report twice.
+      final def = _buildDef(
+        steps: [
+          _reviewSourceStep(id: 'review-a'),
+          _reviewSourceStep(id: 'review-b'),
+          _aggregateReviewsStep(aggregateReviews: const ['review-a', 'review-b']),
+        ],
+      );
+
+      final errors = validator.validate(def).errors;
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((error) => error.stepId, 'stepId', 'review-aggregate')
+              .having((error) => error.message, 'message', contains('review-a'))
+              .having((error) => error.message, 'message', contains('review-b'))
+              .having((error) => error.message, 'message', contains('review_findings'))
+              .having((error) => error.message, 'message', contains('unique')),
+        ),
+      );
+    });
+
+    test('rejects aggregator outputs with wrong format or preset', () {
+      // Key set matches the fixed three-key shape, but the formats/presets are wrong:
+      // review_findings declared as `text` instead of `path`, and findings_count using
+      // the wrong preset. The runner emits path strings under review_findings and
+      // integer counts under the count keys, so a format/preset mismatch is a contract
+      // defect even when the key names are correct.
+      final outputs = const {
+        'review_findings': OutputConfig(format: OutputFormat.text, schema: 'review_report_path'),
+        'findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+        'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
+      };
+      final def = _buildDef(
+        steps: [
+          _reviewSourceStep(id: 'review-a'),
+          _aggregateReviewsStep(outputs: outputs),
+        ],
+      );
+
+      final errors = validator.validate(def).errors;
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((error) => error.stepId, 'stepId', 'review-aggregate')
+              .having((error) => error.message, 'message', contains('review_findings'))
+              .having((error) => error.message, 'message', contains('format: path')),
+        ),
+      );
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((error) => error.stepId, 'stepId', 'review-aggregate')
+              .having((error) => error.message, 'message', contains('findings_count'))
+              .having((error) => error.message, 'message', contains('non_negative_integer')),
+        ),
+      );
+    });
+
+    test('rejects upstream steps without exactly one review-report path output', () {
+      for (final outputs in [
+        {'review-a.findings_count': const OutputConfig(format: OutputFormat.json, schema: 'findings_count')},
+        {
+          'review_findings': const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+          'architecture_review_findings': const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+          'review-a.findings_count': const OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
+        },
+      ]) {
+        final def = _buildDef(
+          steps: [
+            _reviewSourceStep(id: 'review-a', outputs: outputs),
+            _aggregateReviewsStep(),
+          ],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(
+          errors,
+          contains(
+            isA<ValidationError>()
+                .having((error) => error.stepId, 'stepId', 'review-aggregate')
+                .having((error) => error.message, 'message', contains('review-a'))
+                .having((error) => error.message, 'message', contains('exactly one review-report path output')),
+          ),
+        );
+      }
+    });
+
+    test('rejects aggregator outputs that do not match the fixed three-key shape', () {
+      for (final outputs in [
+        const {
+          'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+          'findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
+        },
+        const {
+          'review_findings': OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
+          'findings_count': OutputConfig(format: OutputFormat.json, schema: 'findings_count'),
+          'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count'),
+          'extra': OutputConfig(),
+        },
+      ]) {
+        final def = _buildDef(
+          steps: [
+            _reviewSourceStep(id: 'review-a'),
+            _aggregateReviewsStep(outputs: outputs),
+          ],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(
+          errors,
+          contains(
+            isA<ValidationError>()
+                .having((error) => error.stepId, 'stepId', 'review-aggregate')
+                .having((error) => error.message, 'message', contains('review_findings'))
+                .having((error) => error.message, 'message', contains('gating_findings_count')),
+          ),
+        );
+      }
+    });
+
+    test('rejects aggregate-reviews placed inside a loop', () {
+      final def = _buildDef(
+        steps: [
+          _reviewSourceStep(id: 'review-a'),
+          _aggregateReviewsStep(),
+        ],
+        loops: const [
+          WorkflowLoop(id: 'remediation-loop', steps: ['review-aggregate'], maxIterations: 3, exitGate: ''),
+        ],
+      );
+
+      final errors = validator.validate(def).errors;
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((error) => error.stepId, 'stepId', 'review-aggregate')
+              .having((error) => error.loopId, 'loopId', 'remediation-loop')
+              .having((error) => error.type, 'type', ValidationErrorType.invalidReference)
+              .having((error) => error.message, 'message', contains('must not appear inside loop')),
+        ),
+      );
+    });
+
+    test('rejects aggregate-reviews placed inside a foreach', () {
+      final def = _buildDef(
+        steps: [
+          _reviewSourceStep(id: 'review-a'),
+          _aggregateReviewsStep(),
+          WorkflowStep(
+            id: 'per-story',
+            name: 'Per story',
+            type: WorkflowTaskType.foreach,
+            mapOver: 'context.items',
+            mapAlias: 'item',
+            foreachSteps: const ['review-aggregate'],
+          ),
+        ],
+      );
+
+      final errors = validator.validate(def).errors;
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((error) => error.stepId, 'stepId', 'review-aggregate')
+              .having((error) => error.type, 'type', ValidationErrorType.invalidReference)
+              .having((error) => error.message, 'message', contains('must not appear inside foreach step "per-story"')),
+        ),
+      );
+    });
+  });
+
+  group('hybrid step validation rules', () {
+    test('unknown step type throws during model hydration', () {
+      expect(
+        () => WorkflowStep.fromJson({'id': 's', 'name': 'S', 'type': 'unknown-future-type', 'prompt': 'p'}),
+        throwsFormatException,
+        reason: 'Unknown type should be rejected before validation',
       );
     });
 
     test('known types produce no hybrid type error', () {
-      for (final type in ['agent', 'bash', 'approval', 'foreach', 'loop']) {
+      for (final type in WorkflowTaskType.values) {
         final def = WorkflowDefinition(
           name: 'wf',
           description: 'd',
           steps: [
-            WorkflowStep(id: 's', name: 'S', type: type, prompts: type == 'bash' || type == 'approval' ? null : ['p']),
+            WorkflowStep(
+              id: 's',
+              name: 'S',
+              type: type,
+              prompts:
+                  type == WorkflowTaskType.bash ||
+                      type == WorkflowTaskType.approval ||
+                      type == WorkflowTaskType.aggregateReviews
+                  ? null
+                  : ['p'],
+            ),
           ],
         );
         final report = validator.validate(def);
         expect(
           report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint),
           isFalse,
-          reason: 'Known type "$type" should not produce a hybrid type error',
+          reason: 'Known type "${type.toJson()}" should not produce a hybrid type error',
         );
       }
     });
 
-    test('legacy semantic and custom types produce hard errors', () {
+    test('legacy semantic and custom types throw during model hydration', () {
       for (final type in ['coding', 'analysis', 'research', 'writing', 'automation', 'custom']) {
-        final def = WorkflowDefinition(
-          name: 'wf',
-          description: 'd',
-          steps: [
-            WorkflowStep(id: 's-$type', name: 'S', type: type, prompts: ['p']),
-          ],
-        );
-        final report = validator.validate(def);
         expect(
-          report.errors.any((e) => e.stepId == 's-$type' && e.message.contains('uses removed step type "$type"')),
-          isTrue,
+          () => WorkflowStep.fromJson({'id': 's-$type', 'name': 'S', 'type': type, 'prompt': 'p'}),
+          throwsFormatException,
         );
-        if (type == 'custom') {
-          expect(report.errors.single.message, contains('renamed to "agent"'));
-        }
       }
     });
 
@@ -1365,7 +1979,7 @@ steps:
         description: 'd',
         steps: const [
           WorkflowStep(id: 'loop-step', name: 'Loop', prompts: ['p']),
-          WorkflowStep(id: 'gate', name: 'Gate', type: 'approval'),
+          WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval),
         ],
         loops: [
           const WorkflowLoop(
@@ -1391,7 +2005,7 @@ steps:
         description: 'd',
         steps: const [
           WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
-          WorkflowStep(id: 'gate', name: 'Gate', type: 'approval'),
+          WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval),
           WorkflowStep(id: 's2', name: 'S2', prompts: ['p']),
         ],
       );
@@ -1408,7 +2022,7 @@ steps:
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
-        steps: const [WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', parallel: true)],
+        steps: const [WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, parallel: true)],
       );
       final report = validator.validate(def);
       expect(
@@ -1465,6 +2079,43 @@ steps:
       expect(report.errors.any((e) => e.message.contains('additionalProperties: false')), isTrue);
     });
 
+    test('TD-085: inline schema with oneOf emits unsupported-keyword error at load time', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            prompts: ['Review'],
+            outputs: {
+              'verdict': OutputConfig(
+                format: OutputFormat.json,
+                schema: {
+                  'type': 'object',
+                  'additionalProperties': false,
+                  'oneOf': [
+                    {
+                      'required': ['pass'],
+                    },
+                    {
+                      'required': ['fail'],
+                    },
+                  ],
+                },
+              ),
+            },
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(
+        report.errors.any((e) => e.message.contains('"oneOf"') && e.message.contains('Supported subset')),
+        isTrue,
+        reason: 'unsupported JSON Schema keyword oneOf must produce an error, not silently pass',
+      );
+    });
+
     WorkflowDefinition defWithOutput(OutputConfig outputConfig) => WorkflowDefinition(
       name: 'wf',
       description: 'd',
@@ -1479,13 +2130,13 @@ steps:
     );
 
     test('inline description colliding with text-preset description emits exactly one warning', () {
-      // `diff-summary` is a text preset with a canonical description. Setting
-      // an inline description as well silently overrides it — should warn.
+      // `diff_summary` is a text preset with a canonical description. Setting
+      // an inline description as well silently overrides it – should warn.
       final report = validator.validate(
         defWithOutput(
           const OutputConfig(
             format: OutputFormat.text,
-            schema: 'diff-summary',
+            schema: 'diff_summary',
             description: 'Custom inline description overrides the preset.',
           ),
         ),
@@ -1498,7 +2149,7 @@ steps:
 
     test('preset reference without inline description does not warn', () {
       final report = validator.validate(
-        defWithOutput(const OutputConfig(format: OutputFormat.text, schema: 'diff-summary')),
+        defWithOutput(const OutputConfig(format: OutputFormat.text, schema: 'diff_summary')),
       );
       expect(report.errors, isEmpty);
       expect(report.warnings, isEmpty);
@@ -1513,7 +2164,7 @@ steps:
     });
 
     test('inline description with a preset that has no description does not warn', () {
-      // `non-negative-integer` is a JSON preset with no `description` — can
+      // `non_negative_integer` is a JSON preset with no `description` – can
       // only be paired with `format: json`. An inline description here is
       // an authoring choice, not a collision.
       final def = WorkflowDefinition(
@@ -1527,7 +2178,7 @@ steps:
             outputs: {
               'findings_count': OutputConfig(
                 format: OutputFormat.json,
-                schema: 'non-negative-integer',
+                schema: 'non_negative_integer',
                 description: 'How many things we found.',
               ),
             },
@@ -1541,7 +2192,7 @@ steps:
 
     test('whitespace-only inline description is a hard error', () {
       final report = validator.validate(
-        defWithOutput(const OutputConfig(format: OutputFormat.text, schema: 'diff-summary', description: '   ')),
+        defWithOutput(const OutputConfig(format: OutputFormat.text, schema: 'diff_summary', description: '   ')),
       );
       expect(
         report.errors.any((e) => e.message.contains('diff_summary') && e.message.contains('blank "description"')),
@@ -1557,7 +2208,7 @@ steps:
           WorkflowStep(
             id: 'research',
             name: 'Research',
-            type: 'research',
+            type: WorkflowTaskType.agent,
             prompts: ['Research'],
             outputs: {'verdict': OutputConfig(format: OutputFormat.json)},
           ),
@@ -1577,7 +2228,7 @@ steps:
           WorkflowStep(
             id: 'pipeline',
             name: 'Pipeline',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['implement'],
             outputs: {'story_results': OutputConfig(format: OutputFormat.json)},
@@ -1593,7 +2244,7 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'build', name: 'Build', type: 'bash', prompts: ['dart analyze', 'dart test']),
+          WorkflowStep(id: 'build', name: 'Build', type: WorkflowTaskType.bash, prompts: ['dart analyze', 'dart test']),
         ],
       );
       final report = validator.validate(def);
@@ -1608,7 +2259,12 @@ steps:
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?', 'Still approve?']),
+          WorkflowStep(
+            id: 'gate',
+            name: 'Gate',
+            type: WorkflowTaskType.approval,
+            prompts: ['Approve?', 'Still approve?'],
+          ),
         ],
       );
       final report = validator.validate(def);
@@ -1622,7 +2278,7 @@ steps:
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
-        steps: const [WorkflowStep(id: 'gate', name: 'Gate', type: 'approval')],
+        steps: const [WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval)],
       );
       final report = validator.validate(def);
       expect(report.errors.any((e) => e.stepId == 'gate'), isFalse);
@@ -1632,7 +2288,7 @@ steps:
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
-        steps: const [WorkflowStep(id: 's', name: 'Build', type: 'bash', workdir: '/workspace')],
+        steps: const [WorkflowStep(id: 's', name: 'Build', type: WorkflowTaskType.bash, workdir: '/workspace')],
       );
       final report = validator.validate(def);
       expect(report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint), isFalse);
@@ -1664,7 +2320,7 @@ steps:
           WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous'),
         ],
       );
-      // No continuityProviders supplied — provider check skipped.
+      // No continuityProviders supplied – provider check skipped.
       final report = validator.validate(def);
       expect(report.errors.any((e) => e.stepId == 's2'), isFalse);
     });
@@ -1853,7 +2509,7 @@ steps:
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
-        steps: const [WorkflowStep(id: 's', name: 'S', type: 'approval')],
+        steps: const [WorkflowStep(id: 's', name: 'S', type: WorkflowTaskType.approval)],
         loops: [
           WorkflowLoop(id: 'loop', steps: ['s'], maxIterations: 1, exitGate: 's.done == true'),
         ],
@@ -1871,11 +2527,11 @@ steps:
           description: 'd',
           steps: const [
             WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
-            WorkflowStep(id: 's2', name: 'S2', type: 'bash', prompts: ['echo hi']),
+            WorkflowStep(id: 's2', name: 'S2', type: WorkflowTaskType.bash, prompts: ['echo hi']),
             WorkflowStep(id: 's3', name: 'S3', prompts: ['p'], continueSession: '@previous'),
           ],
         );
-        // s3 precedes a bash step — hard error.
+        // s3 precedes a bash step – hard error.
         final report = validator.validate(def);
         expect(
           report.errors.any(
@@ -1892,7 +2548,7 @@ steps:
           description: 'd',
           steps: const [
             WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
-            WorkflowStep(id: 's2', name: 'S2', type: 'approval', prompts: ['Approve?']),
+            WorkflowStep(id: 's2', name: 'S2', type: WorkflowTaskType.approval, prompts: ['Approve?']),
             WorkflowStep(id: 's3', name: 'S3', prompts: ['p'], continueSession: '@previous'),
           ],
         );
@@ -1915,7 +2571,13 @@ steps:
           description: 'd',
           steps: const [
             WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
-            WorkflowStep(id: 's2', name: 'S2', type: 'bash', prompts: ['echo hi'], continueSession: '@previous'),
+            WorkflowStep(
+              id: 's2',
+              name: 'S2',
+              type: WorkflowTaskType.bash,
+              prompts: ['echo hi'],
+              continueSession: '@previous',
+            ),
           ],
         );
         final report = validator.validate(def);
@@ -2026,7 +2688,7 @@ steps:
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['c1', 'c2'],
             outputs: {'results': OutputConfig()},
@@ -2048,7 +2710,7 @@ steps:
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['c1', 'nonexistent'],
             outputs: {'results': OutputConfig()},
@@ -2068,7 +2730,7 @@ steps:
         description: 'd',
         steps: const [
           WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
-          WorkflowStep(id: 'fe', name: 'FE', type: 'foreach', mapOver: 'items', foreachSteps: []),
+          WorkflowStep(id: 'fe', name: 'FE', type: WorkflowTaskType.foreach, mapOver: 'items', foreachSteps: []),
         ],
       );
       // With empty foreachSteps, isForeachController is false, so normalization
@@ -2086,7 +2748,7 @@ steps:
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['c1'],
             outputs: {'results': OutputConfig()},
@@ -2134,6 +2796,24 @@ steps:
         expect(report.errors.any((e) => e.type == ValidationErrorType.invalidGate), isFalse);
       });
 
+      test('accepts unary empty checks', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 'discover', name: 'Discover', prompts: ['p'], outputs: {'story_specs': OutputConfig()}),
+            WorkflowStep(
+              id: 'plan',
+              name: 'Plan',
+              prompts: ['p'],
+              entryGate: 'story_specs.items isEmpty || story_specs == null',
+            ),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.type == ValidationErrorType.invalidGate), isFalse);
+      });
+
       test('rejects malformed entryGate expression', () {
         final def = WorkflowDefinition(
           name: 'wf',
@@ -2154,11 +2834,11 @@ steps:
           name: 'wf',
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
-            worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+            worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
           ],
         );
         final report = validator.validate(def);
@@ -2170,11 +2850,11 @@ steps:
           name: 'wf',
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
-            worktree: WorkflowGitWorktreeStrategy(mode: 'auto'),
+            worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.auto),
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
             WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 2),
           ],
         );
@@ -2187,11 +2867,11 @@ steps:
           name: 'wf',
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
-            worktree: WorkflowGitWorktreeStrategy(mode: 'auto'),
+            worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.auto),
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
             WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 1),
           ],
         );
@@ -2204,11 +2884,11 @@ steps:
           name: 'wf',
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
-            worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
+            worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.shared),
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
-            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', outputs: {'plan': OutputConfig()}),
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
           ],
         );
         final report = validator.validate(def);
@@ -2220,7 +2900,9 @@ steps:
         final def = WorkflowDefinition(
           name: 'wf',
           description: 'd',
-          gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item')),
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
+          ),
           steps: const [
             WorkflowStep(id: 'only', name: 'Only', prompts: ['p']),
           ],
@@ -2235,8 +2917,11 @@ steps:
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
             worktree: WorkflowGitWorktreeStrategy(
-              mode: 'per-map-item',
-              externalArtifactMount: WorkflowGitExternalArtifactMount(mode: 'per-story-copy', fromProject: 'DOC'),
+              mode: WorkflowGitWorktreeMode.perMapItem,
+              externalArtifactMount: WorkflowGitExternalArtifactMount(
+                mode: WorkflowExternalArtifactMountMode.perStoryCopy,
+                fromProject: 'DOC',
+              ),
             ),
           ),
           steps: const [
@@ -2253,8 +2938,11 @@ steps:
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
             worktree: WorkflowGitWorktreeStrategy(
-              mode: 'per-map-item',
-              externalArtifactMount: WorkflowGitExternalArtifactMount(mode: 'bind-mount', fromProject: 'DOC'),
+              mode: WorkflowGitWorktreeMode.perMapItem,
+              externalArtifactMount: WorkflowGitExternalArtifactMount(
+                mode: WorkflowExternalArtifactMountMode.bindMount,
+                fromProject: 'DOC',
+              ),
             ),
           ),
           steps: const [
@@ -2271,9 +2959,9 @@ steps:
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
             worktree: WorkflowGitWorktreeStrategy(
-              mode: 'per-map-item',
+              mode: WorkflowGitWorktreeMode.perMapItem,
               externalArtifactMount: WorkflowGitExternalArtifactMount(
-                mode: 'per-story-copy',
+                mode: WorkflowExternalArtifactMountMode.perStoryCopy,
                 fromProject: 'DOC',
                 source: '{{map.item.spec_path}}',
               ),
@@ -2286,6 +2974,58 @@ steps:
         );
         final report = validator.validate(def);
         expect(report.errors.any((e) => e.message.contains('gitStrategy.worktree.externalArtifactMount')), isTrue);
+      });
+
+      test('TD-073: literal source with parallel map emits collision error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(
+              mode: WorkflowGitWorktreeMode.perMapItem,
+              externalArtifactMount: WorkflowGitExternalArtifactMount(
+                mode: WorkflowExternalArtifactMountMode.perStoryCopy,
+                fromProject: 'DOC',
+                source: 'dev/specs/plan.md', // literal – no {{}} – all iterations write same path
+              ),
+            ),
+          ),
+          steps: const [
+            WorkflowStep(id: 'impl', name: 'Impl', prompts: ['p'], mapOver: 'stories', maxParallel: 3),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.message.contains('literal path') && e.message.contains('plan.md')),
+          isTrue,
+          reason: 'validator should flag literal source with parallel map as collision risk',
+        );
+      });
+
+      test('TD-073: template source with parallel map passes validation', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(
+              mode: WorkflowGitWorktreeMode.perMapItem,
+              externalArtifactMount: WorkflowGitExternalArtifactMount(
+                mode: WorkflowExternalArtifactMountMode.perStoryCopy,
+                fromProject: 'DOC',
+                source: '{{map.item.spec_path}}', // template – varies per item – no collision
+              ),
+            ),
+          ),
+          steps: const [
+            WorkflowStep(id: 'impl', name: 'Impl', prompts: ['p'], mapOver: 'stories', maxParallel: 3),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.message.contains('literal path')),
+          isFalse,
+          reason: 'template source should not trigger the collision error',
+        );
       });
 
       test('stepDefaults ordering note is not emitted for non-overlapping literal and glob', () {
@@ -2335,7 +3075,7 @@ steps:
         ],
       );
 
-      // TI04 — BPC-17 row 1
+      // TI04 – BPC-17 row 1
       test('enabled:true with promotion:squash emits exact BPC-17 row 1 error', () {
         final def = mrDef(mergeResolve: const MergeResolveConfig(enabled: true), promotion: 'squash');
         final errors = validator.validate(def).errors;
@@ -2387,7 +3127,7 @@ steps:
         expect(errors.any((e) => e.message.contains('merge_resolve.enabled')), isFalse);
       });
 
-      // TI05 — BPC-17 row 2
+      // TI05 – BPC-17 row 2
       test('max_attempts:0 emits exact BPC-17 row 2 error', () {
         final def = mrDef(mergeResolve: const MergeResolveConfig(maxAttempts: 0));
         final errors = validator.validate(def).errors;
@@ -2422,7 +3162,7 @@ steps:
         expect(validator.validate(def).errors.any((e) => e.message.contains('max_attempts')), isFalse);
       });
 
-      // TI06 — BPC-17 row 3
+      // TI06 – BPC-17 row 3
       test('token_ceiling:9999 emits exact BPC-17 row 3 error', () {
         final def = mrDef(mergeResolve: const MergeResolveConfig(tokenCeiling: 9999));
         final errors = validator.validate(def).errors;
@@ -2459,7 +3199,7 @@ steps:
         expect(validator.validate(def).errors.any((e) => e.message.contains('token_ceiling')), isFalse);
       });
 
-      // TI07 — BPC-17 row 4
+      // TI07 – BPC-17 row 4
       test('escalation:pause emits exact BPC-17 row 4 error only', () {
         final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'escalation': 'pause'}));
         final errors = validator.validate(def).errors;
@@ -2502,7 +3242,7 @@ steps:
         expect(validator.validate(def).errors.any((e) => e.message.contains('escalation')), isFalse);
       });
 
-      // TI08 — BPC-17 row 5
+      // TI08 – BPC-17 row 5
       test('unknown top-level key emits exact BPC-17 row 5 error', () {
         final def = mrDef(mergeResolve: MergeResolveConfig.fromJson({'foo': 'bar'}));
         final errors = validator.validate(def).errors;
@@ -2535,7 +3275,7 @@ steps:
         expect(errors.where((e) => e.message.contains('under gitStrategy.merge_resolve')).length, 2);
       });
 
-      // TI09 — Backward compat: merge_resolve absent
+      // TI09 – Backward compat: merge_resolve absent
       test('definition with no merge_resolve produces zero new errors', () {
         final def = WorkflowDefinition(
           name: 'wf',

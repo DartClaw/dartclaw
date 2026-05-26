@@ -22,16 +22,22 @@ Future<StepHandoff> _dispatchActionNode(
     return handoff;
   }
 
-  if (step.type == 'approval') {
+  if (step.taskType == WorkflowTaskType.approval) {
     await dispatcher._executor._executeApprovalStep(preflight.run, step, context, stepIndex: stepIndex);
     return _approvalRetryingHandoff(step, context);
   }
 
+  final activeWorkspaceRoot = await dispatcher._executor._resolveActiveWorkspaceRoot(
+    preflight.run,
+    definition,
+    context,
+  );
   final outcome = await dispatcher._executor._executeStep(
     preflight.run,
     definition,
     step,
     context,
+    activeWorkspaceRoot: activeWorkspaceRoot,
     stepIndex: stepIndex,
   );
   if (outcome == null) {
@@ -62,11 +68,17 @@ Future<StepHandoff> _dispatchMapNode(
     return handoff;
   }
 
+  final activeWorkspaceRoot = await dispatcher._executor._resolveActiveWorkspaceRoot(
+    preflight.run,
+    definition,
+    context,
+  );
   final result = await dispatcher._executor._executeMapStep(
     preflight.run,
     definition,
     step,
     context,
+    activeWorkspaceRoot: activeWorkspaceRoot,
     stepIndex: stepIndex,
   );
   if (result == null) {
@@ -91,12 +103,18 @@ Future<StepHandoff> _dispatchForeachNode(
   }
 
   final stepById = {for (final step in definition.steps) step.id: step};
+  final activeWorkspaceRoot = await dispatcher._executor._resolveActiveWorkspaceRoot(
+    preflight.run,
+    definition,
+    context,
+  );
   final result = await dispatcher._executor._executeForeachStep(
     preflight.run,
     definition,
     controllerStep,
     childStepIds,
     context,
+    activeWorkspaceRoot: activeWorkspaceRoot,
     stepById: stepById,
     stepIndex: stepIndex,
   );
@@ -148,11 +166,17 @@ Future<StepHandoff> _dispatchParallelGroupNode(
     return handoff;
   }
 
+  final activeWorkspaceRoot = await dispatcher._executor._resolveActiveWorkspaceRoot(
+    budgetPreflight.run,
+    definition,
+    context,
+  );
   final results = await dispatcher._executor._executeParallelGroup(
     budgetPreflight.run,
     definition,
     filteredGroup,
     context,
+    activeWorkspaceRoot: activeWorkspaceRoot,
   );
   final outputs = {..._outputsFromContext(context), ..._parallelOutputs(results)};
   final failedSteps = results.where((result) => !result.success).toList(growable: false);
@@ -192,11 +216,13 @@ Future<StepHandoff> _dispatchLoopNode(
   final loop = definition.loops.firstWhere((candidate) => candidate.id == loopId);
   var updatedRun = run;
   final initialTokens = run.totalTokens;
+  final activeWorkspaceRoot = await dispatcher._executor._resolveActiveWorkspaceRoot(run, definition, context);
   final pausedOrCancelled = await dispatcher._executor._executeLoop(
     run,
     definition,
     loop,
     context,
+    activeWorkspaceRoot: activeWorkspaceRoot,
     onRunUpdated: (next) => updatedRun = next,
   );
   final finalRun = await dispatcher._executor._repository.getById(run.id) ?? updatedRun;

@@ -8,12 +8,14 @@ enum QueueStrategy {
   /// Drain queued messages in round-robin order across senders.
   fair;
 
+  /// Parses a [QueueStrategy] from its YAML string representation.
   static QueueStrategy? fromYaml(String value) => switch (value) {
     'fifo' => QueueStrategy.fifo,
     'fair' => QueueStrategy.fair,
     _ => null,
   };
 
+  /// String toYaml() => name;.
   String toYaml() => name;
 }
 
@@ -25,8 +27,10 @@ class CrowdCodingConfig {
   /// Default reasoning effort override for crowd coding turns, or `null` to use the global default.
   final String? effort;
 
+  /// const CrowdCodingConfig({this.model, this.effort});.
   const CrowdCodingConfig({this.model, this.effort});
 
+  /// Creates a [CrowdCodingConfig.defaults] value.
   const CrowdCodingConfig.defaults() : this();
 
   @override

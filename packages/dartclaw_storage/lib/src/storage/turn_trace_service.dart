@@ -11,6 +11,7 @@ import 'package:sqlite3/sqlite3.dart';
 class TurnTraceService {
   final Database _db;
 
+  /// Creates the service against [_db] and initializes its schema.
   TurnTraceService(this._db) {
     _initSchema();
   }
@@ -209,6 +210,7 @@ class TurnTraceService {
     }
   }
 
+  /// Releases service-owned resources; the database lifecycle is the caller's.
   Future<void> dispose() async {
     // No-op — db lifecycle managed by caller.
   }
@@ -246,10 +248,15 @@ class TurnTraceService {
 
 /// Result of a trace query: traces + summary aggregates.
 class TraceQueryResult {
+  /// Individual turn traces matching the query.
   final List<TurnTrace> traces;
+
+  /// Aggregate summary across [traces].
   final TurnTraceSummary summary;
 
+  /// Creates a query result from [traces] and their [summary].
   const TraceQueryResult({required this.traces, required this.summary});
 
+  /// Serializes this result to a JSON-ready map.
   Map<String, dynamic> toJson() => {'traces': traces.map((t) => t.toJson()).toList(), 'summary': summary.toJson()};
 }

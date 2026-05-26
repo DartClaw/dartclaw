@@ -4,14 +4,28 @@ import 'history_config.dart';
 
 /// Configuration for the agent subsystem.
 class AgentConfig {
+  /// provider.
   final String provider;
+
+  /// model.
   final String? model;
+
+  /// effort.
   final String? effort;
+
+  /// maxTurns.
   final int? maxTurns;
+
+  /// disallowedTools.
   final List<String> disallowedTools;
+
+  /// definitions.
   final List<AgentDefinition> definitions;
+
+  /// history.
   final HistoryConfig history;
 
+  /// Creates a [AgentConfig] value.
   const AgentConfig({
     this.provider = 'claude',
     this.model,

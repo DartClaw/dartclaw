@@ -1,6 +1,6 @@
 import '../events/dartclaw_event.dart';
 import '../events/event_bus.dart';
-import '../governance/sliding_window_rate_limiter.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show SlidingWindowRateLimiter;
 import 'channel.dart';
 import 'recipient_resolver.dart';
 import 'review_command_dispatcher.dart';

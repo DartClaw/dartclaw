@@ -4,6 +4,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         OutputConfig,
@@ -33,6 +35,16 @@ void main() {
         final command = resolveBashCommand('echo {{MSG}}', context);
 
         expect(command, equals("echo 'hello world'"));
+      });
+
+      test('shell-escapes workflow system substitutions', () {
+        final context = WorkflowContext(
+          data: {},
+          systemVariables: const {'workflow.runtime_artifacts_dir': '/tmp/runtime artifacts'},
+        );
+        final command = resolveBashCommand('ls {{workflow.runtime_artifacts_dir}}', context);
+
+        expect(command, equals("ls '/tmp/runtime artifacts'"));
       });
 
       test('escapes malicious {{context.key}} value', () {
@@ -108,7 +120,7 @@ void main() {
     test('bash step runs command and completes with zero tokens and no task', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['echo hello']),
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: WorkflowTaskType.bash, prompts: ['echo hello']),
         ],
       );
 
@@ -134,7 +146,7 @@ void main() {
     test('bash step sets status=success and exitCode=0 in context', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['echo ok']),
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: WorkflowTaskType.bash, prompts: ['echo ok']),
         ],
       );
 
@@ -155,7 +167,7 @@ void main() {
           const WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: ['printf "captured output"'],
             outputs: {'bash1.out': OutputConfig()},
           ),
@@ -177,7 +189,7 @@ void main() {
           const WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: ['printf \'{"key":"value"}\''],
             outputs: {'result': OutputConfig(format: OutputFormat.json)},
           ),
@@ -201,7 +213,7 @@ void main() {
           const WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: ['printf "a\\nb\\nc"'],
             outputs: {'lines': OutputConfig(format: OutputFormat.lines)},
           ),
@@ -222,7 +234,7 @@ void main() {
     test('bash step with non-zero exit pauses workflow by default', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['exit 1']),
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: WorkflowTaskType.bash, prompts: ['exit 1']),
         ],
       );
 
@@ -239,7 +251,13 @@ void main() {
     test('bash step with onError: continue records failure and proceeds', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['exit 42'], onError: 'continue'),
+          const WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: WorkflowTaskType.bash,
+            prompts: ['exit 42'],
+            onError: 'continue',
+          ),
           const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
         ],
       );
@@ -269,7 +287,7 @@ void main() {
           WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: const ['pwd'],
             workdir: h.tempDir.path,
             outputs: const {'cwd': OutputConfig()},
@@ -291,7 +309,13 @@ void main() {
     test('bash step rejects workdir templates that reference context values', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['pwd'], workdir: '{{context.dir}}'),
+          const WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: WorkflowTaskType.bash,
+            prompts: ['pwd'],
+            workdir: '{{context.dir}}',
+          ),
         ],
       );
 
@@ -313,7 +337,13 @@ void main() {
       });
       final definition = h.makeDefinition(
         steps: [
-          WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: const ['pwd'], workdir: outside.path),
+          WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: WorkflowTaskType.bash,
+            prompts: const ['pwd'],
+            workdir: outside.path,
+          ),
         ],
       );
 
@@ -346,7 +376,7 @@ void main() {
           const WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: [
               r'printf "%s|%s|%s|%s" "${ANTHROPIC_API_KEY:-missing}" "${GITHUB_TOKEN:-missing}" "${CUSTOM_SECRET:-missing}" "${CUSTOM_ALLOWED:-missing}"',
             ],
@@ -370,7 +400,7 @@ void main() {
           const WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: ['echo x'],
             workdir: '/non/existent/dir/12345',
           ),
@@ -390,7 +420,13 @@ void main() {
     test('bash step timeout pauses workflow', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['sleep 10'], timeoutSeconds: 1),
+          const WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: WorkflowTaskType.bash,
+            prompts: ['sleep 10'],
+            timeoutSeconds: 1,
+          ),
         ],
       );
 
@@ -411,7 +447,7 @@ void main() {
           WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: ['sleep 2; echo late > "$outputFile"'],
             timeoutSeconds: 1,
           ),
@@ -434,7 +470,7 @@ void main() {
           WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: ['(sleep 2; echo late > "$outputFile") & wait'],
             timeoutSeconds: 1,
           ),
@@ -456,7 +492,7 @@ void main() {
           const WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: ['yes x | head -c 70000'],
             outputs: {'out': OutputConfig()},
           ),
@@ -481,7 +517,7 @@ void main() {
           const WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: ['printf ""'],
             outputs: {'result': OutputConfig(format: OutputFormat.json)},
           ),
@@ -504,7 +540,7 @@ void main() {
           const WorkflowStep(
             id: 'bash1',
             name: 'Bash 1',
-            type: 'bash',
+            type: WorkflowTaskType.bash,
             prompts: ['echo SAFE {{context.val}}'],
             outputs: {'out': OutputConfig()},
           ),

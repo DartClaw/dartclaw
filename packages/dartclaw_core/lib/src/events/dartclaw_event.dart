@@ -1,4 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show ProjectStatus, WorkflowRunStatus;
+import 'package:dartclaw_config/dartclaw_config.dart' show ProjectStatus, WorkflowRunStatus;
 
 import '../task/task_status.dart';
 

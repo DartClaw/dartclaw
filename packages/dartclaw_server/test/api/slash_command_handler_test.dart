@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -25,7 +25,6 @@ void main() {
     handler = SlashCommandHandler(
       taskService: tasks,
       sessionService: sessions,
-      eventBus: eventBus,
       channelManager: channelManager,
       onEmergencyStop: (stoppedBy) async {
         emergencyStopCalls++;
@@ -97,7 +96,6 @@ void main() {
     handler = SlashCommandHandler(
       taskService: tasks,
       sessionService: sessions,
-      eventBus: eventBus,
       channelManager: channelManager,
       onEmergencyStop: (stoppedBy) async {
         emergencyStopCalls++;
@@ -124,7 +122,6 @@ void main() {
     handler = SlashCommandHandler(
       taskService: tasks,
       sessionService: sessions,
-      eventBus: eventBus,
       channelManager: channelManager,
       defaultTaskType: 'writing',
       autoStartTasks: false,

@@ -1,17 +1,39 @@
 /// Configuration for the server subsystem.
 class ServerConfig {
+  /// port.
   final int port;
+
+  /// host.
   final String host;
+
+  /// name.
   final String name;
+
+  /// dataDir.
   final String dataDir;
+
+  /// baseUrl.
   final String? baseUrl;
+
+  /// workerTimeout.
   final int workerTimeout;
+
+  /// claudeExecutable.
   final String claudeExecutable;
+
+  /// staticDir.
   final String staticDir;
+
+  /// templatesDir.
   final String templatesDir;
+
+  /// devMode.
   final bool devMode;
+
+  /// maxParallelTurns.
   final int maxParallelTurns;
 
+  /// Creates a [ServerConfig] value.
   const ServerConfig({
     this.port = 3333,
     this.host = 'localhost',

@@ -1,5 +1,5 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
 import 'package:logging/logging.dart';
 
 /// Handles reserved channel commands: `/stop`, `/pause`, `/resume`, `/bind`, `/unbind`.

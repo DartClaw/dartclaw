@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -79,33 +79,23 @@ final class ScenarioTaskHarness {
     WorktreeManager? worktreeManager,
     Duration pollInterval = const Duration(milliseconds: 10),
   }) {
-    final namedArgs = <Symbol, dynamic>{
-      #tasks: tasks,
-      #sessions: sessions,
-      #messages: messages,
-      #turns: turns,
-      #artifactCollector: collector,
-      #workflowRunRepository: workflowRuns,
-      #workflowStepExecutionRepository: workflowStepExecutions,
-      #kvService: kvService,
-      #pollInterval: pollInterval,
-    };
-    if (onAutoAccept != null) {
-      namedArgs[#onAutoAccept] = onAutoAccept;
-    }
-    if (projectService != null) {
-      namedArgs[#projectService] = projectService;
-    }
-    if (workflowCliRunner != null) {
-      namedArgs[#workflowCliRunner] = workflowCliRunner;
-    }
-    if (eventRecorder != null) {
-      namedArgs[#eventRecorder] = eventRecorder;
-    }
-    if (worktreeManager != null) {
-      namedArgs[#worktreeManager] = worktreeManager;
-    }
-    return Function.apply(TaskExecutor.new, const [], namedArgs) as TaskExecutor;
+    return TaskExecutor(
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowRunRepository: workflowRuns,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        kvService: kvService,
+        eventRecorder: eventRecorder,
+        worktreeManager: worktreeManager,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: workflowCliRunner),
+      onAutoAccept: onAutoAccept,
+      pollInterval: pollInterval,
+    );
   }
 
   /// Direct access to the scripted worker so component tests can `enqueue`
@@ -152,6 +142,19 @@ final class ScenarioTaskHarness {
       file.writeAsStringSync(content);
     };
   }
+
+  String createTempProjectRoot(String name) {
+    final directory = Directory(p.join(tempDir.path, name))..createSync(recursive: true);
+    return directory.path;
+  }
+
+  void writeProjectFile(String projectRoot, String relativePath, String content) {
+    final file = File(p.join(projectRoot, relativePath));
+    file.parent.createSync(recursive: true);
+    file.writeAsStringSync(content);
+  }
+
+  String readRepoFile(String relativePath) => File(p.join(_scenarioRepoRoot(), relativePath)).readAsStringSync();
 
   StepExecutionContext buildExecutionContext({
     required WorkflowRun run,
@@ -294,6 +297,21 @@ final class ScenarioTaskHarness {
   Future<Map<String, dynamic>> readSessionKeyIndex() async {
     final raw = await File('$sessionsDir/.session_keys.json').readAsString();
     return jsonDecode(raw) as Map<String, dynamic>;
+  }
+}
+
+String _scenarioRepoRoot() {
+  var current = Directory.current;
+  while (true) {
+    if (File(p.join(current.path, 'AGENTS.md')).existsSync() &&
+        Directory(p.join(current.path, 'packages', 'dartclaw_workflow')).existsSync()) {
+      return current.path;
+    }
+    final parent = current.parent;
+    if (parent.path == current.path) {
+      throw StateError('Could not locate repository root');
+    }
+    current = parent;
   }
 }
 

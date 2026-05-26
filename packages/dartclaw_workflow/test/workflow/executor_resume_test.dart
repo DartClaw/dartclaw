@@ -6,6 +6,8 @@ library;
 
 import 'dart:async';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         OnFailurePolicy,
@@ -221,8 +223,20 @@ void main() {
     test('hybrid in-process steps execute through shared dispatcher without creating tasks', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(id: 'bash-a', name: 'Bash A', type: 'bash', prompts: ['printf A'], parallel: true),
-          const WorkflowStep(id: 'bash-b', name: 'Bash B', type: 'bash', prompts: ['printf B'], parallel: true),
+          const WorkflowStep(
+            id: 'bash-a',
+            name: 'Bash A',
+            type: WorkflowTaskType.bash,
+            prompts: ['printf A'],
+            parallel: true,
+          ),
+          const WorkflowStep(
+            id: 'bash-b',
+            name: 'Bash B',
+            type: WorkflowTaskType.bash,
+            prompts: ['printf B'],
+            parallel: true,
+          ),
         ],
       );
 

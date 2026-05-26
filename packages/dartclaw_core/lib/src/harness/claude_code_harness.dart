@@ -13,6 +13,7 @@ import '../worker/worker_state.dart';
 import 'agent_harness.dart';
 import 'base_harness.dart';
 import 'base_protocol_adapter.dart';
+import 'claude_settings_builder.dart';
 import 'claude_protocol_adapter.dart';
 import 'claude_protocol.dart';
 import 'conversation_history.dart';
@@ -123,13 +124,12 @@ class ClaudeCodeHarness extends BaseHarness {
   /// Completer for the initialize handshake response.
   Completer<Map<String, dynamic>>? _initCompleter;
 
-  // ignore: use_super_parameters
   ClaudeCodeHarness({
     this.claudeExecutable = 'claude',
-    required String cwd,
-    Duration turnTimeout = const Duration(seconds: 600),
-    int maxRetries = 5,
-    Duration baseBackoff = const Duration(seconds: 5),
+    required super.cwd,
+    super.turnTimeout = const Duration(seconds: 600),
+    super.maxRetries = 5,
+    super.baseBackoff = const Duration(seconds: 5),
     ProcessFactory? processFactory,
     CommandProbe? commandProbe,
     DelayFactory? delayFactory,
@@ -142,7 +142,7 @@ class ClaudeCodeHarness extends BaseHarness {
     this.onMemorySearch,
     this.onMemoryRead,
     this.onPermissionDenied,
-    HarnessConfig harnessConfig = const HarnessConfig(),
+    super.harnessConfig = const HarnessConfig(),
     this.historyConfig = const HistoryConfig.defaults(),
     this.containerManager,
     ClaudeProtocolAdapter? protocolAdapter,
@@ -153,14 +153,9 @@ class ClaudeCodeHarness extends BaseHarness {
        _killGracePeriod = killGracePeriod,
        super(
          log: _log,
-         cwd: cwd,
-         turnTimeout: turnTimeout,
-         maxRetries: maxRetries,
-         baseBackoff: baseBackoff,
          processFactory: processFactory ?? Process.start,
          commandProbe: commandProbe ?? Process.run,
          delayFactory: delayFactory ?? ((d) => Future<void>.delayed(d)),
-         harnessConfig: harnessConfig,
        ) {
     _processWorkingDirectory = cwd;
     _hostProcessWorkingDirectory = cwd;
@@ -446,8 +441,12 @@ class ClaudeCodeHarness extends BaseHarness {
     }
 
     // Spawn claude process: containerized or direct.
-    final nativePermissionMode = _permissionModeOption();
-    final nativeSettings = _settingsOption();
+    final nativePermissionMode = ClaudeSettingsBuilder.buildPermissionMode(providerOptions);
+    final nativeSettings = ClaudeSettingsBuilder.buildSettings(
+      providerOptions,
+      containerManager: containerManager,
+      hostWorkingDirectory: _hostProcessWorkingDirectory,
+    );
     final args = _buildClaudeArgs(
       model: _processModel ?? harnessConfig.model,
       effort: _processEffort ?? harnessConfig.effort,
@@ -533,144 +532,11 @@ class ClaudeCodeHarness extends BaseHarness {
   int? _resolveMaxTurns(int? override) => override ?? harnessConfig.maxTurns;
 
   bool get _nativePermissionsSkipped {
-    final permissionMode = _permissionModeOption();
+    final permissionMode = ClaudeSettingsBuilder.buildPermissionMode(providerOptions);
     if (permissionMode != null) {
       return permissionMode == 'bypassPermissions' || permissionMode == 'dontAsk';
     }
     return containerManager?.profileId != 'restricted';
-  }
-
-  String? _permissionModeOption() {
-    final raw = providerOptions['permissionMode'];
-    if (raw == null) return null;
-    if (raw is! String) {
-      throw StateError('Unsupported Claude permissionMode "${raw.runtimeType}"');
-    }
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) return null;
-    const allowed = {'acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'};
-    if (!allowed.contains(trimmed)) {
-      throw StateError('Unsupported Claude permissionMode "$trimmed"');
-    }
-    return trimmed;
-  }
-
-  String? _settingsOption() {
-    final settings = <String, dynamic>{};
-
-    final baseSettings = providerOptions['settings'];
-    switch (baseSettings) {
-      case null:
-        break;
-      case final String raw:
-        final trimmed = raw.trim();
-        if (trimmed.isEmpty) {
-          break;
-        }
-        if (!providerOptions.containsKey('sandbox') && !providerOptions.containsKey('permissions')) {
-          final cm = containerManager;
-          if (cm != null) {
-            try {
-              jsonDecode(trimmed);
-            } on FormatException {
-              final hostPath = p.isAbsolute(trimmed)
-                  ? trimmed
-                  : p.normalize(p.join(_hostProcessWorkingDirectory, trimmed));
-              final translated = cm.containerPathForHostPath(hostPath);
-              if (translated == null) {
-                throw StateError('Claude settings path is not mounted in the container: $hostPath');
-              }
-              return translated;
-            }
-          }
-          return trimmed;
-        }
-        if (providerOptions.containsKey('sandbox') || providerOptions.containsKey('permissions')) {
-          try {
-            final decoded = jsonDecode(trimmed);
-            if (decoded is Map<String, dynamic>) {
-              settings.addAll(decoded);
-              break;
-            }
-            if (decoded is Map<dynamic, dynamic>) {
-              settings.addAll(_stringifyDynamicMap(decoded));
-              break;
-            }
-            _log.warning(
-              'Claude provider options include raw "settings" plus structured "sandbox"/"permissions", '
-              'but the raw settings JSON is not an object; structured settings are ignored.',
-            );
-            return trimmed;
-          } on FormatException {
-            final cm = containerManager;
-            if (cm != null) {
-              final hostPath = p.isAbsolute(trimmed)
-                  ? trimmed
-                  : p.normalize(p.join(_hostProcessWorkingDirectory, trimmed));
-              final translated = cm.containerPathForHostPath(hostPath);
-              if (translated == null) {
-                throw StateError('Claude settings path is not mounted in the container: $hostPath');
-              }
-              _log.warning(
-                'Claude provider options include settings path "$trimmed" plus structured '
-                '"sandbox"/"permissions"; structured settings are ignored for path-based settings.',
-              );
-              return translated;
-            }
-            _log.warning(
-              'Claude provider options include settings path "$trimmed" plus structured '
-              '"sandbox"/"permissions"; structured settings are ignored for path-based settings.',
-            );
-            return trimmed;
-          }
-        }
-        return trimmed;
-      case final Map<dynamic, dynamic> rawMap:
-        settings.addAll(_stringifyDynamicMap(rawMap));
-      default:
-        _log.warning('Ignoring unsupported Claude settings option type: ${baseSettings.runtimeType}');
-    }
-
-    final sandbox = providerOptions['sandbox'];
-    if (sandbox is Map<dynamic, dynamic>) {
-      _deepMergeInto(settings, {'sandbox': _stringifyDynamicMap(sandbox)});
-    } else if (sandbox != null) {
-      _log.warning('Ignoring unsupported Claude sandbox option type: ${sandbox.runtimeType}');
-    }
-
-    final permissions = providerOptions['permissions'];
-    if (permissions is Map<dynamic, dynamic>) {
-      _deepMergeInto(settings, {'permissions': _stringifyDynamicMap(permissions)});
-    } else if (permissions != null) {
-      _log.warning('Ignoring unsupported Claude permissions option type: ${permissions.runtimeType}');
-    }
-
-    if (settings.isEmpty) return null;
-    return jsonEncode(settings);
-  }
-
-  static Map<String, dynamic> _stringifyDynamicMap(Map<dynamic, dynamic> source) {
-    return source.map((key, value) {
-      final normalizedValue = switch (value) {
-        final Map<dynamic, dynamic> nested => _stringifyDynamicMap(nested),
-        final List<dynamic> list =>
-          list.map((item) => item is Map<dynamic, dynamic> ? _stringifyDynamicMap(item) : item).toList(growable: false),
-        _ => value,
-      };
-      return MapEntry(key.toString(), normalizedValue);
-    });
-  }
-
-  static void _deepMergeInto(Map<String, dynamic> target, Map<String, dynamic> overlay) {
-    for (final entry in overlay.entries) {
-      final existing = target[entry.key];
-      final incoming = entry.value;
-      if (existing is Map<String, dynamic> && incoming is Map<String, dynamic>) {
-        _deepMergeInto(existing, incoming);
-      } else {
-        target[entry.key] = incoming;
-      }
-    }
   }
 
   Future<void> _restartForExecution({

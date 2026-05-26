@@ -26,14 +26,15 @@ WorkflowDefinition _parseDefinition(String yaml) => WorkflowDefinitionParser().p
 Future<StreamSubscription<TaskStatusChangedEvent>> _completeQueuedTasks(
   ScenarioTaskHarness harness, {
   required FutureOr<String> Function(int index, String taskId) assistantMessageFor,
+  Map<String, dynamic>? worktreeJson,
 }) async {
   var queueIndex = 0;
   return harness.eventBus.on<TaskStatusChangedEvent>().where((event) => event.newStatus == TaskStatus.queued).listen((
     event,
   ) async {
     final message = await assistantMessageFor(queueIndex++, event.taskId);
-    final session = await harness.sessions.getOrCreateMain();
-    await harness.tasks.updateFields(event.taskId, sessionId: session.id);
+    final session = await harness.sessions.getOrCreateMainSession();
+    await harness.tasks.updateFields(event.taskId, sessionId: session.id, worktreeJson: worktreeJson);
     await harness.messages.insertMessage(sessionId: session.id, role: 'assistant', content: message);
     try {
       await harness.tasks.transition(event.taskId, TaskStatus.running, trigger: 'test');
@@ -61,24 +62,27 @@ void main() {
         WorkflowStep(
           id: 'plan',
           name: 'Plan',
-          type: 'coding',
+          type: WorkflowTaskType.agent,
           prompts: ['Plan the work'],
-          outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs')},
+          outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs')},
         ),
       ],
     );
-    final run = _makeRun(definition);
-    final context = WorkflowContext(
-      data: {
-        'project_index': {'project_root': harness.tempDir.path},
-      },
+    final run = _makeRun(definition).copyWith(
+      workflowWorktree: WorkflowWorktreeBinding(
+        key: 'run-worktree',
+        path: harness.tempDir.path,
+        branch: 'test',
+        workflowRunId: 'run-worktree',
+      ),
     );
+    final context = WorkflowContext(data: const {});
     await harness.workflowRuns.insert(run);
 
     final completionSub = await _completeQueuedTasks(
       harness,
       assistantMessageFor: (_, _) =>
-          'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","dependencies":[],"spec_path":"fis/a.md"},{"id":"S02","title":"Two","dependencies":["S01"],"spec_path":"fis/b.md"}]}}</workflow-context>',
+          'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","dependencies":[],"spec_path":"fis/s01-a.md"},{"id":"S02","title":"Two","dependencies":["S01"],"spec_path":"fis/s02-b.md"}]}}</workflow-context>',
     );
     addTearDown(completionSub.cancel);
 
@@ -88,7 +92,7 @@ void main() {
     );
 
     expect(handoff, isA<StepHandoffValidationFailed>());
-    expect(handoff.validationFailure?.missingPaths, ['fis/a.md', 'fis/b.md']);
+    expect(handoff.validationFailure?.missingPaths, ['fis/s01-a.md', 'fis/s02-b.md']);
     expect(handoff.outputs.keys.where((key) => key.startsWith('_dartclaw.internal')), isEmpty);
   });
 
@@ -103,18 +107,14 @@ void main() {
         WorkflowStep(
           id: 'plan',
           name: 'Plan',
-          type: 'coding',
+          type: WorkflowTaskType.agent,
           prompts: ['Plan the work'],
-          outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs')},
+          outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs')},
         ),
       ],
     );
     final run = _makeRun(definition);
-    final context = WorkflowContext(
-      data: {
-        'project_index': {'project_root': harness.tempDir.path},
-      },
-    );
+    final context = WorkflowContext(data: const {});
     await harness.workflowRuns.insert(run);
 
     final completionSub = await _completeQueuedTasks(
@@ -145,7 +145,7 @@ void main() {
         WorkflowStep(
           id: 'implement',
           name: 'Implement',
-          type: 'coding',
+          type: WorkflowTaskType.agent,
           prompts: ['Implement {{map.item.id}}'],
           mapOver: 'stories',
           maxParallel: 1,
@@ -177,6 +177,8 @@ void main() {
     expect(handoff, isA<StepHandoffSuccess>());
     expect(handoff.validationFailure, isNull);
     expect(handoff.outputs['story_result'], ['ok-S01']);
+    final tasks = await harness.tasks.list();
+    expect(tasks.single.configJson['displayScope'], 'S01');
   });
 
   test('dispatchStep preserves approval outcome metadata', () async {
@@ -187,7 +189,7 @@ void main() {
       name: 'approval-dispatch',
       description: 'Approval step dispatch test',
       steps: [
-        WorkflowStep(id: 'approve', name: 'Approve', type: 'approval', prompts: ['Approve the change']),
+        WorkflowStep(id: 'approve', name: 'Approve', type: WorkflowTaskType.approval, prompts: ['Approve the change']),
       ],
     );
     final run = _makeRun(definition);
@@ -206,59 +208,6 @@ void main() {
     expect(retrying.outputs['approve.approval.status'], 'pending');
   });
 
-  test('dispatchStep treats valid discover-project output as success despite needsInput outcome', () async {
-    final harness = await ScenarioTaskHarness.create();
-    addTearDown(harness.dispose);
-
-    final definition = const WorkflowDefinition(
-      name: 'discover-contract',
-      description: 'Discover step contract test',
-      steps: [
-        WorkflowStep(
-          id: 'discover-project',
-          name: 'Discover Project',
-          type: 'coding',
-          skill: 'dartclaw-discover-project',
-          prompts: ['Discover'],
-          outputs: {
-            'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-            'prd': OutputConfig(format: OutputFormat.path),
-            'plan': OutputConfig(format: OutputFormat.path),
-            'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
-          },
-        ),
-      ],
-    );
-    final run = _makeRun(definition);
-    await harness.workflowRuns.insert(run);
-
-    final completionSub = await _completeQueuedTasks(
-      harness,
-      assistantMessageFor: (_, _) =>
-          'Done.\n\n'
-          '<workflow-context>{"project_index":{"framework":"andthen","project_root":"${harness.tempDir.path}","active_prd":"docs/specs/future/prd.md","active_plan":"docs/specs/future/plan.md","active_story_specs":{"items":[{"id":"S01","title":"Future","dependencies":[],"spec_path":"docs/specs/future/s01.md"}]}},"prd":"docs/specs/future/prd.md","plan":"docs/specs/future/plan.md","story_specs":{"items":[{"id":"S01","title":"Future","dependencies":[],"spec_path":"docs/specs/future/s01.md"}]}}</workflow-context>'
-          '<step-outcome>{"outcome":"needsInput","reason":"read-only discovery step could not implement"}</step-outcome>',
-    );
-    addTearDown(completionSub.cancel);
-
-    final handoff = await dispatchStep(
-      definition.nodes.single,
-      harness.buildExecutionContext(run: run, definition: definition, workflowContext: WorkflowContext()),
-    );
-
-    expect(handoff, isA<StepHandoffSuccess>());
-    final success = handoff as StepHandoffSuccess;
-    expect(success.outcome?.success, isTrue);
-    expect(success.outcome?.outcome, 'succeeded');
-    final projectIndex = success.outputs['project_index'] as Map<String, dynamic>;
-    expect(projectIndex['active_prd'], isNull);
-    expect(projectIndex['active_plan'], isNull);
-    expect(projectIndex['active_story_specs'], isNull);
-    expect(success.outputs['prd'], isEmpty);
-    expect(success.outputs['plan'], isEmpty);
-    expect(success.outputs['story_specs'], {'items': <Map<String, dynamic>>[]});
-  });
-
   test('dispatchStep skips map nodes when entryGate fails before queueing work', () async {
     final harness = await ScenarioTaskHarness.create();
     addTearDown(harness.dispose);
@@ -270,7 +219,7 @@ void main() {
         WorkflowStep(
           id: 'implement',
           name: 'Implement',
-          type: 'coding',
+          type: WorkflowTaskType.agent,
           prompts: ['Implement {{map.item.id}}'],
           mapOver: 'stories',
           maxParallel: 1,
@@ -319,12 +268,12 @@ void main() {
         WorkflowStep(
           id: 'p1',
           name: 'P1',
-          type: 'coding',
+          type: WorkflowTaskType.agent,
           prompts: ['Do p1'],
           parallel: true,
           gate: 'allow_parallel == true',
         ),
-        WorkflowStep(id: 'p2', name: 'P2', type: 'coding', prompts: ['Do p2'], parallel: true),
+        WorkflowStep(id: 'p2', name: 'P2', type: WorkflowTaskType.agent, prompts: ['Do p2'], parallel: true),
       ],
     );
     final run = _makeRun(definition);
@@ -364,7 +313,7 @@ steps:
     steps:
       - id: implement
         name: Implement
-        type: coding
+        type: agent
         prompt: Implement {{map.item.id}}
 ''');
     final run = _makeRun(definition).copyWith(totalTokens: 2);
@@ -438,7 +387,7 @@ steps:
         WorkflowStep(
           id: 'gated',
           name: 'Gated',
-          type: 'coding',
+          type: WorkflowTaskType.agent,
           prompts: ['Will not run'],
           entryGate: 'run_gated == true',
           outputs: {'gate_state': OutputConfig(setValue: 'fired')},
@@ -478,7 +427,7 @@ steps:
         WorkflowStep(
           id: 'failing',
           name: 'Failing',
-          type: 'coding',
+          type: WorkflowTaskType.agent,
           prompts: ['Will fail'],
           outputs: {'gate_state': OutputConfig(setValue: 'fired')},
         ),

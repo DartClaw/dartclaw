@@ -77,7 +77,7 @@ Future<String> _resolveBinPath() async {
         return resolved.split('\n').first.trim();
       }
     }
-  } catch (_) {}
+  } catch (_) {} // `which`/`where` not available — fall back to plain 'dartclaw'.
   return 'dartclaw';
 }
 

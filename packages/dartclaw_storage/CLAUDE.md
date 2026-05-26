@@ -12,7 +12,7 @@
 - **Memory pruning** — `MemoryPruner` (operates on `MEMORY.md` + `MEMORY.archive.md` in the workspace dir; undated entries are intentionally never archived nor deduped).
 
 ## Boundaries
-- Allowed deps: `dartclaw_core` only (workspace), plus `sqlite3`, `logging`, `path`. **Don't** depend on `dartclaw_workflow`, `dartclaw_server`, `dartclaw_security`, or `dartclaw_config` (config dep is dev-only).
+- Allowed deps: `dartclaw_core`, `dartclaw_workflow` (for `WorkflowRun`/`WorkflowRunRepository` and related types), plus `sqlite3`, `logging`, `path`. **Don't** depend on `dartclaw_server`, `dartclaw_security`, or `dartclaw_config` (config dep is dev-only).
 - This is the **only** workspace package allowed to import `package:sqlite3` aside from `dartclaw_server` (and the umbrella). If you need an SQLite-backed entity, the contract goes in `dartclaw_core` (`src/task/`, `src/execution/`, `src/search/`) and the impl lands here.
 - No HTTP, no process spawning, no event firing. This package is a persistence layer — events are fired by the wiring layer in `dartclaw_server`.
 - Don't expose raw `Database` from public methods. Repositories take `Database` in their constructor and own statement lifecycle internally.

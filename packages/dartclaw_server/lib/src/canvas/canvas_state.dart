@@ -1,5 +1,6 @@
 import 'package:meta/meta.dart';
 
+/// Identifies the permission level granted by a canvas share token.
 enum CanvasPermission {
   view,
   interact;
@@ -15,6 +16,7 @@ enum CanvasPermission {
   }
 }
 
+/// Represents a time-limited token that grants access to a canvas session.
 @immutable
 class CanvasShareToken {
   final String token;
@@ -104,6 +106,7 @@ class CanvasShareToken {
   }
 }
 
+/// Captures the current rendered HTML, visibility, and active share tokens for a canvas.
 @immutable
 class CanvasState {
   final String? currentHtml;

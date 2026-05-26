@@ -42,7 +42,7 @@ class InMemorySessionService implements SessionService {
   }
 
   @override
-  Future<Session> getOrCreateMain() {
+  Future<Session> getOrCreateMainSession() {
     return getOrCreateByKey('main', type: SessionType.main);
   }
 

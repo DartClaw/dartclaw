@@ -2,9 +2,9 @@
 
 Minimal DartClaw SDK example that asks one question, streams the answer, and exits.
 
-This example currently uses `dependency_overrides` that point at local workspace packages. Once DartClaw 0.9.0 is published to pub.dev, replace those local overrides with normal package dependencies.
+This example uses `dependency_overrides` that point at local workspace packages because the SDK is still name-squatted on pub.dev as `0.0.1-dev.1` (see ADR-008 — private repo: `docs/adrs/008-sdk-publishing-strategy.md`). Once the SDK packages are actually published, replace the overrides with normal package dependencies.
 
-Prerequisites: Dart SDK 3.11+, `claude` in `PATH`, and either `ANTHROPIC_API_KEY` or an existing Claude CLI login.
+Prerequisites: Dart SDK 3.12+, `claude` in `PATH`, and either `ANTHROPIC_API_KEY` or an existing Claude CLI login.
 
 ```bash
 cd examples/sdk/single_turn_cli

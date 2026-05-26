@@ -13,7 +13,7 @@ operational commands used to inspect, maintain, and deploy a DartClaw runtime.
 
 - Building a complete CLI app on top of the DartClaw SDK packages.
 - Starting the reference server with `serve`.
-- Operational commands such as `status`, `sessions`, `token`, `deploy`, and `rebuild-index`.
+- Top-level command families covered: `init`, `serve`, `service` (install/start/stop/uninstall), `status`, `agents`, `config`, `jobs`, `projects`, `sessions`, `tasks`, `traces`, `workflow` (run/runs/pause/resume/cancel/status/validate/show), `deploy`, `rebuild-index`, `token`, `google-auth`. See [`cli-reference.md`](../../docs/guide/cli-reference.md) for the full surface.
 - Wiring workspace configuration, storage, and channels into executable tooling.
 
 ## Getting Started
@@ -37,6 +37,7 @@ Use `dart run dartclaw_cli:dartclaw --help` to inspect the full command set.
 
 ## Documentation
 
+- [CLI Reference](../../docs/guide/cli-reference.md) — full command surface with flags and examples
 - [API Reference](https://pub.dev/documentation/dartclaw_cli/latest/)
 - [User Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/guide)
 - [Repository](https://github.com/DartClaw/dartclaw/tree/main/apps/dartclaw_cli)

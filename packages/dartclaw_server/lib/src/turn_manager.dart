@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' as core;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    hide TurnManager, HarnessPool, TurnRunner, TurnOutcome, TurnStatus, BusyTurnException;
 import 'package:logging/logging.dart';
 
 import 'behavior/behavior_file_service.dart';
@@ -15,11 +17,12 @@ import 'session/session_reset_service.dart';
 import 'turn_runner.dart';
 
 // ---------------------------------------------------------------------------
-// Data types
+// Data types (re-exported from dartclaw_core for local convenience)
 // ---------------------------------------------------------------------------
 
-/// Outcome status of a completed turn.
-enum TurnStatus { completed, failed, cancelled }
+typedef TurnStatus = core.TurnStatus;
+typedef TurnOutcome = core.TurnOutcome;
+typedef BusyTurnException = core.BusyTurnException;
 
 /// Metadata for an in-flight agent turn.
 class TurnContext {
@@ -66,66 +69,6 @@ class TurnContext {
   });
 }
 
-/// Result of a completed turn including status and optional error.
-class TurnOutcome {
-  final String turnId;
-  final String sessionId;
-  final TurnStatus status;
-  final String? errorMessage; // non-null when failed
-  final String? responseText; // non-null when completed
-  final int inputTokens;
-  final int outputTokens;
-  final int cacheReadTokens;
-  final int cacheWriteTokens;
-  final Duration turnDuration;
-  final List<ToolCallRecord> toolCalls;
-  final DateTime completedAt;
-
-  /// Non-null when the turn was cancelled due to mid-turn loop detection.
-  ///
-  /// [TaskExecutor] checks this field to distinguish loop-caused cancellation
-  /// from user-initiated cancellation, and transitions the task to `failed`.
-  final LoopDetection? loopDetection;
-
-  int get totalTokens => inputTokens + outputTokens;
-
-  /// Billing-weighted token count — see [computeEffectiveTokens]. Prefer this
-  /// over [totalTokens] when comparing runs across harnesses.
-  int get effectiveTokens => computeEffectiveTokens(
-    inputTokens: inputTokens,
-    outputTokens: outputTokens,
-    cacheReadTokens: cacheReadTokens,
-    cacheWriteTokens: cacheWriteTokens,
-  );
-
-  TurnOutcome({
-    required this.turnId,
-    required this.sessionId,
-    required this.status,
-    this.errorMessage,
-    this.responseText,
-    this.inputTokens = 0,
-    this.outputTokens = 0,
-    this.cacheReadTokens = 0,
-    this.cacheWriteTokens = 0,
-    this.turnDuration = Duration.zero,
-    this.toolCalls = const [],
-    required this.completedAt,
-    this.loopDetection,
-  });
-}
-
-/// Thrown when a turn cannot start because the agent is already busy.
-class BusyTurnException implements Exception {
-  final String message;
-  final bool isSameSession; // true = same session busy, false = global busy (different session)
-
-  BusyTurnException(this.message, {required this.isSameSession});
-
-  @override
-  String toString() => 'BusyTurnException: $message';
-}
-
 // ---------------------------------------------------------------------------
 // TurnManager
 // ---------------------------------------------------------------------------
@@ -135,7 +78,7 @@ class BusyTurnException implements Exception {
 /// Uses [HarnessPool.primary] for ordinary sessions and provider-matched task
 /// runners for sessions pinned to a specific provider. Exposes the [pool] for
 /// [TaskExecutor] to acquire task runners.
-class TurnManager implements Reconfigurable {
+class TurnManager implements core.TurnManager, Reconfigurable {
   static final _log = Logger('TurnManager');
 
   final HarnessPool _pool;
@@ -210,19 +153,24 @@ class TurnManager implements Reconfigurable {
 
   /// The pool backing this manager. Used by [TaskExecutor] to acquire
   /// task runners.
+  @override
   HarnessPool get pool => _pool;
 
   /// Number of runners currently available to accept a new task.
+  @override
   int get availableRunnerCount => _pool.availableCount;
 
+  @override
   Iterable<String> get activeSessionIds sync* {
     for (final runner in _pool.runners) {
       yield* runner.activeSessionIds;
     }
   }
 
+  @override
   bool isActive(String sessionId) => _pool.runners.any((runner) => runner.isActive(sessionId));
 
+  @override
   String? activeTurnId(String sessionId) {
     for (final runner in _pool.runners) {
       final turnId = runner.activeTurnId(sessionId);
@@ -231,9 +179,11 @@ class TurnManager implements Reconfigurable {
     return null;
   }
 
+  @override
   bool isActiveTurn(String sessionId, String turnId) =>
       _pool.runners.any((runner) => runner.isActiveTurn(sessionId, turnId));
 
+  @override
   TurnOutcome? recentOutcome(String sessionId, String turnId) {
     for (final runner in _pool.runners) {
       final outcome = runner.recentOutcome(sessionId, turnId);
@@ -242,6 +192,7 @@ class TurnManager implements Reconfigurable {
     return null;
   }
 
+  @override
   Future<String> reserveTurn(
     String sessionId, {
     String agentName = 'main',
@@ -269,6 +220,7 @@ class TurnManager implements Reconfigurable {
       _reservedTurnRunners[turnId] = runner;
       return turnId;
     } catch (_) {
+      // Reservation failed — release provider slot if non-primary, then bubble the original error.
       if (!identical(runner, _primary)) {
         _releaseProviderReservation(sessionId, runner);
       }
@@ -276,6 +228,7 @@ class TurnManager implements Reconfigurable {
     }
   }
 
+  @override
   void executeTurn(
     String sessionId,
     String turnId,
@@ -296,6 +249,7 @@ class TurnManager implements Reconfigurable {
     );
   }
 
+  @override
   void releaseTurn(String sessionId, String turnId) {
     final runner = _reservedTurnRunners.remove(turnId) ?? _providerSessionRunners[sessionId] ?? _primary;
     runner.releaseTurn(sessionId, turnId);
@@ -304,6 +258,7 @@ class TurnManager implements Reconfigurable {
     }
   }
 
+  @override
   Future<String> startTurn(
     String sessionId,
     List<Map<String, dynamic>> messages, {
@@ -326,11 +281,13 @@ class TurnManager implements Reconfigurable {
       executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
       return turnId;
     } catch (_) {
+      // Execute dispatch failed — release the reserved turn before bubbling.
       releaseTurn(sessionId, turnId);
       rethrow;
     }
   }
 
+  @override
   Future<void> cancelTurn(String sessionId) async {
     for (final runner in _pool.runners) {
       if (runner.isActive(sessionId)) {
@@ -340,6 +297,7 @@ class TurnManager implements Reconfigurable {
     }
   }
 
+  @override
   Future<void> waitForCompletion(String sessionId, {Duration timeout = const Duration(seconds: 10)}) async {
     for (final runner in _pool.runners) {
       if (runner.isActive(sessionId)) {
@@ -349,6 +307,7 @@ class TurnManager implements Reconfigurable {
     }
   }
 
+  @override
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
     final reservedRunner = _reservedTurnRunners[turnId];
     if (reservedRunner != null) {
@@ -364,14 +323,17 @@ class TurnManager implements Reconfigurable {
     return _primary.waitForOutcome(sessionId, turnId);
   }
 
+  @override
   Future<List<String>> detectAndCleanOrphanedTurns() => _primary.detectAndCleanOrphanedTurns();
 
+  @override
   bool consumeRecoveryNotice(String sessionId) => _primary.consumeRecoveryNotice(sessionId);
 
   /// Updates the per-task tool allowlist on the primary runner's guard.
   ///
   /// Used by [TaskExecutor] in single-harness mode — passes through to
   /// the primary [TurnRunner.setTaskToolFilter].
+  @override
   void setTaskToolFilter(List<String>? allowedTools) {
     _primary.setTaskToolFilter(allowedTools);
   }
@@ -380,6 +342,7 @@ class TurnManager implements Reconfigurable {
   ///
   /// Used by [TaskExecutor] in single-harness mode — passes through to
   /// the primary [TurnRunner.setTaskReadOnly].
+  @override
   void setTaskReadOnly(bool readOnly) {
     _primary.setTaskReadOnly(readOnly);
   }

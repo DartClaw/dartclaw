@@ -1,4 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show OutputConfig, OutputFormat, OutputMode;
+import 'workflow_definition.dart' show OutputConfig, OutputFormat, OutputMode;
 
 import 'schema_presets.dart';
 import 'workflow_output_contract.dart';
@@ -12,6 +12,7 @@ class PromptAugmenter {
     String prompt, {
     Map<String, OutputConfig>? outputs,
     List<String> outputKeys = const [],
+    List<String>? outputExamples,
     bool emitStepOutcomeProtocol = false,
   }) {
     final sections = <String>[];
@@ -21,6 +22,9 @@ class PromptAugmenter {
 
     final schemaSection = _buildSchemaSection(outputs, outputKeys);
     if (schemaSection != null) sections.add(schemaSection);
+
+    final outputExamplesSection = _buildOutputExamplesSection(outputExamples);
+    if (outputExamplesSection != null) sections.add(outputExamplesSection);
 
     if (emitStepOutcomeProtocol) {
       sections.add(_buildStepOutcomeSection());
@@ -37,16 +41,16 @@ class PromptAugmenter {
     buf.writeln();
     buf.writeln(
       'End your final response with '
-      '`$kStepOutcomeOpen{"outcome":"succeeded|failed|needsInput","reason":"..." }$kStepOutcomeClose`.',
+      '`$stepOutcomeOpen{"outcome":"succeeded|failed|needsInput","reason":"..." }$stepOutcomeClose`.',
     );
-    buf.writeln('Do not use markdown code fences inside `$kStepOutcomeOpen`.');
+    buf.writeln('Do not use markdown code fences inside `$stepOutcomeOpen`.');
     buf.writeln('Allowed outcome values are exactly: `succeeded`, `failed`, `needsInput`.');
     buf.writeln('Use `needsInput` when a human decision or missing requirement blocks safe progress.');
     buf.writeln();
     buf.writeln('Example:');
-    buf.writeln(kStepOutcomeOpen);
+    buf.writeln(stepOutcomeOpen);
     buf.writeln('{"outcome":"succeeded","reason":"completed as requested"}');
-    buf.writeln(kStepOutcomeClose);
+    buf.writeln(stepOutcomeClose);
     return buf.toString().trimRight();
   }
 
@@ -64,7 +68,7 @@ class PromptAugmenter {
       String? fragment;
 
       if (config.presetName != null) {
-        // Preset schema — use explicit promptFragment when set, otherwise
+        // Preset schema – use explicit promptFragment when set, otherwise
         // derive the fragment from the schema itself (single source of truth
         // via per-property `description` fields).
         final preset = schemaPresets[config.presetName];
@@ -72,14 +76,14 @@ class PromptAugmenter {
           fragment = preset.promptFragment ?? _generateInlineFragment(preset.schema, entry.key);
         }
       } else if (config.inlineSchema != null) {
-        // Inline JSON Schema — generate prompt from schema properties.
+        // Inline JSON Schema – generate prompt from schema properties.
         fragment = _generateInlineFragment(config.inlineSchema!, entry.key);
       }
 
       if (fragment != null) {
         final desc = effectiveDescription(config);
         if (desc != null) {
-          fragment = '"${entry.key}" — $desc\n\n$fragment';
+          fragment = '"${entry.key}" – $desc\n\n$fragment';
         }
         fragments.add(fragment);
       }
@@ -97,8 +101,8 @@ class PromptAugmenter {
     final buf = StringBuffer();
     buf.writeln('## Workflow Output Contract');
     buf.writeln();
-    buf.writeln('End your final response with `$kWorkflowContextOpen` containing a single JSON object.');
-    buf.writeln('Do not use markdown code fences inside `$kWorkflowContextOpen`.');
+    buf.writeln('End your final response with `$workflowContextOpen` containing a single JSON object.');
+    buf.writeln('Do not use markdown code fences inside `$workflowContextOpen`.');
     buf.writeln('Include exactly these keys:');
 
     for (final key in outputKeys) {
@@ -108,15 +112,20 @@ class PromptAugmenter {
 
     buf.writeln();
     buf.writeln('Example:');
-    buf.writeln(kWorkflowContextOpen);
+    buf.writeln(workflowContextOpen);
     buf.writeln('{"key":"value"}');
-    buf.writeln(kWorkflowContextClose);
+    buf.writeln(workflowContextClose);
     return buf.toString().trimRight();
+  }
+
+  String? _buildOutputExamplesSection(List<String>? outputExamples) {
+    if (outputExamples == null || outputExamples.isEmpty) return null;
+    return '## Output Examples\n\n${outputExamples.join('\n\n')}';
   }
 
   void _writeWorkflowContextField(StringBuffer buf, String key, OutputConfig? config) {
     final effectiveDesc = config == null ? null : effectiveDescription(config);
-    final descSuffix = effectiveDesc != null ? ' — $effectiveDesc' : '';
+    final descSuffix = effectiveDesc != null ? ' – $effectiveDesc' : '';
 
     if (config == null || config.format == OutputFormat.text) {
       buf.writeln('- "$key": JSON string$descSuffix');
@@ -177,7 +186,7 @@ class PromptAugmenter {
     }
 
     buf.writeln();
-    buf.write('Output the JSON directly — do not wrap in markdown code fences.');
+    buf.write('Output the JSON directly – do not wrap in markdown code fences.');
     return buf.toString();
   }
 
@@ -207,7 +216,7 @@ class PromptAugmenter {
       buf.writeln(line);
 
       // Recurse into nested objects and arrays of objects. Depth is bounded
-      // by schema nesting — current presets reach two levels (project-index).
+      // by schema nesting in current presets.
       if (propType.contains('array')) {
         final items = prop['items'] as Map<String, dynamic>?;
         if (items != null && items['properties'] != null) {

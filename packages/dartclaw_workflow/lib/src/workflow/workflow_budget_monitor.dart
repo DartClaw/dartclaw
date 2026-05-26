@@ -1,7 +1,8 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show EventBus, KvService, Task, WorkflowBudgetWarningEvent, WorkflowDefinition, WorkflowRun;
+import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, KvService, Task, WorkflowBudgetWarningEvent;
+import 'workflow_definition.dart' show WorkflowDefinition;
+import 'workflow_run.dart' show WorkflowRun;
 import 'package:logging/logging.dart';
 
 final _log = Logger('WorkflowBudgetMonitor');
@@ -56,7 +57,7 @@ Future<int> readStepTokenCount(Task task, KvService kvService) async {
     final baseline = (task.configJson['_sessionBaselineTokens'] as num?)?.toInt() ?? 0;
     return (total - baseline).clamp(0, double.maxFinite).toInt();
   } catch (_) {
-    return 0;
+    return 0; // KV read failure or malformed value — return 0 so budget logic isn't blocked.
   }
 }
 
@@ -68,6 +69,6 @@ Future<int> readSessionTokens(KvService kvService, String sessionId) async {
     final json = jsonDecode(raw) as Map<String, dynamic>;
     return (json['total_tokens'] as num?)?.toInt() ?? 0;
   } catch (_) {
-    return 0;
+    return 0; // KV read or JSON parse failure — return 0 to avoid blocking callers.
   }
 }

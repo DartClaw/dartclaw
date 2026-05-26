@@ -18,10 +18,16 @@ class MemoryPruner {
   static final _log = Logger('MemoryPruner');
   static const _emptyResult = (entriesArchived: 0, duplicatesRemoved: 0, entriesRemaining: 0, finalSizeBytes: 0);
 
+  /// Workspace directory containing `MEMORY.md` and `MEMORY.archive.md`.
   final String workspaceDir;
+
+  /// Storage-backed memory service for index synchronization.
   final MemoryService memoryService;
+
+  /// Age threshold in days after which entries are archived.
   final int archiveAfterDays;
 
+  /// Creates a pruner that operates on the given [workspaceDir].
   MemoryPruner({required this.workspaceDir, required this.memoryService, this.archiveAfterDays = 90});
 
   String get _memoryPath => p.join(workspaceDir, 'MEMORY.md');

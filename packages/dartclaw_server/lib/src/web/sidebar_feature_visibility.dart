@@ -3,6 +3,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 
 import '../params/display_params.dart';
 
+/// Describes which top-level sidebar feature groups should render.
 typedef SidebarFeatureVisibility = ({
   bool showChannels,
   bool showHealth,
@@ -11,6 +12,7 @@ typedef SidebarFeatureVisibility = ({
   bool showTasks,
 });
 
+/// Computes sidebar [SidebarFeatureVisibility] from active services and configured channels.
 SidebarFeatureVisibility computeSidebarFeatureVisibility({
   DartclawConfig? config,
   required bool hasChannels,

@@ -16,6 +16,7 @@ pubspec.lock
 # Claude Code (local instructions symlinked from dartclaw-private)
 CLAUDE.local.md
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # OS
 .DS_Store
@@ -35,6 +36,7 @@ service-account*.json
 .dartclaw-dev/
 .dartclaw-dev-test-*/
 dev/tools/dartclaw-workflows/.data/
+dev/tools/dartclaw-workflows/.cache/
 storages
 statics
 

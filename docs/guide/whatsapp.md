@@ -51,7 +51,7 @@ DartClaw passes the webhook URL via the `--webhook` CLI flag when spawning GOWA 
 dartclaw serve
 ```
 
-Open the pairing page at `http://localhost:3000/whatsapp/pairing`. Scan the QR code with your WhatsApp app, or use a pairing code.
+Open the pairing page at `http://localhost:3333/whatsapp/pairing`. Scan the QR code with your WhatsApp app, or use a pairing code.
 
 ### 3. DM Access Control
 

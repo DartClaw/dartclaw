@@ -44,7 +44,7 @@ Here is how the assistant works across a typical 24-hour period:
 
 **10:00 PM -- Daily Journal.** The agent reviews the day's context and writes structured entries to MEMORY.md -- categorized as decisions, insights, action items, or learnings. If MEMORY.md exceeds the size cap, the next heartbeat consolidates and deduplicates entries.
 
-**Every 60 minutes -- Heartbeat.** Processes the HEARTBEAT.md checklist (check for stale entries, verify git sync, review pending items). Triggers memory consolidation when MEMORY.md exceeds `memory_max_bytes`. Git sync commits and pushes workspace changes.
+**Every 60 minutes -- Heartbeat.** Processes the HEARTBEAT.md checklist (check for stale entries, verify git sync, review pending items). Triggers memory consolidation when MEMORY.md exceeds `memory.max_bytes`. Git sync commits and pushes workspace changes.
 
 ## Configuration
 
@@ -66,7 +66,8 @@ agent:
       model: haiku                      # cheap + fast for web lookups
 
 # --- Memory ---
-memory_max_bytes: 65536               # 64KB -- consolidation triggers above this
+memory:
+  max_bytes: 65536                   # 64KB -- consolidation triggers above this
 
 # --- Sessions ---
 sessions:
@@ -323,7 +324,7 @@ With `task_trigger` enabled on a channel, send messages like `task: Research Dar
 
 ### Adjust memory and consolidation
 
-- **Increase memory cap**: Set `memory_max_bytes: 131072` (128KB) if you generate lots of entries
+- **Increase memory cap**: Set `memory.max_bytes: 131072` (128KB) if you generate lots of entries
 - **Semantic search**: Set `search.backend: qmd` for concept-based retrieval (requires QMD service)
 - **Faster consolidation**: Decrease `heartbeat.interval_minutes` to trigger consolidation more often
 
@@ -374,7 +375,7 @@ For detailed monitoring guidance, see [Monitoring Your Assistant](_common-patter
 - **`announce` delivery is not yet implemented**: `delivery: announce` currently logs the result but does not route it to channels or web sessions. Job results are accessible via cron session history in the web UI sidebar. Use `delivery: webhook` for active push delivery to an external endpoint. Channel routing for announce is planned
 - **Timezone is server-local**: All cron expressions use the server's timezone. Adjust expressions if your server timezone differs from yours
 - **Jobs run in isolated sessions**: Scheduled jobs do not share state directly -- they communicate through MEMORY.md. The daily journal cannot read your main session's chat history; it reviews context via behavior files and memory
-- **Memory consolidation runs during heartbeat only**: Consolidation only triggers when MEMORY.md exceeds `memory_max_bytes` and a heartbeat cycle runs. High-frequency journaling may temporarily exceed the cap
+- **Memory consolidation runs during heartbeat only**: Consolidation only triggers when MEMORY.md exceeds `memory.max_bytes` and a heartbeat cycle runs. High-frequency journaling may temporarily exceed the cap
 - **Content-guard may truncate web content**: Large pages fetched by the search agent are filtered by content-guard. The knowledge inbox agent should note when a source was truncated
 - **Git sync requires a remote**: Run `git remote add origin <url>` in your workspace directory before enabling `push_enabled`
 - **Model override scope**: Cron jobs use the global `agent.model` -- there is no per-job model override. All cron jobs, heartbeat, and interactive chat share the same model. To reduce cron costs, lower `agent.model` globally or reduce cron frequency

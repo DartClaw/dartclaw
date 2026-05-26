@@ -20,6 +20,7 @@ import 'api/config_api_routes.dart';
 import 'api/skill_routes.dart';
 import 'api/workflow_routes.dart';
 import 'api/config_routes.dart';
+import 'api/event_bus_sse_bridge.dart';
 import 'api/google_chat_space_events_wiring.dart';
 import 'api/google_chat_subscription_routes.dart';
 import 'api/google_chat_webhook.dart';
@@ -43,7 +44,6 @@ import 'behavior/heartbeat_scheduler.dart';
 import 'canvas/canvas_admin_routes.dart';
 import 'canvas/canvas_routes.dart';
 import 'canvas/canvas_service.dart';
-import 'harness_pool.dart';
 import 'health/health_service.dart';
 import 'memory/memory_status_service.dart';
 import 'mcp/mcp_router.dart';
@@ -64,10 +64,10 @@ import 'task/task_review_service.dart';
 import 'task/task_service.dart';
 import 'task/worktree_manager.dart';
 import 'templates/error_page.dart';
-import 'templates/sidebar.dart' show NavItem, SidebarData, sidebarTemplate;
-import 'turn_manager.dart';
+import 'templates/sidebar.dart' show NavItem, SidebarData, buildSidebar;
 import 'web/dashboard_page.dart';
 import 'web/page_registry.dart';
+import 'web/sidebar_data_builder.dart';
 import 'web/sidebar_feature_visibility.dart';
 import 'web/signal_pairing_routes.dart';
 import 'web/system_pages.dart';
@@ -76,371 +76,44 @@ import 'web/web_utils.dart';
 import 'web/whatsapp_pairing_routes.dart';
 import 'workspace/workspace_git_sync.dart';
 
+part 'server_deps.dart';
+
 /// Shelf-based HTTP server composing all DartClaw routes and middleware.
 class DartclawServer {
-  // Core services — all final
-  final SessionService _sessions;
-  final MessageService _messages;
-  final AgentHarness _worker;
-  final HarnessPool? _pool;
-  final TurnManager _turns;
-  final MemoryFileService? _memoryFile;
-  final HealthService? _healthService;
-  final TokenService? _tokenService;
-  final SessionResetService? _resetService;
-  final bool _authEnabled;
-  final String _staticDir;
-  final ChannelManager? _channelManager;
-  final WhatsAppChannel? _whatsAppChannel;
-  final GoogleChatWebhookHandler? _googleChatWebhookHandler;
-  final SignalChannel? _signalChannel;
-  final GuardChain? _guardChain;
-  final String? _webhookSecret;
-  final MessageRedactor? _redactor;
+  final ServerCoreDeps _core;
+  final ServerTurnDeps _turn;
+  final ServerChannelDeps _channels;
+  final ServerTaskDeps _tasks;
+  final ServerObservabilityDeps _observability;
+  final ServerWebDeps _web;
+
   final McpProtocolHandler _mcpHandler;
-  final String? _gatewayToken;
-
-  // Runtime services — all final
-  final RuntimeConfig? _runtimeConfig;
-  final HeartbeatScheduler? _heartbeat;
-  final ScheduleService? _scheduleService;
-  final WorkspaceGitSync? _gitSync;
-  final MemoryStatusService? _memoryStatusService;
-  final MemoryPruner? _memoryPruner;
-  final KvService? _kvService;
-  final ConfigWriter? _configWriter;
-  final DartclawConfig? _config;
-  final ConfigNotifier? _configNotifier;
-  final RestartService? _restartService;
-  final SseBroadcast? _sseBroadcast;
-  final ProviderStatusService? _providerStatus;
-  final EventBus? _eventBus;
-  final CanvasService? _canvasService;
-  final ProjectService? _projectService;
-  final GoalService? _goalService;
-  final TaskService? _taskService;
-  final TaskReviewService? _taskReviewService;
-  final WorktreeManager? _worktreeManager;
-  final TaskFileGuard? _taskFileGuard;
-  final AgentObserver? _agentObserver;
-  final MergeExecutor? _mergeExecutor;
-  final String? _mergeStrategy;
-  final String? _baseRef;
-  final TurnTraceService? _traceService;
-  final TaskEventService? _taskEventService;
-  final TaskEventRecorder? _taskEventRecorder;
-  final TaskProgressTracker? _progressTracker;
-  final GoogleChatSpaceEventsWiring? _spaceEventsWiring;
-  final ThreadBindingStore? _threadBindingStore;
-  final WorkflowService? _workflowService;
-  final WorkflowDefinitionSource? _workflowDefinitionSource;
-  final SkillRegistry? _skillRegistry;
-
-  // Display params — all final
-  final ContentGuardDisplayParams _contentGuardDisplay;
-  final HeartbeatDisplayParams _heartbeatDisplay;
-  final SchedulingDisplayParams _schedulingDisplay;
-  final WorkspaceDisplayParams _workspaceDisplay;
-  final AppDisplayParams _appDisplay;
-
   final PageRegistry _pageRegistry = PageRegistry();
   final AuthRateLimiter _authRateLimiter = AuthRateLimiter();
   Handler? _builtHandler;
   Handler? _requestHandler;
   bool _registrationLocked = false;
 
-  TurnManager get turns => _turns;
-  ProviderStatusService? get providerStatus => _providerStatus;
-  TaskEventService? get taskEventService => _taskEventService;
-  TaskEventRecorder? get taskEventRecorder => _taskEventRecorder;
+  TurnManager get turns => _turn.turns;
+  ProviderStatusService? get providerStatus => _observability.providerStatus;
+  TaskEventService? get taskEventService => _tasks.taskEventService;
+  TaskEventRecorder? get taskEventRecorder => _tasks.taskEventRecorder;
 
-  /// Internal constructor — prefer the server builder to assemble instances.
-  DartclawServer._({
-    required SessionService sessions,
-    required MessageService messages,
-    required AgentHarness worker,
-    required HarnessPool? pool,
-    required TurnManager turns,
-    required MemoryFileService? memoryFile,
-    required HealthService? healthService,
-    required TokenService? tokenService,
-    required SessionResetService? resetService,
-    required bool authEnabled,
-    required String staticDir,
-    required ChannelManager? channelManager,
-    required WhatsAppChannel? whatsAppChannel,
-    required GoogleChatWebhookHandler? googleChatWebhookHandler,
-    required SignalChannel? signalChannel,
-    required GuardChain? guardChain,
-    required String? webhookSecret,
-    required MessageRedactor? redactor,
-    required String? gatewayToken,
-    required RuntimeConfig? runtimeConfig,
-    required HeartbeatScheduler? heartbeat,
-    required ScheduleService? scheduleService,
-    required WorkspaceGitSync? gitSync,
-    required MemoryStatusService? memoryStatusService,
-    required MemoryPruner? memoryPruner,
-    required KvService? kvService,
-    required ConfigWriter? configWriter,
-    required DartclawConfig? config,
-    ConfigNotifier? configNotifier,
-    required RestartService? restartService,
-    required SseBroadcast? sseBroadcast,
-    required ProviderStatusService? providerStatus,
-    required EventBus? eventBus,
-    required CanvasService? canvasService,
-    required ProjectService? projectService,
-    required GoalService? goalService,
-    required TaskService? taskService,
-    required TaskReviewService? taskReviewService,
-    required WorktreeManager? worktreeManager,
-    required TaskFileGuard? taskFileGuard,
-    required AgentObserver? agentObserver,
-    required MergeExecutor? mergeExecutor,
-    required String? mergeStrategy,
-    required String? baseRef,
-    required TurnTraceService? traceService,
-    required TaskEventService? taskEventService,
-    required TaskEventRecorder? taskEventRecorder,
-    required TaskProgressTracker? progressTracker,
-    required GoogleChatSpaceEventsWiring? spaceEventsWiring,
-    required ThreadBindingStore? threadBindingStore,
-    required WorkflowService? workflowService,
-    required WorkflowDefinitionSource? workflowDefinitionSource,
-    SkillRegistry? skillRegistry,
-    required ContentGuardDisplayParams contentGuardDisplay,
-    required HeartbeatDisplayParams heartbeatDisplay,
-    required SchedulingDisplayParams schedulingDisplay,
-    required WorkspaceDisplayParams workspaceDisplay,
-    required AppDisplayParams appDisplay,
-  }) : _sessions = sessions,
-       _messages = messages,
-       _worker = worker,
-       _pool = pool,
-       _turns = turns,
-       _memoryFile = memoryFile,
-       _healthService = healthService,
-       _tokenService = tokenService,
-       _resetService = resetService,
-       _authEnabled = authEnabled,
-       _staticDir = staticDir,
-       _channelManager = channelManager,
-       _whatsAppChannel = whatsAppChannel,
-       _googleChatWebhookHandler = googleChatWebhookHandler,
-       _signalChannel = signalChannel,
-       _guardChain = guardChain,
-       _webhookSecret = webhookSecret,
-       _redactor = redactor,
-       _gatewayToken = gatewayToken,
-       _mcpHandler = McpProtocolHandler(),
-       _runtimeConfig = runtimeConfig,
-       _heartbeat = heartbeat,
-       _scheduleService = scheduleService,
-       _gitSync = gitSync,
-       _memoryStatusService = memoryStatusService,
-       _memoryPruner = memoryPruner,
-       _kvService = kvService,
-       _configWriter = configWriter,
-       _config = config,
-       _configNotifier = configNotifier,
-       _restartService = restartService,
-       _sseBroadcast = sseBroadcast,
-       _providerStatus = providerStatus,
-       _eventBus = eventBus,
-       _canvasService = canvasService,
-       _projectService = projectService,
-       _goalService = goalService,
-       _taskService = taskService,
-       _taskReviewService = taskReviewService,
-       _worktreeManager = worktreeManager,
-       _taskFileGuard = taskFileGuard,
-       _agentObserver = agentObserver,
-       _mergeExecutor = mergeExecutor,
-       _mergeStrategy = mergeStrategy,
-       _baseRef = baseRef,
-       _traceService = traceService,
-       _taskEventService = taskEventService,
-       _taskEventRecorder = taskEventRecorder,
-       _progressTracker = progressTracker,
-       _spaceEventsWiring = spaceEventsWiring,
-       _threadBindingStore = threadBindingStore,
-       _workflowService = workflowService,
-       _workflowDefinitionSource = workflowDefinitionSource,
-       _skillRegistry = skillRegistry,
-       _contentGuardDisplay = contentGuardDisplay,
-       _heartbeatDisplay = heartbeatDisplay,
-       _schedulingDisplay = schedulingDisplay,
-       _workspaceDisplay = workspaceDisplay,
-       _appDisplay = appDisplay;
-
-  /// Internal composition helper for the server builder and wiring code.
-  ///
-  /// Prefer [DartclawServerBuilder] for ordinary construction so required
-  /// dependencies stay validated in one place.
-  static DartclawServer compose({
-    required SessionService sessions,
-    required MessageService messages,
-    required AgentHarness worker,
-    required HarnessPool? pool,
-    required TurnManager turns,
-    required MemoryFileService? memoryFile,
-    required HealthService? healthService,
-    required TokenService? tokenService,
-    required SessionResetService? resetService,
-    required bool authEnabled,
-    required String staticDir,
-    required ChannelManager? channelManager,
-    required WhatsAppChannel? whatsAppChannel,
-    required GoogleChatWebhookHandler? googleChatWebhookHandler,
-    required SignalChannel? signalChannel,
-    required GuardChain? guardChain,
-    required String? webhookSecret,
-    required MessageRedactor? redactor,
-    required String? gatewayToken,
-    required RuntimeConfig? runtimeConfig,
-    required HeartbeatScheduler? heartbeat,
-    required ScheduleService? scheduleService,
-    required WorkspaceGitSync? gitSync,
-    required MemoryStatusService? memoryStatusService,
-    required MemoryPruner? memoryPruner,
-    required KvService? kvService,
-    required ConfigWriter? configWriter,
-    required DartclawConfig? config,
-    ConfigNotifier? configNotifier,
-    required RestartService? restartService,
-    required SseBroadcast? sseBroadcast,
-    required ProviderStatusService? providerStatus,
-    required EventBus? eventBus,
-    required CanvasService? canvasService,
-    required ProjectService? projectService,
-    required GoalService? goalService,
-    required TaskService? taskService,
-    required TaskReviewService? taskReviewService,
-    required WorktreeManager? worktreeManager,
-    required TaskFileGuard? taskFileGuard,
-    required AgentObserver? agentObserver,
-    required MergeExecutor? mergeExecutor,
-    required String? mergeStrategy,
-    required String? baseRef,
-    required TurnTraceService? traceService,
-    required TaskEventService? taskEventService,
-    required TaskEventRecorder? taskEventRecorder,
-    required TaskProgressTracker? progressTracker,
-    required GoogleChatSpaceEventsWiring? spaceEventsWiring,
-    required ThreadBindingStore? threadBindingStore,
-    required WorkflowService? workflowService,
-    required WorkflowDefinitionSource? workflowDefinitionSource,
-    SkillRegistry? skillRegistry,
-    required ContentGuardDisplayParams contentGuardDisplay,
-    required HeartbeatDisplayParams heartbeatDisplay,
-    required SchedulingDisplayParams schedulingDisplay,
-    required WorkspaceDisplayParams workspaceDisplay,
-    required AppDisplayParams appDisplay,
-  }) {
-    final server = DartclawServer._(
-      sessions: sessions,
-      messages: messages,
-      worker: worker,
-      pool: pool,
-      turns: turns,
-      memoryFile: memoryFile,
-      healthService: healthService,
-      tokenService: tokenService,
-      resetService: resetService,
-      authEnabled: authEnabled,
-      staticDir: staticDir,
-      channelManager: channelManager,
-      whatsAppChannel: whatsAppChannel,
-      googleChatWebhookHandler: googleChatWebhookHandler,
-      signalChannel: signalChannel,
-      guardChain: guardChain,
-      webhookSecret: webhookSecret,
-      redactor: redactor,
-      gatewayToken: gatewayToken,
-      runtimeConfig: runtimeConfig,
-      heartbeat: heartbeat,
-      scheduleService: scheduleService,
-      gitSync: gitSync,
-      memoryStatusService: memoryStatusService,
-      memoryPruner: memoryPruner,
-      kvService: kvService,
-      configWriter: configWriter,
-      config: config,
-      configNotifier: configNotifier,
-      restartService: restartService,
-      sseBroadcast: sseBroadcast,
-      providerStatus: providerStatus,
-      eventBus: eventBus,
-      canvasService: canvasService,
-      projectService: projectService,
-      goalService: goalService,
-      taskService: taskService,
-      taskReviewService: taskReviewService,
-      worktreeManager: worktreeManager,
-      taskFileGuard: taskFileGuard,
-      agentObserver: agentObserver,
-      mergeExecutor: mergeExecutor,
-      mergeStrategy: mergeStrategy,
-      baseRef: baseRef,
-      traceService: traceService,
-      taskEventService: taskEventService,
-      taskEventRecorder: taskEventRecorder,
-      progressTracker: progressTracker,
-      spaceEventsWiring: spaceEventsWiring,
-      threadBindingStore: threadBindingStore,
-      workflowService: workflowService,
-      workflowDefinitionSource: workflowDefinitionSource,
-      skillRegistry: skillRegistry,
-      contentGuardDisplay: contentGuardDisplay,
-      heartbeatDisplay: heartbeatDisplay,
-      schedulingDisplay: schedulingDisplay,
-      workspaceDisplay: workspaceDisplay,
-      appDisplay: appDisplay,
-    );
-    final visibility = computeSidebarFeatureVisibility(
-      config: config,
-      hasChannels: whatsAppChannel != null || signalChannel != null || googleChatWebhookHandler?.channel != null,
-      guardChain: guardChain,
-      hasHealthService: healthService != null,
-      hasTaskService: taskService != null,
-      hasPubSubHealth: healthService?.pubsubHealth != null,
-      heartbeatDisplay: heartbeatDisplay,
-      schedulingDisplay: schedulingDisplay,
-      workspaceDisplay: workspaceDisplay,
-    );
-
-    registerSystemDashboardPages(
-      server._pageRegistry,
-      healthService: healthService,
-      workerStateGetter: () => worker.state,
-      whatsAppChannel: whatsAppChannel,
-      signalChannel: signalChannel,
-      googleChatChannel: googleChatWebhookHandler?.channel,
-      guardChain: guardChain,
-      providerStatus: providerStatus,
-      runtimeConfigGetter: () => server._runtimeConfig,
-      configWriter: configWriter,
-      memoryStatusServiceGetter: () => server._memoryStatusService,
-      contentGuardDisplay: contentGuardDisplay,
-      heartbeatDisplay: heartbeatDisplay,
-      schedulingDisplay: schedulingDisplay,
-      workspaceDisplay: workspaceDisplay,
-      auditReader: appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null,
-      pubsubHealthGetter: healthService != null
-          ? () => healthService.pubsubHealth ?? const {'status': 'disabled', 'enabled': false}
-          : null,
-      showHealth: visibility.showHealth,
-      showMemory: visibility.showMemory,
-      showScheduling: visibility.showScheduling,
-      showTasks: visibility.showTasks,
-      showCanvas: canvasService != null,
-      showWorkflows: workflowService != null,
-      projectService: projectService,
-    );
-
-    return server;
-  }
+  /// Internal constructor — prefer [DartclawServerBuilder] to assemble instances.
+  DartclawServer.fromDeps({
+    required ServerCoreDeps core,
+    required ServerTurnDeps turn,
+    required ServerChannelDeps channels,
+    required ServerTaskDeps tasks,
+    required ServerObservabilityDeps observability,
+    required ServerWebDeps web,
+  }) : _core = core,
+       _turn = turn,
+       _channels = channels,
+       _tasks = tasks,
+       _observability = observability,
+       _web = web,
+       _mcpHandler = McpProtocolHandler();
 
   /// Register an MCP tool that will be exposed to agents via the MCP endpoint.
   ///
@@ -470,7 +143,7 @@ class DartclawServer {
       throw StateError('Cannot register guards after the server has started handling requests');
     }
 
-    final guardChain = _guardChain;
+    final guardChain = _core.guardChain;
     if (guardChain == null) {
       throw StateError('Cannot register guards without a guard chain');
     }
@@ -489,7 +162,7 @@ class DartclawServer {
       throw StateError('Cannot register channels after the server has started handling requests');
     }
 
-    final channelManager = _channelManager;
+    final channelManager = _channels.channelManager;
     if (channelManager == null) {
       throw StateError('Cannot register channels without a channel manager');
     }
@@ -505,7 +178,7 @@ class DartclawServer {
       throw StateError('Cannot register event listeners after the server has started handling requests');
     }
 
-    final eventBus = _eventBus;
+    final eventBus = _observability.eventBus;
     if (eventBus == null) {
       throw StateError('Cannot register event listeners without an event bus');
     }
@@ -517,8 +190,8 @@ class DartclawServer {
   McpProtocolHandler get mcpHandler => _mcpHandler;
 
   Future<void> _seedAndStartProgressTracker(TaskProgressTracker tracker) async {
-    final taskService = _taskService;
-    final taskEventService = _taskEventService;
+    final taskService = _tasks.taskService;
+    final taskEventService = _tasks.taskEventService;
     if (taskService == null || taskEventService == null) return;
     try {
       final runningTasks = await taskService.list(status: TaskStatus.running);
@@ -539,22 +212,24 @@ class DartclawServer {
   }
 
   Future<void> shutdown() async {
-    _progressTracker?.dispose();
-    for (final sessionId in _turns.activeSessionIds.toList()) {
-      await _turns.cancelTurn(sessionId);
+    _tasks.progressTracker?.dispose();
+    for (final sessionId in _turn.turns.activeSessionIds.toList()) {
+      await _turn.turns.cancelTurn(sessionId);
     }
-    await _spaceEventsWiring?.dispose();
-    await _sseBroadcast?.dispose();
-    await _canvasService?.dispose();
-    await _channelManager?.dispose();
-    if (_pool != null) {
-      await _pool.dispose();
+    await _channels.spaceEventsWiring?.dispose();
+    await _observability.eventBusSseBridge?.cancel();
+    await _observability.sseBroadcast?.dispose();
+    await _web.canvasService?.dispose();
+    await _channels.channelManager?.dispose();
+    final pool = _turn.pool;
+    if (pool != null) {
+      await pool.dispose();
     } else {
-      await _worker.dispose();
+      await _core.worker.dispose();
     }
-    await _messages.dispose();
-    await _memoryFile?.dispose();
-    await _configWriter?.dispose();
+    await _core.messages.dispose();
+    await _observability.memoryFile?.dispose();
+    await _core.configWriter?.dispose();
   }
 
   Handler get handler => _requestHandler ??= (Request request) {
@@ -563,26 +238,26 @@ class DartclawServer {
   };
 
   void _validateDependencies() {
-    if (_taskService != null) {
-      if (_worktreeManager == null) {
+    if (_tasks.taskService != null) {
+      if (_tasks.worktreeManager == null) {
         throw StateError('taskService requires worktreeManager');
       }
-      if (_taskFileGuard == null) {
+      if (_tasks.taskFileGuard == null) {
         throw StateError('taskService requires taskFileGuard');
       }
-      if (_mergeExecutor == null) {
+      if (_tasks.mergeExecutor == null) {
         throw StateError('taskService requires mergeExecutor');
       }
-      if (_agentObserver == null) {
+      if (_tasks.agentObserver == null) {
         throw StateError('taskService requires agentObserver');
       }
     }
 
-    if (_configWriter != null) {
-      if (_restartService == null) {
+    if (_core.configWriter != null) {
+      if (_core.restartService == null) {
         throw StateError('configWriter requires restartService');
       }
-      if (_sseBroadcast == null) {
+      if (_observability.sseBroadcast == null) {
         throw StateError('configWriter requires sseBroadcast');
       }
     }
@@ -593,7 +268,7 @@ class DartclawServer {
     _registrationLocked = true;
 
     // Seed and start the progress tracker if available.
-    final tracker = _progressTracker;
+    final tracker = _tasks.progressTracker;
     if (tracker != null) {
       unawaited(_seedAndStartProgressTracker(tracker));
     }
@@ -625,7 +300,7 @@ class DartclawServer {
   }
 
   void _mountHealthRoutes(Router router) {
-    final hs = _healthService;
+    final hs = _core.healthService;
     if (hs != null) {
       router.get('/health', (Request request) async {
         final status = await hs.getStatus();
@@ -635,7 +310,7 @@ class DartclawServer {
   }
 
   void _mountMcpRoutes(Router router) {
-    final gt = _gatewayToken;
+    final gt = _core.gatewayToken;
     if (gt != null) {
       router.post('/mcp', mcpRoute(_mcpHandler, gatewayToken: gt));
     }
@@ -646,7 +321,7 @@ class DartclawServer {
   }
 
   Handler _filesystemStaticHandler() {
-    final staticHandler = createStaticHandler(_staticDir, defaultDocument: null);
+    final staticHandler = createStaticHandler(_core.staticDir, defaultDocument: null);
 
     return (Request request) async {
       final response = await staticHandler(request);
@@ -663,20 +338,20 @@ class DartclawServer {
   void _mountWebhookRoutes(Router router) {
     final githubWebhookHandler = _buildGitHubWebhookHandler();
     final webhookRouter = webhookRoutes(
-      whatsApp: _whatsAppChannel,
-      webhookSecret: _webhookSecret,
-      googleChat: _googleChatWebhookHandler,
+      whatsApp: _channels.whatsAppChannel,
+      webhookSecret: _core.webhookSecret,
+      googleChat: _channels.googleChatWebhookHandler,
       github: githubWebhookHandler,
-      eventBus: _eventBus,
-      trustedProxies: _config?.auth.trustedProxies ?? const [],
+      eventBus: _observability.eventBus,
+      trustedProxies: _core.config?.auth.trustedProxies ?? const [],
     );
     router.mount('/', webhookRouter.call);
   }
 
   GitHubWebhookHandler? _buildGitHubWebhookHandler() {
-    final config = _config;
-    final workflows = _workflowService;
-    final definitions = _workflowDefinitionSource;
+    final config = _core.config;
+    final workflows = _web.workflowService;
+    final definitions = _web.workflowDefinitionSource;
     if (config == null || workflows == null || definitions == null) {
       return null;
     }
@@ -684,7 +359,7 @@ class DartclawServer {
     try {
       githubConfig = config.extension<GitHubWebhookConfig>('github');
     } catch (_) {
-      githubConfig = null;
+      githubConfig = null; // Extension absent or malformed — GitHub webhook disabled.
     }
     if (githubConfig == null || !githubConfig.enabled) {
       return null;
@@ -693,60 +368,60 @@ class DartclawServer {
       config: githubConfig,
       workflows: workflows,
       definitions: definitions,
-      projects: _projectService,
-      eventBus: _eventBus,
+      projects: _tasks.projectService,
+      eventBus: _observability.eventBus,
       trustedProxies: config.auth.trustedProxies,
     );
   }
 
   void _mountWhatsAppPairingRoutes(Router router) {
-    final waChannel = _whatsAppChannel;
+    final waChannel = _channels.whatsAppChannel;
     if (waChannel != null) {
       final waRouter = whatsappPairingRoutes(
         whatsAppChannel: waChannel,
-        sessions: _sessions,
+        sessions: _core.sessions,
         pageRegistry: _pageRegistry,
-        tasksEnabled: _taskService != null && _eventBus != null,
-        appName: _appDisplay.name,
+        tasksEnabled: _tasks.taskService != null && _observability.eventBus != null,
+        appName: _web.appDisplay.name,
       );
       router.mount('/whatsapp', waRouter.call);
     }
   }
 
   void _mountSignalPairingRoutes(Router router) {
-    final sigChannel = _signalChannel;
+    final sigChannel = _channels.signalChannel;
     if (sigChannel != null) {
       final sigRouter = signalPairingRoutes(
         signalChannel: sigChannel,
-        sessions: _sessions,
+        sessions: _core.sessions,
         pageRegistry: _pageRegistry,
-        tasksEnabled: _taskService != null && _eventBus != null,
-        appName: _appDisplay.name,
+        tasksEnabled: _tasks.taskService != null && _observability.eventBus != null,
+        appName: _web.appDisplay.name,
       );
       router.mount('/signal', sigRouter.call);
     }
   }
 
   void _mountConfigRoutes(Router router) {
-    final rc = _runtimeConfig;
+    final rc = _core.runtimeConfig;
     if (rc != null) {
       final cfgRouter = configRoutes(
         runtimeConfig: rc,
-        heartbeat: _heartbeat,
-        scheduleService: _scheduleService,
-        gitSync: _gitSync,
-        heartbeatIntervalMinutes: _heartbeatDisplay.intervalMinutes,
-        scheduledJobs: _schedulingDisplay.jobs,
+        heartbeat: _observability.heartbeat,
+        scheduleService: _observability.scheduleService,
+        gitSync: _observability.gitSync,
+        heartbeatIntervalMinutes: _web.heartbeatDisplay.intervalMinutes,
+        scheduledJobs: _web.schedulingDisplay.jobs,
       );
       router.mount('/', cfgRouter.call);
     }
   }
 
   void _mountConfigApiRoutes(Router router) {
-    final cw = _configWriter;
-    final cfg = _config;
-    final rc = _runtimeConfig;
-    final dd = _appDisplay.dataDir;
+    final cw = _core.configWriter;
+    final cfg = _core.config;
+    final rc = _core.runtimeConfig;
+    final dd = _web.appDisplay.dataDir;
     if (cw != null && cfg != null && rc != null && dd != null) {
       final cfgApiRouter = configApiRoutes(
         config: cfg,
@@ -754,35 +429,35 @@ class DartclawServer {
         validator: const ConfigValidator(),
         runtimeConfig: rc,
         dataDir: dd,
-        restartService: _restartService,
-        sseBroadcast: _sseBroadcast,
-        scheduleService: _scheduleService,
-        whatsAppChannel: _whatsAppChannel,
-        signalChannel: _signalChannel,
-        googleChatChannel: _googleChatWebhookHandler?.channel,
-        eventBus: _eventBus,
-        configNotifier: _configNotifier,
+        restartService: _core.restartService,
+        sseBroadcast: _observability.sseBroadcast,
+        scheduleService: _observability.scheduleService,
+        whatsAppChannel: _channels.whatsAppChannel,
+        signalChannel: _channels.signalChannel,
+        googleChatChannel: _channels.googleChatWebhookHandler?.channel,
+        eventBus: _observability.eventBus,
+        configNotifier: _core.configNotifier,
       );
       router.mount('/', cfgApiRouter.call);
     }
   }
 
   void _mountMemoryRoutes(Router router) {
-    final memStatus = _memoryStatusService;
-    final wp = _workspaceDisplay.path;
+    final memStatus = _observability.memoryStatusService;
+    final wp = _web.workspaceDisplay.path;
     if (memStatus != null && wp != null) {
       final memRouter = memoryRoutes(
         statusService: memStatus,
         workspaceDir: wp,
-        pruner: _memoryPruner,
-        kvService: _kvService,
+        pruner: _observability.memoryPruner,
+        kvService: _core.kvService,
       );
       router.mount('/', memRouter.call);
     }
   }
 
   void _mountProviderRoutes(Router router) {
-    final providerStatus = _providerStatus;
+    final providerStatus = _observability.providerStatus;
     if (providerStatus != null) {
       final providerRouter = providerRoutes(providerStatus: providerStatus);
       router.mount('/', providerRouter.call);
@@ -790,7 +465,7 @@ class DartclawServer {
   }
 
   void _mountGoalRoutes(Router router) {
-    final goalService = _goalService;
+    final goalService = _tasks.goalService;
     if (goalService != null) {
       final goalRouter = goalRoutes(goalService);
       router.mount('/', goalRouter.call);
@@ -798,24 +473,24 @@ class DartclawServer {
   }
 
   void _mountProjectRoutes(Router router) {
-    final ps = _projectService;
+    final ps = _tasks.projectService;
     if (ps != null) {
       final projectRouter = projectRoutes(
         ps,
-        projectConfig: _config?.projects ?? const ProjectConfig.defaults(),
-        containerEnabled: _config?.container.enabled ?? false,
+        projectConfig: _core.config?.projects ?? const ProjectConfig.defaults(),
+        containerEnabled: _core.config?.container.enabled ?? false,
         containerMountRoots: _projectRouteContainerMountRoots(),
-        tasks: _taskService,
-        worktreeManager: _worktreeManager,
-        taskFileGuard: _taskFileGuard,
-        turns: _turns,
+        tasks: _tasks.taskService,
+        worktreeManager: _tasks.worktreeManager,
+        taskFileGuard: _tasks.taskFileGuard,
+        turns: _turn.turns,
       );
       router.mount('/', projectRouter.call);
     }
   }
 
   List<String> _projectRouteContainerMountRoots() {
-    final config = _config;
+    final config = _core.config;
     if (config == null) {
       return [p.normalize(p.absolute(Directory.current.path))];
     }
@@ -861,48 +536,54 @@ class DartclawServer {
   }
 
   void _mountTaskRoutes(Router router) {
-    final taskService = _taskService;
-    final eventBus = _eventBus;
+    final taskService = _tasks.taskService;
+    final eventBus = _observability.eventBus;
     if (taskService != null && eventBus != null) {
       final taskSseRouter = taskSseRoutes(
         taskService,
         eventBus,
-        observer: _agentObserver,
-        projects: _projectService,
-        progressTracker: _progressTracker,
-        workflows: _workflowService,
+        observer: _tasks.agentObserver,
+        projects: _tasks.projectService,
+        progressTracker: _tasks.progressTracker,
+        workflows: _web.workflowService,
       );
       router.mount('/', taskSseRouter.call);
       final taskRouter = taskRoutes(
         taskService,
-        turns: _turns,
-        reviewService: _taskReviewService,
-        worktreeManager: _worktreeManager,
-        taskFileGuard: _taskFileGuard,
-        mergeExecutor: _mergeExecutor,
-        projectService: _projectService,
-        dataDir: _appDisplay.dataDir,
-        threadBindingStore: _threadBindingStore,
-        mergeStrategy: _mergeStrategy ?? 'squash',
-        baseRef: _baseRef ?? 'main',
+        turns: _turn.turns,
+        reviewService: _tasks.taskReviewService,
+        worktreeManager: _tasks.worktreeManager,
+        taskFileGuard: _tasks.taskFileGuard,
+        mergeExecutor: _tasks.mergeExecutor,
+        projectService: _tasks.projectService,
+        dataDir: _web.appDisplay.dataDir,
+        threadBindingStore: _channels.threadBindingStore,
+        mergeStrategy: _tasks.mergeStrategy ?? 'squash',
+        baseRef: _tasks.baseRef ?? 'main',
       );
       router.mount('/', taskRouter.call);
     }
-    final ts = _traceService;
+    final ts = _tasks.traceService;
     if (ts != null) {
       router.mount('/', traceRoutes(ts).call);
     }
   }
 
   void _mountWorkflowRoutes(Router router) {
-    final wf = _workflowService;
-    final ts = _taskService;
-    final ds = _workflowDefinitionSource;
+    final wf = _web.workflowService;
+    final ts = _tasks.taskService;
+    final ds = _web.workflowDefinitionSource;
     if (wf != null && ts != null && ds != null) {
-      final workflowRouter = workflowRoutes(wf, ts, ds, eventBus: _eventBus, skillRegistry: _skillRegistry);
+      final workflowRouter = workflowRoutes(
+        wf,
+        ts,
+        ds,
+        eventBus: _observability.eventBus,
+        skillRegistry: _web.skillRegistry,
+      );
       router.mount('/', workflowRouter.call);
     }
-    final skills = _skillRegistry;
+    final skills = _web.skillRegistry;
     if (skills != null) {
       final skillRouter = skillRoutes(skills);
       router.mount('/', skillRouter.call);
@@ -910,12 +591,14 @@ class DartclawServer {
   }
 
   void _mountGoogleChatSubscriptionRoutes(Router router) {
-    final subRouter = googleChatSubscriptionRoutes(subscriptionManager: _spaceEventsWiring?.subscriptionManager);
+    final subRouter = googleChatSubscriptionRoutes(
+      subscriptionManager: _channels.spaceEventsWiring?.subscriptionManager,
+    );
     router.mount('/', subRouter.call);
   }
 
   void _mountAgentRoutes(Router router) {
-    final agentObs = _agentObserver;
+    final agentObs = _tasks.agentObserver;
     if (agentObs != null) {
       final agentRouter = agentRoutes(agentObs);
       router.mount('/', agentRouter.call);
@@ -923,65 +606,53 @@ class DartclawServer {
   }
 
   void _mountSessionRoutes(Router router) {
-    final configuredProvider = _config?.agent.provider.trim().toLowerCase();
+    final configuredProvider = _core.config?.agent.provider.trim().toLowerCase();
     final defaultProvider = configuredProvider == null || configuredProvider.isEmpty ? 'claude' : configuredProvider;
     final showChannels =
-        _whatsAppChannel != null || _signalChannel != null || _googleChatWebhookHandler?.channel != null;
-    final tasksEnabled = _taskService != null && _eventBus != null;
-    String buildSidebarHtml({
-      required SidebarData sidebarData,
-      String? activeSessionId,
-      List<NavItem> navItems = const [],
-    }) {
+        _channels.whatsAppChannel != null ||
+        _channels.signalChannel != null ||
+        _channels.googleChatWebhookHandler?.channel != null;
+    final tasksEnabled = _tasks.taskService != null && _observability.eventBus != null;
+    final sidebarBuilder = SidebarDataBuilder(
+      sessions: _core.sessions,
+      kvService: _core.kvService,
+      defaultProvider: defaultProvider,
+      showChannels: showChannels,
+      tasksEnabled: tasksEnabled,
+    );
+    String buildSidebarHtml({required SidebarData sidebarData, List<NavItem> navItems = const []}) {
       final resolvedNavItems = navItems.isEmpty ? _pageRegistry.navItems(activePage: '') : navItems;
-      return sidebarTemplate(
-        mainSession: sidebarData.main,
-        dmChannels: sidebarData.dmChannels,
-        groupChannels: sidebarData.groupChannels,
-        activeEntries: sidebarData.activeEntries,
-        archivedEntries: sidebarData.archivedEntries,
-        activeTasks: sidebarData.activeTasks,
-        activeWorkflows: sidebarData.activeWorkflows,
-        showChannels: sidebarData.showChannels,
-        tasksEnabled: sidebarData.tasksEnabled,
-        activeSessionId: activeSessionId,
-        navItems: resolvedNavItems,
-        appName: _appDisplay.name,
-      );
+      return buildSidebar(sidebarData: sidebarData, navItems: resolvedNavItems, appName: _web.appDisplay.name);
     }
 
     final sessionRouter = sessionRoutes(
-      _sessions,
-      _messages,
-      _turns,
-      _worker,
-      resetService: _resetService,
-      redactor: _redactor,
-      chatCommandHandler: _workflowService != null && _workflowDefinitionSource != null
-          ? ChatCommandHandler(workflows: _workflowService, definitions: _workflowDefinitionSource)
-          : null,
-      buildSidebarData: () => buildSidebarData(
-        _sessions,
-        kvService: _kvService,
-        defaultProvider: defaultProvider,
-        showChannels: showChannels,
-        tasksEnabled: tasksEnabled,
-      ),
+      _core.sessions,
+      _core.messages,
+      _turn.turns,
+      _core.worker,
+      resetService: _core.resetService,
+      redactor: _core.redactor,
+      chatCommandHandler: () {
+        final wf = _web.workflowService;
+        final ds = _web.workflowDefinitionSource;
+        return (wf != null && ds != null) ? ChatCommandHandler(workflows: wf, definitions: ds) : null;
+      }(),
+      sidebarData: sidebarBuilder.build,
       buildSidebarHtml: buildSidebarHtml,
     );
     router.mount('/', sessionRouter.call);
   }
 
   void _mountCanvasRoutes(Router router) {
-    final canvasService = _canvasService;
+    final canvasService = _web.canvasService;
     if (canvasService == null) return;
 
-    final canvasRouter = canvasRoutes(canvasService: canvasService, turns: _turns, sessions: _sessions);
+    final canvasRouter = canvasRoutes(canvasService: canvasService, turns: _turn.turns, sessions: _core.sessions);
     router.mount('/canvas', canvasRouter.call);
   }
 
   void _mountCanvasAdminRoutes(Router router) {
-    final canvasService = _canvasService;
+    final canvasService = _web.canvasService;
     if (canvasService == null) return;
 
     final adminRouter = canvasAdminRoutes(canvasService: canvasService);
@@ -990,41 +661,41 @@ class DartclawServer {
 
   void _mountWebRoutes(Router router) {
     final webRouter = webRoutes(
-      _sessions,
-      _messages,
-      workerStateGetter: () => _worker.state,
-      tokenService: _tokenService,
-      gatewayToken: _gatewayToken,
-      healthService: _healthService,
-      whatsAppChannel: _whatsAppChannel,
-      signalChannel: _signalChannel,
-      googleChatChannel: _googleChatWebhookHandler?.channel,
-      guardChain: _guardChain,
-      turns: _turns,
-      runtimeConfig: _runtimeConfig,
-      memoryStatusService: _memoryStatusService,
-      cookieSecure: _config?.auth.cookieSecure ?? false,
-      trustedProxies: _config?.auth.trustedProxies ?? const [],
-      contentGuardDisplay: _contentGuardDisplay,
-      heartbeatDisplay: _heartbeatDisplay,
-      schedulingDisplay: _schedulingDisplay,
-      workspaceDisplay: _workspaceDisplay,
-      appDisplay: _appDisplay,
+      _core.sessions,
+      _core.messages,
+      workerStateGetter: () => _core.worker.state,
+      tokenService: _core.tokenService,
+      gatewayToken: _core.gatewayToken,
+      healthService: _core.healthService,
+      whatsAppChannel: _channels.whatsAppChannel,
+      signalChannel: _channels.signalChannel,
+      googleChatChannel: _channels.googleChatWebhookHandler?.channel,
+      guardChain: _core.guardChain,
+      turns: _turn.turns,
+      runtimeConfig: _core.runtimeConfig,
+      memoryStatusService: _observability.memoryStatusService,
+      cookieSecure: _core.config?.auth.cookieSecure ?? false,
+      trustedProxies: _core.config?.auth.trustedProxies ?? const [],
+      contentGuardDisplay: _web.contentGuardDisplay,
+      heartbeatDisplay: _web.heartbeatDisplay,
+      schedulingDisplay: _web.schedulingDisplay,
+      workspaceDisplay: _web.workspaceDisplay,
+      appDisplay: _web.appDisplay,
       pageRegistry: _pageRegistry,
-      config: _config,
-      taskService: _taskService,
-      goalService: _goalService,
-      projectService: _projectService,
-      eventBus: _eventBus,
-      agentObserver: _agentObserver,
-      kvService: _kvService,
-      traceService: _traceService,
-      taskEventService: _taskEventService,
-      progressTracker: _progressTracker,
-      threadBindingStore: _threadBindingStore,
-      canvasEnabled: _canvasService != null,
-      workflowService: _workflowService,
-      workflowDefinitionSource: _workflowDefinitionSource,
+      config: _core.config,
+      taskService: _tasks.taskService,
+      goalService: _tasks.goalService,
+      projectService: _tasks.projectService,
+      eventBus: _observability.eventBus,
+      agentObserver: _tasks.agentObserver,
+      kvService: _core.kvService,
+      traceService: _tasks.traceService,
+      taskEventService: _tasks.taskEventService,
+      progressTracker: _tasks.progressTracker,
+      threadBindingStore: _channels.threadBindingStore,
+      canvasEnabled: _web.canvasService != null,
+      workflowService: _web.workflowService,
+      workflowDefinitionSource: _web.workflowDefinitionSource,
     );
     router.mount('/', webRouter.call);
   }
@@ -1032,32 +703,36 @@ class DartclawServer {
   Handler _buildPipeline(Router router) {
     var pipeline = const Pipeline()
         .addMiddleware(logRequests(logger: _sanitizedLogger))
-        .addMiddleware(securityHeadersMiddleware(enableHsts: _config?.gateway.hsts ?? false))
+        .addMiddleware(securityHeadersMiddleware(enableHsts: _core.config?.gateway.hsts ?? false))
         .addMiddleware(_corsMiddleware());
-    if (_tokenService != null && _gatewayToken != null) {
+    final tokenService = _core.tokenService;
+    final gatewayToken = _core.gatewayToken;
+    if (tokenService != null && gatewayToken != null) {
       String? githubPublicPath;
       try {
-        final githubConfig = _config?.extension<GitHubWebhookConfig>('github');
+        final githubConfig = _core.config?.extension<GitHubWebhookConfig>('github');
         if (githubConfig != null && githubConfig.enabled) {
           githubPublicPath = githubConfig.webhookPath;
         }
       } catch (_) {
-        githubPublicPath = null;
+        githubPublicPath = null; // Extension absent or malformed — omit public webhook path.
       }
       pipeline = pipeline.addMiddleware(
         authMiddleware(
-          tokenService: _tokenService,
-          gatewayToken: _gatewayToken,
-          enabled: _authEnabled,
-          cookieSecure: _config?.auth.cookieSecure ?? false,
-          trustedProxies: _config?.auth.trustedProxies ?? const [],
-          eventBus: _eventBus,
+          tokenService: tokenService,
+          gatewayToken: gatewayToken,
+          enabled: _core.authEnabled,
+          cookieSecure: _core.config?.auth.cookieSecure ?? false,
+          trustedProxies: _core.config?.auth.trustedProxies ?? const [],
+          eventBus: _observability.eventBus,
           rateLimiter: _authRateLimiter,
           publicPaths: [
-            ...?(_googleChatWebhookHandler == null ? null : [_googleChatWebhookHandler.config.webhookPath]),
+            ...?(_channels.googleChatWebhookHandler == null
+                ? null
+                : [_channels.googleChatWebhookHandler!.config.webhookPath]),
             ...?(githubPublicPath == null ? null : [githubPublicPath]),
           ],
-          publicPrefixes: [if (_canvasService != null) '/canvas/'],
+          publicPrefixes: [if (_web.canvasService != null) '/canvas/'],
         ),
       );
     }
@@ -1072,44 +747,4 @@ class DartclawServer {
         );
     return pipeline.addHandler(cascade.handler);
   }
-}
-
-/// Redacts sensitive query parameters (e.g. `secret`) from request log lines.
-///
-/// Shelf's default `logRequests()` logs the full URI including query strings,
-/// which would expose webhook secrets in plaintext. This logger strips the
-/// `secret` parameter value before logging. Output goes through the standard
-/// [Logger] so it gets colorized level/name and structured formatting.
-final _httpLog = Logger('HTTP');
-
-void _sanitizedLogger(String msg, bool isError) {
-  final sanitized = msg.replaceAll(RegExp(r'([?&])secret=[^&\s]*'), r'$1secret=REDACTED');
-  if (isError) {
-    _httpLog.severe(sanitized);
-  } else {
-    _httpLog.info(sanitized);
-  }
-}
-
-final _localhostOrigin = RegExp(r'^http://(localhost|127\.0\.0\.1)(:\d+)?$');
-
-Middleware _corsMiddleware() {
-  return (Handler inner) => (Request request) async {
-    final origin = request.headers['origin'] ?? '';
-    final allowed = _localhostOrigin.hasMatch(origin);
-    final corsOrigin = allowed ? origin : 'http://localhost';
-
-    if (request.method == 'OPTIONS') {
-      return Response.ok(
-        '',
-        headers: {
-          'Access-Control-Allow-Origin': corsOrigin,
-          'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        },
-      );
-    }
-    final response = await inner(request);
-    return response.change(headers: {'Access-Control-Allow-Origin': corsOrigin});
-  };
 }

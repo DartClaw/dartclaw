@@ -6,8 +6,10 @@ library;
 
 import 'dart:async';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
 import 'package:fake_async/fake_async.dart';
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         OnFailurePolicy,
@@ -16,12 +18,17 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowApprovalRequestedEvent,
         WorkflowContext,
+        WorkflowDefinition,
+        WorkflowGitCleanupStrategy,
+        WorkflowGitStrategy,
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowStep,
-        WorkflowTemplateEngine;
+        WorkflowTurnAdapter,
+        WorkflowTurnOutcome;
 import 'package:dartclaw_workflow/src/workflow/approval_step_runner.dart'
     show ApprovalStepDependencies, executeApprovalStep;
+import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -137,7 +144,12 @@ void main() {
     test('approval step pauses with zero task creation and zero token increment', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(id: 'gate', name: 'Review Gate', type: 'approval', prompts: ['Please review']),
+          const WorkflowStep(
+            id: 'gate',
+            name: 'Review Gate',
+            type: WorkflowTaskType.approval,
+            prompts: ['Please review'],
+          ),
         ],
       );
 
@@ -171,7 +183,7 @@ void main() {
     test('approval step without timeoutSeconds waits indefinitely (no auto-cancel)', () async {
       final definition = h.makeDefinition(
         steps: [
-          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
       final run = h.makeRun(definition);
@@ -189,7 +201,7 @@ void main() {
       final step = const WorkflowStep(
         id: 'gate',
         name: 'Gate',
-        type: 'approval',
+        type: WorkflowTaskType.approval,
         prompts: ['Approve?'],
         timeoutSeconds: 1,
       );
@@ -249,13 +261,56 @@ void main() {
       expect(cancelReason, equals('timeout'));
     });
 
+    test('approval timeout runs workflow git cleanup', () async {
+      final cleanupCalls = <({String runId, String projectId, String status, bool preserveWorktrees})>[];
+      final executor = h.makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((
+                  runId: runId,
+                  projectId: projectId,
+                  status: status,
+                  preserveWorktrees: preserveWorktrees,
+                ));
+              },
+        ),
+      );
+      final definition = WorkflowDefinition(
+        name: 'approval-cleanup',
+        description: 'Approval timeout cleanup test',
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        steps: const [
+          WorkflowStep(
+            id: 'gate',
+            name: 'Gate',
+            type: WorkflowTaskType.approval,
+            prompts: ['Approve?'],
+            timeoutSeconds: 1,
+          ),
+        ],
+      );
+      final run = h.makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'alpha'});
+      final context = WorkflowContext(variables: const {'PROJECT': 'alpha'});
+
+      await h.repository.insert(run);
+      await executor.execute(run, definition, context);
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+
+      expect(cleanupCalls, hasLength(1));
+      expect(cleanupCalls.single, (runId: 'run-1', projectId: 'alpha', status: 'cancelled', preserveWorktrees: false));
+    }, timeout: const Timeout(Duration(seconds: 10)));
+
     test('approval step resolves prompt template from context', () async {
       final definition = h.makeDefinition(
         steps: [
           const WorkflowStep(
             id: 'gate',
             name: 'Gate',
-            type: 'approval',
+            type: WorkflowTaskType.approval,
             prompts: ['Review result: {{context.prior_output}}'],
           ),
         ],

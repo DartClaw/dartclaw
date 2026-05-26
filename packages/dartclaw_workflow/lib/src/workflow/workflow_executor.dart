@@ -1,13 +1,17 @@
-import 'dart:async' show Completer, StreamSubscription, TimeoutException, Timer;
+import 'dart:async' show Completer, StreamSubscription, TimeoutException, Timer, unawaited;
 import 'dart:collection' show Queue;
 import 'dart:convert';
 import 'dart:io';
+import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity, WorkflowRunStatus;
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
+import 'workflow_definition.dart';
+import 'workflow_run.dart';
+import 'workflow_run_repository.dart' show WorkflowRunRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 import 'approval_step_runner.dart' as approval_step_runner;
+import 'aggregate_step_runner.dart' as aggregate_step_runner;
 import 'bash_step_runner.dart' as bash_step_runner;
 import 'context_extractor.dart';
 import 'dependency_graph.dart';
@@ -32,25 +36,31 @@ import 'workflow_task_factory.dart' as workflow_task_factory;
 import 'workflow_template_engine.dart';
 import 'merge_resolve_attempt_artifact.dart';
 import 'workflow_task_config.dart';
+import 'promotion_coordinator.dart';
 import 'workflow_turn_adapter.dart';
 export 'workflow_runner_types.dart';
 part 'public_node_runners.dart';
 part 'public_step_dispatcher.dart';
 part 'public_step_dispatcher_helpers.dart';
 part 'step_dispatcher.dart';
-part 'parallel_group_runner.dart';
+part 'parallel_group_and_step_outcome_runner.dart';
 part 'loop_step_runner.dart';
 part 'map_iteration_runner.dart';
 part 'foreach_iteration_runner.dart';
 part 'map_iteration_dispatcher.dart';
 part 'workflow_executor_helpers.dart';
+part 'workflow_executor_task_wait.dart';
+part 'workflow_executor_node_helpers.dart';
+part 'workflow_executor_session_helpers.dart';
+part 'workflow_executor_run_lifecycle.dart';
+part 'merge_resolve_coordinator.dart';
 
 class WorkflowExecutor {
   static final _log = Logger('WorkflowExecutor');
   final WorkflowTaskService _taskService;
   final EventBus _eventBus;
   final KvService _kvService;
-  final WorkflowRunRepositoryPort _repository;
+  final WorkflowRunRepository _repository;
   final GateEvaluator _gateEvaluator;
   final ContextExtractor _contextExtractor;
   final WorkflowTemplateEngine _templateEngine;
@@ -98,7 +108,7 @@ class WorkflowExecutor {
   }) : _taskService = executionContext.taskService,
        _eventBus = executionContext.eventBus,
        _kvService = executionContext.kvService,
-       _repository = WorkflowRunRepositoryPort(executionContext.repository),
+       _repository = executionContext.repository,
        _gateEvaluator = executionContext.gateEvaluator,
        _contextExtractor = executionContext.contextExtractor,
        _templateEngine = promptConfiguration.templateEngine,
@@ -118,6 +128,11 @@ class WorkflowExecutor {
        _bashStepExtraStripPatterns = List.unmodifiable(bashStepPolicy.extraStripPatterns),
        _projectService = executionContext.projectService,
        _uuid = uuid ?? const Uuid();
+
+  void _logRun(WorkflowRun run, String msg, {Level level = Level.FINE}) {
+    _log.log(level, "Workflow '${run.id}': $msg");
+  }
+
   Future<void> execute(
     WorkflowRun run,
     WorkflowDefinition definition,
@@ -153,6 +168,14 @@ class WorkflowExecutor {
       await _failRun(run, gitInitError);
       return;
     }
+    final requiresActiveWorkspaceRoot = _requiresActiveWorkspaceRoot(definition);
+    final activeWorkspaceRoot = requiresActiveWorkspaceRoot
+        ? await _resolveActiveWorkspaceRoot(run, definition, context)
+        : null;
+    if (requiresActiveWorkspaceRoot && (activeWorkspaceRoot == null || activeWorkspaceRoot.isEmpty)) {
+      await _failRun(run, 'Workflow requires an active workspace root for output validation.');
+      return;
+    }
     var activeCursor = resumeCursor;
     var nodeIndex = resumeCursor != null
         ? _nodeIndexForCursor(nodes, stepIndexById, resumeCursor)
@@ -181,6 +204,7 @@ class WorkflowExecutor {
             definition,
             loop,
             context,
+            activeWorkspaceRoot: activeWorkspaceRoot,
             isCancelled: isCancelled,
             startFromIteration: loopCursor?.iteration ?? 1,
             startFromStepId: loopCursor?.stepId,
@@ -211,7 +235,7 @@ class WorkflowExecutor {
             final gatePasses = _gateEvaluator.evaluate(step.gate!, context);
             if (!gatePasses) {
               final msg = "Gate failed for map step '${step.name}': ${step.gate}";
-              _log.info("Workflow '${run.id}': $msg");
+              _logRun(run, msg, level: Level.INFO);
               await _failRun(run, msg);
               return;
             }
@@ -221,7 +245,7 @@ class WorkflowExecutor {
           run = await _checkWorkflowBudgetWarning(run, definition);
           if (_workflowBudgetExceeded(run, definition)) {
             final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
-            _log.info("Workflow '${run.id}': $msg");
+            _logRun(run, msg, level: Level.INFO);
             await _failRun(run, msg);
             return;
           }
@@ -238,6 +262,8 @@ class WorkflowExecutor {
             context,
             stepIndex: stepIndex,
             resumeCursor: mapCursor,
+            activeWorkspaceRoot: activeWorkspaceRoot,
+            isCancelled: isCancelled,
           );
           if (mapResult == null) return;
           activeCursor = null;
@@ -246,7 +272,7 @@ class WorkflowExecutor {
           }
           if (!mapResult.success) {
             final msg = mapResult.error ?? "Map step '${step.id}' failed";
-            _log.info("Workflow '${run.id}': $msg");
+            _logRun(run, msg, level: Level.INFO);
             final refreshedRun = await _repository.getById(run.id) ?? run;
             final keepCursor =
                 mapResult.error?.startsWith('promotion-conflict') == true ||
@@ -255,8 +281,7 @@ class WorkflowExecutor {
               totalTokens: refreshedRun.totalTokens + mapResult.totalTokens,
               executionCursor: keepCursor ? refreshedRun.executionCursor : null,
               contextJson: {
-                for (final e in refreshedRun.contextJson.entries)
-                  if (e.key.startsWith('_') && !e.key.startsWith('_map.current')) e.key: e.value,
+                ...privateContextEntries(refreshedRun.contextJson, exclude: '_map.current'),
                 ...context.toJson(),
               },
               updatedAt: DateTime.now(),
@@ -271,8 +296,7 @@ class WorkflowExecutor {
             currentStepIndex: stepIndex + 1,
             executionCursor: null,
             contextJson: {
-              for (final e in run.contextJson.entries)
-                if (e.key.startsWith('_') && !e.key.startsWith('_map.current')) e.key: e.value,
+              ...privateContextEntries(run.contextJson, exclude: '_map.current'),
               ...context.toJson(),
             },
             updatedAt: DateTime.now(),
@@ -309,8 +333,9 @@ class WorkflowExecutor {
               ? fullGroup.where((step) => resumeFailedIds.contains(step.id)).toList()
               : fullGroup;
           if (isParallelResume) {
-            _log.info(
-              "Workflow '${run.id}': resuming parallel group — "
+            _logRun(
+              run,
+              'resuming parallel group — '
               're-running ${group.length} failed step(s): '
               '${group.map((step) => step.id).join(', ')}',
             );
@@ -339,7 +364,7 @@ class WorkflowExecutor {
               final gatePasses = _gateEvaluator.evaluate(groupStep.gate!, context);
               if (!gatePasses) {
                 final msg = "Gate failed for parallel step '${groupStep.name}': ${groupStep.gate}";
-                _log.info("Workflow '${run.id}': $msg");
+                _logRun(run, msg, level: Level.INFO);
                 await _failRun(run, msg);
                 return;
               }
@@ -350,7 +375,7 @@ class WorkflowExecutor {
           run = await _checkWorkflowBudgetWarning(run, definition);
           if (_workflowBudgetExceeded(run, definition)) {
             final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
-            _log.info("Workflow '${run.id}': $msg");
+            _logRun(run, msg, level: Level.INFO);
             await _failRun(run, msg);
             return;
           }
@@ -359,7 +384,14 @@ class WorkflowExecutor {
             updatedAt: DateTime.now(),
           );
           await _repository.update(run);
-          final results = await _executeParallelGroup(run, definition, group, context);
+          final results = await _executeParallelGroup(
+            run,
+            definition,
+            group,
+            context,
+            activeWorkspaceRoot: activeWorkspaceRoot,
+            isCancelled: isCancelled,
+          );
           final postGroupRun = await _repository.getById(run.id) ?? run;
           if (postGroupRun.status == WorkflowRunStatus.paused || postGroupRun.status == WorkflowRunStatus.cancelled) {
             return;
@@ -442,7 +474,7 @@ class WorkflowExecutor {
             }
             final failedNames = failedSteps.map((result) => "'${result.step.name}'").join(', ');
             final msg = 'Parallel step(s) failed: $failedNames';
-            _log.info("Workflow '${run.id}': $msg");
+            _logRun(run, msg, level: Level.INFO);
             await _failRun(run, msg);
             return;
           }
@@ -523,7 +555,7 @@ class WorkflowExecutor {
           run = await _checkWorkflowBudgetWarning(run, definition);
           if (_workflowBudgetExceeded(run, definition)) {
             final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
-            _log.info("Workflow '${run.id}': $msg");
+            _logRun(run, msg, level: Level.INFO);
             await _failRun(run, msg);
             return;
           }
@@ -539,9 +571,11 @@ class WorkflowExecutor {
             foreachStep,
             childStepIds,
             context,
+            activeWorkspaceRoot: activeWorkspaceRoot,
             stepById: stepById,
             stepIndex: foreachStepIndex,
             resumeCursor: foreachCursor,
+            isCancelled: isCancelled,
           );
           if (foreachResult == null) return;
           activeCursor = null;
@@ -550,17 +584,51 @@ class WorkflowExecutor {
           }
           if (!foreachResult.success) {
             final msg = foreachResult.error ?? "Foreach step '${foreachStep.id}' failed";
-            _log.info("Workflow '${run.id}': $msg");
+            _logRun(run, msg, level: Level.INFO);
             final refreshedRun = await _repository.getById(run.id) ?? run;
             final keepCursor =
                 foreachResult.error?.startsWith('promotion-conflict') == true ||
                 foreachResult.results.any((result) => result == null);
+            if (foreachStep.onFailure == OnFailurePolicy.continueWorkflow &&
+                foreachResult.results.isNotEmpty &&
+                foreachResult.error?.startsWith('foreach-controller-failure:') != true &&
+                foreachResult.error?.startsWith('promotion-conflict:') != true &&
+                foreachResult.error?.startsWith('promotion-failure:') != true) {
+              context['step.${foreachStep.id}.outcome'] = 'failed';
+              context['step.${foreachStep.id}.outcome.reason'] = msg;
+              run = refreshedRun.copyWith(
+                totalTokens: refreshedRun.totalTokens + foreachResult.totalTokens,
+                currentStepIndex: foreachStepIndex + 1,
+                executionCursor: keepCursor ? refreshedRun.executionCursor : null,
+                contextJson: {
+                  ...privateContextEntries(refreshedRun.contextJson, exclude: '_foreach.current'),
+                  ...context.toJson(),
+                },
+                updatedAt: DateTime.now(),
+              );
+              await _persistContext(run.id, context);
+              await _repository.update(run);
+              _eventBus.fire(
+                WorkflowStepCompletedEvent(
+                  runId: run.id,
+                  stepId: foreachStep.id,
+                  stepName: foreachStep.name,
+                  stepIndex: foreachStepIndex,
+                  totalSteps: totalSteps,
+                  taskId: '',
+                  success: false,
+                  tokenCount: foreachResult.totalTokens,
+                  timestamp: DateTime.now(),
+                ),
+              );
+              nodeIndex++;
+              continue;
+            }
             run = refreshedRun.copyWith(
               totalTokens: refreshedRun.totalTokens + foreachResult.totalTokens,
               executionCursor: keepCursor ? refreshedRun.executionCursor : null,
               contextJson: {
-                for (final e in refreshedRun.contextJson.entries)
-                  if (e.key.startsWith('_') && !e.key.startsWith('_foreach.current')) e.key: e.value,
+                ...privateContextEntries(refreshedRun.contextJson, exclude: '_foreach.current'),
                 ...context.toJson(),
               },
               updatedAt: DateTime.now(),
@@ -575,8 +643,7 @@ class WorkflowExecutor {
             currentStepIndex: foreachStepIndex + 1,
             executionCursor: null,
             contextJson: {
-              for (final e in run.contextJson.entries)
-                if (e.key.startsWith('_') && !e.key.startsWith('_foreach.current')) e.key: e.value,
+              ...privateContextEntries(run.contextJson, exclude: '_foreach.current'),
               ...context.toJson(),
             },
             updatedAt: DateTime.now(),
@@ -614,7 +681,7 @@ class WorkflowExecutor {
             final gatePasses = _gateEvaluator.evaluate(step.gate!, context);
             if (!gatePasses) {
               final msg = "Gate failed for step '${step.name}': ${step.gate}";
-              _log.info("Workflow '${run.id}': $msg");
+              _logRun(run, msg, level: Level.INFO);
               await _failRun(run, msg);
               return;
             }
@@ -624,7 +691,7 @@ class WorkflowExecutor {
           run = await _checkWorkflowBudgetWarning(run, definition);
           if (_workflowBudgetExceeded(run, definition)) {
             final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
-            _log.info("Workflow '${run.id}': $msg");
+            _logRun(run, msg, level: Level.INFO);
             await _failRun(run, msg);
             return;
           }
@@ -638,6 +705,7 @@ class WorkflowExecutor {
             definition,
             step,
             context,
+            activeWorkspaceRoot: activeWorkspaceRoot,
             stepIndex: stepIndex,
             promoteAfterSuccess: _isLastBranchTouchingStepInScope(definition, step, followingActionSteps),
           );
@@ -651,17 +719,13 @@ class WorkflowExecutor {
             final msg =
                 "Step '${step.id}' (${step.name}) ${result.task?.status.name ?? 'failed'}"
                 "${reason != null ? ': $reason' : ''}";
-            _log.info("Workflow '${run.id}': $msg");
+            _logRun(run, msg, level: Level.INFO);
             if (step.onError == 'continue') {
               _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
               run = run.copyWith(
                 totalTokens: run.totalTokens + result.tokenCount,
                 currentStepIndex: stepIndex + 1,
-                contextJson: {
-                  for (final e in run.contextJson.entries)
-                    if (e.key.startsWith('_')) e.key: e.value,
-                  ...context.toJson(),
-                },
+                contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
                 updatedAt: DateTime.now(),
               );
               await _persistContext(run.id, context);
@@ -685,11 +749,7 @@ class WorkflowExecutor {
             _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
             run = run.copyWith(
               totalTokens: run.totalTokens + result.tokenCount,
-              contextJson: {
-                for (final e in run.contextJson.entries)
-                  if (e.key.startsWith('_')) e.key: e.value,
-                ...context.toJson(),
-              },
+              contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
               updatedAt: DateTime.now(),
             );
             await _persistContext(run.id, context);
@@ -735,11 +795,7 @@ class WorkflowExecutor {
             final msg = artifactCommitResult.failureReason ?? "Artifact commit failed for step '${step.id}'";
             run = run.copyWith(
               totalTokens: run.totalTokens + result.tokenCount,
-              contextJson: {
-                for (final e in run.contextJson.entries)
-                  if (e.key.startsWith('_')) e.key: e.value,
-                ...context.toJson(),
-              },
+              contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
               updatedAt: DateTime.now(),
             );
             await _persistContext(run.id, context);
@@ -763,11 +819,7 @@ class WorkflowExecutor {
           run = run.copyWith(
             totalTokens: run.totalTokens + result.tokenCount,
             currentStepIndex: stepIndex + 1,
-            contextJson: {
-              for (final e in run.contextJson.entries)
-                if (e.key.startsWith('_')) e.key: e.value,
-              ...context.toJson(),
-            },
+            contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
             updatedAt: DateTime.now(),
           );
           await _persistContext(run.id, context);
@@ -820,9 +872,10 @@ class WorkflowExecutor {
         }
       }
     }
+    await _cleanupWorkflowGit(cancelled, preserveWorktrees: !_cleanupEnabledForRun(cancelled));
   }
 
-  Future<void> _failRun(WorkflowRun run, String reason) async {
+  Future<void> _failRun(WorkflowRun run, String reason, {bool cleanupWorkflowGit = true}) async {
     final failed = run.copyWith(status: WorkflowRunStatus.failed, errorMessage: reason, updatedAt: DateTime.now());
     await _repository.update(failed);
     _eventBus.fire(
@@ -835,6 +888,19 @@ class WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
+    if (cleanupWorkflowGit) {
+      await _cleanupWorkflowGit(failed, preserveWorktrees: !_cleanupEnabledForRun(failed));
+    }
+  }
+
+  bool _cleanupEnabledForRun(WorkflowRun run) {
+    try {
+      final definition = WorkflowDefinition.fromJson(run.definitionJson);
+      return definition.gitStrategy?.cleanupEnabled ?? true;
+    } catch (e, st) {
+      _log.warning("Workflow '${run.id}': failed to resolve cleanup config; preserving worktrees", e, st);
+      return false;
+    }
   }
 
   Future<void> _completeRun(WorkflowRun run, WorkflowDefinition definition, WorkflowContext context) async {
@@ -842,7 +908,7 @@ class WorkflowExecutor {
     if (publishStrategy?.enabled == true) {
       final publishError = await _runDeterministicPublish(run, definition, context);
       if (publishError != null) {
-        await _failRun(run, publishError);
+        await _failRun(run, publishError, cleanupWorkflowGit: false);
         return;
       }
       final refreshed = await _repository.getById(run.id);

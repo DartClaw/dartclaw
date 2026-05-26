@@ -2,11 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
 import 'package:dartclaw_server/src/templates/sidebar.dart'
     show NavItem, SidebarActiveTask, SidebarActiveWorkflow, SidebarData, SidebarSession;
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -342,6 +343,7 @@ void main() {
         activeWorkflows: <SidebarActiveWorkflow>[],
         showChannels: true,
         tasksEnabled: false,
+        activeSessionId: null,
       );
       final session = await sessions.createSession();
       final localHandler = sessionRoutes(
@@ -349,10 +351,9 @@ void main() {
         messages,
         turns,
         worker,
-        buildSidebarData: () async => emptySidebarData,
-        buildSidebarHtml: ({required SidebarData sidebarData, String? activeSessionId, List<NavItem> navItems = const []}) {
+        sidebarData: ({String? activeSessionId}) async => emptySidebarData,
+        buildSidebarHtml: ({required SidebarData sidebarData, List<NavItem> navItems = const []}) {
           expect(sidebarData, equals(emptySidebarData));
-          expect(activeSessionId, isNull);
           expect(navItems, isEmpty);
           return '<aside id="sidebar"></aside><button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>';
         },
@@ -374,7 +375,7 @@ void main() {
         messages,
         turns,
         worker,
-        buildSidebarData: () async => (
+        sidebarData: ({String? activeSessionId}) async => (
           main: null,
           dmChannels: <SidebarSession>[],
           groupChannels: <SidebarSession>[],
@@ -384,8 +385,9 @@ void main() {
           activeWorkflows: <SidebarActiveWorkflow>[],
           showChannels: true,
           tasksEnabled: false,
+          activeSessionId: null,
         ),
-        buildSidebarHtml: ({required SidebarData sidebarData, String? activeSessionId, List<NavItem> navItems = const []}) {
+        buildSidebarHtml: ({required SidebarData sidebarData, List<NavItem> navItems = const []}) {
           return '<aside id="sidebar"></aside><button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>';
         },
       ).call;

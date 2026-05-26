@@ -23,7 +23,8 @@ agent:
   model: sonnet
   max_turns: 100
 
-memory_max_bytes: 65536
+memory:
+  max_bytes: 65536
 
 scheduling:
   heartbeat:
@@ -99,7 +100,7 @@ The agent uses `memory_save` to append entries in MEMORY.md's timestamped format
 2. **Isolated session created** for the journal job
 3. **Agent reviews context** from MEMORY.md and behavior files
 4. **Agent writes structured entries** to MEMORY.md via `memory_save`, categorizing insights, decisions, and action items
-5. **Heartbeat triggers consolidation** if MEMORY.md exceeds `memory_max_bytes` (64KB in this config) -- the agent deduplicates and reorganizes entries
+5. **Heartbeat triggers consolidation** if MEMORY.md exceeds `memory.max_bytes` (64KB in this config) -- the agent deduplicates and reorganizes entries
 6. **Git sync commits changes** to the workspace repository
 7. **Push to remote** if a remote is configured and `push_enabled: true`
 
@@ -116,7 +117,7 @@ The agent uses `memory_save` to append entries in MEMORY.md's timestamped format
       expression: "0 10 * * 1"
     delivery: announce
   ```
-- **Increase memory cap**: Set `memory_max_bytes: 131072` (128KB) if you generate a lot of entries before consolidation
+- **Increase memory cap**: Set `memory.max_bytes: 131072` (128KB) if you generate a lot of entries before consolidation
 - **Disable push**: Set `push_enabled: false` if you want local git history only
 
 ## Gotchas & Limitations
@@ -124,5 +125,5 @@ The agent uses `memory_save` to append entries in MEMORY.md's timestamped format
 - **`memory_save` appends entries** -- deduplication only happens during memory consolidation in the heartbeat cycle, not during the journal job itself
 - **Git sync requires a remote** for push -- run `git remote add origin <url>` in `~/.dartclaw/workspace/` to set it up
 - **Journal job sees an isolated session** -- it does not have access to your main session's chat history directly. It reviews context via MEMORY.md and behavior files
-- **Consolidation threshold** -- consolidation runs during heartbeat only when MEMORY.md exceeds `memory_max_bytes`. If you set a very high cap, consolidation may never trigger
+- **Consolidation threshold** -- consolidation runs during heartbeat only when MEMORY.md exceeds `memory.max_bytes`. If you set a very high cap, consolidation may never trigger
 - **Session maintenance** -- long-running assistant setups accumulate many sessions (including cron sessions). Configure `sessions.maintenance` to auto-prune old sessions. See [Common Patterns](_common-patterns.md#session-maintenance) for details

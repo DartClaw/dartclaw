@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -36,10 +37,10 @@ class _FakeGowaManager extends GowaManager {
   }
 
   @override
-  Future<GowaStatus> getStatus() async => (isConnected: true, isLoggedIn: true, deviceId: 'bot@s.whatsapp.net');
+  Future<GowaStatus> status() async => (isConnected: true, isLoggedIn: true, deviceId: 'bot@s.whatsapp.net');
 
   @override
-  Future<GowaLoginQr> getLoginQr() async => (url: null, durationSeconds: 60);
+  Future<GowaLoginQr> loginQr() async => (url: null, durationSeconds: 60);
 }
 
 class _ChannelWorker implements AgentHarness {

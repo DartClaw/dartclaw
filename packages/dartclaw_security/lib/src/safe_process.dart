@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 /// Default env names allowed through to minimal shell-style subprocesses.
-const kDefaultBashStepEnvAllowlist = <String>[
+const defaultBashStepEnvAllowlist = <String>[
   'PATH',
   'HOME',
   'LANG',
@@ -24,7 +24,7 @@ const kDefaultBashStepEnvAllowlist = <String>[
 /// `SSH_AGENT_PID` is the benign companion that ssh libraries sometimes
 /// consult; no credentials ever travel through either variable — they only
 /// name a Unix socket and a process ID.
-const kDefaultGitEnvAllowlist = <String>[
+const defaultGitEnvAllowlist = <String>[
   'PATH',
   'HOME',
   'LANG',
@@ -38,7 +38,7 @@ const kDefaultGitEnvAllowlist = <String>[
 ];
 
 /// Default patterns stripped when sanitizing a parent environment.
-final List<Pattern> kDefaultSensitivePatterns = <Pattern>[
+final List<Pattern> defaultSensitivePatterns = <Pattern>[
   RegExp(r'.*_API_KEY$', caseSensitive: false),
   RegExp(r'.*_SECRET$', caseSensitive: false),
   RegExp(r'.*_TOKEN$', caseSensitive: false),
@@ -48,22 +48,28 @@ final List<Pattern> kDefaultSensitivePatterns = <Pattern>[
 
 /// Minimal shared interface for env-overlay plans.
 abstract interface class ProcessEnvironmentPlan {
+  /// Environment entries to overlay onto the sanitized base environment.
   Map<String, String> get environment;
 }
 
+/// Selects how a [SafeProcess] spawn resolves the child's environment.
 sealed class EnvPolicy {
   const EnvPolicy();
 
+  /// Inherits the parent environment unchanged (or substitutes [environment] if given).
   const factory EnvPolicy.passthrough({Map<String, String>? environment}) = _PassThroughEnvPolicy;
 
+  /// Sanitizes the parent environment via allowlist + sensitive-name strip.
   const factory EnvPolicy.sanitize({
     List<String>? allowlist,
     Map<String, String> extraEnvironment,
     List<Pattern>? sensitivePatterns,
   }) = _SanitizeEnvPolicy;
 
+  /// Sanitizes against the bash-step allowlist; suitable for shell tool steps.
   const factory EnvPolicy.minimal({Map<String, String> extraEnvironment}) = _MinimalEnvPolicy;
 
+  /// Sanitizes against the git allowlist and overlays a credential plan.
   const factory EnvPolicy.credentialPlan({required ProcessEnvironmentPlan plan, bool noSystemConfig}) =
       _CredentialPlanEnvPolicy;
 }
@@ -97,6 +103,7 @@ final class _CredentialPlanEnvPolicy extends EnvPolicy {
 
 /// Process helper that requires an explicit environment policy for every spawn.
 abstract final class SafeProcess {
+  /// Returns a sanitized environment map filtered by [allowlist] and sensitive-name [sensitivePatterns].
   static Map<String, String> sanitize({
     Map<String, String>? baseEnvironment,
     List<String>? allowlist,
@@ -104,7 +111,7 @@ abstract final class SafeProcess {
     List<Pattern>? sensitivePatterns,
   }) {
     final source = baseEnvironment ?? Platform.environment;
-    final effectivePatterns = sensitivePatterns ?? kDefaultSensitivePatterns;
+    final effectivePatterns = sensitivePatterns ?? defaultSensitivePatterns;
     final sanitized = <String, String>{};
 
     for (final entry in source.entries) {
@@ -117,6 +124,7 @@ abstract final class SafeProcess {
     return sanitized;
   }
 
+  /// Runs [executable] under the given [env] policy and returns the [ProcessResult].
   static Future<ProcessResult> run(
     String executable,
     List<String> arguments, {
@@ -139,6 +147,7 @@ abstract final class SafeProcess {
     );
   }
 
+  /// Starts [executable] under the given [env] policy and returns the long-lived [Process].
   static Future<Process> start(
     String executable,
     List<String> arguments, {
@@ -159,6 +168,7 @@ abstract final class SafeProcess {
     );
   }
 
+  /// Runs `git` with [arguments] under the credential-plan env policy.
   static Future<ProcessResult> git(
     List<String> arguments, {
     required ProcessEnvironmentPlan plan,
@@ -179,6 +189,7 @@ abstract final class SafeProcess {
     );
   }
 
+  /// Starts a long-lived `git` subprocess with [arguments] under the credential-plan env policy.
   static Future<Process> gitStart(
     List<String> arguments, {
     required ProcessEnvironmentPlan plan,
@@ -210,12 +221,12 @@ abstract final class SafeProcess {
       ),
       _MinimalEnvPolicy(:final extraEnvironment) => sanitize(
         baseEnvironment: baseEnvironment,
-        allowlist: kDefaultBashStepEnvAllowlist,
+        allowlist: defaultBashStepEnvAllowlist,
         extraEnvironment: extraEnvironment,
       ),
       _CredentialPlanEnvPolicy(:final plan, :final noSystemConfig) => sanitize(
         baseEnvironment: baseEnvironment,
-        allowlist: kDefaultGitEnvAllowlist,
+        allowlist: defaultGitEnvAllowlist,
         extraEnvironment: {...plan.environment, if (noSystemConfig) 'GIT_CONFIG_NOSYSTEM': '1'},
       ),
     };

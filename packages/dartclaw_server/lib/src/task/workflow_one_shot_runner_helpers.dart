@@ -64,7 +64,7 @@ extension _WorkflowOneShotRunnerHelpers on WorkflowOneShotRunner {
         cacheWriteTokens: (json['cache_write_tokens'] as num?)?.toInt() ?? 0,
       );
     } catch (_) {
-      return const _SessionUsageSnapshot();
+      return const _SessionUsageSnapshot(); // Malformed KV value — return zero snapshot.
     }
   }
 

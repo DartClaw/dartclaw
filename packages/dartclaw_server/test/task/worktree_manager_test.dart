@@ -1,7 +1,7 @@
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show Project, ProjectStatus;
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus, TaskType;
-import 'package:dartclaw_models/dartclaw_models.dart';
 import 'package:dartclaw_server/src/task/worktree_manager.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -58,6 +58,47 @@ void main() {
         'dartclaw/task-abc123',
       ], workingDirectory: projectDir);
       expect((branchResult.stdout as String).trim(), isNotEmpty);
+    });
+
+    test('create() materializes workflow skills before returning', () async {
+      final sourceSkill = Directory(p.join(dataDir, '.claude', 'skills', 'dartclaw-test'))..createSync(recursive: true);
+      File(p.join(sourceSkill.path, 'SKILL.md')).writeAsStringSync('---\nname: dartclaw-test\n---\n');
+      final manager = WorktreeManager(
+        dataDir: dataDir,
+        projectDir: projectDir,
+        skillMaterializer: (worktreePath) async {
+          Link(
+            p.join(worktreePath, '.claude', 'skills', 'dartclaw-test'),
+          ).createSync(sourceSkill.path, recursive: true);
+        },
+      );
+
+      final info = await manager.create('skills-test');
+
+      expect(Link(p.join(info.path, '.claude', 'skills', 'dartclaw-test')).targetSync(), sourceSkill.path);
+    });
+
+    test('create() rolls back worktree and branch when skill materialization fails', () async {
+      final manager = WorktreeManager(
+        dataDir: dataDir,
+        projectDir: projectDir,
+        skillMaterializer: (_) async {
+          throw StateError('link failed');
+        },
+      );
+
+      await expectLater(
+        manager.create('rollback-skills'),
+        throwsA(isA<WorktreeException>().having((e) => e.message, 'message', contains('Failed to materialize'))),
+      );
+
+      expect(Directory(p.join(dataDir, 'worktrees', 'rollback-skills')).existsSync(), isFalse);
+      final branchResult = await Process.run('git', [
+        'branch',
+        '--list',
+        'dartclaw/task-rollback-skills',
+      ], workingDirectory: projectDir);
+      expect((branchResult.stdout as String).trim(), isEmpty);
     });
 
     test('create() appends -N suffix when branch already exists', () async {
@@ -229,7 +270,7 @@ void main() {
       expect(
         sentinel.readAsStringSync(),
         '1',
-        reason: 'workflow-owned worktree children must carry GIT_CONFIG_NOSYSTEM=1 (S39 hardening)',
+        reason: 'workflow-owned worktree children must carry GIT_CONFIG_NOSYSTEM=1',
       );
     });
   });
@@ -401,6 +442,30 @@ void main() {
         expect(worktreeCall.arguments, isNot(contains('origin/develop')));
       });
 
+      test('create() rejects option-shaped baseRef before creating worktree', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:u/my-app.git',
+          localPath: '/data/projects/my-app',
+          defaultBranch: 'develop',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+
+        await expectLater(
+          manager.create('task-1', project: project, baseRef: '--upload-pack=/tmp/pwn'),
+          throwsFormatException,
+        );
+
+        expect(
+          calls.where((c) => c.arguments.length >= 2 && c.arguments[0] == 'worktree' && c.arguments[1] == 'add'),
+          isEmpty,
+        );
+      });
+
       test('create() with project normalizes raw branch overrides to remote-tracking refs', () async {
         final project = Project(
           id: 'my-app',
@@ -451,6 +516,28 @@ void main() {
           remoteUrl: '',
           localPath: '/data/projects/my-app',
           defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+
+        await manager.create('task-1', project: project);
+
+        final worktreeCall = calls.firstWhere(
+          (c) => c.arguments.length >= 2 && c.arguments[0] == 'worktree' && c.arguments[1] == 'add',
+        );
+        expect(worktreeCall.arguments, contains('main'));
+        expect(worktreeCall.arguments, isNot(contains('origin/main')));
+      });
+
+      test('create() with local-path project falls back to main when defaultBranch is empty', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: '',
+          localPath: '/data/projects/my-app',
+          defaultBranch: '',
           status: ProjectStatus.ready,
           createdAt: DateTime.now(),
         );
@@ -942,27 +1029,25 @@ void main() {
       );
     });
 
-    test('warns and overwrites when target already exists with different content', () async {
-      final records = <LogRecord>[];
-      final sub = Logger('WorktreeManager').onRecord.listen(records.add);
+    test('TD-073: fails fast before overwrite when target exists with different content', () async {
       final wm = WorktreeManager(dataDir: tmpDir.path);
       final wt = WorktreeInfo(path: worktreeDir, branch: 'b', createdAt: DateTime.now());
       final existingTarget = File(p.join(worktreeDir, 'docs/specs/0.16.5/fis/s13-helpers.md'))
         ..createSync(recursive: true)
         ..writeAsStringSync('decoy');
 
-      final target = await wm.applyExternalArtifactMount(
-        worktree: wt,
-        fromProjectDir: fromProjectDir,
-        relativeSourcePath: 'docs/specs/0.16.5/fis/s13-helpers.md',
+      await expectLater(
+        wm.applyExternalArtifactMount(
+          worktree: wt,
+          fromProjectDir: fromProjectDir,
+          relativeSourcePath: 'docs/specs/0.16.5/fis/s13-helpers.md',
+        ),
+        throwsA(
+          isA<WorktreeException>().having((e) => e.message, 'message', contains('collision detected before overwrite')),
+        ),
       );
-
-      await sub.cancel();
-
-      expect(target, existingTarget.path);
-      expect(existingTarget.readAsStringSync(), equals('# S13 FIS'));
-      expect(records.any((record) => record.level == Level.WARNING), isTrue);
-      expect(records.any((record) => record.message.contains('different content')), isTrue);
+      // Verify the original content was NOT overwritten.
+      expect(existingTarget.readAsStringSync(), equals('decoy'));
     });
   });
 }

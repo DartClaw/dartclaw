@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+/// Rate-limits authentication attempts per key over a sliding window.
 class AuthRateLimiter {
   final int maxAttempts;
   final Duration windowDuration;

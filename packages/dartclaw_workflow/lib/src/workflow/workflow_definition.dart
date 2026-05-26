@@ -1,0 +1,1686 @@
+const _workflowDefinitionFieldUnset = Object();
+
+/// Output format for context extraction.
+enum OutputFormat {
+  /// Raw string extraction (default, current behavior).
+  text,
+
+  /// Multi-strategy JSON extraction with fallback chain.
+  json,
+
+  /// Split output into list of trimmed non-empty lines.
+  lines,
+
+  /// Workspace-relative file path produced on disk by an artifact-producing
+  /// step (`andthen:prd`, `andthen:plan`, `andthen:spec`). Treated as text
+  /// at runtime; the distinct format surfaces intent in the workflow contract
+  /// and lets the engine recognise artifact-producing outputs.
+  path;
+
+  /// Parses an [OutputFormat] from its YAML string representation.
+  static OutputFormat? fromYaml(String value) => switch (value) {
+    'text' => text,
+    'json' => json,
+    'lines' => lines,
+    'path' => path,
+    _ => null,
+  };
+}
+
+/// Output extraction mode for JSON workflow outputs.
+enum OutputMode {
+  /// Prompt-guided extraction using the existing heuristic parser.
+  prompt,
+
+  /// Native provider-structured output via a dedicated extraction turn.
+  structured;
+
+  /// Parses an [OutputMode] from its YAML string representation.
+  static OutputMode? fromYaml(String value) => switch (value) {
+    'prompt' => prompt,
+    'structured' => structured,
+    _ => null,
+  };
+}
+
+/// Configuration for a single output key's extraction and validation.
+class OutputConfig {
+  /// Output format determining extraction strategy.
+  final OutputFormat format;
+
+  /// Schema for validation and prompt augmentation.
+  ///
+  /// Can be:
+  /// - A [String] preset name (e.g. 'verdict', 'story_plan')
+  /// - A [Map<String, dynamic>] inline JSON Schema
+  /// - null (no schema constraint)
+  final Object? schema;
+
+  /// Explicit output source override.
+  ///
+  /// When set, extraction is driven by this source rather than by agent-authored
+  /// context text. Supported values:
+  /// - `"worktree.branch"` – reads the coding-task branch from persisted worktree metadata
+  /// - `"worktree.path"` – reads the worktree filesystem path from persisted worktree metadata
+  final String? source;
+
+  /// Extraction mode for JSON outputs.
+  final OutputMode outputMode;
+
+  /// Optional human-readable description of the semantic meaning of this output.
+  ///
+  /// Included verbatim in the prompt augmentation sections (Workflow Output Contract
+  /// and Required Output Format) so the agent understands *what* a field represents,
+  /// not just its name and JSON shape. Keep to one concise sentence.
+  final String? description;
+
+  /// Sentinel-or-value backing the [setValue] / [hasSetValue] pair.
+  ///
+  /// `_workflowDefinitionFieldUnset` means "no setValue configured – extract
+  /// normally"; any other reference (including `null`) means "explicitly set
+  /// to that literal". Using a sentinel preserves the distinction across
+  /// `toJson` / `fromJson` round-trips: an absent JSON key reads back as
+  /// "unset", whereas `setValue: null` reads back as "explicitly null".
+  final Object? _setValue;
+
+  /// Creates an [OutputConfig] value.
+  const OutputConfig({
+    this.format = OutputFormat.text,
+    this.schema,
+    this.source,
+    this.outputMode = OutputMode.prompt,
+    this.description,
+    Object? setValue = _workflowDefinitionFieldUnset,
+  }) : _setValue = setValue;
+
+  /// Whether this config has a schema (preset name or inline).
+  bool get hasSchema => schema != null;
+
+  /// Returns the schema preset name if [schema] is a String, else null.
+  String? get presetName => schema is String ? schema as String : null;
+
+  /// Returns the inline schema if [schema] is a Map, else null.
+  Map<String, dynamic>? get inlineSchema => schema is Map<String, dynamic> ? schema as Map<String, dynamic> : null;
+
+  /// Whether this output declares a [setValue] literal.
+  ///
+  /// `true` means the executor should write [setValue] verbatim to the named
+  /// context key on step success, overriding any extracted value (and the
+  /// legacy `extraction:` priority branch). Fires only on step success – not
+  /// on failure or `entryGate` skip.
+  bool get hasSetValue => !identical(_setValue, _workflowDefinitionFieldUnset);
+
+  /// The configured literal written to context when [hasSetValue] is true.
+  ///
+  /// Returns `null` when [hasSetValue] is false; callers must check
+  /// [hasSetValue] before treating `null` as "explicitly set to null".
+  Object? get setValue => identical(_setValue, _workflowDefinitionFieldUnset) ? null : _setValue;
+
+  /// Serializes this output config to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    'format': format.name,
+    if (schema != null) 'schema': schema,
+    if (source != null) 'source': source,
+    if (outputMode != OutputMode.prompt) 'outputMode': outputMode.name,
+    if (description != null) 'description': description,
+    if (hasSetValue) 'setValue': setValue,
+  };
+
+  /// Reconstructs an [OutputConfig] from its JSON representation.
+  factory OutputConfig.fromJson(Map<String, dynamic> json) => OutputConfig(
+    format: json['format'] != null ? OutputFormat.values.byName(json['format'] as String) : OutputFormat.text,
+    schema: json['schema'],
+    source: json['source'] as String?,
+    outputMode: json['outputMode'] != null ? OutputMode.values.byName(json['outputMode'] as String) : OutputMode.prompt,
+    description: json['description'] as String?,
+    setValue: json.containsKey('setValue') ? json['setValue'] : _workflowDefinitionFieldUnset,
+  );
+}
+
+/// Policy applied when a workflow step reports an explicit failed outcome.
+enum OnFailurePolicy {
+  /// Fails the workflow on step failure.
+  fail('fail'),
+
+  /// Skips to the next step despite the failure.
+  continueWorkflow('continue'),
+
+  /// Retries the failing step under retry policy.
+  retry('retry'),
+
+  /// Pauses the workflow for operator intervention.
+  pause('pause');
+
+  /// YAML wire name for this policy.
+  final String yamlName;
+
+  const OnFailurePolicy(this.yamlName);
+
+  /// Parses an [OnFailurePolicy] from its YAML string representation.
+  static OnFailurePolicy? fromYaml(String value) => switch (value) {
+    'fail' => fail,
+    'continue' => continueWorkflow,
+    'retry' => retry,
+    'pause' => pause,
+    _ => null,
+  };
+}
+
+/// Extraction strategy for context output values.
+enum ExtractionType {
+  /// Extract using a regular expression.
+  regex,
+
+  /// Extract using a JSON path expression.
+  jsonpath,
+
+  /// Extract from a named artifact.
+  artifact,
+}
+
+/// Configuration for custom context output extraction.
+class ExtractionConfig {
+  /// Selects the extraction strategy.
+  final ExtractionType type;
+
+  /// Pattern interpreted according to [type] (regex, JSONPath, or artifact name).
+  final String pattern;
+
+  /// Creates an [ExtractionConfig] value.
+  const ExtractionConfig({required this.type, required this.pattern});
+
+  /// Serializes this extraction config to a JSON-ready map.
+  Map<String, dynamic> toJson() => {'type': type.name, 'pattern': pattern};
+
+  /// Reconstructs an [ExtractionConfig] from its JSON representation.
+  factory ExtractionConfig.fromJson(Map<String, dynamic> json) =>
+      ExtractionConfig(type: ExtractionType.values.byName(json['type'] as String), pattern: json['pattern'] as String);
+}
+
+/// A variable declaration in a workflow definition.
+class WorkflowVariable {
+  /// Whether this variable must be provided at workflow start.
+  final bool required;
+
+  /// Human-readable description for UI display.
+  final String description;
+
+  /// Optional default value used when not provided.
+  final String? defaultValue;
+
+  /// Creates a [WorkflowVariable] declaration.
+  const WorkflowVariable({this.required = true, this.description = '', this.defaultValue});
+
+  /// Serializes this variable declaration to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    'required': required,
+    'description': description,
+    if (defaultValue != null) 'defaultValue': defaultValue,
+  };
+
+  /// Reconstructs a [WorkflowVariable] from its JSON representation.
+  factory WorkflowVariable.fromJson(Map<String, dynamic> json) => WorkflowVariable(
+    required: (json['required'] as bool?) ?? true,
+    description: (json['description'] as String?) ?? '',
+    defaultValue: json['defaultValue'] as String?,
+  );
+}
+
+/// Pattern-based step config default entry.
+///
+/// Each entry has a glob [match] pattern and optional config overrides.
+/// Applied in order – first match wins. Per-step explicit config takes precedence.
+class StepConfigDefault {
+  /// Glob pattern matched against step IDs (e.g. "review*", "*").
+  final String match;
+
+  /// Optional provider override.
+  final String? provider;
+
+  /// Optional model override.
+  final String? model;
+
+  /// Optional reasoning effort level (e.g. "low", "medium", "high").
+  final String? effort;
+
+  /// Optional per-step token budget.
+  final int? maxTokens;
+
+  /// Optional per-step cost ceiling in USD.
+  final double? maxCostUsd;
+
+  /// Optional per-step retry limit.
+  final int? maxRetries;
+
+  /// Optional per-step tool allowlist.
+  final List<String>? allowedTools;
+
+  /// Creates a [StepConfigDefault] value.
+  const StepConfigDefault({
+    required this.match,
+    this.provider,
+    this.model,
+    this.effort,
+    this.maxTokens,
+    this.maxCostUsd,
+    this.maxRetries,
+    this.allowedTools,
+  });
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    'match': match,
+    if (provider != null) 'provider': provider,
+    if (model != null) 'model': model,
+    if (effort != null) 'effort': effort,
+    if (maxTokens != null) 'maxTokens': maxTokens,
+    if (maxCostUsd != null) 'maxCostUsd': maxCostUsd,
+    if (maxRetries != null) 'maxRetries': maxRetries,
+    if (allowedTools != null) 'allowedTools': allowedTools!.toList(),
+  };
+
+  /// Reconstructs a [StepConfigDefault] from its JSON representation.
+  factory StepConfigDefault.fromJson(Map<String, dynamic> json) => StepConfigDefault(
+    match: json['match'] as String,
+    provider: json['provider'] as String?,
+    model: json['model'] as String?,
+    effort: json['effort'] as String?,
+    maxTokens: json['maxTokens'] as int?,
+    maxCostUsd: (json['maxCostUsd'] as num?)?.toDouble(),
+    maxRetries: json['maxRetries'] as int?,
+    allowedTools: (json['allowedTools'] as List?)?.cast<String>(),
+  );
+}
+
+/// A loop construct over a set of workflow steps.
+class WorkflowLoop {
+  /// Unique identifier for this loop.
+  final String id;
+
+  /// Ordered list of step IDs to iterate.
+  final List<String> steps;
+
+  /// Maximum number of iterations (circuit breaker, required).
+  final int maxIterations;
+
+  /// Optional condition expression for entering the loop body.
+  final String? entryGate;
+
+  /// Condition expression for early termination.
+  final String exitGate;
+
+  /// Optional step ID to execute after loop terminates (regardless of exit reason).
+  ///
+  /// Must reference a step in the workflow's [WorkflowDefinition.steps] that is
+  /// NOT in this loop's [steps] list. Named `finally_` in Dart because `finally`
+  /// is a reserved keyword; serialized as `finally` in JSON/YAML.
+  final String? finally_;
+
+  /// Creates a [WorkflowLoop] value.
+  const WorkflowLoop({
+    required this.id,
+    required this.steps,
+    required this.maxIterations,
+    this.entryGate,
+    required this.exitGate,
+    this.finally_,
+  });
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'steps': steps.toList(),
+    'maxIterations': maxIterations,
+    if (entryGate != null) 'entryGate': entryGate,
+    'exitGate': exitGate,
+    if (finally_ != null) 'finally': finally_,
+  };
+
+  /// Reconstructs a [WorkflowLoop] from its JSON representation.
+  factory WorkflowLoop.fromJson(Map<String, dynamic> json) => WorkflowLoop(
+    id: json['id'] as String,
+    steps: (json['steps'] as List).cast<String>(),
+    maxIterations: json['maxIterations'] as int,
+    entryGate: json['entryGate'] as String?,
+    exitGate: json['exitGate'] as String,
+    finally_: json['finally'] as String?,
+  );
+}
+
+/// A normalized execution node within a workflow definition.
+sealed class WorkflowNode {
+  const WorkflowNode();
+
+  /// Discriminator used for serialization.
+  String get type;
+
+  /// Step IDs referenced by this node in execution order.
+  List<String> get stepIds;
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson();
+
+  /// Reconstructs a [WorkflowNode] from its JSON representation.
+  factory WorkflowNode.fromJson(Map<String, dynamic> json) {
+    final type = json['type'] as String?;
+    return switch (type) {
+      'action' => ActionNode(stepId: json['stepId'] as String),
+      'map' => MapNode(stepId: json['stepId'] as String),
+      'parallelGroup' => ParallelGroupNode(stepIds: (json['stepIds'] as List).cast<String>()),
+      'loop' => LoopNode(
+        loopId: json['loopId'] as String,
+        stepIds: (json['stepIds'] as List).cast<String>(),
+        finallyStepId: json['finallyStepId'] as String?,
+      ),
+      'foreach' => ForeachNode(
+        stepId: json['stepId'] as String,
+        childStepIds: (json['childStepIds'] as List).cast<String>(),
+      ),
+      _ => throw FormatException('Unknown workflow node type: $type'),
+    };
+  }
+}
+
+/// A normalized action node for an ordinary workflow step.
+final class ActionNode extends WorkflowNode {
+  /// stepId.
+  final String stepId;
+
+  /// const ActionNode({required this.stepId});.
+  const ActionNode({required this.stepId});
+
+  @override
+  String get type => 'action';
+
+  @override
+  List<String> get stepIds => [stepId];
+
+  @override
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {'type': type, 'stepId': stepId};
+}
+
+/// A normalized map/fan-out node.
+final class MapNode extends WorkflowNode {
+  /// stepId.
+  final String stepId;
+
+  /// const MapNode({required this.stepId});.
+  const MapNode({required this.stepId});
+
+  @override
+  String get type => 'map';
+
+  @override
+  List<String> get stepIds => [stepId];
+
+  @override
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {'type': type, 'stepId': stepId};
+}
+
+/// A normalized contiguous parallel group.
+final class ParallelGroupNode extends WorkflowNode {
+  @override
+  final List<String> stepIds;
+
+  /// const ParallelGroupNode({required this.stepIds});.
+  const ParallelGroupNode({required this.stepIds});
+
+  @override
+  String get type => 'parallelGroup';
+
+  @override
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {'type': type, 'stepIds': stepIds.toList(growable: false)};
+}
+
+/// A normalized loop node with ordered body steps and optional finalizer.
+final class LoopNode extends WorkflowNode {
+  /// loopId.
+  final String loopId;
+
+  @override
+  final List<String> stepIds;
+
+  /// finallyStepId.
+  final String? finallyStepId;
+
+  /// const LoopNode({required this.loopId, required this.stepIds,.
+  const LoopNode({required this.loopId, required this.stepIds, this.finallyStepId});
+
+  @override
+  String get type => 'loop';
+
+  @override
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'loopId': loopId,
+    'stepIds': stepIds.toList(growable: false),
+    if (finallyStepId != null) 'finallyStepId': finallyStepId,
+  };
+}
+
+/// A normalized foreach/sub-pipeline node.
+///
+/// Represents "for each item in a collection, run this ordered sequence of steps".
+/// The [stepId] refers to the controller step (which declares [mapOver] and
+/// [foreachSteps]). [childStepIds] are the ordered substep IDs that execute
+/// per item. Child steps are "foreach-owned" and are not emitted as top-level
+/// nodes during normalization.
+final class ForeachNode extends WorkflowNode {
+  /// The controller step that drives the iteration.
+  final String stepId;
+
+  /// Ordered sub-pipeline step IDs executed sequentially per item.
+  final List<String> childStepIds;
+
+  /// const ForeachNode({required this.stepId, required this.child.
+  const ForeachNode({required this.stepId, required this.childStepIds});
+
+  @override
+  String get type => 'foreach';
+
+  @override
+  List<String> get stepIds => [stepId, ...childStepIds];
+
+  @override
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'stepId': stepId,
+    'childStepIds': childStepIds.toList(growable: false),
+  };
+}
+
+/// A single step within a workflow definition.
+enum WorkflowTaskType {
+  agent,
+  bash,
+  approval,
+  foreach,
+  loop,
+  aggregateReviews;
+
+  static const _wireValues = {
+    WorkflowTaskType.agent: 'agent',
+    WorkflowTaskType.bash: 'bash',
+    WorkflowTaskType.approval: 'approval',
+    WorkflowTaskType.foreach: 'foreach',
+    WorkflowTaskType.loop: 'loop',
+    WorkflowTaskType.aggregateReviews: 'aggregate-reviews',
+  };
+
+  static WorkflowTaskType fromJsonString(String value) => switch (value) {
+    'agent' => agent,
+    'bash' => bash,
+    'approval' => approval,
+    'foreach' => foreach,
+    'loop' => loop,
+    'aggregate-reviews' => aggregateReviews,
+    _ => throw FormatException('Unknown WorkflowTaskType "$value"; valid values: ${_wireValues.values.join(', ')}'),
+  };
+
+  String toJson() => _wireValues[this]!;
+}
+
+/// A single step within a workflow definition.
+class WorkflowStep {
+  /// Unique identifier within the workflow.
+  final String id;
+
+  /// Human-readable step name.
+  final String name;
+
+  /// Optional skill reference for skill-aware steps.
+  ///
+  /// When present, the engine constructs the agent prompt as:
+  /// `"Use the '<skill>' skill. <resolved prompt or context>"`
+  final String? skill;
+
+  /// Ordered list of prompt templates for this step.
+  ///
+  /// Required when [skill] is null. Optional when [skill] is present
+  /// (context from [inputs] used when absent).
+  /// Each entry uses `{{variable}}` and `{{context.key}}` references.
+  /// Single-prompt steps have exactly one element; multi-prompt steps have two or more,
+  /// which execute as sequential turns in the same conversation session.
+  final List<String>? prompts;
+
+  /// Workflow dispatch kind.
+  final WorkflowTaskType taskType;
+
+  /// Deprecated alias for [taskType].
+  @Deprecated('Use taskType')
+  WorkflowTaskType get type => taskType;
+
+  /// Optional provider override (e.g., "claude", "codex").
+  final String? provider;
+
+  /// Optional model override for the provider.
+  final String? model;
+
+  /// Optional reasoning effort level (e.g. "low", "medium", "high").
+  final String? effort;
+
+  /// Step timeout in seconds (null means no timeout).
+  final int? timeoutSeconds;
+
+  /// Whether this step executes in parallel with adjacent parallel steps.
+  final bool parallel;
+
+  /// Optional gate expression that must be satisfied before this step runs.
+  ///
+  /// When the gate evaluates false the executor pauses the run awaiting operator
+  /// review. Use [entryGate] instead when the desired behavior is to skip the
+  /// step and continue.
+  final String? gate;
+
+  /// Optional entry-gate expression evaluated before [gate].
+  ///
+  /// When [entryGate] evaluates false the step is skipped (a `StepSkippedEvent`
+  /// fires, the cursor advances, and the run continues). Mirrors the loop-level
+  /// [WorkflowLoop.entryGate] semantic. `null` means "no entry gate – proceed to
+  /// [gate] check".
+  final String? entryGate;
+
+  /// Context keys this step reads from.
+  final List<String> inputs;
+
+  /// Optional custom extraction configuration.
+  final ExtractionConfig? extraction;
+
+  /// Per-output extraction and format configuration.
+  ///
+  /// The keys of this map are the canonical declaration of which context keys
+  /// this step writes; [outputKeys] exposes them as a list.
+  /// When null, all outputs use default text extraction.
+  final Map<String, OutputConfig>? outputs;
+
+  /// Optional examples appended to the prompt's output contract.
+  final List<String>? outputExamples;
+
+  /// Optional per-step token budget.
+  final int? maxTokens;
+
+  /// Optional per-step cost ceiling in USD.
+  final double? maxCostUsd;
+
+  /// Optional per-step retry limit.
+  final int? maxRetries;
+
+  /// Optional per-step tool allowlist.
+  final List<String>? allowedTools;
+
+  /// Prior review step IDs consolidated by a `type: aggregate-reviews` step.
+  final List<String>? aggregateReviews;
+
+  /// Context key referencing a JSON array produced by a prior step.
+  ///
+  /// When set, this step is a map/fan-out step that iterates over the
+  /// collection at this key. The collection is resolved from workflow context
+  /// at execution time (S07). Template engine can access `{{map.item}}`,
+  /// `{{map.index}}`, `{{map.length}}`, and `{{map.item.field}}` references.
+  final String? mapOver;
+
+  /// Maximum number of parallel map iterations.
+  ///
+  /// Stored as [Object?] because the value may be:
+  /// - `int`: explicit concurrency limit
+  /// - `String` `"unlimited"`: no concurrency cap
+  /// - `String` template: e.g. `"{{MAX_PARALLEL}}"`, resolved at runtime (S07)
+  /// - `null`: default (S07 determines the default)
+  final Object? maxParallel;
+
+  /// Optional maximum number of items to process from the map collection.
+  ///
+  /// When null, the collection is uncapped.
+  final int? maxItems;
+
+  /// Ordered child step IDs for a per-item sub-pipeline (foreach).
+  ///
+  /// When set alongside [mapOver], this step becomes a "foreach controller"
+  /// that iterates [mapOver] and runs these child steps in authored order for
+  /// each item before moving to the next phase. The controller step itself does
+  /// not create an agent task – it is a pure orchestration container.
+  final List<String>? foreachSteps;
+
+  /// Optional author-supplied loop variable name for this map/foreach controller.
+  ///
+  /// When set, templates in this step (or its foreach children) can reference
+  /// the iteration as `{{<alias>.item}}`, `{{<alias>.item.field}}`,
+  /// `{{<alias>.index}}`, `{{<alias>.display_index}}`, `{{<alias>.length}}`,
+  /// and `{{context.key[<alias>.index]}}`. Legacy `{{map.*}}` continues to
+  /// resolve against the same iteration so existing workflows keep working.
+  ///
+  /// Must be a plain identifier (`[a-zA-Z_][a-zA-Z0-9_]*`). Reserved names
+  /// `map` and `context` are rejected by the validator.
+  ///
+  /// YAML spelling: `as:` (primary) or `mapAlias:` / `map_alias:` (aliases).
+  final String? mapAlias;
+
+  /// Optional step reference whose root agent session should be continued.
+  ///
+  /// The value is normally a step ID. The legacy boolean form
+  /// `continueSession: true` is still accepted and is normalized internally to
+  /// the immediately preceding step via the private sentinel `@previous`.
+  /// Only valid for provider/harness combinations that support session
+  /// continuity (e.g. Claude Code). S04 owns runtime execution semantics.
+  final String? continueSession;
+
+  /// Error handling policy for this step.
+  ///
+  /// Accepted values: `"pause"` (default – abort the workflow), `"continue"`
+  /// (log the error and continue to the next step), and legacy `"fail"`
+  /// (treated the same as `"pause"` for backward compatibility).
+  /// S02 owns runtime execution semantics for this field.
+  final String? onError;
+
+  /// Working directory override for bash steps.
+  ///
+  /// When set, the bash executor uses this path as the working directory.
+  /// Supports `{{variable}}` references. Ignored for non-bash steps.
+  /// S02 owns runtime execution semantics for this field.
+  final String? workdir;
+
+  /// Policy applied when this step reports an explicit failed outcome.
+  ///
+  /// Defaults to [OnFailurePolicy.fail].
+  final OnFailurePolicy onFailure;
+
+  /// Whether this step or its referenced skill emits its own `<step-outcome>`
+  /// marker and should skip prompt augmentation for the outcome protocol.
+  final bool emitsOwnOutcome;
+
+  /// Whether the engine auto-frames unreferenced `inputs` and declared
+  /// [workflowVariables] onto the step prompt as `<key>...</key>` blocks.
+  /// Defaults to `true`; set to `false` (YAML: `auto_frame_context: false`) when
+  /// the step's prompt body intentionally omits some declared context.
+  final bool autoFrameContext;
+
+  /// Workflow-level variable names this step opts in to receive via auto-framing.
+  ///
+  /// Only variables listed here are appended as `<NAME>{value}</NAME>` blocks
+  /// by the engine. Undeclared workflow variables never reach the prompt, even
+  /// if declared on the workflow, preventing leakage across unrelated steps
+  /// (e.g. `FEATURE` must not land on unrelated steps).
+  ///
+  /// Each entry must be a key in the workflow's top-level `variables:` block;
+  /// the validator rejects unknown names at load time. Empty by default.
+  final List<String> workflowVariables;
+
+  /// Convenience getter returning the first (or only) prompt.
+  ///
+  /// Returns null when this is a skill-only step with no prompt.
+  /// Use [prompts] directly when iterating all prompts in a multi-prompt step.
+  String? get prompt => prompts?.firstOrNull;
+
+  /// Whether this step sends more than one turn in the same session.
+  bool get isMultiPrompt => (prompts?.length ?? 0) > 1;
+
+  /// Whether this step is a map/fan-out step.
+  bool get isMapStep => mapOver != null;
+
+  /// Whether this step is a foreach controller (per-item ordered sub-pipeline).
+  bool get isForeachController => mapOver != null && foreachSteps != null && foreachSteps!.isNotEmpty;
+
+  /// Context keys this step writes to, derived from [outputs].
+  List<String> get outputKeys => outputs?.keys.toList(growable: false) ?? const [];
+
+  /// Creates a [WorkflowStep] value.
+  const WorkflowStep({
+    required this.id,
+    required this.name,
+    this.prompts,
+    this.skill,
+    WorkflowTaskType? taskType,
+    @Deprecated('Use taskType') WorkflowTaskType? type,
+    this.provider,
+    this.model,
+    this.effort,
+    this.timeoutSeconds,
+    this.parallel = false,
+    this.gate,
+    this.entryGate,
+    this.inputs = const [],
+    this.extraction,
+    this.outputs,
+    this.outputExamples,
+    this.maxTokens,
+    this.maxCostUsd,
+    this.maxRetries,
+    this.allowedTools,
+    this.aggregateReviews,
+    this.mapOver,
+    this.maxParallel,
+    this.maxItems,
+    this.foreachSteps,
+    this.mapAlias,
+    this.continueSession,
+    this.onError,
+    this.workdir,
+    this.onFailure = OnFailurePolicy.fail,
+    this.emitsOwnOutcome = false,
+    this.autoFrameContext = true,
+    this.workflowVariables = const [],
+  }) : taskType = taskType ?? type ?? WorkflowTaskType.agent;
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    if (skill != null) 'skill': skill,
+    if (prompts != null) 'prompts': prompts!.toList(),
+    if (taskType != WorkflowTaskType.agent) 'type': taskType.toJson(),
+    'parallel': parallel,
+    if (provider != null) 'provider': provider,
+    if (model != null) 'model': model,
+    if (effort != null) 'effort': effort,
+    if (timeoutSeconds != null) 'timeout': timeoutSeconds,
+    if (gate != null) 'gate': gate,
+    if (entryGate != null) 'entryGate': entryGate,
+    'inputs': inputs.toList(),
+    if (extraction != null) 'extraction': extraction!.toJson(),
+    if (outputs != null) 'outputs': outputs!.map((k, v) => MapEntry(k, v.toJson())),
+    if (outputExamples != null) 'outputExamples': outputExamples!.toList(growable: false),
+    if (maxTokens != null) 'maxTokens': maxTokens,
+    if (maxCostUsd != null) 'maxCostUsd': maxCostUsd,
+    if (maxRetries != null) 'maxRetries': maxRetries,
+    if (allowedTools != null) 'allowedTools': allowedTools!.toList(),
+    if (aggregateReviews != null) 'aggregateReviews': aggregateReviews!.toList(growable: false),
+    if (mapOver != null) 'mapOver': mapOver,
+    if (maxParallel != null) 'maxParallel': maxParallel,
+    if (maxItems != null) 'maxItems': maxItems,
+    if (foreachSteps != null) 'foreachSteps': foreachSteps!.toList(growable: false),
+    if (mapAlias != null) 'mapAlias': mapAlias,
+    if (continueSession != null) 'continueSession': continueSession == '@previous' ? true : continueSession,
+    if (onError != null) 'onError': onError,
+    if (workdir != null) 'workdir': workdir,
+    if (onFailure != OnFailurePolicy.fail) 'onFailure': onFailure.yamlName,
+    if (emitsOwnOutcome) 'emitsOwnOutcome': true,
+    if (!autoFrameContext) 'autoFrameContext': false,
+    if (workflowVariables.isNotEmpty) 'workflowVariables': workflowVariables.toList(growable: false),
+  };
+
+  /// Reconstructs a [WorkflowStep] from its JSON representation.
+  factory WorkflowStep.fromJson(Map<String, dynamic> json) {
+    // Accept both legacy String and new List<String> for 'prompts'/'prompt'.
+    // Null is valid when 'skill' is present.
+    final List<String>? prompts;
+    final rawPrompts = json['prompts'] ?? json['prompt'];
+    if (rawPrompts is String) {
+      prompts = [rawPrompts];
+    } else if (rawPrompts is List) {
+      prompts = rawPrompts.cast<String>();
+    } else {
+      prompts = null;
+    }
+    return WorkflowStep(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      skill: json['skill'] as String?,
+      prompts: prompts,
+      taskType: WorkflowTaskType.fromJsonString((json['type'] as String?) ?? 'agent'),
+      provider: json['provider'] as String?,
+      model: json['model'] as String?,
+      timeoutSeconds: (json['timeout'] ?? json['timeoutSeconds']) as int?,
+      parallel: (json['parallel'] as bool?) ?? false,
+      gate: json['gate'] as String?,
+      entryGate: json['entryGate'] as String?,
+      inputs: (json['inputs'] as List?)?.cast<String>() ?? const [],
+      extraction: json['extraction'] != null
+          ? ExtractionConfig.fromJson(json['extraction'] as Map<String, dynamic>)
+          : null,
+      outputs: (json['outputs'] as Map<String, dynamic>?)?.map(
+        (k, v) => MapEntry(k, OutputConfig.fromJson(v as Map<String, dynamic>)),
+      ),
+      outputExamples: (json['outputExamples'] as List?)?.cast<String>(),
+      maxTokens: json['maxTokens'] as int?,
+      maxCostUsd: (json['maxCostUsd'] as num?)?.toDouble(),
+      maxRetries: json['maxRetries'] as int?,
+      allowedTools: (json['allowedTools'] as List?)?.cast<String>(),
+      aggregateReviews: (json['aggregateReviews'] as List?)?.cast<String>(),
+      mapOver: json['mapOver'] as String?,
+      maxParallel: json['maxParallel'],
+      maxItems: json['maxItems'] as int?,
+      foreachSteps: (json['foreachSteps'] as List?)?.cast<String>(),
+      mapAlias: json['mapAlias'] as String?,
+      continueSession: switch (json['continueSession']) {
+        true => '@previous',
+        String value when value.isNotEmpty => value,
+        _ => null,
+      },
+      onError: json['onError'] as String?,
+      workdir: json['workdir'] as String?,
+      onFailure: json['onFailure'] is String
+          ? (OnFailurePolicy.fromYaml(json['onFailure'] as String) ?? OnFailurePolicy.fail)
+          : OnFailurePolicy.fail,
+      emitsOwnOutcome: (json['emitsOwnOutcome'] as bool?) ?? false,
+      autoFrameContext: (json['autoFrameContext'] as bool?) ?? true,
+      workflowVariables: (json['workflowVariables'] as List?)?.cast<String>() ?? const [],
+    );
+  }
+
+  /// Returns a copy of this step with the specified fields replaced.
+  ///
+  /// Nullable fields use the sentinel pattern: pass the named argument to
+  /// override, omit to keep the current value. Non-nullable fields with
+  /// defaults keep the current value when omitted.
+  WorkflowStep copyWith({
+    String? id,
+    String? name,
+    Object? skill = _workflowDefinitionFieldUnset,
+    Object? prompts = _workflowDefinitionFieldUnset,
+    WorkflowTaskType? taskType,
+    @Deprecated('Use taskType') WorkflowTaskType? type,
+    Object? provider = _workflowDefinitionFieldUnset,
+    Object? model = _workflowDefinitionFieldUnset,
+    Object? effort = _workflowDefinitionFieldUnset,
+    Object? timeoutSeconds = _workflowDefinitionFieldUnset,
+    bool? parallel,
+    Object? gate = _workflowDefinitionFieldUnset,
+    Object? entryGate = _workflowDefinitionFieldUnset,
+    List<String>? inputs,
+    Object? extraction = _workflowDefinitionFieldUnset,
+    Object? outputs = _workflowDefinitionFieldUnset,
+    Object? outputExamples = _workflowDefinitionFieldUnset,
+    Object? maxTokens = _workflowDefinitionFieldUnset,
+    Object? maxCostUsd = _workflowDefinitionFieldUnset,
+    Object? maxRetries = _workflowDefinitionFieldUnset,
+    Object? allowedTools = _workflowDefinitionFieldUnset,
+    Object? aggregateReviews = _workflowDefinitionFieldUnset,
+    Object? mapOver = _workflowDefinitionFieldUnset,
+    Object? maxParallel = _workflowDefinitionFieldUnset,
+    Object? maxItems = _workflowDefinitionFieldUnset,
+    Object? foreachSteps = _workflowDefinitionFieldUnset,
+    Object? mapAlias = _workflowDefinitionFieldUnset,
+    Object? continueSession = _workflowDefinitionFieldUnset,
+    Object? onError = _workflowDefinitionFieldUnset,
+    Object? workdir = _workflowDefinitionFieldUnset,
+    OnFailurePolicy? onFailure,
+    bool? emitsOwnOutcome,
+    bool? autoFrameContext,
+    List<String>? workflowVariables,
+  }) {
+    return WorkflowStep(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      skill: skill == _workflowDefinitionFieldUnset ? this.skill : skill as String?,
+      prompts: prompts == _workflowDefinitionFieldUnset ? this.prompts : prompts as List<String>?,
+      taskType: taskType ?? type ?? this.taskType,
+      provider: provider == _workflowDefinitionFieldUnset ? this.provider : provider as String?,
+      model: model == _workflowDefinitionFieldUnset ? this.model : model as String?,
+      effort: effort == _workflowDefinitionFieldUnset ? this.effort : effort as String?,
+      timeoutSeconds: timeoutSeconds == _workflowDefinitionFieldUnset ? this.timeoutSeconds : timeoutSeconds as int?,
+      parallel: parallel ?? this.parallel,
+      gate: gate == _workflowDefinitionFieldUnset ? this.gate : gate as String?,
+      entryGate: entryGate == _workflowDefinitionFieldUnset ? this.entryGate : entryGate as String?,
+      inputs: inputs ?? this.inputs,
+      extraction: extraction == _workflowDefinitionFieldUnset ? this.extraction : extraction as ExtractionConfig?,
+      outputs: outputs == _workflowDefinitionFieldUnset ? this.outputs : outputs as Map<String, OutputConfig>?,
+      outputExamples: outputExamples == _workflowDefinitionFieldUnset
+          ? this.outputExamples
+          : outputExamples as List<String>?,
+      maxTokens: maxTokens == _workflowDefinitionFieldUnset ? this.maxTokens : maxTokens as int?,
+      maxCostUsd: maxCostUsd == _workflowDefinitionFieldUnset ? this.maxCostUsd : maxCostUsd as double?,
+      maxRetries: maxRetries == _workflowDefinitionFieldUnset ? this.maxRetries : maxRetries as int?,
+      allowedTools: allowedTools == _workflowDefinitionFieldUnset ? this.allowedTools : allowedTools as List<String>?,
+      aggregateReviews: aggregateReviews == _workflowDefinitionFieldUnset
+          ? this.aggregateReviews
+          : aggregateReviews as List<String>?,
+      mapOver: mapOver == _workflowDefinitionFieldUnset ? this.mapOver : mapOver as String?,
+      maxParallel: maxParallel == _workflowDefinitionFieldUnset ? this.maxParallel : maxParallel,
+      maxItems: maxItems == _workflowDefinitionFieldUnset ? this.maxItems : maxItems as int?,
+      foreachSteps: foreachSteps == _workflowDefinitionFieldUnset ? this.foreachSteps : foreachSteps as List<String>?,
+      mapAlias: mapAlias == _workflowDefinitionFieldUnset ? this.mapAlias : mapAlias as String?,
+      continueSession: continueSession == _workflowDefinitionFieldUnset
+          ? this.continueSession
+          : continueSession as String?,
+      onError: onError == _workflowDefinitionFieldUnset ? this.onError : onError as String?,
+      workdir: workdir == _workflowDefinitionFieldUnset ? this.workdir : workdir as String?,
+      onFailure: onFailure ?? this.onFailure,
+      emitsOwnOutcome: emitsOwnOutcome ?? this.emitsOwnOutcome,
+      autoFrameContext: autoFrameContext ?? this.autoFrameContext,
+      workflowVariables: workflowVariables ?? this.workflowVariables,
+    );
+  }
+}
+
+/// Artifact auto-commit configuration nested under [WorkflowGitStrategy].
+///
+/// When [commit] is true the workflow engine commits any files produced by
+/// artifact-producing steps to the workflow branch before per-map-item
+/// worktrees are dispatched, so the worktrees inherit the committed files via
+/// standard `git checkout`.
+class WorkflowGitArtifactsStrategy {
+  /// Whether artifact auto-commit is enabled for this workflow.
+  ///
+  /// `null` triggers default resolution at validate/execute time:
+  /// defaults to `true` iff the workflow declares ≥1 artifact-producing step,
+  /// else `false`.
+  final bool? commit;
+
+  /// Commit message template applied when the hook fires.
+  ///
+  /// Supports `{{runId}}` and workflow-level variable substitution.
+  final String? commitMessage;
+
+  /// Project identifier whose working tree receives the commits.
+  ///
+  /// Supports `{{VARIABLE}}` templating. When null the workflow's primary
+  /// project (`{{PROJECT}}`) is used.
+  final String? project;
+
+  /// const WorkflowGitArtifactsStrategy({this.commit, this.commit.
+  const WorkflowGitArtifactsStrategy({this.commit, this.commitMessage, this.project});
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    if (commit != null) 'commit': commit,
+    if (commitMessage != null) 'commitMessage': commitMessage,
+    if (project != null) 'project': project,
+  };
+
+  /// Reconstructs a [WorkflowGitArtifactsStrategy] from its JSON representation.
+  factory WorkflowGitArtifactsStrategy.fromJson(Map<String, dynamic> json) => WorkflowGitArtifactsStrategy(
+    commit: json['commit'] as bool?,
+    commitMessage: json['commitMessage'] as String?,
+    project: json['project'] as String?,
+  );
+}
+
+/// Cross-clone artifact mount mode.
+enum WorkflowExternalArtifactMountMode {
+  perStoryCopy,
+  bindMount;
+
+  static const _wireValues = {
+    WorkflowExternalArtifactMountMode.perStoryCopy: 'per-story-copy',
+    WorkflowExternalArtifactMountMode.bindMount: 'bind-mount',
+  };
+
+  static WorkflowExternalArtifactMountMode fromJsonString(String value) => switch (value) {
+    'per-story-copy' => perStoryCopy,
+    'bind-mount' => bindMount,
+    _ => throw FormatException(
+      'Unknown WorkflowExternalArtifactMountMode "$value"; valid values: ${_wireValues.values.join(', ')}',
+    ),
+  };
+
+  String toJson() => _wireValues[this]!;
+}
+
+/// Cross-clone external artifact mount configuration nested under
+/// [WorkflowGitStrategy].worktree.
+///
+/// Two modes:
+/// - `per-story-copy` (default, least-privilege): on per-map-item worktree
+///   creation the engine resolves [source] against the current `map.item.*`
+///   fields, copies exactly that file from [fromProject]'s working tree into
+///   the worktree at the same relative path. Each worktree receives only the
+///   file its story owns.
+/// - `bind-mount` (opt-in): the engine bind-mounts the directory
+///   `<dataDir>/projects/<fromProject>/<fromPath>` read-only into every
+///   per-story worktree at [toPath]. Intended for debugging / cross-story
+///   reference scenarios and must be justified in the profile README.
+class WorkflowGitExternalArtifactMount {
+  /// Mount mode – `per-story-copy` (default) or `bind-mount`.
+  final WorkflowExternalArtifactMountMode mode;
+
+  /// External project id to pull artifacts from.
+  final String fromProject;
+
+  /// (`per-story-copy` only) Template resolved against the current map item to
+  /// a workspace-relative path inside [fromProject]. Example:
+  /// `"{{map.item.spec_path}}"`.
+  final String? source;
+
+  /// (`bind-mount` only) Directory to mount (relative to [fromProject] root).
+  final String? fromPath;
+
+  /// (`bind-mount` only) Mount target path inside the per-story worktree.
+  final String? toPath;
+
+  /// (`bind-mount` only) Whether the mount is read-only. Defaults to true.
+  final bool? readonly;
+
+  /// Creates a [WorkflowGitExternalArtifactMount] value.
+  const WorkflowGitExternalArtifactMount({
+    this.mode = WorkflowExternalArtifactMountMode.perStoryCopy,
+    required this.fromProject,
+    this.source,
+    this.fromPath,
+    this.toPath,
+    this.readonly,
+  });
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    'mode': mode.toJson(),
+    'fromProject': fromProject,
+    if (source != null) 'source': source,
+    if (fromPath != null) 'fromPath': fromPath,
+    if (toPath != null) 'toPath': toPath,
+    if (readonly != null) 'readonly': readonly,
+  };
+
+  /// Reconstructs a [WorkflowGitExternalArtifactMount] from its JSON representation.
+  factory WorkflowGitExternalArtifactMount.fromJson(Map<String, dynamic> json) => WorkflowGitExternalArtifactMount(
+    mode: json['mode'] == null
+        ? WorkflowExternalArtifactMountMode.perStoryCopy
+        : WorkflowExternalArtifactMountMode.fromJsonString(json['mode'] as String),
+    fromProject: json['fromProject'] as String,
+    source: json['source'] as String?,
+    fromPath: json['fromPath'] as String?,
+    toPath: json['toPath'] as String?,
+    readonly: json['readonly'] as bool?,
+  );
+}
+
+/// Publish strategy configuration nested under [WorkflowGitStrategy].
+class WorkflowGitPublishStrategy {
+  /// Whether publish behavior is enabled for the workflow.
+  final bool? enabled;
+
+  /// const WorkflowGitPublishStrategy({this.enabled});.
+  const WorkflowGitPublishStrategy({this.enabled});
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {if (enabled != null) 'enabled': enabled};
+
+  /// Reconstructs a [WorkflowGitPublishStrategy] from its JSON representation.
+  factory WorkflowGitPublishStrategy.fromJson(Map<String, dynamic> json) =>
+      WorkflowGitPublishStrategy(enabled: json['enabled'] as bool?);
+}
+
+/// End-of-run cleanup configuration nested under [WorkflowGitStrategy].
+///
+/// Controls whether workflow-owned worktrees are removed and local story
+/// branches deleted when the run reaches a terminal status (completed,
+/// cancelled, or failed). Defaults to enabled when omitted; set
+/// `enabled: false` to retain worktrees and branches for post-mortem inspection.
+class WorkflowGitCleanupStrategy {
+  /// Whether end-of-run cleanup is enabled for the workflow.
+  final bool? enabled;
+
+  /// const WorkflowGitCleanupStrategy({this.enabled});.
+  const WorkflowGitCleanupStrategy({this.enabled});
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {if (enabled != null) 'enabled': enabled};
+
+  /// Reconstructs a [WorkflowGitCleanupStrategy] from its JSON representation.
+  factory WorkflowGitCleanupStrategy.fromJson(Map<String, dynamic> json) =>
+      WorkflowGitCleanupStrategy(enabled: json['enabled'] as bool?);
+}
+
+/// Escalation policy when all merge-resolve attempts are exhausted.
+///
+/// YAML string → enum mapping:
+/// - `serialize-remaining` → [serializeRemaining]
+/// - `fail` → [fail]
+///
+/// The string `pause` is intentionally NOT mapped here – it is reserved for
+/// a future release and surfaced as a validator error via
+/// [MergeResolveConfig.rawEscalation].
+enum MergeResolveEscalation {
+  /// serializeRemaining,.
+  serializeRemaining,
+
+  /// fail;.
+  fail;
+
+  /// static MergeResolveEscalation? tryParse(String? value) => sw.
+  static MergeResolveEscalation? tryParse(String? value) => switch (value) {
+    'serialize-remaining' => serializeRemaining,
+    'fail' => fail,
+    _ => null,
+  };
+
+  /// String toYamlString() => switch (this) {.
+  String toYamlString() => switch (this) {
+    serializeRemaining => 'serialize-remaining',
+    fail => 'fail',
+  };
+}
+
+/// Typed configuration for the `merge_resolve:` block under `gitStrategy:`.
+///
+/// BPC-18 defaults apply when the block is absent or fields are omitted:
+/// `enabled: false`, `maxAttempts: 2`, `tokenCeiling: 100000`,
+/// `escalation: serialize-remaining`.
+///
+/// [rawEscalation] preserves the authored string when it does not map to a
+/// known [MergeResolveEscalation] value (e.g. the reserved `pause`) so the
+/// validator can emit the correct BPC-17 message without `fromJson` throwing.
+///
+/// Unknown top-level keys are captured in [unknownFields] for the same reason.
+class MergeResolveConfig {
+  /// enabled.
+  final bool enabled;
+
+  /// maxAttempts.
+  final int maxAttempts;
+
+  /// tokenCeiling.
+  final int tokenCeiling;
+
+  /// Parsed escalation value. `null` when the authored string is unrecognised.
+  final MergeResolveEscalation? escalation;
+
+  /// Raw escalation string from YAML – `null` when the key was absent.
+  final String? rawEscalation;
+
+  /// Unknown top-level keys captured at parse time for validator surfacing.
+  final List<String> unknownFields;
+
+  /// Creates a [MergeResolveConfig] value.
+  const MergeResolveConfig({
+    this.enabled = false,
+    this.maxAttempts = 2,
+    this.tokenCeiling = 100000,
+    this.escalation = MergeResolveEscalation.serializeRemaining,
+    this.rawEscalation,
+    this.unknownFields = const [],
+  });
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    if (enabled) 'enabled': enabled,
+    if (maxAttempts != 2) 'max_attempts': maxAttempts,
+    if (tokenCeiling != 100000) 'token_ceiling': tokenCeiling,
+    if (escalation != null && escalation != MergeResolveEscalation.serializeRemaining)
+      'escalation': escalation!.toYamlString()
+    else if (rawEscalation != null)
+      'escalation': rawEscalation,
+  };
+
+  /// Reconstructs a [MergeResolveConfig] from its JSON representation.
+  factory MergeResolveConfig.fromJson(Object? raw) {
+    final json = switch (raw) {
+      Map<String, dynamic> m => m,
+      Map<Object?, Object?> m => Map<String, dynamic>.from(m),
+      _ => <String, dynamic>{},
+    };
+    const knownKeys = {'enabled', 'max_attempts', 'token_ceiling', 'escalation'};
+    final unknown = json.keys.where((k) => !knownKeys.contains(k)).toList();
+    final rawEsc = json['escalation'] as String?;
+    return MergeResolveConfig(
+      enabled: (json['enabled'] as bool?) ?? false,
+      maxAttempts: (json['max_attempts'] as int?) ?? 2,
+      tokenCeiling: (json['token_ceiling'] as int?) ?? 100000,
+      escalation: rawEsc == null ? MergeResolveEscalation.serializeRemaining : MergeResolveEscalation.tryParse(rawEsc),
+      rawEscalation: rawEsc,
+      unknownFields: unknown,
+    );
+  }
+}
+
+/// Workflow worktree isolation mode.
+enum WorkflowGitWorktreeMode {
+  shared,
+  perTask,
+  perMapItem,
+  inline,
+  auto;
+
+  static const _wireValues = {
+    WorkflowGitWorktreeMode.shared: 'shared',
+    WorkflowGitWorktreeMode.perTask: 'per-task',
+    WorkflowGitWorktreeMode.perMapItem: 'per-map-item',
+    WorkflowGitWorktreeMode.inline: 'inline',
+    WorkflowGitWorktreeMode.auto: 'auto',
+  };
+
+  static WorkflowGitWorktreeMode fromJsonString(String value) => switch (value) {
+    'shared' => shared,
+    'per-task' => perTask,
+    'per-map-item' => perMapItem,
+    'inline' => inline,
+    'auto' => auto,
+    _ => throw FormatException(
+      'Unknown WorkflowGitWorktreeMode "$value"; valid values: ${_wireValues.values.join(', ')}',
+    ),
+  };
+
+  String toJson() => _wireValues[this]!;
+}
+
+/// Worktree strategy configuration nested under [WorkflowGitStrategy].
+class WorkflowGitWorktreeStrategy {
+  /// Worktree mode (`shared`, `per-task`, `per-map-item`, `inline`, `auto`).
+  final WorkflowGitWorktreeMode? mode;
+
+  /// Optional cross-clone external artifact mount (two-repo profiles).
+  final WorkflowGitExternalArtifactMount? externalArtifactMount;
+
+  /// const WorkflowGitWorktreeStrategy({this.mode, this.externalA.
+  const WorkflowGitWorktreeStrategy({this.mode, this.externalArtifactMount});
+
+  /// Object? toJsonValue() {.
+  Object? toJsonValue() {
+    if (mode != null && externalArtifactMount == null) return mode!.toJson();
+    if (mode == null && externalArtifactMount == null) return null;
+    return {
+      if (mode != null) 'mode': mode!.toJson(),
+      if (externalArtifactMount != null) 'externalArtifactMount': externalArtifactMount!.toJson(),
+    };
+  }
+
+  /// Reconstructs a [WorkflowGitWorktreeStrategy] from its JSON representation.
+  factory WorkflowGitWorktreeStrategy.fromJson(Object? json) => switch (json) {
+    String mode => WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.fromJsonString(mode)),
+    Map<String, dynamic> map => WorkflowGitWorktreeStrategy(
+      mode: map['mode'] == null ? null : WorkflowGitWorktreeMode.fromJsonString(map['mode'] as String),
+      externalArtifactMount: switch (map['externalArtifactMount']) {
+        Map<String, dynamic> mount => WorkflowGitExternalArtifactMount.fromJson(mount),
+        Map<Object?, Object?> mount => WorkflowGitExternalArtifactMount.fromJson(Map<String, dynamic>.from(mount)),
+        _ => null,
+      },
+    ),
+    Map<Object?, Object?> map => WorkflowGitWorktreeStrategy.fromJson(Map<String, dynamic>.from(map)),
+    _ => const WorkflowGitWorktreeStrategy(),
+  };
+}
+
+/// Reusable workflow-level git behavior strategy surface.
+///
+/// This shape is intentionally declarative for S16b. Runtime enforcement is
+/// owned by later milestones.
+class WorkflowGitStrategy {
+  final bool? _integrationBranch;
+
+  final bool? _bootstrap;
+
+  /// Whether workflow startup should create a workflow-owned integration branch.
+  bool? get integrationBranch {
+    final integrationBranch = _integrationBranch;
+    final bootstrap = _bootstrap;
+    if (integrationBranch != null && bootstrap != null && integrationBranch != bootstrap) {
+      throw StateError('integrationBranch and bootstrap must not disagree.');
+    }
+    return integrationBranch ?? bootstrap;
+  }
+
+  /// Legacy alias for workflow definitions that still use `bootstrap:`.
+  @Deprecated('Use integrationBranch instead.')
+  bool? get bootstrap => integrationBranch;
+
+  /// Worktree strategy (`shared`, `per-task`, `per-map-item`, `inline`,
+  /// `auto`) plus nested worktree-only settings.
+  final WorkflowGitWorktreeStrategy? worktree;
+
+  /// Promotion strategy (`merge`, `rebase`, `none`).
+  final String? promotion;
+
+  /// Publish behavior configuration.
+  final WorkflowGitPublishStrategy? publish;
+
+  /// End-of-run worktree/branch cleanup configuration. `null` means default
+  /// (cleanup enabled); see [cleanupEnabled] for the resolved boolean.
+  final WorkflowGitCleanupStrategy? cleanup;
+
+  /// Artifact auto-commit configuration (null = default truth-table resolution).
+  final WorkflowGitArtifactsStrategy? artifacts;
+
+  /// True when the definition authored `gitStrategy.externalArtifactMount`
+  /// at the deprecated flat level. Parser-only metadata so the validator can
+  /// emit a migration hint while still hydrating the nested runtime surface.
+  final bool legacyExternalArtifactMountLocation;
+
+  /// True when the definition authored deprecated `gitStrategy.bootstrap`.
+  /// Parser-only metadata so the validator can emit a migration hint while
+  /// the runtime uses the normalized [integrationBranch] surface.
+  final bool legacyBootstrapKey;
+
+  /// Nullable backing field – null when `merge_resolve:` is absent from YAML
+  /// so [toJson] omits the key for pre-feature definitions.
+  final MergeResolveConfig? _mergeResolve;
+
+  /// Typed agent-resolved-merge configuration.
+  ///
+  /// Returns a default [MergeResolveConfig] (BPC-18 defaults) when the
+  /// `merge_resolve:` block was absent from the YAML, so callers never need a
+  /// null check.
+  MergeResolveConfig get mergeResolve => _mergeResolve ?? const MergeResolveConfig();
+
+  /// Whether end-of-run worktree/branch cleanup is enabled (default: true).
+  bool get cleanupEnabled => cleanup?.enabled ?? true;
+
+  /// Convenience projection of the configured worktree mode.
+  String? get worktreeMode => worktree?.mode?.toJson();
+
+  /// Convenience projection of the nested external artifact mount.
+  WorkflowGitExternalArtifactMount? get externalArtifactMount => worktree?.externalArtifactMount;
+
+  /// Resolves the authored worktree mode to the runtime mode for a specific
+  /// scope. Omitted worktree config is treated as `auto`.
+  ///
+  /// `auto` resolves to `per-map-item` for map/foreach scopes whose effective
+  /// `maxParallel` is greater than 1. Runtime callers also pass `null` for
+  /// the `"unlimited"` path, which is treated as parallel fan-out.
+  /// Integration-branch workflows resolve non-map scopes to `shared` so the
+  /// workflow-owned branch stays out of the operator's live checkout.
+  /// Remaining `auto` cases resolve to `inline`.
+  String effectiveWorktreeMode({required int? maxParallel, required bool isMap}) {
+    final authored = worktree?.mode;
+    if (authored == null || authored == WorkflowGitWorktreeMode.auto) {
+      if (isMap && maxParallel == null) {
+        return 'per-map-item';
+      }
+      final effectiveMaxParallel = maxParallel ?? 1;
+      if (isMap && effectiveMaxParallel > 1) {
+        return 'per-map-item';
+      }
+      if (!isMap && integrationBranch == true) {
+        return 'shared';
+      }
+      return 'inline';
+    }
+    return authored.toJson();
+  }
+
+  /// Creates a [WorkflowGitStrategy] value.
+  const WorkflowGitStrategy({
+    bool? integrationBranch,
+    @Deprecated('Use integrationBranch instead.') bool? bootstrap,
+    this.worktree,
+    this.promotion,
+    this.publish,
+    this.cleanup,
+    this.artifacts,
+    this.legacyExternalArtifactMountLocation = false,
+    this.legacyBootstrapKey = false,
+    MergeResolveConfig? mergeResolve,
+  }) : assert(
+         integrationBranch == null || bootstrap == null || integrationBranch == bootstrap,
+         'integrationBranch and bootstrap must not disagree.',
+       ),
+       _integrationBranch = integrationBranch,
+       _bootstrap = bootstrap,
+       _mergeResolve = mergeResolve;
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    if (integrationBranch != null) 'integrationBranch': integrationBranch,
+    if (worktree != null) 'worktree': worktree!.toJsonValue(),
+    if (promotion != null) 'promotion': promotion,
+    if (publish != null) 'publish': publish!.toJson(),
+    if (cleanup != null) 'cleanup': cleanup!.toJson(),
+    if (artifacts != null) 'artifacts': artifacts!.toJson(),
+    if (_mergeResolve != null) 'merge_resolve': _mergeResolve.toJson(),
+  };
+
+  /// Reconstructs a [WorkflowGitStrategy] from its JSON representation.
+  factory WorkflowGitStrategy.fromJson(Map<String, dynamic> json) {
+    final integrationBranchRaw = _resolveIntegrationBranchJsonValue(
+      json,
+      error: (message) => ArgumentError.value(json, 'json', message),
+    );
+    final bootstrapRaw = json['bootstrap'];
+
+    return WorkflowGitStrategy(
+      integrationBranch: integrationBranchRaw,
+      bootstrap: bootstrapRaw as bool?,
+      worktree: switch (json['worktree']) {
+        null => null,
+        final value => WorkflowGitWorktreeStrategy.fromJson(value),
+      },
+      promotion: json['promotion'] as String?,
+      publish: switch (json['publish']) {
+        Map<String, dynamic> publish => WorkflowGitPublishStrategy.fromJson(publish),
+        Map<Object?, Object?> publish => WorkflowGitPublishStrategy.fromJson(Map<String, dynamic>.from(publish)),
+        _ => null,
+      },
+      cleanup: switch (json['cleanup']) {
+        Map<String, dynamic> cleanup => WorkflowGitCleanupStrategy.fromJson(cleanup),
+        Map<Object?, Object?> cleanup => WorkflowGitCleanupStrategy.fromJson(Map<String, dynamic>.from(cleanup)),
+        _ => null,
+      },
+      artifacts: switch (json['artifacts']) {
+        Map<String, dynamic> artifacts => WorkflowGitArtifactsStrategy.fromJson(artifacts),
+        Map<Object?, Object?> artifacts => WorkflowGitArtifactsStrategy.fromJson(Map<String, dynamic>.from(artifacts)),
+        _ => null,
+      },
+      legacyExternalArtifactMountLocation: json['legacyExternalArtifactMountLocation'] == true,
+      legacyBootstrapKey: json.containsKey('bootstrap'),
+      mergeResolve: switch (json['merge_resolve']) {
+        null => null,
+        final value => MergeResolveConfig.fromJson(value),
+      },
+    );
+  }
+}
+
+bool? _resolveIntegrationBranchJsonValue(Map<String, dynamic> json, {required Object Function(String message) error}) {
+  final values = <String, bool>{};
+  for (final entry in const {
+    'integrationBranch': 'gitStrategy.integrationBranch',
+    'integration_branch': 'gitStrategy.integration_branch',
+    'bootstrap': 'gitStrategy.bootstrap',
+  }.entries) {
+    final value = json[entry.key];
+    if (value == null) continue;
+    if (value is! bool) {
+      throw error('${entry.value} must be a boolean.');
+    }
+    values[entry.value] = value;
+  }
+
+  if (values.isEmpty) return null;
+  final distinct = values.values.toSet();
+  if (distinct.length > 1) {
+    throw error('Fields ${_quotedFieldList(values.keys)} must not disagree.');
+  }
+  return distinct.single;
+}
+
+String _quotedFieldList(Iterable<String> fields) => fields.map((field) => '"$field"').join(', ');
+
+/// A workflow definition parsed from a YAML file.
+///
+/// Immutable value object describing a multi-step agent pipeline.
+/// Contains step definitions, variable declarations, loop constructs,
+/// and optional budget limits. Loaded at startup, never modified at runtime.
+class WorkflowDefinition {
+  /// Unique name used as identifier (derived from YAML `name` field).
+  final String name;
+
+  /// Human-readable description of the workflow's purpose.
+  final String description;
+
+  /// Variable declarations: name -> variable definition.
+  final Map<String, WorkflowVariable> variables;
+
+  /// Ordered list of workflow steps.
+  final List<WorkflowStep> steps;
+
+  /// Loop definitions referencing step IDs.
+  final List<WorkflowLoop> loops;
+
+  /// Explicit normalized execution graph.
+  ///
+  /// Older snapshots may omit this field; in that case it is rebuilt from
+  /// [steps] and [loops] on demand for backward compatibility.
+  final List<WorkflowNode>? _nodes;
+
+  /// Optional workflow-level token budget ceiling.
+  final int? maxTokens;
+
+  /// Optional workflow-level project binding inherited by eligible steps.
+  final String? project;
+
+  /// Optional pattern-based step config defaults applied in order (first match wins).
+  final List<StepConfigDefault>? stepDefaults;
+
+  /// Optional workflow-level git strategy configuration.
+  final WorkflowGitStrategy? gitStrategy;
+
+  /// Creates a [WorkflowDefinition] value.
+  const WorkflowDefinition({
+    required this.name,
+    required this.description,
+    this.variables = const {},
+    required this.steps,
+    this.loops = const [],
+    List<WorkflowNode>? nodes,
+    this.maxTokens,
+    this.project,
+    this.stepDefaults,
+    this.gitStrategy,
+  }) : _nodes = nodes;
+
+  /// Normalized authored-order execution graph for this definition.
+  List<WorkflowNode> get nodes => _nodes ?? normalizeNodes(steps, loops);
+
+  /// WorkflowDefinition copyWith({.
+  WorkflowDefinition copyWith({
+    String? name,
+    String? description,
+    Map<String, WorkflowVariable>? variables,
+    List<WorkflowStep>? steps,
+    List<WorkflowLoop>? loops,
+    Object? nodes = _workflowDefinitionFieldUnset,
+    int? maxTokens,
+    Object? project = _workflowDefinitionFieldUnset,
+    Object? stepDefaults = _workflowDefinitionFieldUnset,
+    Object? gitStrategy = _workflowDefinitionFieldUnset,
+  }) => WorkflowDefinition(
+    name: name ?? this.name,
+    description: description ?? this.description,
+    variables: variables ?? this.variables,
+    steps: steps ?? this.steps,
+    loops: loops ?? this.loops,
+    nodes: identical(nodes, _workflowDefinitionFieldUnset) ? _nodes : nodes as List<WorkflowNode>?,
+    maxTokens: maxTokens ?? this.maxTokens,
+    project: identical(project, _workflowDefinitionFieldUnset) ? this.project : project as String?,
+    stepDefaults: identical(stepDefaults, _workflowDefinitionFieldUnset)
+        ? this.stepDefaults
+        : stepDefaults as List<StepConfigDefault>?,
+    gitStrategy: identical(gitStrategy, _workflowDefinitionFieldUnset)
+        ? this.gitStrategy
+        : gitStrategy as WorkflowGitStrategy?,
+  );
+
+  /// Serializes this value to a JSON-ready map.
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'description': description,
+    'variables': variables.map((k, v) => MapEntry(k, v.toJson())),
+    'steps': steps.map((s) => s.toJson()).toList(),
+    'loops': loops.map((l) => l.toJson()).toList(),
+    'nodes': nodes.map((n) => n.toJson()).toList(growable: false),
+    if (maxTokens != null) 'maxTokens': maxTokens,
+    if (project != null) 'project': project,
+    if (stepDefaults != null) 'stepDefaults': stepDefaults!.map((d) => d.toJson()).toList(),
+    if (gitStrategy != null) 'gitStrategy': gitStrategy!.toJson(),
+  };
+
+  /// Reconstructs a [WorkflowDefinition] from its JSON representation.
+  factory WorkflowDefinition.fromJson(Map<String, dynamic> json) => WorkflowDefinition(
+    name: json['name'] as String,
+    description: json['description'] as String,
+    variables:
+        (json['variables'] as Map<String, dynamic>?)?.map(
+          (k, v) => MapEntry(k, WorkflowVariable.fromJson(v as Map<String, dynamic>)),
+        ) ??
+        const {},
+    steps: (json['steps'] as List).map((s) => WorkflowStep.fromJson(s as Map<String, dynamic>)).toList(growable: false),
+    loops:
+        (json['loops'] as List?)
+            ?.map((l) => WorkflowLoop.fromJson(l as Map<String, dynamic>))
+            .toList(growable: false) ??
+        const [],
+    nodes: (json['nodes'] as List?)
+        ?.map((node) => WorkflowNode.fromJson(node as Map<String, dynamic>))
+        .toList(growable: false),
+    maxTokens: json['maxTokens'] as int?,
+    project: json['project'] as String?,
+    stepDefaults: (json['stepDefaults'] as List?)
+        ?.map((d) => StepConfigDefault.fromJson(d as Map<String, dynamic>))
+        .toList(growable: false),
+    gitStrategy: switch (json['gitStrategy']) {
+      Map<String, dynamic> strategy => WorkflowGitStrategy.fromJson(strategy),
+      Map<Object?, Object?> strategy => WorkflowGitStrategy.fromJson(Map<String, dynamic>.from(strategy)),
+      _ => null,
+    },
+  );
+
+  /// Builds the authored-order execution graph used by validation and runtime.
+  static List<WorkflowNode> normalizeNodes(List<WorkflowStep> steps, List<WorkflowLoop> loops) {
+    final loopByFirstStepId = <String, WorkflowLoop>{
+      for (final loop in loops)
+        if (loop.steps.isNotEmpty) loop.steps.first: loop,
+    };
+    final loopOwnedStepIds = {
+      ...loops.expand((loop) => loop.steps),
+      ...loops.map((loop) => loop.finally_).whereType<String>(),
+    };
+    // Foreach-owned steps are child steps of foreach controllers; they are
+    // not emitted as top-level nodes.
+    final foreachOwnedStepIds = {
+      for (final step in steps)
+        if (step.isForeachController) ...step.foreachSteps!,
+    };
+
+    final nodes = <WorkflowNode>[];
+    final emittedLoopIds = <String>{};
+
+    for (var index = 0; index < steps.length; index++) {
+      final step = steps[index];
+      final loopAtStep = loopByFirstStepId[step.id];
+      if (loopAtStep != null && emittedLoopIds.add(loopAtStep.id)) {
+        nodes.add(
+          LoopNode(
+            loopId: loopAtStep.id,
+            stepIds: loopAtStep.steps.toList(growable: false),
+            finallyStepId: loopAtStep.finally_,
+          ),
+        );
+        continue;
+      }
+
+      if (loopOwnedStepIds.contains(step.id)) {
+        continue;
+      }
+
+      if (foreachOwnedStepIds.contains(step.id)) {
+        continue;
+      }
+
+      if (step.isForeachController) {
+        nodes.add(ForeachNode(stepId: step.id, childStepIds: step.foreachSteps!.toList(growable: false)));
+        continue;
+      }
+
+      if (step.isMapStep) {
+        nodes.add(MapNode(stepId: step.id));
+        continue;
+      }
+
+      if (step.parallel) {
+        final parallelStepIds = <String>[step.id];
+        while (index + 1 < steps.length) {
+          final next = steps[index + 1];
+          if (loopOwnedStepIds.contains(next.id) ||
+              foreachOwnedStepIds.contains(next.id) ||
+              loopByFirstStepId.containsKey(next.id) ||
+              next.isMapStep ||
+              next.isForeachController ||
+              !next.parallel) {
+            break;
+          }
+          parallelStepIds.add(next.id);
+          index++;
+        }
+        nodes.add(ParallelGroupNode(stepIds: parallelStepIds));
+        continue;
+      }
+
+      nodes.add(ActionNode(stepId: step.id));
+    }
+
+    return nodes;
+  }
+}

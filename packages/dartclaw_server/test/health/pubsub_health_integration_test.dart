@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' hide GoogleJwtVerifier;
+import 'package:dartclaw_server/src/security/google_jwt_verifier.dart' show GoogleJwtVerifier;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shelf/shelf.dart';

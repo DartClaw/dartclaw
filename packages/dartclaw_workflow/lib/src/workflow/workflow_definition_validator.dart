@@ -1,18 +1,21 @@
-import 'package:dartclaw_models/dartclaw_models.dart';
+import 'workflow_definition.dart';
 import 'package:logging/logging.dart';
 
-import 'schema_presets.dart' show schemaPresets;
+import 'schema_presets.dart' show isReviewReportPathPreset, schemaPresets;
+import 'schema_validator.dart' show SchemaValidator;
 import 'skill_registry.dart';
 import 'step_config_resolver.dart'
     show WorkflowRoleDefaults, globMatchStepId, resolveStepConfig, workflowRoleDefaultAliases;
 import 'workflow_template_engine.dart';
 
+part 'validation/workflow_validation_helpers.dart';
 part 'validation/workflow_structure_rules.dart';
 part 'validation/workflow_reference_rules.dart';
 part 'validation/workflow_gate_rules.dart';
 part 'validation/workflow_output_schema_rules.dart';
 part 'validation/workflow_git_strategy_rules.dart';
 part 'validation/workflow_step_type_rules.dart';
+part 'validation/workflow_codex_allowed_tools_rules.dart';
 
 /// Classification of validation errors.
 enum ValidationErrorType {
@@ -75,20 +78,20 @@ class ValidationReport {
 class WorkflowDefinitionValidator {
   static final _log = Logger('WorkflowDefinitionValidator');
   static final _gateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)+)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
-  // `entryGate` supports bare keys and dotted context paths
-  // (e.g. `active_prd != null`, `project_index.active_prd == null`, or
-  // `review-prd.findings_count > 0`), mirroring how `GateEvaluator` resolves
-  // exact flat keys before nested map paths.
+  static final _gateUnaryConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)+)\s+(isEmpty|isNotEmpty)$');
+  // `entryGate` supports bare keys and dotted context paths, mirroring how
+  // `GateEvaluator` resolves exact flat keys before nested map paths.
   static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
+  static final _entryGateUnaryConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s+(isEmpty|isNotEmpty)$');
 
-  static const _artifactProducingSkills = {'dartclaw-prd', 'dartclaw-plan', 'dartclaw-spec'};
-  final _engine = WorkflowTemplateEngine();
+  static const _artifactProducingSkills = {'andthen:prd', 'andthen:plan', 'andthen:spec'};
+  final WorkflowTemplateEngine _engine;
   final WorkflowRoleDefaults roleDefaults;
 
-  WorkflowDefinitionValidator({this.roleDefaults = const WorkflowRoleDefaults()});
-
-  /// Step types known by the engine.
-  static const _knownTypes = {'agent', 'bash', 'approval', 'foreach', 'loop'};
+  WorkflowDefinitionValidator({
+    this.roleDefaults = const WorkflowRoleDefaults(),
+    WorkflowTemplateEngine? templateEngine,
+  }) : _engine = templateEngine ?? WorkflowTemplateEngine();
 
   /// Optional skill registry for skill-aware validation.
   ///
@@ -124,8 +127,11 @@ class WorkflowDefinitionValidator {
     _validateStepDefaultsOrdering(definition, warnings);
     _validateStepEntryGates(definition, errors);
     _validateOutputConfigs(definition, errors, warnings);
+    _warnCodexAllowedToolsPolicy(definition, warnings);
     _validateMapOverReferences(definition, errors);
     _validateMapStepConstraints(definition, errors);
+    _validateAggregateReviewsConstraints(definition, errors);
+    _validateAggregateReviewsPlacement(definition, errors);
     if (continuityProviders != null) {
       _validateMultiPromptProviders(definition, errors, continuityProviders);
     }

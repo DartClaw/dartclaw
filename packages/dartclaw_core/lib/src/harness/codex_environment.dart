@@ -91,11 +91,12 @@ class CodexEnvironment {
       _tempDirectory = tempDirectory;
       return tempDirectory.path;
     } catch (_) {
+      // Setup write failed — drop partially-built temp dir and reraise original error.
       try {
         if (tempDirectory.existsSync()) {
           tempDirectory.deleteSync(recursive: true);
         }
-      } catch (_) {}
+      } catch (_) {} // Best-effort cleanup on setup failure; original error is reraised below.
       rethrow;
     }
   }
@@ -137,7 +138,7 @@ class CodexEnvironment {
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
       }
-    } catch (_) {}
+    } catch (_) {} // Best-effort temp-dir cleanup on teardown.
   }
 
   Future<void> _chmod700(String path) async {

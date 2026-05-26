@@ -1,7 +1,8 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkspaceSkillInventory, WorkspaceSkillLinker;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -92,6 +93,7 @@ class TaskWiring {
   late DiffGenerator _diffGenerator;
   late ArtifactCollector _artifactCollector;
   late AgentObserver _agentObserver;
+  late final WorkspaceSkillLinker _workspaceSkillLinker = WorkspaceSkillLinker();
   late TaskExecutor _taskExecutor;
   late ChannelReviewHandler _reviewHandler;
   late TaskCancellationSubscriber _taskCancellationSubscriber;
@@ -130,6 +132,7 @@ class TaskWiring {
       worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
       taskLookup: _storage.taskService.get,
       projectLookup: _project?.projectService.get,
+      skillMaterializer: _materializeWorkflowSkillsForWorktree,
     );
     await _worktreeManager.detectStaleWorktrees();
 
@@ -150,6 +153,17 @@ class TaskWiring {
       eventRecorder: _storage.taskEventRecorder,
     );
     _reviewHandler = _taskReviewService.channelReviewHandler(trigger: 'channel');
+  }
+
+  Future<void> _materializeWorkflowSkillsForWorktree(String worktreePath) async {
+    final inventory = WorkspaceSkillInventory.fromDataDir(_dataDir);
+    _workspaceSkillLinker.materialize(
+      dataDir: _dataDir,
+      workspaceDir: worktreePath,
+      skillNames: inventory.skillNames,
+      agentMdNames: inventory.agentMdNames,
+      agentTomlNames: inventory.agentTomlNames,
+    );
   }
 
   /// Wires task services that require a live [TurnManager].
@@ -201,34 +215,36 @@ class TaskWiring {
     );
 
     _taskExecutor = TaskExecutor(
-      tasks: _storage.taskService,
-      goals: _storage.goalService,
-      sessions: _storage.sessions,
-      messages: _storage.messages,
-      turns: turns,
-      artifactCollector: _artifactCollector,
-      worktreeManager: _worktreeManager,
-      taskFileGuard: _taskFileGuard,
-      observer: _agentObserver,
-      eventRecorder: _storage.taskEventRecorder,
-      workflowStepExecutionRepository: _storage.workflowStepExecutionRepository,
-      workflowRunRepository: _storage.workflowRunRepository,
+      services: TaskExecutorServices(
+        tasks: _storage.taskService,
+        goals: _storage.goalService,
+        sessions: _storage.sessions,
+        messages: _storage.messages,
+        artifactCollector: _artifactCollector,
+        worktreeManager: _worktreeManager,
+        taskFileGuard: _taskFileGuard,
+        eventRecorder: _storage.taskEventRecorder,
+        workflowStepExecutionRepository: _storage.workflowStepExecutionRepository,
+        workflowRunRepository: _storage.workflowRunRepository,
+        projectService: _project?.projectService,
+        kvService: _storage.kvService,
+        eventBus: _eventBus,
+      ),
+      runners: TaskExecutorRunners(turns: turns, observer: _agentObserver, workflowCliRunner: workflowCliRunner),
+      limits: TaskExecutorLimits(
+        maxMemoryBytes: config.memory.maxBytes,
+        compactInstructions: config.context.compactInstructions,
+        identifierPreservation: config.context.identifierPreservation,
+        identifierInstructions: config.context.identifierInstructions,
+        budgetConfig: config.tasks.budget,
+      ),
       onSpawnNeeded: onSpawnNeeded,
       onAutoAccept: buildAutoAcceptCallback(
         completionAction: config.tasks.completionAction,
         reviewTask: (taskId) => _taskReviewService.review(taskId, 'accept', trigger: 'auto_accept'),
       ),
-      projectService: _project?.projectService,
-      workspaceDir: config.workspaceDir,
-      maxMemoryBytes: config.memory.maxBytes,
-      compactInstructions: config.context.compactInstructions,
-      identifierPreservation: config.context.identifierPreservation,
-      identifierInstructions: config.context.identifierInstructions,
-      kvService: _storage.kvService,
-      budgetConfig: config.tasks.budget,
-      eventBus: _eventBus,
+      workspaceRoot: config.workspaceDir,
       dataDir: _dataDir,
-      workflowCliRunner: workflowCliRunner,
     );
     _taskExecutor.start();
     _log.fine('TaskExecutor started');
@@ -271,7 +287,7 @@ class TaskWiring {
 Map<String, String> _providerEnvironmentForWorkflow(String providerId, CredentialRegistry registry) {
   final environment = SafeProcess.sanitize(
     baseEnvironment: Platform.environment,
-    sensitivePatterns: [...kDefaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
+    sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
   );
   final apiKey = registry.getApiKey(providerId);
   if (apiKey != null) {

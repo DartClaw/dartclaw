@@ -1,0 +1,47 @@
+dartclaw -> dartclaw_core  # Umbrella package re-export.
+dartclaw -> dartclaw_google_chat  # Umbrella package re-export.
+dartclaw -> dartclaw_signal  # Umbrella package re-export.
+dartclaw -> dartclaw_storage  # Umbrella package re-export.
+dartclaw -> dartclaw_whatsapp  # Umbrella package re-export.
+dartclaw_cli -> dartclaw_config  # CLI composition reads config.
+dartclaw_cli -> dartclaw_core  # CLI composition uses core contracts.
+dartclaw_cli -> dartclaw_google_chat  # CLI wires Google Chat channel.
+dartclaw_cli -> dartclaw_security  # CLI wires guards and process security.
+dartclaw_cli -> dartclaw_server  # CLI serves the HTTP/runtime composition layer.
+dartclaw_cli -> dartclaw_signal  # CLI wires Signal channel.
+dartclaw_cli -> dartclaw_storage  # CLI wires persistent stores.
+dartclaw_cli -> dartclaw_whatsapp  # CLI wires WhatsApp channel.
+dartclaw_cli -> dartclaw_workflow  # CLI exposes workflow commands.
+dartclaw_config -> dartclaw_models  # Config references shared model primitives.
+dartclaw_config -> dartclaw_security  # Config owns guard settings.
+dartclaw_core -> dartclaw_config  # Core owns runtime contracts that reference config-owned primitives.
+dartclaw_core -> dartclaw_models  # Core references shared model primitives.
+dartclaw_core -> dartclaw_security  # Core exposes security-adjacent contracts.
+dartclaw_google_chat -> dartclaw_config  # Channel config uses config package.
+dartclaw_google_chat -> dartclaw_core  # Channel implementation uses core channel contracts.
+dartclaw_security -> dartclaw_models  # Security uses shared model primitives.
+dartclaw_server -> dartclaw_config  # Server composition reads config.
+dartclaw_server -> dartclaw_core  # Server implements core runtime contracts.
+dartclaw_server -> dartclaw_google_chat  # Server wires Google Chat channel.
+dartclaw_server -> dartclaw_models  # Server uses shared model primitives.
+dartclaw_server -> dartclaw_security  # Server wires guard chain.
+dartclaw_server -> dartclaw_signal  # Server wires Signal channel.
+dartclaw_server -> dartclaw_storage  # Server wires SQLite/file stores.
+dartclaw_server -> dartclaw_whatsapp  # Server wires WhatsApp channel.
+dartclaw_server -> dartclaw_workflow  # Server exposes workflow runtime/UI.
+dartclaw_signal -> dartclaw_config  # Signal channel reads config.
+dartclaw_signal -> dartclaw_core  # Signal channel implements core channel contracts.
+dartclaw_storage -> dartclaw_core  # Storage implements core repository interfaces.
+dartclaw_storage -> dartclaw_workflow  # Storage persists workflow run values.
+dartclaw_testing -> dartclaw_config  # Shared fakes expose config-owned project values.
+dartclaw_testing -> dartclaw_core  # Shared fakes implement core contracts.
+dartclaw_testing -> dartclaw_google_chat  # Shared Google Chat REST fake implements channel client.
+dartclaw_testing -> dartclaw_models  # Shared test helpers expose model primitives.
+dartclaw_testing -> dartclaw_security  # Shared guard fake implements security contracts.
+dartclaw_testing -> dartclaw_workflow  # Shared workflow fakes implement workflow contracts.
+dartclaw_whatsapp -> dartclaw_config  # WhatsApp channel reads config.
+dartclaw_whatsapp -> dartclaw_core  # WhatsApp channel implements core channel contracts.
+dartclaw_workflow -> dartclaw_config  # Workflow runtime reads workflow config and status values.
+dartclaw_workflow -> dartclaw_core  # Workflow runtime orchestrates core task contracts.
+dartclaw_workflow -> dartclaw_models  # Workflow runtime uses shared model primitives.
+dartclaw_workflow -> dartclaw_security  # 0.16.4 release-gate edge; security guard wiring preserved.

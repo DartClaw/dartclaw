@@ -1,41 +1,43 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show Project;
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowRunRepository, WorkflowTaskBindingCoordinator, WorkflowWorktreeBinding;
 
 import 'git_credential_env.dart';
 import 'task_config_view.dart';
 import 'worktree_manager.dart';
 
+/// Reports a worktree-binding failure for a workflow-owned [Task].
 typedef WorkflowWorktreeFailureHandler =
     Future<void> Function(Task task, {required String errorSummary, required bool retryable});
 
+const _workflowWorktreeTokenLength = 16;
+
 /// Binds workflow-owned tasks to their shared or inline worktrees.
-final class WorkflowWorktreeBinder {
+final class WorkflowWorktreeBinder implements WorkflowTaskBindingCoordinator {
   WorkflowWorktreeBinder({
     required WorktreeManager? worktreeManager,
-    required SqliteWorkflowRunRepository? workflowRunRepository,
+    required WorkflowRunRepository? workflowRunRepository,
     required WorkflowWorktreeFailureHandler failTask,
   }) : _worktreeManager = worktreeManager,
        _workflowRunRepository = workflowRunRepository,
        _failTask = failTask;
 
   final WorktreeManager? _worktreeManager;
-  final SqliteWorkflowRunRepository? _workflowRunRepository;
+  final WorkflowRunRepository? _workflowRunRepository;
   final WorkflowWorktreeFailureHandler _failTask;
   final Map<String, WorktreeInfo> _workflowSharedWorktrees = {};
   final Map<String, WorkflowWorktreeBinding> _workflowSharedWorktreeBindings = {};
   final Map<String, Completer<WorktreeInfo>> _workflowSharedWorktreeWaiters = {};
   final Set<String> _workflowInlineBranchKeys = <String>{};
 
-  void hydrateWorkflowSharedWorktreeBinding(WorkflowWorktreeBinding binding, {required String workflowRunId}) {
-    if (binding.workflowRunId != workflowRunId) {
-      throw StateError(
-        'Workflow worktree binding run ID mismatch: '
-        'persisted ${binding.workflowRunId}, requested $workflowRunId',
-      );
-    }
+  @override
+  void hydrate(WorkflowWorktreeBinding binding) {
     _workflowSharedWorktreeBindings[binding.key] = binding;
     _workflowSharedWorktrees[binding.key] = WorktreeInfo(
       path: binding.path,
@@ -67,11 +69,12 @@ final class WorkflowWorktreeBinder {
     final workflowRunId = workflowStepExecution?.workflowRunId;
     if (workflowRunId == null || workflowRunId.isEmpty) return null;
     final strategy = await workflowGitWorktreeMode(task);
-    if (strategy == 'shared') return 'wf-$workflowRunId';
+    final token = _workflowRunToken(workflowRunId);
+    if (strategy == 'shared') return 'wf-$token';
     if (strategy == 'per-map-item') {
       final iterIndex = workflowStepExecution?.mapIterationIndex;
-      if (iterIndex is int) return 'wf-$workflowRunId-map-$iterIndex';
-      return 'wf-$workflowRunId';
+      if (iterIndex is int) return 'wf-$token-map-$iterIndex';
+      return 'wf-$token';
     }
     return null;
   }
@@ -111,6 +114,7 @@ final class WorkflowWorktreeBinder {
 
     final completer = Completer<WorktreeInfo>();
     _workflowSharedWorktreeWaiters[workflowWorktreeKey] = completer;
+    unawaited(completer.future.then<void>((_) {}, onError: (_, _) {}));
 
     try {
       final alreadyCreated = _workflowSharedWorktrees[workflowWorktreeKey];
@@ -211,7 +215,7 @@ final class WorkflowWorktreeBinder {
       final stdout = (result.stdout as String).trim();
       return stdout.isEmpty ? null : stdout;
     } catch (_) {
-      return null;
+      return null; // git not available or working directory absent — return null ref.
     }
   }
 
@@ -258,4 +262,9 @@ final class WorkflowWorktreeBinder {
     await repository.setWorktreeBinding(workflowRunId, binding);
     _workflowSharedWorktreeBindings[workflowWorktreeKey] = binding;
   }
+}
+
+String _workflowRunToken(String workflowRunId) {
+  final digest = sha256.convert(utf8.encode(workflowRunId)).toString();
+  return digest.substring(0, _workflowWorktreeTokenLength);
 }

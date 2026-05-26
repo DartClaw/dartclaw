@@ -62,8 +62,10 @@ class UserOAuthCredentialStore {
     try {
       final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
       return StoredUserCredentials.fromJson(json);
-    } catch (_) {
-      return null;
+    } on FormatException {
+      return null; // Corrupted or truncated credential file — treat as missing.
+    } on TypeError {
+      return null; // Schema-invalid credential file — treat as missing.
     }
   }
 

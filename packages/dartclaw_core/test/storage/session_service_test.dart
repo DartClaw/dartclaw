@@ -225,11 +225,11 @@ void main() {
       expect(fetched.channelKey, equals('wa:alice'));
     });
 
-    test('getOrCreateMain creates main session', () async {
-      final main = await sessions.getOrCreateMain();
+    test('getOrCreateMainSession creates main session', () async {
+      final main = await sessions.getOrCreateMainSession();
       expect(main.type, equals(SessionType.main));
 
-      final again = await sessions.getOrCreateMain();
+      final again = await sessions.getOrCreateMainSession();
       expect(again.id, equals(main.id));
     });
 
@@ -242,7 +242,7 @@ void main() {
     test('listSessions filters by type', () async {
       await sessions.createSession(type: SessionType.user);
       await sessions.createSession(type: SessionType.channel, channelKey: 'wa:test');
-      await sessions.getOrCreateMain();
+      await sessions.getOrCreateMainSession();
       await sessions.createSession(type: SessionType.task);
 
       final all = await sessions.listSessions();
@@ -264,7 +264,7 @@ void main() {
     test('listSessions filters by multiple types', () async {
       await sessions.createSession(type: SessionType.user);
       await sessions.createSession(type: SessionType.archive);
-      await sessions.getOrCreateMain();
+      await sessions.getOrCreateMainSession();
 
       final sidebarSessions = await sessions.listSessions(types: [SessionType.user, SessionType.archive]);
       expect(sidebarSessions.length, equals(2));

@@ -5,6 +5,7 @@ import 'package:sqlite3/sqlite3.dart';
 class SqliteGoalRepository implements GoalRepository {
   final Database _db;
 
+  /// Creates the repository against [_db] and initializes its schema.
   SqliteGoalRepository(this._db) {
     _initSchema();
   }

@@ -13,8 +13,10 @@ class ReloadConfig {
   /// Minimum: 100 ms. Default: 500 ms.
   final int debounceMs;
 
+  /// const ReloadConfig({this.mode = 'signal', this.debounceMs = .
   const ReloadConfig({this.mode = 'signal', this.debounceMs = 500});
 
+  /// Creates a [ReloadConfig.defaults] value.
   const ReloadConfig.defaults() : this();
 
   @override
@@ -27,11 +29,19 @@ class ReloadConfig {
 
 /// Configuration for the gateway subsystem.
 class GatewayConfig {
+  /// authMode.
   final String authMode;
+
+  /// token.
   final String? token;
+
+  /// hsts.
   final bool hsts;
+
+  /// reload.
   final ReloadConfig reload;
 
+  /// Creates a [GatewayConfig] value.
   const GatewayConfig({
     this.authMode = 'token',
     this.token,

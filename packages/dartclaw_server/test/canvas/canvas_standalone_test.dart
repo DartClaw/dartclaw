@@ -1,8 +1,9 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 

@@ -6,7 +6,6 @@ import 'package:logging/logging.dart';
 
 import '../api/sse_broadcast.dart';
 import '../behavior/memory_consolidator.dart';
-import '../turn_manager.dart';
 import 'delivery.dart';
 import 'scheduled_job.dart';
 
@@ -28,6 +27,19 @@ DeliveryService _defaultDeliveryService(SessionService sessions) {
     sseBroadcast: SseBroadcast(),
     sessions: sessions,
   );
+}
+
+/// Thrown when a scheduled turn fails.
+class ScheduleTurnFailureException implements Exception {
+  final String message;
+  final Object? cause;
+
+  ScheduleTurnFailureException(this.message, {this.cause});
+
+  @override
+  String toString() => cause != null
+      ? 'ScheduleTurnFailureException: $message (cause: $cause)'
+      : 'ScheduleTurnFailureException: $message';
 }
 
 /// Manages time-based job execution: cron, interval, and one-time schedules.
@@ -243,7 +255,7 @@ class ScheduleService implements Reconfigurable {
     final outcome = await _turns.waitForOutcome(session.id, turnId);
 
     if (outcome.status == TurnStatus.failed) {
-      throw Exception('Turn failed: ${outcome.errorMessage ?? "unknown error"}');
+      throw ScheduleTurnFailureException('Turn failed: ${outcome.errorMessage ?? "unknown error"}');
     }
 
     return outcome.responseText ?? '';

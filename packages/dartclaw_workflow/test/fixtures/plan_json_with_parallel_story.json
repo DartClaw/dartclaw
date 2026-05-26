@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1",
+  "prd": "prd.md",
+  "overview": {
+    "summary": "Fixture plan with a parallel-ready story carrying all optional story_specs fields.",
+    "phases": [
+      {
+        "id": "P1",
+        "name": "Foundation",
+        "waves": ["W1"]
+      }
+    ]
+  },
+  "stories": [
+    {
+      "id": "S01",
+      "name": "Parallel Foundation",
+      "phase": "P1",
+      "wave": "W1",
+      "dependsOn": [],
+      "parallel": true,
+      "risk": "medium",
+      "status": "spec-ready",
+      "fis": "fis/s01-parallel-foundation.md",
+      "scope": "Parallel fixture story with all optional fields populated."
+    }
+  ],
+  "metadata": {
+    "immutableDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

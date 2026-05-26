@@ -5,7 +5,6 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfig;
 import 'package:logging/logging.dart';
 
-import '../turn_manager.dart';
 import 'task_budget_policy.dart';
 import 'task_event_recorder.dart';
 import 'task_service.dart';
@@ -56,6 +55,8 @@ final class WorkflowOneShotRunner {
     required String? workingDirectory,
     required String? modelOverride,
     required String? effortOverride,
+    required List<String>? allowedTools,
+    required bool readOnly,
     required String? sandboxOverride,
   }) async {
     final runner = _runner;
@@ -74,14 +75,7 @@ final class WorkflowOneShotRunner {
       final String value when value.trim().isNotEmpty => value,
       _ => null,
     };
-    final mergeResolveEnvRaw = task.configJson['_workflowMergeResolveEnv'];
-    final mergeResolveEnv = mergeResolveEnvRaw is Map
-        ? Map<String, String>.fromEntries(
-            mergeResolveEnvRaw.entries
-                .where((e) => e.value is String)
-                .map((e) => MapEntry(e.key.toString(), e.value as String)),
-          )
-        : null;
+    final mergeResolveEnv = WorkflowTaskConfig.readMergeResolveEnv(task);
     final startedAt = DateTime.now();
     var inputTokens = 0;
     var outputTokens = 0;
@@ -171,6 +165,8 @@ final class WorkflowOneShotRunner {
         providerSessionId: providerSessionId,
         model: modelOverride,
         effort: effortOverride,
+        allowedTools: allowedTools,
+        readOnly: readOnly,
         appendSystemPrompt: appendSystemPrompt,
         sandboxOverride: sandboxOverride,
         extraEnvironment: mergeResolveEnv,
@@ -216,6 +212,8 @@ final class WorkflowOneShotRunner {
           providerSessionId: providerSessionId,
           model: modelOverride,
           effort: effortOverride,
+          allowedTools: allowedTools,
+          readOnly: readOnly,
           maxTurns: provider == 'claude' ? 5 : null,
           jsonSchema: structuredSchema,
           appendSystemPrompt: null,

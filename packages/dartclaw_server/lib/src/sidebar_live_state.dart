@@ -1,11 +1,12 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show Task, TaskStatus, WorkflowDefinition, WorkflowRun, WorkflowRunStatus;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService, stepStatusFromTask;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowService, WorkflowTaskType, stepStatusFromTask;
 
 import 'task/task_service.dart';
 import 'templates/sidebar.dart' show SidebarActiveTask, SidebarActiveWorkflow;
 
+/// Builds the running and review-pending [SidebarActiveTask]s for the sidebar.
 Future<List<SidebarActiveTask>> buildActiveSidebarTasks(TaskService tasks) async {
   final runningTasks = await tasks.list(status: TaskStatus.running);
   final reviewTasks = (await tasks.list(
@@ -18,6 +19,7 @@ Future<List<SidebarActiveTask>> buildActiveSidebarTasks(TaskService tasks) async
   return [...runningTasks.map(_activeTaskPayload), ...reviewTasks.map(_activeTaskPayload)];
 }
 
+/// Builds the active [SidebarActiveWorkflow]s, including step progress, for the sidebar.
 Future<List<SidebarActiveWorkflow>> buildActiveSidebarWorkflows(WorkflowService workflows, TaskService tasks) async {
   final running = await workflows.list(status: WorkflowRunStatus.running);
   final paused = await workflows.list(status: WorkflowRunStatus.paused);
@@ -31,7 +33,7 @@ Future<List<SidebarActiveWorkflow>> buildActiveSidebarWorkflows(WorkflowService 
     WorkflowDefinition? definition;
     try {
       definition = WorkflowDefinition.fromJson(run.definitionJson);
-    } catch (_) {}
+    } catch (_) {} // Malformed stored definition — render sidebar without step progress.
     final totalSteps = definition?.steps.length ?? 0;
     final tasksByStepIndex = <int, Task>{
       for (final task in allTasks.where((Task t) => t.workflowRunId == run.id))
@@ -42,7 +44,7 @@ Future<List<SidebarActiveWorkflow>> buildActiveSidebarWorkflows(WorkflowService 
         : definition.steps.indexed
               .where((entry) {
                 final (index, step) = entry;
-                final status = step.type == 'approval'
+                final status = step.taskType == WorkflowTaskType.approval
                     ? switch (run.contextJson['${step.id}.approval.status']) {
                         'approved' => 'completed',
                         _ => 'pending',
@@ -63,6 +65,7 @@ Future<List<SidebarActiveWorkflow>> buildActiveSidebarWorkflows(WorkflowService 
   }).toList();
 }
 
+/// Serializes a [SidebarActiveTask] record to its sidebar JSON payload.
 Map<String, dynamic> sidebarActiveTaskToJson(SidebarActiveTask task) {
   return {
     'id': task.id,
@@ -74,6 +77,7 @@ Map<String, dynamic> sidebarActiveTaskToJson(SidebarActiveTask task) {
   };
 }
 
+/// Serializes a [SidebarActiveWorkflow] record to its sidebar JSON payload.
 Map<String, dynamic> sidebarActiveWorkflowToJson(SidebarActiveWorkflow workflow) {
   return {
     'id': workflow.id,

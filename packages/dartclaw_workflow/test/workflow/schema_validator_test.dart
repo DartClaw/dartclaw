@@ -198,6 +198,59 @@ void main() {
       });
     });
 
+    group('story_specs schema validation', () {
+      test('accepts story records with plan.json optional fields', () {
+        final value = {
+          'items': [
+            {
+              'id': 'S01',
+              'title': 'Foundation',
+              'spec_path': 'fis/s01-foundation.md',
+              'dependencies': <String>[],
+              'parallel': true,
+              'wave': 'W1',
+              'phase': 'P1',
+              'risk': 'medium',
+              'status': 'spec-ready',
+            },
+          ],
+        };
+
+        expect(validator.validate(value, storySpecsPreset.schema), isEmpty);
+      });
+
+      test('accepts legacy story records without optional plan.json fields', () {
+        final value = {
+          'items': [
+            {'id': 'S01', 'title': 'Foundation', 'spec_path': 'fis/s01-foundation.md', 'dependencies': <String>[]},
+          ],
+        };
+
+        expect(validator.validate(value, storySpecsPreset.schema), isEmpty);
+      });
+
+      test('rejects out-of-enum plan.json risk and status values', () {
+        final value = {
+          'items': [
+            {
+              'id': 'S01',
+              'title': 'Foundation',
+              'spec_path': 'fis/s01-foundation.md',
+              'dependencies': <String>[],
+              'risk': 'extreme',
+              'status': 'shipped',
+            },
+          ],
+        };
+
+        final warnings = validator.validate(value, storySpecsPreset.schema);
+
+        expect(warnings, hasLength(2));
+        expect(warnings.join('\n'), contains('risk'));
+        expect(warnings.join('\n'), contains('status'));
+      });
+    });
+
     group('schema with no type', () {
       test('returns no warnings when schema has no type', () {
         // Edge case: schema without 'type' field — validator does nothing.
@@ -354,6 +407,80 @@ void main() {
         final warnings = validator.validate(-3, {'type': 'integer', 'minimum': 1});
         expect(warnings, hasLength(1));
         expect(warnings.first, contains('minimum 1'));
+      });
+    });
+
+    group('TD-085: checkUnsupportedKeywords', () {
+      test('returns empty list for fully-supported schema', () {
+        final schema = {
+          'type': 'object',
+          'required': ['name'],
+          'properties': {
+            'name': {'type': 'string'},
+            'count': {'type': 'integer', 'minimum': 0, 'maximum': 100},
+          },
+          'additionalProperties': false,
+        };
+        expect(validator.checkUnsupportedKeywords(schema), isEmpty);
+      });
+
+      test('detects oneOf at the root level', () {
+        final schema = {
+          'type': 'object',
+          'oneOf': [
+            {
+              'required': ['a'],
+            },
+            {
+              'required': ['b'],
+            },
+          ],
+        };
+        final diagnostics = validator.checkUnsupportedKeywords(schema);
+        expect(diagnostics, hasLength(1));
+        expect(diagnostics.first, contains('"oneOf"'));
+        expect(diagnostics.first, contains('Supported subset:'));
+      });
+
+      test('detects anyOf at the root level', () {
+        final schema = {
+          'type': 'object',
+          'anyOf': [
+            {
+              'required': ['x'],
+            },
+          ],
+        };
+        expect(validator.checkUnsupportedKeywords(schema).any((d) => d.contains('"anyOf"')), isTrue);
+      });
+
+      test('detects not at the root level', () {
+        final schema = {
+          'not': {'type': 'null'},
+        };
+        expect(validator.checkUnsupportedKeywords(schema).any((d) => d.contains('"not"')), isTrue);
+      });
+
+      test('detects pattern inside a nested property', () {
+        final schema = {
+          'type': 'object',
+          'properties': {
+            'email': {'type': 'string', 'pattern': r'^[^@]+@[^@]+\.[^@]+$'},
+          },
+        };
+        final diagnostics = validator.checkUnsupportedKeywords(schema);
+        expect(diagnostics.any((d) => d.contains('"pattern"')), isTrue);
+      });
+
+      test('does not flag \$schema or description meta-keywords', () {
+        final schema = {
+          r'$schema': 'http://json-schema.org/draft-07/schema',
+          'title': 'My schema',
+          'description': 'test',
+          'type': 'object',
+          'properties': <String, dynamic>{},
+        };
+        expect(validator.checkUnsupportedKeywords(schema), isEmpty);
       });
     });
   });

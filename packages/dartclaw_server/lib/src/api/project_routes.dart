@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show ProjectConfig, validateProjectLocalPath;
+import 'package:dartclaw_config/dartclaw_config.dart'
+    show CloneStrategy, PrConfig, PrStrategy, Project, ProjectConfig, ProjectStatus, validateProjectLocalPath;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show ProjectService, Task, TaskStatus, canonicalizePathWithExistingAncestors;
-import 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, PrStrategy, Project, ProjectStatus;
+    show ProjectService, Task, TaskStatus, TurnManager, canonicalizePathWithExistingAncestors;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -12,8 +12,8 @@ import 'package:shelf_router/shelf_router.dart';
 import '../task/task_file_guard.dart';
 import '../task/task_project_ref.dart';
 import '../task/task_service.dart';
+import '../task/worktree_cleanup.dart';
 import '../task/worktree_manager.dart';
-import '../turn_manager.dart';
 import 'api_helpers.dart';
 import '../project/project_auth_support.dart';
 
@@ -351,7 +351,7 @@ Future<void> _cascadeDeleteProject(
           } catch (e) {
             _log.warning('Version conflict cancelling task ${task.id} during project delete: $e');
           }
-          await _cleanupWorktree(task.id, worktreeManager, taskFileGuard, project: project);
+          await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
           break;
         case TaskStatus.queued:
           await _failTaskForProjectDelete(
@@ -359,7 +359,7 @@ Future<void> _cascadeDeleteProject(
             task,
             message: 'Project "$projectId" was deleted before task execution started.',
           );
-          await _cleanupWorktree(task.id, worktreeManager, taskFileGuard, project: project);
+          await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
           break;
         case TaskStatus.interrupted:
           try {
@@ -367,7 +367,7 @@ Future<void> _cascadeDeleteProject(
           } catch (e) {
             _log.warning('Version conflict cancelling task ${task.id} during project delete: $e');
           }
-          await _cleanupWorktree(task.id, worktreeManager, taskFileGuard, project: project);
+          await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
           break;
         case TaskStatus.review:
           await _failTaskForProjectDelete(
@@ -375,7 +375,7 @@ Future<void> _cascadeDeleteProject(
             task,
             message: 'Project "$projectId" was deleted while the task was awaiting review.',
           );
-          await _cleanupWorktree(task.id, worktreeManager, taskFileGuard, project: project);
+          await cleanupWorktree(worktreeManager, taskFileGuard, task.id, project: project);
           break;
         case TaskStatus.draft:
           try {
@@ -392,20 +392,6 @@ Future<void> _cascadeDeleteProject(
   }
 
   await projects.delete(projectId);
-}
-
-Future<void> _cleanupWorktree(
-  String taskId,
-  WorktreeManager? worktreeManager,
-  TaskFileGuard? taskFileGuard, {
-  Project? project,
-}) async {
-  try {
-    await worktreeManager?.cleanup(taskId, project: project);
-  } catch (e) {
-    _log.warning('Failed to cleanup worktree for task $taskId: $e');
-  }
-  taskFileGuard?.deregister(taskId);
 }
 
 Future<void> _failTaskForProjectDelete(TaskService tasks, Task task, {required String message}) async {

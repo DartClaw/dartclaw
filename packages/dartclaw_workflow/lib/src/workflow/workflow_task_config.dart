@@ -2,14 +2,64 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, WorkflowStepExecution, WorkflowStepExecutionRepository;
 
-/// Typed accessors for workflow-owned task execution metadata.
+/// Typed accessors and key constants for workflow-owned task execution metadata.
 ///
 /// The `dartclaw_workflow` and `dartclaw_server` packages now communicate
 /// workflow-only execution state through `WorkflowStepExecution` rows instead
 /// of `_workflow*` entries in `Task.configJson`. Generic task settings such as
 /// `model`, `allowedTools`, or `reviewMode` remain on the task; workflow-only
 /// one-shot/session/git metadata lives behind this repository-backed seam.
+///
+/// **Policy**: New underscored workflow task-config keys (`_workflow*`,
+/// `_dartclaw.internal.*`) must be added to this class as a typed accessor or
+/// `static const String` constant rather than referenced as ad-hoc string
+/// literals at the call site. Direct string-literal access to
+/// `task.configJson['_workflow*']` from outside this class is enforced against
+/// by `dev/tools/fitness/check_no_workflow_private_config.sh`.
 abstract final class WorkflowTaskConfig {
+  // ---------------------------------------------------------------------------
+  // Workflow-internal keys — static constants for sites that read/write these
+  // keys via Task.configJson directly (e.g. step_dispatcher, map_iteration).
+  // ---------------------------------------------------------------------------
+
+  /// Task-config key carrying the serialized workflow git strategy metadata.
+  static const String workflowGit = '_workflowGit';
+
+  /// Task-config key carrying the workflow workspace directory path.
+  static const String workflowWorkspaceDir = '_workflowWorkspaceDir';
+
+  /// Task-config key carrying the provider session ID to continue from.
+  static const String continueSessionId = '_continueSessionId';
+
+  /// Task-config key carrying the session-baseline token count for budget
+  /// monitoring (so workflow totals reflect only the current step's tokens).
+  static const String sessionBaselineTokens = '_sessionBaselineTokens';
+
+  /// Task-config key carrying the zero-based iteration index for map steps.
+  static const String mapIterationIndex = '_mapIterationIndex';
+
+  /// Task-config key marking a task as requiring a worktree.
+  static const String workflowNeedsWorktree = '_workflowNeedsWorktree';
+
+  /// Task-config key carrying merge-resolve environment variables.
+  static const String mergeResolveEnv = '_workflowMergeResolveEnv';
+
+  // ---------------------------------------------------------------------------
+  // Cross-package typed accessors (server-side reads route through here).
+  // ---------------------------------------------------------------------------
+
+  /// Reads the merge-resolve environment map from [Task.configJson].
+  ///
+  /// Returns a `Map<String, String>` when the key is present and the value
+  /// is a map with string values; returns `null` otherwise.
+  static Map<String, String>? readMergeResolveEnv(Task task) {
+    final raw = task.configJson[mergeResolveEnv];
+    if (raw is! Map) return null;
+    return Map<String, String>.fromEntries(
+      raw.entries.where((e) => e.value is String).map((e) => MapEntry(e.key.toString(), e.value as String)),
+    );
+  }
+
   /// Returns the workflow step execution for [task], or null when this is not
   /// a workflow-spawned task with side-table metadata.
   static Future<WorkflowStepExecution?> read(Task task, WorkflowStepExecutionRepository repo) =>

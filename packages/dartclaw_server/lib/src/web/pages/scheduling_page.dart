@@ -7,6 +7,7 @@ import '../../templates/scheduling.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
 
+/// Renders the scheduled-jobs dashboard page.
 class SchedulingPage extends DashboardPage {
   SchedulingPage({
     this.runtimeConfigGetter,
@@ -34,7 +35,7 @@ class SchedulingPage extends DashboardPage {
 
   @override
   Future<Response> handler(Request request, PageContext context) async {
-    final sidebarData = await context.buildSidebarData();
+    final sidebarData = await context.sidebar.build();
     final liveHeartbeat = runtimeConfigGetter?.call()?.heartbeatEnabled ?? heartbeatDisplay.enabled;
 
     // Read jobs fresh from YAML so newly-added jobs surface without restart;

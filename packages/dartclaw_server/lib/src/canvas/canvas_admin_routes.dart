@@ -12,6 +12,7 @@ import 'canvas_state.dart';
 import 'canvas_utils.dart';
 import 'qr_generator.dart';
 
+/// Builds the shelf [Router] mounting canvas-admin endpoints.
 Router canvasAdminRoutes({required CanvasService canvasService}) {
   final router = Router();
 

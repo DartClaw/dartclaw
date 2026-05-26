@@ -52,7 +52,7 @@ void main() {
               id: 'plan',
               name: 'Plan',
               outputs: {
-                'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+                'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
                 'plan': OutputConfig(format: OutputFormat.path),
               },
             ),
@@ -62,7 +62,7 @@ void main() {
           id: 'plan',
           name: 'Plan',
           outputs: {
-            'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+            'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
             'plan': OutputConfig(format: OutputFormat.path),
           },
         ),

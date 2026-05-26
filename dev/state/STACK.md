@@ -4,7 +4,7 @@
 
 | Language | Version | Notes |
 |----------|---------|-------|
-| Dart | `^3.11.0` | AOT-compiled host runtime. Built-in formatter, analyzer, test runner |
+| Dart | `^3.12.0` | AOT-compiled host runtime. Built-in formatter, analyzer, test runner |
 
 ## Dart SDK Packages
 
@@ -41,7 +41,7 @@
 
 | Package | Purpose |
 |---------|---------|
-| `sqlite3` | Raw SQLite3 bindings — search index (FTS5), tasks, state. No ORM |
+| `sqlite3` | Raw SQLite3 bindings – search index (FTS5), tasks, state. No ORM |
 
 ### Google Chat
 
@@ -78,15 +78,11 @@ All frontend assets are vendored in `packages/dartclaw_server/lib/src/static/`. 
 
 Themes: Catppuccin Mocha (dark) + Catppuccin Latte (light) for highlight.js.
 
-## AndThen Installation
+## AndThen Skills
 
-**AndThen is provisioned at runtime** (since 0.16.4) — by both `dartclaw serve` and `dartclaw workflow run --standalone`. Both entry points share the `bootstrapAndthenSkills(...)` helper, which validates DC-native skill source completeness before invoking `SkillProvisioner.ensureCacheCurrent()`. DartClaw's built-in workflows reference AndThen-derived skills by their installed `dartclaw-*` names. On first contact, `SkillProvisioner` clones AndThen from `https://github.com/IT-HUSET/andthen` into `<data_dir>/andthen-src/` and runs AndThen's own `scripts/install-skills.sh --prefix dartclaw- --display-brand DartClaw --claude-user`. DartClaw-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`) are copied alongside.
+DartClaw built-in workflows reference AndThen-owned skills by canonical names such as `andthen:spec`. The workflow registry resolves those names to provider-native aliases (`andthen-spec` for Codex, `andthen:spec` for Claude Code). DartClaw no longer clones AndThen or creates DartClaw-branded copies of AndThen skills.
 
-Default behavior: clone-on-first-start, fast-forward `main` on subsequent starts, install into the native user-tier roots `~/.agents/skills/`, `~/.codex/agents/`, `~/.claude/skills/`, and `~/.claude/agents/`. Configure via the `andthen.*` block in `dartclaw.yaml` (`git_url`, `ref`, `network`). See [Configuration](../guide/andthen-skills.md) for the full reference, including offline / air-gapped deploys (`andthen.network: disabled` + pre-staged `<data_dir>/andthen-src/`).
-
-Operators do not need to run `install-skills.sh` manually — DartClaw handles it.
-
-**Architecture Decision**: ADR-025 (AndThen as runtime prerequisite) — recorded in the private design repo. Implemented in 0.16.4 (S71).
+`SkillProvisioner` only copies the four DartClaw-native skills (`dartclaw-detect-spec-input`, `dartclaw-discover-plan-state`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`) into the data-dir native skill roots and links those exact names into configured project workspaces.
 
 ## External Services & Binaries
 

@@ -7,7 +7,12 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 String _repoRoot() {
-  var current = Directory.current.absolute.path;
+  final start =
+      Platform.environment['DARTCLAW_REPO_ROOT'] ??
+      Platform.environment['GITHUB_WORKSPACE'] ??
+      Platform.environment['PWD'] ??
+      Directory.current.absolute.path;
+  var current = start;
   while (true) {
     if (File(p.join(current, 'dev', 'tools', 'build.sh')).existsSync() &&
         Directory(p.join(current, 'apps')).existsSync()) {
@@ -16,7 +21,7 @@ String _repoRoot() {
 
     final parent = p.dirname(current);
     if (parent == current) {
-      throw StateError('Unable to locate repository root from $current');
+      throw StateError('Unable to locate repository root from $start');
     }
     current = parent;
   }
@@ -132,7 +137,8 @@ void main() {
     expect(platformEntries, contains('bin/dartclaw'));
     expect(platformEntries, contains('share/dartclaw/templates/layout.html'));
     expect(platformEntries, contains('share/dartclaw/static/app.js'));
-    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-discover-project/SKILL.md'));
+    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-discover-andthen-spec/SKILL.md'));
+    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-discover-andthen-plan/SKILL.md'));
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-validate-workflow/SKILL.md'));
     expect(platformEntries, contains('share/dartclaw/workflows/spec-and-implement.yaml'));
     expect(platformEntries, contains('share/dartclaw/workflows/plan-and-implement.yaml'));
@@ -142,7 +148,8 @@ void main() {
     expect(assetEntries, isNot(contains('bin/dartclaw')));
     expect(assetEntries, contains('templates/layout.html'));
     expect(assetEntries, contains('static/app.js'));
-    expect(assetEntries, contains('skills/dartclaw-discover-project/SKILL.md'));
+    expect(assetEntries, contains('skills/dartclaw-discover-andthen-spec/SKILL.md'));
+    expect(assetEntries, contains('skills/dartclaw-discover-andthen-plan/SKILL.md'));
     expect(assetEntries, contains('skills/dartclaw-validate-workflow/SKILL.md'));
     expect(assetEntries, contains('workflows/spec-and-implement.yaml'));
     expect(assetEntries, contains('workflows/plan-and-implement.yaml'));
@@ -206,7 +213,8 @@ void main() {
     expect(stderrLines.single, startsWith('Downloading assets for v$dartclawVersion ('));
     expect(File(p.join(installPath, 'templates', 'layout.html')).existsSync(), isTrue);
     expect(File(p.join(installPath, 'static', 'app.js')).existsSync(), isTrue);
-    expect(File(p.join(installPath, 'skills', 'dartclaw-discover-project', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(installPath, 'skills', 'dartclaw-discover-andthen-spec', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(installPath, 'skills', 'dartclaw-discover-andthen-plan', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(installPath, 'workflows', 'plan-and-implement.yaml')).existsSync(), isTrue);
 
     final resolved = AssetResolver(

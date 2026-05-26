@@ -33,7 +33,7 @@ class PubSubHealthReporter {
   /// Always returns a map (never null) — includes `enabled: false` when
   /// Pub/Sub is not configured so the dashboard can display a clear
   /// "Not configured" state.
-  Map<String, dynamic> getStatus() {
+  Map<String, dynamic> get status {
     if (!_enabled) {
       return {'status': 'disabled', 'enabled': false};
     }

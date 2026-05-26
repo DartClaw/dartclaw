@@ -9,8 +9,6 @@ import '../api/sse_broadcast.dart';
 /// How a scheduled job's output is delivered after execution.
 enum DeliveryMode { announce, webhook, none }
 
-final _legacyLog = Logger('Delivery');
-
 /// Delivers scheduled job results to SSE clients, channels, or webhooks.
 class DeliveryService {
   static final _log = Logger('DeliveryService');
@@ -214,39 +212,5 @@ class DeliveryService {
     } finally {
       client.close();
     }
-  }
-}
-
-/// Delivers job results according to the delivery mode.
-@Deprecated('Use DeliveryService.deliver instead.')
-Future<void> deliverResult({
-  required DeliveryMode mode,
-  required String jobId,
-  required String result,
-  String? webhookUrl,
-  DeliveryService? deliveryService,
-}) async {
-  if (deliveryService != null) {
-    await deliveryService.deliver(mode: mode, jobId: jobId, result: result, webhookUrl: webhookUrl);
-    return;
-  }
-
-  switch (mode) {
-    case DeliveryMode.none:
-      return;
-    case DeliveryMode.announce:
-      _legacyLog.info('Job $jobId result ready for channel delivery (announce stub): ${result.length} chars');
-      return;
-    case DeliveryMode.webhook:
-      if (webhookUrl == null || webhookUrl.isEmpty) {
-        _legacyLog.severe('Job $jobId: webhook delivery configured but no webhook_url');
-        return;
-      }
-      await DeliveryService._postWebhook(
-        jobId: jobId,
-        result: result,
-        url: webhookUrl,
-        httpClientFactory: HttpClient.new,
-      );
   }
 }

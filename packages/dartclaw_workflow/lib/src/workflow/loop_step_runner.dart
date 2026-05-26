@@ -7,6 +7,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     WorkflowDefinition definition,
     WorkflowLoop loop,
     WorkflowContext context, {
+    required String? activeWorkspaceRoot,
     bool Function()? isCancelled,
     int startFromIteration = 1,
     String? startFromStepId,
@@ -62,6 +63,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
             definition,
             loop,
             context,
+            activeWorkspaceRoot: activeWorkspaceRoot,
             onRunUpdated: onRunUpdated,
           );
           run = updatedRun;
@@ -151,6 +153,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           definition,
           step,
           context,
+          activeWorkspaceRoot: activeWorkspaceRoot,
           stepIndex: stepIndex,
           loopId: loop.id,
           loopIteration: iteration,
@@ -212,6 +215,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
               definition,
               loop,
               context,
+              activeWorkspaceRoot: activeWorkspaceRoot,
               onRunUpdated: onRunUpdated,
             );
             run = updatedRun;
@@ -291,6 +295,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
             definition,
             loop,
             context,
+            activeWorkspaceRoot: activeWorkspaceRoot,
             onRunUpdated: onRunUpdated,
           );
           run = updatedRun;
@@ -337,6 +342,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           definition,
           loop,
           context,
+          activeWorkspaceRoot: activeWorkspaceRoot,
           onRunUpdated: onRunUpdated,
         );
         run = updatedRun;
@@ -385,8 +391,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
         stepId: nextStepId,
       ),
       contextJson: {
-        for (final e in run.contextJson.entries)
-          if (e.key.startsWith('_') && !e.key.startsWith('_map.current')) e.key: e.value,
+        ...privateContextEntries(run.contextJson, exclude: '_map.current'),
         ...context.toJson(),
         '_loop.current.id': loopId,
         '_loop.current.iteration': iteration,
@@ -404,6 +409,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     WorkflowDefinition definition,
     WorkflowLoop loop,
     WorkflowContext context, {
+    required String? activeWorkspaceRoot,
     required void Function(WorkflowRun) onRunUpdated,
   }) async {
     final finallyStepId = loop.finally_!;
@@ -411,7 +417,14 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     final stepIndex = definition.steps.indexOf(finallyStep);
 
     WorkflowExecutor._log.info("Workflow '${run.id}': executing finalizer '${finallyStep.id}' for loop '${loop.id}'");
-    final result = await _executeStep(run, definition, finallyStep, context, stepIndex: stepIndex);
+    final result = await _executeStep(
+      run,
+      definition,
+      finallyStep,
+      context,
+      activeWorkspaceRoot: activeWorkspaceRoot,
+      stepIndex: stepIndex,
+    );
     if (result == null) {
       return (run, null);
     }

@@ -1,7 +1,6 @@
 import 'dart:math';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
 import 'cron_parser.dart';
@@ -20,13 +19,9 @@ class ScheduledTaskRunner {
   final TaskService _taskService;
   final List<ScheduledTaskDefinition> _definitions;
 
-  ScheduledTaskRunner({
-    required TaskService taskService,
-    required List<ScheduledTaskDefinition> definitions,
-    // eventBus is accepted for API compatibility but events are now fired by TaskService.
-    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.') EventBus? eventBus,
-  }) : _taskService = taskService,
-       _definitions = definitions;
+  ScheduledTaskRunner({required TaskService taskService, required List<ScheduledTaskDefinition> definitions})
+    : _taskService = taskService,
+      _definitions = definitions;
 
   /// Converts each enabled [ScheduledTaskDefinition] into a [ScheduledJob].
   List<ScheduledJob> buildJobs() {

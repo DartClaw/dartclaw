@@ -49,18 +49,17 @@ class CodexHarness extends BaseHarness {
   /// Grace period after SIGTERM before escalating to SIGKILL.
   final Duration _killGracePeriod;
 
-  // ignore: use_super_parameters
   CodexHarness({
-    required String cwd,
+    required super.cwd,
     this.executable = 'codex',
-    Duration turnTimeout = const Duration(seconds: 600),
-    int maxRetries = 5,
-    Duration baseBackoff = const Duration(seconds: 5),
+    super.turnTimeout = const Duration(seconds: 600),
+    super.maxRetries = 5,
+    super.baseBackoff = const Duration(seconds: 5),
     ProcessFactory? processFactory,
     CommandProbe? commandProbe,
     DelayFactory? delayFactory,
     Map<String, String>? environment,
-    HarnessConfig harnessConfig = const HarnessConfig(),
+    super.harnessConfig = const HarnessConfig(),
     Map<String, dynamic>? providerOptions,
     this.guardChain,
     CodexProtocolAdapter? adapter,
@@ -71,14 +70,9 @@ class CodexHarness extends BaseHarness {
        _killGracePeriod = killGracePeriod,
        super(
          log: _log,
-         cwd: cwd,
-         turnTimeout: turnTimeout,
-         maxRetries: maxRetries,
-         baseBackoff: baseBackoff,
          processFactory: processFactory ?? Process.start,
          commandProbe: commandProbe ?? Process.run,
          delayFactory: delayFactory ?? Future<void>.delayed,
-         harnessConfig: harnessConfig,
        );
 
   @override
@@ -116,6 +110,7 @@ class CodexHarness extends BaseHarness {
         await _initialize();
         currentState = WorkerState.idle;
       } catch (_) {
+        // Any startup step failed — release env/process resources before bubbling the cause.
         await _cleanupStartupFailure();
         rethrow;
       }
@@ -140,8 +135,9 @@ class CodexHarness extends BaseHarness {
           await _restartAfterCrash();
         } catch (_) {
           if (currentState != WorkerState.crashed) {
-            rethrow;
+            rethrow; // Unexpected restart failure — surface to caller.
           }
+          // Still crashed after restart attempt — loop will retry.
         }
       });
     }
@@ -214,6 +210,7 @@ class CodexHarness extends BaseHarness {
       }
       return result;
     } catch (_) {
+      // Turn failed — restore idle state (unless stopping/crashed) and bubble the original error.
       if (stopwatch.isRunning) {
         stopwatch.stop();
       }
@@ -237,7 +234,7 @@ class CodexHarness extends BaseHarness {
     }
     try {
       await process.stdin.close();
-    } catch (_) {}
+    } catch (_) {} // stdin may already be closed if the process exited.
     process.kill(ProcessSignal.sigterm);
   }
 

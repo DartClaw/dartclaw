@@ -7,12 +7,15 @@ import 'package:logging/logging.dart';
 import 'worktree_manager.dart';
 import 'workflow_git_port_process.dart';
 
+/// Selects how a worktree's commits are integrated into the target branch.
 enum MergeStrategy { squash, merge }
 
+/// Represents the outcome of a worktree merge attempt.
 sealed class MergeResult {
   const MergeResult();
 }
 
+/// Records a successful merge along with the resulting commit metadata.
 class MergeSuccess extends MergeResult {
   final String commitSha;
   final String commitMessage;
@@ -20,6 +23,7 @@ class MergeSuccess extends MergeResult {
   const MergeSuccess({required this.commitSha, required this.commitMessage});
 }
 
+/// Records a merge that aborted due to conflicts.
 class MergeConflict extends MergeResult {
   final List<String> conflictingFiles;
   final String details;
@@ -29,22 +33,26 @@ class MergeConflict extends MergeResult {
   Map<String, dynamic> toJson() => {'conflictingFiles': conflictingFiles, 'details': details};
 }
 
+/// Names the specific pre-merge repository invariant that was violated.
 sealed class PreMergeInvariantReason {
   const PreMergeInvariantReason();
 }
 
+/// Indicates the index already had modified entries before the merge.
 final class UncleanIndex extends PreMergeInvariantReason {
   final List<String> modified;
 
   const UncleanIndex({required this.modified});
 }
 
+/// Indicates untracked paths overlap with files the merge would touch.
 final class UntrackedOverlap extends PreMergeInvariantReason {
   final List<String> paths;
 
   const UntrackedOverlap({required this.paths});
 }
 
+/// Indicates the merge target's commit SHA does not match the expected base.
 final class TargetShaMismatch extends PreMergeInvariantReason {
   final String expected;
   final String actual;

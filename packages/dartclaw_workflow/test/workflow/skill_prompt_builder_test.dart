@@ -1,3 +1,4 @@
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show OutputConfig, OutputFormat, PromptAugmenter, SkillPromptBuilder, WorkflowStep;
@@ -239,7 +240,7 @@ void main() {
     });
 
     test('kebab-case key rendered as Title Case header', () {
-      final result = SkillPromptBuilder.formatContextSummary({'story-result': 'ok'});
+      final result = SkillPromptBuilder.formatContextSummary({'story_result': 'ok'});
       expect(result, startsWith('## Story Result\n'));
     });
 
@@ -304,13 +305,13 @@ void main() {
     test('preset description used when inline description is null', () {
       // Regression for Finding 3: formatContextSummary must share
       // PromptAugmenter's effectiveDescription strategy so preset-declared
-      // fields like `schema: validation-summary` produce the same
+      // fields like `schema: validation_summary` produce the same
       // description across auto-framed context sections and the workflow
       // output contract.
       final result = SkillPromptBuilder.formatContextSummary(
         {'validation_summary': 'ok'},
         outputConfigs: {
-          'validation_summary': const OutputConfig(format: OutputFormat.text, schema: 'validation-summary'),
+          'validation_summary': const OutputConfig(format: OutputFormat.text, schema: 'validation_summary'),
         },
       );
       expect(result, contains('## Validation Summary'));
@@ -323,7 +324,7 @@ void main() {
         outputConfigs: {
           'story_result': const OutputConfig(
             format: OutputFormat.text,
-            schema: 'story-result',
+            schema: 'story_result',
             description: 'Custom override.',
           ),
         },
@@ -349,7 +350,7 @@ void main() {
       final result = SkillPromptBuilder.formatContextSummary(
         {'story_result': 'r'},
         outputConfigs: {
-          'story_result': const OutputConfig(format: OutputFormat.text, schema: 'story-result', description: '   '),
+          'story_result': const OutputConfig(format: OutputFormat.text, schema: 'story_result', description: '   '),
         },
       );
       expect(result, contains('unrelated sibling or baseline failures are non-blocking'));
@@ -423,7 +424,7 @@ void main() {
     });
 
     test('returns empty map when no step produces any wanted key', () {
-      const step = WorkflowStep(id: 'a', name: 'A', type: 'analysis');
+      const step = WorkflowStep(id: 'a', name: 'A', type: WorkflowTaskType.agent);
       expect(SkillPromptBuilder.collectInputConfigs([step], ['missing']), isEmpty);
     });
 
@@ -431,13 +432,13 @@ void main() {
       const first = WorkflowStep(
         id: 'a',
         name: 'A',
-        type: 'analysis',
+        type: WorkflowTaskType.agent,
         outputs: {'summary': OutputConfig(format: OutputFormat.text, description: 'From A')},
       );
       const second = WorkflowStep(
         id: 'b',
         name: 'B',
-        type: 'analysis',
+        type: WorkflowTaskType.agent,
         outputs: {'summary': OutputConfig(format: OutputFormat.text, description: 'From B')},
       );
       final result = SkillPromptBuilder.collectInputConfigs([first, second], ['summary']);
@@ -448,7 +449,7 @@ void main() {
       const step = WorkflowStep(
         id: 'a',
         name: 'A',
-        type: 'analysis',
+        type: WorkflowTaskType.agent,
         outputs: {'known': OutputConfig(format: OutputFormat.text)},
       );
       final result = SkillPromptBuilder.collectInputConfigs([step], ['known', 'missing']);
@@ -459,7 +460,7 @@ void main() {
       const first = WorkflowStep(
         id: 'a',
         name: 'A',
-        type: 'analysis',
+        type: WorkflowTaskType.agent,
         outputs: {
           'alpha': OutputConfig(format: OutputFormat.text, description: 'A-alpha'),
           'beta': OutputConfig(format: OutputFormat.text, description: 'A-beta'),
@@ -471,7 +472,7 @@ void main() {
       const second = WorkflowStep(
         id: 'b',
         name: 'B',
-        type: 'analysis',
+        type: WorkflowTaskType.agent,
         outputs: {'alpha': OutputConfig(format: OutputFormat.text, description: 'B-alpha')},
       );
       final result = SkillPromptBuilder.collectInputConfigs([first, second], ['alpha', 'beta']);

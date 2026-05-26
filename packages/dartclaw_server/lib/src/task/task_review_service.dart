@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show PrStrategy, Project;
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
@@ -14,6 +15,7 @@ import 'task_event_recorder.dart';
 import 'task_file_guard.dart';
 import 'task_project_ref.dart';
 import 'task_service.dart';
+import 'worktree_cleanup.dart';
 import 'worktree_manager.dart';
 
 /// Callback to deliver push-back feedback as a new turn message.
@@ -24,6 +26,7 @@ import 'worktree_manager.dart';
 typedef PushBackFeedbackDelivery =
     Future<void> Function({required String taskId, required String sessionKey, required String feedback});
 
+/// Runs a git subprocess and returns its [ProcessResult].
 typedef GitProcessRunner =
     Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory});
 
@@ -295,7 +298,7 @@ class TaskReviewService {
           task.worktreeJson != null &&
           !(targetStatus == TaskStatus.accepted && task.isWorkflowOwnedGitTask)) {
         final cleanupProject = await _cleanupProjectForTask(task);
-        await _cleanupWorktree(taskId, project: cleanupProject);
+        await cleanupWorktree(_worktreeManager, _taskFileGuard, taskId, project: cleanupProject);
       }
 
       return ReviewSuccess(updated);
@@ -353,7 +356,7 @@ class TaskReviewService {
           return postPushFailure;
         }
         // Successful push — clean up worktree.
-        await _cleanupWorktree(task.id, project: project);
+        await cleanupWorktree(_worktreeManager, _taskFileGuard, task.id, project: project);
         return null;
 
       case PushAuthFailure(:final details):
@@ -579,15 +582,6 @@ class TaskReviewService {
     updated['pushBackCount'] = (currentCount is num ? currentCount.toInt() : 0) + 1;
     updated['pushBackComment'] = comment;
     return updated;
-  }
-
-  Future<void> _cleanupWorktree(String taskId, {Project? project}) async {
-    try {
-      await _worktreeManager?.cleanup(taskId, project: project);
-    } catch (error) {
-      _log.warning('Failed to cleanup worktree for task $taskId: $error');
-    }
-    _taskFileGuard?.deregister(taskId);
   }
 
   Future<Project?> _cleanupProjectForTask(Task task) async {

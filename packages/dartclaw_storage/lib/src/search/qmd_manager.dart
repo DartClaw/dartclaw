@@ -18,15 +18,23 @@ typedef HttpClientFactory = HttpClient Function();
 class QmdManager {
   static final _log = Logger('QmdManager');
 
+  /// Path or name of the `qmd` binary to invoke.
   final String qmdExecutable;
+
+  /// Host the QMD daemon listens on.
   final String host;
+
+  /// Port the QMD daemon listens on.
   final int port;
+
+  /// Optional workspace directory passed to the daemon.
   final String? workspaceDir;
   final QmdCommandRunner _run;
   final HttpClientFactory _httpFactory;
 
   bool _running = false;
 
+  /// Creates a QMD manager bound to the given executable and listen address.
   QmdManager({
     this.qmdExecutable = 'qmd',
     this.host = '127.0.0.1',
@@ -37,8 +45,10 @@ class QmdManager {
   }) : _run = commandRunner ?? _defaultRunner,
        _httpFactory = httpFactory ?? HttpClient.new;
 
+  /// Whether the daemon has been started by this manager.
   bool get isRunning => _running;
 
+  /// Base URL composed from [host] and [port].
   String get baseUrl => 'http://$host:$port';
 
   /// Check if QMD binary is installed.

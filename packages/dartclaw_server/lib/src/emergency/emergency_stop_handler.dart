@@ -1,9 +1,8 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, EmergencyStopEvent, TaskStatus;
+import 'package:dartclaw_core/dartclaw_core.dart' show EmergencyStopEvent, EventBus, TaskStatus, TurnManager;
 import 'package:logging/logging.dart';
 
 import '../api/sse_broadcast.dart';
 import '../task/task_service.dart';
-import '../turn_manager.dart';
 
 /// Result of an emergency stop operation.
 class EmergencyStopResult {

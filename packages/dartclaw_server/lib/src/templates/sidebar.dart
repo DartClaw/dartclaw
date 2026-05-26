@@ -33,6 +33,7 @@ typedef SidebarData = ({
   List<SidebarActiveWorkflow> activeWorkflows,
   bool showChannels,
   bool tasksEnabled,
+  String? activeSessionId,
 });
 
 /// Sidebar with typed session sections.
@@ -47,6 +48,7 @@ typedef SidebarData = ({
 /// All session links carry HTMX SPA navigation attributes for partial page swap.
 /// All dynamic values are auto-escaped by Trellis (`tl:text`, `tl:attr`).
 String sidebarTemplate({
+  SidebarData? sidebarData,
   SidebarSession? mainSession,
   List<SidebarSession> dmChannels = const [],
   List<SidebarSession> groupChannels = const [],
@@ -60,6 +62,16 @@ String sidebarTemplate({
   List<NavItem> navItems = const [],
   String appName = 'DartClaw',
 }) {
+  final resolvedMainSession = sidebarData?.main ?? mainSession;
+  final resolvedDmChannels = sidebarData?.dmChannels ?? dmChannels;
+  final resolvedGroupChannels = sidebarData?.groupChannels ?? groupChannels;
+  final resolvedActiveEntries = sidebarData?.activeEntries ?? activeEntries;
+  final resolvedArchivedEntries = sidebarData?.archivedEntries ?? archivedEntries;
+  final resolvedActiveTasks = sidebarData?.activeTasks ?? activeTasks;
+  final resolvedActiveWorkflows = sidebarData?.activeWorkflows ?? activeWorkflows;
+  final resolvedShowChannels = sidebarData?.showChannels ?? showChannels;
+  final resolvedTasksEnabled = sidebarData?.tasksEnabled ?? tasksEnabled;
+  final resolvedActiveSessionId = sidebarData?.activeSessionId ?? activeSessionId;
   final systemNavItems = navItems.where((item) => item.navGroup == 'system').toList();
   final extensionNavItems = navItems.where((item) => item.navGroup != 'system').toList();
 
@@ -68,19 +80,19 @@ String sidebarTemplate({
     return {
       'title': trimmed.isEmpty ? 'Channel' : trimmed,
       'href': '/sessions/${ch.id}',
-      'active': ch.id == activeSessionId,
+      'active': ch.id == resolvedActiveSessionId,
       'provider': ch.provider,
       'providerLabel': ProviderIdentity.displayName(ch.provider),
     };
   }
 
-  final dmList = dmChannels.map(mapChannel).toList();
-  final groupList = groupChannels.map(mapChannel).toList();
+  final dmList = resolvedDmChannels.map(mapChannel).toList();
+  final groupList = resolvedGroupChannels.map(mapChannel).toList();
 
   // Build active entries list (user sessions only — all get delete button).
-  final activeList = activeEntries.map((entry) {
+  final activeList = resolvedActiveEntries.map((entry) {
     final trimmed = entry.title.trim();
-    final isActive = entry.id == activeSessionId;
+    final isActive = entry.id == resolvedActiveSessionId;
     return {
       'id': entry.id,
       'href': '/sessions/${entry.id}',
@@ -93,9 +105,9 @@ String sidebarTemplate({
   }).toList();
 
   // Build archived entries list.
-  final archiveList = archivedEntries.map((entry) {
+  final archiveList = resolvedArchivedEntries.map((entry) {
     final trimmed = entry.title.trim();
-    final isActive = entry.id == activeSessionId;
+    final isActive = entry.id == resolvedActiveSessionId;
     return {
       'id': entry.id,
       'href': '/sessions/${entry.id}',
@@ -107,8 +119,9 @@ String sidebarTemplate({
     };
   }).toList();
 
-  final archiveContainsActive = activeSessionId != null && archivedEntries.any((e) => e.id == activeSessionId);
-  final activeTaskList = activeTasks
+  final archiveContainsActive =
+      resolvedActiveSessionId != null && resolvedArchivedEntries.any((e) => e.id == resolvedActiveSessionId);
+  final activeTaskList = resolvedActiveTasks
       .map(
         (task) => {
           'href': '/tasks/${task.id}',
@@ -120,7 +133,7 @@ String sidebarTemplate({
         },
       )
       .toList();
-  final activeWorkflowList = activeWorkflows
+  final activeWorkflowList = resolvedActiveWorkflows
       .map(
         (workflow) => {
           'href': '/workflows/${workflow.id}',
@@ -136,24 +149,26 @@ String sidebarTemplate({
     fragment: 'sidebar',
     context: {
       'appName': appName,
-      'mainSession': mainSession != null,
-      'mainHref': mainSession != null ? '/sessions/${mainSession.id}' : '',
-      'mainActive': mainSession != null && mainSession.id == activeSessionId,
-      'mainProvider': mainSession?.provider,
-      'mainProviderLabel': mainSession != null ? ProviderIdentity.displayName(mainSession.provider) : null,
-      'tasksEnabledAttr': tasksEnabled ? 'true' : null,
-      'showChannels': showChannels,
-      'noChannels': dmChannels.isEmpty && groupChannels.isEmpty,
-      'noDmChannels': dmChannels.isEmpty,
-      'hasGroupChannels': groupChannels.isNotEmpty,
-      'showDmLabel': groupChannels.isNotEmpty && dmChannels.isNotEmpty,
+      'mainSession': resolvedMainSession != null,
+      'mainHref': resolvedMainSession != null ? '/sessions/${resolvedMainSession.id}' : '',
+      'mainActive': resolvedMainSession != null && resolvedMainSession.id == resolvedActiveSessionId,
+      'mainProvider': resolvedMainSession?.provider,
+      'mainProviderLabel': resolvedMainSession != null
+          ? ProviderIdentity.displayName(resolvedMainSession.provider)
+          : null,
+      'tasksEnabledAttr': resolvedTasksEnabled ? 'true' : null,
+      'showChannels': resolvedShowChannels,
+      'noChannels': resolvedDmChannels.isEmpty && resolvedGroupChannels.isEmpty,
+      'noDmChannels': resolvedDmChannels.isEmpty,
+      'hasGroupChannels': resolvedGroupChannels.isNotEmpty,
+      'showDmLabel': resolvedGroupChannels.isNotEmpty && resolvedDmChannels.isNotEmpty,
       'dmChannels': dmList,
       'groupChannels': groupList,
-      'noActiveEntries': activeEntries.isEmpty,
+      'noActiveEntries': resolvedActiveEntries.isEmpty,
       'activeEntries': activeList,
-      'hasArchivedEntries': archivedEntries.isNotEmpty,
+      'hasArchivedEntries': resolvedArchivedEntries.isNotEmpty,
       'archivedEntries': archiveList,
-      'archivedCount': archivedEntries.length,
+      'archivedCount': resolvedArchivedEntries.length,
       'archiveContainsActive': archiveContainsActive,
       'hasActiveTasks': activeTaskList.isNotEmpty,
       'activeTasks': activeTaskList,
@@ -199,17 +214,5 @@ String sidebarTemplate({
 /// Used by system/admin pages (Settings, Health, etc.) that show the
 /// full sidebar with sessions but no active session highlighted.
 String buildSidebar({required SidebarData sidebarData, required List<NavItem> navItems, String appName = 'DartClaw'}) {
-  return sidebarTemplate(
-    mainSession: sidebarData.main,
-    dmChannels: sidebarData.dmChannels,
-    groupChannels: sidebarData.groupChannels,
-    activeEntries: sidebarData.activeEntries,
-    archivedEntries: sidebarData.archivedEntries,
-    activeTasks: sidebarData.activeTasks,
-    activeWorkflows: sidebarData.activeWorkflows,
-    showChannels: sidebarData.showChannels,
-    tasksEnabled: sidebarData.tasksEnabled,
-    navItems: navItems,
-    appName: appName,
-  );
+  return sidebarTemplate(sidebarData: sidebarData, navItems: navItems, appName: appName);
 }

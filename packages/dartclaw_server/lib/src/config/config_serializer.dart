@@ -33,7 +33,7 @@ class ConfigSerializer {
     try {
       githubConfig = config.extension<GitHubWebhookConfig>('github');
     } catch (_) {
-      githubConfig = null;
+      githubConfig = null; // Extension absent or malformed — omit GitHub fields from serialized view.
     }
     return {
       'port': config.server.port,
@@ -111,7 +111,7 @@ class ConfigSerializer {
         'warningThreshold': config.context.warningThreshold,
         'explorationSummaryThreshold': config.context.explorationSummaryThreshold,
         'compactInstructions': config.context.compactInstructions,
-        'identifierPreservation': config.context.identifierPreservation,
+        'identifierPreservation': config.context.identifierPreservation.toJson(),
         'identifierInstructions': config.context.identifierInstructions,
       },
       'search': {'backend': config.search.backend},
@@ -294,11 +294,6 @@ class ConfigSerializer {
           for (final t in config.alerts.targets) {'channel': t.channel, 'recipient': t.recipient},
         ],
         'routes': config.alerts.routes,
-      },
-      'andthen': {
-        'gitUrl': config.andthen.gitUrl,
-        'ref': config.andthen.ref,
-        'network': config.andthen.network.yamlValue,
       },
     };
   }

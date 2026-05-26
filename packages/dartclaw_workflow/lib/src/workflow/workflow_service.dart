@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         AgentExecutionRepository,
@@ -14,17 +15,14 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         Task,
         TaskStatus,
         WorkflowStepExecutionRepository,
-        WorkflowExecutionCursor,
-        WorkflowExecutionCursorNodeType,
         WorkflowApprovalResolvedEvent,
-        WorkflowDefinition,
-        WorkflowRun,
-        WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
-        WorkflowWorktreeBinding,
         WorkflowTaskService,
         atomicWriteJson;
-import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
+import 'workflow_definition.dart' show WorkflowDefinition;
+import 'workflow_run.dart'
+    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowWorktreeBinding;
+import 'workflow_run_repository.dart' show WorkflowRunRepository;
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
@@ -47,7 +45,7 @@ import 'workflow_turn_adapter.dart';
 class WorkflowService {
   static final _log = Logger('WorkflowService');
 
-  final SqliteWorkflowRunRepository _repository;
+  final WorkflowRunRepository _repository;
   final WorkflowTaskService _taskService;
   final MessageService _messageService;
   final WorkflowTurnAdapter? _turnAdapter;
@@ -65,8 +63,7 @@ class WorkflowService {
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
   final ExecutionRepositoryTransactor? _executionRepositoryTransactor;
   final ProjectService? _projectService;
-  final FutureOr<void> Function(WorkflowWorktreeBinding binding, {required String workflowRunId})?
-  _hydrateWorkflowWorktreeBinding;
+  final FutureOr<void> Function(WorkflowWorktreeBinding binding)? _hydrateWorkflowWorktreeBinding;
   final Map<String, String>? _hostEnvironment;
   final List<String>? _bashStepEnvAllowlist;
   final List<String>? _bashStepExtraStripPatterns;
@@ -81,7 +78,7 @@ class WorkflowService {
   final _approvalTimeoutTimers = <String, Timer>{};
 
   WorkflowService({
-    required SqliteWorkflowRunRepository repository,
+    required WorkflowRunRepository repository,
     required WorkflowTaskService taskService,
     required MessageService messageService,
     WorkflowTurnAdapter? turnAdapter,
@@ -98,8 +95,7 @@ class WorkflowService {
     WorkflowStepExecutionRepository? workflowStepExecutionRepository,
     ExecutionRepositoryTransactor? executionRepositoryTransactor,
     ProjectService? projectService,
-    FutureOr<void> Function(WorkflowWorktreeBinding binding, {required String workflowRunId})?
-    hydrateWorkflowWorktreeBinding,
+    FutureOr<void> Function(WorkflowWorktreeBinding binding)? hydrateWorkflowWorktreeBinding,
     Map<String, String>? hostEnvironment,
     List<String>? bashStepEnvAllowlist,
     List<String>? bashStepExtraStripPatterns,
@@ -749,7 +745,7 @@ class WorkflowService {
     final hydrate = _hydrateWorkflowWorktreeBinding;
     if (hydrate == null) return;
     for (final binding in bindings) {
-      await hydrate(binding, workflowRunId: run.id);
+      await hydrate(binding);
     }
   }
 
@@ -771,7 +767,7 @@ class WorkflowService {
   Future<void> _invokeWorkflowGitCleanup(WorkflowRun run) async {
     final cleanup = _turnAdapter?.cleanupWorkflowGit;
     if (cleanup == null) return;
-    final projectId = run.variablesJson['PROJECT']?.trim();
+    final projectId = _cleanupProjectId(run);
     if (projectId == null || projectId.isEmpty) return;
     final preserveWorktrees = !_resolveCleanupEnabled(run);
     try {
@@ -790,6 +786,20 @@ class WorkflowService {
       _log.warning("Workflow '${run.id}': failed to resolve cleanup config; preserving worktrees", e, st);
       return false;
     }
+  }
+
+  String? _cleanupProjectId(WorkflowRun run) {
+    final fromRun = run.variablesJson['PROJECT']?.trim();
+    if (fromRun != null && fromRun.isNotEmpty) return fromRun;
+
+    final variables = run.contextJson['variables'];
+    if (variables is Map) {
+      final fromContext = variables['PROJECT'];
+      if (fromContext is String && fromContext.trim().isNotEmpty) {
+        return fromContext.trim();
+      }
+    }
+    return null;
   }
 
   Future<WorkflowContext?> _loadContext(String runId) async {
@@ -896,6 +906,7 @@ class WorkflowService {
       ),
     );
     await _repository.update(cancelled);
+    await _invokeWorkflowGitCleanup(cancelled);
     _fireStatusChanged(
       runId: run.id,
       definitionName: run.definitionName,

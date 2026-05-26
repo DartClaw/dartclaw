@@ -1,8 +1,12 @@
 /// Configuration for the auth subsystem.
 class AuthConfig {
+  /// cookieSecure.
   final bool cookieSecure;
+
+  /// trustedProxies.
   final List<String> trustedProxies;
 
+  /// const AuthConfig({this.cookieSecure = false, this.trustedPro.
   const AuthConfig({this.cookieSecure = false, this.trustedProxies = const []});
 
   /// Default configuration.

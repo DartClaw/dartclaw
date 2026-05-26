@@ -1,5 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show EventBus, TaskEvent, ToolCalled, TokenUpdate, ArtifactCreated, PushBack;
+import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, TaskEvent, TaskEventKind;
 import 'package:dartclaw_server/src/task/task_progress_tracker.dart';
 import 'package:dartclaw_server/src/task/task_service.dart';
 import 'package:dartclaw_server/src/templates/loader.dart';
@@ -24,6 +23,7 @@ void main() {
     activeWorkflows: <SidebarActiveWorkflow>[],
     showChannels: true,
     tasksEnabled: false,
+    activeSessionId: null,
   );
   const navItems = <NavItem>[(label: 'Tasks', href: '/tasks', active: true, navGroup: 'system', icon: 'tasks')];
 
@@ -165,7 +165,7 @@ void main() {
           id: 'evt-1',
           taskId: 'task-run',
           timestamp: DateTime.parse('2026-03-24T10:02:00Z'),
-          kind: const ToolCalled(),
+          kind: TaskEventKind.toolCalled,
           details: {'name': 'Bash', 'success': true},
         ),
       );
@@ -197,7 +197,7 @@ void main() {
             id: 'evt-$i',
             taskId: 'task-run',
             timestamp: DateTime.parse('2026-03-24T10:0$i:00Z'),
-            kind: const ToolCalled(),
+            kind: TaskEventKind.toolCalled,
             details: {'name': 'Tool$i', 'success': true},
           ),
         );
@@ -226,7 +226,7 @@ void main() {
           id: 'evt-tool',
           taskId: 'task-run',
           timestamp: DateTime.parse('2026-03-24T10:02:00Z'),
-          kind: const ToolCalled(),
+          kind: TaskEventKind.toolCalled,
           details: {'name': 'Read', 'success': true},
         ),
       );
@@ -235,7 +235,7 @@ void main() {
           id: 'evt-artifact',
           taskId: 'task-run',
           timestamp: DateTime.parse('2026-03-24T10:03:00Z'),
-          kind: const ArtifactCreated(),
+          kind: TaskEventKind.artifactCreated,
           details: {'name': 'output.md', 'kind': 'document'},
         ),
       );
@@ -274,7 +274,7 @@ void main() {
           id: 'evt-tok',
           taskId: 'task-rev',
           timestamp: DateTime.parse('2026-03-24T10:05:00Z'),
-          kind: const TokenUpdate(),
+          kind: TaskEventKind.tokenUpdate,
           details: {'inputTokens': 8000, 'outputTokens': 2000},
         ),
       );
@@ -298,7 +298,7 @@ void main() {
           id: 'evt-tok-1',
           taskId: 'task-rev',
           timestamp: DateTime.parse('2026-03-24T10:05:00Z'),
-          kind: const TokenUpdate(),
+          kind: TaskEventKind.tokenUpdate,
           details: {'inputTokens': 1000, 'outputTokens': 500},
         ),
       );
@@ -307,7 +307,7 @@ void main() {
           id: 'evt-tok-2',
           taskId: 'task-rev',
           timestamp: DateTime.parse('2026-03-24T10:06:00Z'),
-          kind: const TokenUpdate(),
+          kind: TaskEventKind.tokenUpdate,
           details: {'inputTokens': 500, 'outputTokens': 250},
         ),
       );
@@ -332,7 +332,7 @@ void main() {
           id: 'evt-push',
           taskId: 'task-rev',
           timestamp: DateTime.parse('2026-03-24T10:07:00Z'),
-          kind: const PushBack(),
+          kind: TaskEventKind.pushBack,
           details: {'comment': 'Fix this'},
         ),
       );

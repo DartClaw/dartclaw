@@ -200,7 +200,7 @@ class SetupVerifier {
       final doc = loadYaml(content);
       return doc == null || doc is YamlMap || doc is Map;
     } catch (_) {
-      return false;
+      return false; // Unreadable / malformed YAML — treat as unparseable.
     }
   }
 
@@ -213,7 +213,7 @@ class SetupVerifier {
       testFile.deleteSync();
       return true;
     } catch (_) {
-      return false;
+      return false; // Probe write failed (permissions / no parent dir) — directory not writable.
     }
   }
 

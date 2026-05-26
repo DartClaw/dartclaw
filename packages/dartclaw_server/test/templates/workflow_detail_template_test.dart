@@ -19,6 +19,7 @@ void main() {
     activeWorkflows: <SidebarActiveWorkflow>[],
     showChannels: false,
     tasksEnabled: false,
+    activeSessionId: null,
   );
 
   Map<String, dynamic> makeRun({

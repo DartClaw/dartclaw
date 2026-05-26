@@ -5,7 +5,12 @@ import 'dart:io';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_core/src/harness/process_types.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:test/test.dart';
+
+/// Creates a [FakeProcess] with a non-broadcast stdout controller so that
+/// [scheduleMicrotask] emission before subscription is still delivered.
+FakeProcess _makeProcess() => FakeProcess(stdoutController: StreamController<List<int>>());
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,7 +26,7 @@ ClaudeCodeHarness _buildHarness({
     processFactory:
         processFactory ??
         (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-          final fake = _FakeProcess();
+          final fake = _makeProcess();
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });
@@ -47,7 +52,7 @@ void main() {
       final h = _buildHarness(
         processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
           capturedArgs = args;
-          final fake = _FakeProcess();
+          final fake = _makeProcess();
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });
@@ -70,7 +75,7 @@ void main() {
       final h = _buildHarness(
         processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
           capturedArgs = args;
-          final fake = _FakeProcess();
+          final fake = _makeProcess();
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });
@@ -95,7 +100,7 @@ void main() {
       final h = _buildHarness(
         processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
           capturedArgs = args;
-          final fake = _FakeProcess();
+          final fake = _makeProcess();
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });
@@ -111,54 +116,4 @@ void main() {
       expect(capturedArgs, contains('stream-json'));
     });
   });
-}
-
-// ---------------------------------------------------------------------------
-// Minimal fake process
-// ---------------------------------------------------------------------------
-
-class _FakeProcess implements Process {
-  final _stdoutCtrl = StreamController<List<int>>();
-  final _stderrCtrl = StreamController<List<int>>();
-  final _exitCodeCompleter = Completer<int>();
-
-  void emitStdout(String line) => _stdoutCtrl.add(utf8.encode('$line\n'));
-
-  @override
-  int get pid => 42;
-  @override
-  IOSink get stdin => _NullSink();
-  @override
-  Stream<List<int>> get stdout => _stdoutCtrl.stream;
-  @override
-  Stream<List<int>> get stderr => _stderrCtrl.stream;
-  @override
-  Future<int> get exitCode => _exitCodeCompleter.future;
-  @override
-  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
-}
-
-class _NullSink implements IOSink {
-  @override
-  Encoding encoding = utf8;
-  @override
-  void add(List<int> data) {}
-  @override
-  void addError(Object error, [StackTrace? st]) {}
-  @override
-  Future<void> addStream(Stream<List<int>> stream) async {}
-  @override
-  Future<void> close() async {}
-  @override
-  Future<void> get done => Completer<void>().future;
-  @override
-  Future<void> flush() async {}
-  @override
-  void write(Object? o) {}
-  @override
-  void writeAll(Iterable<Object?> o, [String sep = '']) {}
-  @override
-  void writeCharCode(int c) {}
-  @override
-  void writeln([Object? o = '']) {}
 }

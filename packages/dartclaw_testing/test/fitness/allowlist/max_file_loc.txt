@@ -1,0 +1,5 @@
+# Allowlist for max_file_loc_test.dart
+# Format: <relative-path-from-repo-root>  # <LOC>; <shrink-target>
+# Rationale is mandatory — name the current LOC, the target, and the story or deadline.
+
+packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart  # 1503 LOC; shrink to ≤1500 — trim generated or split schema constants by S25

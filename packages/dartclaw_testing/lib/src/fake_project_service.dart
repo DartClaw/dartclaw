@@ -1,3 +1,4 @@
+import 'package:dartclaw_config/dartclaw_config.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 typedef FakeProjectCreateCallback =
@@ -132,7 +133,7 @@ class FakeProjectService implements ProjectService {
   }
 
   @override
-  Future<Project> getDefaultProject() async {
+  Future<Project> get defaultProject async {
     final configuredDefaultId = defaultProjectId;
     if (configuredDefaultId != null) {
       if (configuredDefaultId == _localProject.id) {
@@ -150,7 +151,7 @@ class FakeProjectService implements ProjectService {
   }
 
   @override
-  Project getLocalProject() => _localProject;
+  Project get localProject => _localProject;
 
   @override
   Future<Project> create({

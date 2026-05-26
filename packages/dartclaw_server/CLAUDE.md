@@ -22,7 +22,7 @@
 - Allowed prod deps (arch_check L1): `dartclaw_config`, `dartclaw_core`, `dartclaw_google_chat`, `dartclaw_models`, `dartclaw_security`, `dartclaw_signal`, `dartclaw_storage`, `dartclaw_whatsapp`, `dartclaw_workflow`. Plus shelf, trellis, http, anthropic_sdk_dart, crypto/jwt/pointycastle, html2md, qr.
 - This is the only package allowed to import from all channel packages and storage. Channel-specific transport stays in its own package; this package only wires it.
 - Container orchestration (`lib/src/container/`) lives here, not in core — `ContainerManager`, `DockerValidator`, `SecurityProfile`, `CredentialProxy`. Don't move it down.
-- Workflow execution semantics belong in `dartclaw_workflow`. Workflow-task glue (`workflow_one_shot_runner.dart`, `workflow_turn_extractor.dart`, `workflow_worktree_binder.dart`, `workflow_cli_runner.dart`) lives under `lib/src/task/` and injects git impls (`MergeExecutor`, `RemotePushService`, `PrCreator`) into the workflow port.
+- Workflow execution semantics belong in `dartclaw_workflow`. Workflow-task glue (`workflow_one_shot_runner.dart`, `workflow_turn_extractor.dart`, `workflow_worktree_binder.dart`, `workflow_cli_runner.dart`) lives under `lib/src/task/` and injects git impls (`MergeExecutor`, `RemotePushService`, `PrCreator`) into the workflow port. Ownership decision for `WorkflowCliRunner` recorded as 2026-05 addendum to ADR-023 (private repo `docs/adrs/023-workflow-task-boundary.md`).
 
 ## Conventions
 - Add new dashboard pages by registering a `DashboardPage` with `PageRegistry` (`lib/src/web/page_registry.dart`). Routes must start with `/` and not collide with the reserved-route patterns (health, static, /login, channel pairing, etc.) — `register()` throws on conflict.

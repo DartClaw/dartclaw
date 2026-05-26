@@ -2,10 +2,12 @@ import 'dart:convert';
 
 import 'package:shelf/shelf.dart';
 
+/// Builds a shelf [Response] with JSON-encoded [body] and the JSON content type.
 Response jsonResponse(int status, Object body) {
   return Response(status, body: jsonEncode(body), headers: {'content-type': 'application/json; charset=utf-8'});
 }
 
+/// Builds a shelf error [Response] with a structured error envelope.
 Response errorResponse(int status, String code, String message, [Map<String, dynamic>? details]) {
   final error = <String, dynamic>{'code': code, 'message': message};
   if (details != null) error['details'] = details;

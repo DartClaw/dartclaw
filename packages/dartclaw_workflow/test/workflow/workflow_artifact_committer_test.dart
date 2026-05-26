@@ -15,6 +15,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitArtifactsStrategy,
         WorkflowGitPort,
         WorkflowGitStrategy,
+        WorkflowGitWorktreeMode,
         WorkflowGitWorktreeStrategy,
         WorkflowRun,
         WorkflowRunStatus,
@@ -58,7 +59,7 @@ void main() {
           const WorkflowDefinition(
             name: 'wf',
             description: 'test',
-            steps: [WorkflowStep(id: 'prd', name: 'PRD', skill: 'dartclaw-prd')],
+            steps: [WorkflowStep(id: 'prd', name: 'PRD', skill: 'andthen:prd')],
           ),
         ),
         isTrue,
@@ -160,7 +161,7 @@ void main() {
       const reviewStep = WorkflowStep(
         id: 'plan-review',
         name: 'Review',
-        skill: 'dartclaw-review',
+        skill: 'andthen:review',
         outputs: {'review_findings': OutputConfig(format: OutputFormat.path)},
       );
 
@@ -195,177 +196,6 @@ void main() {
       expect(result.committedPaths, isEmpty);
       expect(result.skippedPaths, isEmpty);
       expect(git.events, isEmpty);
-    });
-
-    test('skips artifact commit for discover-project even when reused paths are present', () async {
-      final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
-      final paths = ['docs/specs/reused/plan.md', 'docs/specs/reused/fis/s01.md'];
-      for (final path in paths) {
-        File(p.join(repoDir.path, path))
-          ..createSync(recursive: true)
-          ..writeAsStringSync(path);
-      }
-      final git = FakeGitGateway()..initWorktree(repoDir.path);
-      for (final path in paths) {
-        git.addUntracked(repoDir.path, path, content: path);
-      }
-
-      final result = await maybeCommitStepArtifacts(
-        ArtifactCommitPolicy(
-          run: _run(),
-          definition: const WorkflowDefinition(
-            name: 'wf',
-            description: 'test',
-            project: 'proj',
-            gitStrategy: WorkflowGitStrategy(artifacts: WorkflowGitArtifactsStrategy(commit: true)),
-            steps: [
-              WorkflowStep(
-                id: 'discover-project',
-                name: 'Discover',
-                skill: 'dartclaw-discover-project',
-                outputs: {
-                  'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-                  'plan': OutputConfig(format: OutputFormat.path),
-                  'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
-                },
-              ),
-            ],
-          ),
-          step: const WorkflowStep(
-            id: 'discover-project',
-            name: 'Discover',
-            skill: 'dartclaw-discover-project',
-            outputs: {
-              'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-              'plan': OutputConfig(format: OutputFormat.path),
-              'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
-            },
-          ),
-          context: WorkflowContext(
-            data: {
-              'project_index': {
-                'active_plan': 'docs/specs/reused/plan.md',
-                'active_story_specs': {
-                  'items': [
-                    {'id': 'S01', 'title': 'One', 'spec_path': 'docs/specs/reused/fis/s01.md', 'dependencies': []},
-                  ],
-                },
-              },
-              'plan': 'docs/specs/reused/plan.md',
-              'story_specs': {
-                'items': [
-                  {'id': 'S01', 'title': 'One', 'spec_path': 'docs/specs/reused/fis/s01.md', 'dependencies': []},
-                ],
-              },
-            },
-          ),
-          task: Task(
-            id: 'task-1',
-            title: 'Task',
-            description: 'Task',
-            type: TaskType.research,
-            createdAt: DateTime(2026, 1, 1),
-          ),
-          projectService: null,
-          dataDir: tempDir.path,
-          templateEngine: WorkflowTemplateEngine(),
-          workflowGitPort: git,
-        ),
-      );
-
-      expect(result.failed, isFalse);
-      expect(result.committedPaths, isEmpty);
-      expect(result.skippedPaths, isEmpty);
-      for (final path in paths) {
-        expect(await git.pathExistsAtRef(repoDir.path, ref: 'HEAD', path: path), isFalse);
-      }
-    });
-
-    test('allows discover-project artifact commit when per-map-item bootstrap requires it', () async {
-      final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
-      final paths = ['docs/specs/reused/plan.md', 'docs/specs/reused/fis/s01.md'];
-      for (final path in paths) {
-        File(p.join(repoDir.path, path))
-          ..createSync(recursive: true)
-          ..writeAsStringSync(path);
-      }
-      final git = FakeGitGateway()..initWorktree(repoDir.path);
-      for (final path in paths) {
-        git.addUntracked(repoDir.path, path, content: path);
-      }
-
-      final result = await maybeCommitStepArtifacts(
-        ArtifactCommitPolicy(
-          run: _run(),
-          definition: const WorkflowDefinition(
-            name: 'wf',
-            description: 'test',
-            project: 'proj',
-            gitStrategy: WorkflowGitStrategy(
-              worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
-              artifacts: WorkflowGitArtifactsStrategy(commit: true),
-            ),
-            steps: [
-              WorkflowStep(
-                id: 'discover-project',
-                name: 'Discover',
-                skill: 'dartclaw-discover-project',
-                outputs: {
-                  'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-                  'plan': OutputConfig(format: OutputFormat.path),
-                  'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
-                },
-              ),
-              WorkflowStep(id: 'implement', name: 'Implement', mapOver: 'story_specs', maxParallel: 2),
-            ],
-          ),
-          step: const WorkflowStep(
-            id: 'discover-project',
-            name: 'Discover',
-            skill: 'dartclaw-discover-project',
-            outputs: {
-              'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index'),
-              'plan': OutputConfig(format: OutputFormat.path),
-              'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
-            },
-          ),
-          context: WorkflowContext(
-            data: {
-              'project_index': {
-                'active_plan': 'docs/specs/reused/plan.md',
-                'active_story_specs': {
-                  'items': [
-                    {'id': 'S01', 'title': 'One', 'spec_path': 'docs/specs/reused/fis/s01.md', 'dependencies': []},
-                  ],
-                },
-              },
-              'plan': 'docs/specs/reused/plan.md',
-              'story_specs': {
-                'items': [
-                  {'id': 'S01', 'title': 'One', 'spec_path': 'docs/specs/reused/fis/s01.md', 'dependencies': []},
-                ],
-              },
-            },
-          ),
-          task: Task(
-            id: 'task-1',
-            title: 'Task',
-            description: 'Task',
-            type: TaskType.research,
-            createdAt: DateTime(2026, 1, 1),
-          ),
-          projectService: null,
-          dataDir: tempDir.path,
-          templateEngine: WorkflowTemplateEngine(),
-          workflowGitPort: git,
-        ),
-      );
-
-      expect(result.failed, isFalse);
-      expect(result.committedPaths, ['docs/specs/reused/fis/s01.md', 'docs/specs/reused/plan.md']);
-      for (final path in paths) {
-        expect(await git.pathExistsAtRef(repoDir.path, ref: 'HEAD', path: path), isTrue);
-      }
     });
 
     test('later steps do not auto-commit reused story specs from prior context', () async {
@@ -465,7 +295,7 @@ void main() {
                 id: 'plan',
                 name: 'Plan',
                 outputs: {
-                  'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+                  'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
                   'plan': OutputConfig(format: OutputFormat.path),
                 },
               ),
@@ -475,7 +305,7 @@ void main() {
             id: 'plan',
             name: 'Plan',
             outputs: {
-              'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs'),
+              'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
               'plan': OutputConfig(format: OutputFormat.path),
             },
           ),
@@ -532,7 +362,7 @@ void main() {
             description: 'test',
             project: 'proj',
             gitStrategy: WorkflowGitStrategy(
-              worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+              worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
               artifacts: WorkflowGitArtifactsStrategy(commit: true),
             ),
             steps: [
@@ -589,7 +419,7 @@ void main() {
             description: 'test',
             project: project ?? 'proj',
             gitStrategy: const WorkflowGitStrategy(
-              worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+              worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
               artifacts: WorkflowGitArtifactsStrategy(commit: true),
             ),
             steps: [planStep],
@@ -632,9 +462,9 @@ void main() {
           definition: const WorkflowDefinition(
             name: 'wf',
             description: 'test',
-            // No project at all — cannot resolve.
+            // No project at all – cannot resolve.
             gitStrategy: WorkflowGitStrategy(
-              worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+              worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
               artifacts: WorkflowGitArtifactsStrategy(commit: true),
             ),
             steps: [
@@ -662,7 +492,7 @@ void main() {
 
       test('missing directory returns failed result', () async {
         final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'));
-        // Intentionally NOT creating repoDir — directory does not exist.
+        // Intentionally NOT creating repoDir – directory does not exist.
         final git = FakeGitGateway()..initWorktree('/nonexistent');
 
         final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: git));
@@ -674,7 +504,7 @@ void main() {
       test('staged empty + artifact missing at HEAD returns failed result', () async {
         final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
         File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
-        // initWorktree with empty files dict — HEAD commit has no files.
+        // initWorktree with empty files dict – HEAD commit has no files.
         final git = FakeGitGateway()..initWorktree(repoDir.path, files: {});
         // Add plan.md to the working tree but it won't stage (already in modified but not HEAD).
         // To simulate: add untracked, then don't call add before we run the policy.
@@ -685,7 +515,7 @@ void main() {
         // If the file is not there, add() is a no-op → staged stays empty.
         // And pathExistsAtRef(HEAD) returns false if it's not in the HEAD commit.
         // The file is on disk but not tracked in git at all.
-        // Don't call addUntracked — file exists on disk but git doesn't know about it.
+        // Don't call addUntracked – file exists on disk but git doesn't know about it.
 
         final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: git));
 
@@ -698,12 +528,12 @@ void main() {
         File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
         // Commit the file so it IS present at HEAD.
         final git = FakeGitGateway()..initWorktree(repoDir.path, files: {'plan.md': 'plan'});
-        // File is in HEAD commit, nothing staged — returns skipped (already committed).
+        // File is in HEAD commit, nothing staged – returns skipped (already committed).
 
         final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: git));
 
         expect(result.failed, isFalse);
-        expect(result.committedPaths, isEmpty); // already at HEAD — skipped
+        expect(result.committedPaths, isEmpty); // already at HEAD – skipped
       });
     });
   });

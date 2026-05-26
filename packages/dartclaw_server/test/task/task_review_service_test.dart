@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
@@ -435,7 +435,7 @@ void main() {
 
       await service.review('task-1', 'accept');
 
-      final events = eventService.listForTask('task-1', kind: const PushBack());
+      final events = eventService.listForTask('task-1', kind: TaskEventKind.pushBack);
       expect(events, isEmpty);
     });
 

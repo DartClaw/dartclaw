@@ -1,5 +1,6 @@
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowRunStatus;
+import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';

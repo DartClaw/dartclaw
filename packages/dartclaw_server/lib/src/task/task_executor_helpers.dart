@@ -39,7 +39,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
 
     final project = await projectService.get(projectId);
     if (project == null) {
-      await _failureHandler.markFailedOrRetry(task, errorSummary: 'Project "$projectId" not found', retryable: false);
+      await _failForProject(task, projectId);
       return _QueuedTaskDisposition.handled;
     }
     if (project.status == ProjectStatus.cloning) return _QueuedTaskDisposition.waiting;

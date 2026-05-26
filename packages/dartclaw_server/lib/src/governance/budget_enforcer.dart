@@ -1,5 +1,7 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
 import '../observability/usage_tracker.dart';
 
@@ -75,19 +77,17 @@ class BudgetStatus {
 /// Warning state (80% threshold) is in-memory — resets on restart.
 /// Timezone-aware: uses [BudgetConfig.timezone] to determine "today".
 ///
-/// Supported timezone formats: `UTC`, `UTC+N`, `UTC-N`. Named IANA timezones
-/// (e.g. `America/New_York`) fall back to UTC with a warning.
+/// Supported timezone formats: `UTC`, `UTC+N`, `UTC-N`, and IANA timezone names.
 class BudgetEnforcer {
   static final _log = Logger('BudgetEnforcer');
+  static var _timezoneDataInitialized = false;
 
   final UsageTracker _usageTracker;
   final BudgetConfig _config;
-  final Duration _tzOffset;
 
   BudgetEnforcer({required UsageTracker usageTracker, required BudgetConfig config})
     : _usageTracker = usageTracker,
-      _config = config,
-      _tzOffset = _resolveTimezoneOffset(config.timezone);
+      _config = config;
 
   /// Returns the enforcement decision for the current budget state.
   ///
@@ -103,7 +103,7 @@ class BudgetEnforcer {
     }
 
     final timestamp = now ?? DateTime.now();
-    final localNow = timestamp.add(_tzOffset);
+    final localNow = _localTimeFor(timestamp, _config.timezone);
     final dateKey = _dateKey(localNow);
     final summary = await _usageTracker.dailySummaryForDate(dateKey);
 
@@ -170,7 +170,7 @@ class BudgetEnforcer {
     }
 
     final timestamp = now ?? DateTime.now();
-    final localNow = timestamp.add(_tzOffset);
+    final localNow = _localTimeFor(timestamp, _config.timezone);
     final dateKey = _dateKey(localNow);
     final summary = await _usageTracker.dailySummaryForDate(dateKey);
 
@@ -201,29 +201,57 @@ class BudgetEnforcer {
     return 'usage_daily:${localTime.year}-$m-$d';
   }
 
-  /// Resolves timezone string to a fixed UTC offset.
-  ///
-  /// Supports "UTC", "UTC+N", "UTC-N" formats. For named timezones
-  /// (e.g., "America/New_York"), falls back to UTC with a warning.
-  /// Full IANA timezone support deferred — fixed offsets cover the
-  /// primary use case without adding a timezone dependency.
-  static Duration _resolveTimezoneOffset(String timezone) {
-    final tz = timezone.trim().toUpperCase();
-    if (tz == 'UTC' || tz == 'GMT') return Duration.zero;
-    final match = RegExp(r'^UTC([+-])(\d{1,2})$').firstMatch(tz);
+  static DateTime _localTimeFor(DateTime timestamp, String timezone) {
+    final utcTimestamp = timestamp.toUtc();
+    final location = _resolveIanaLocation(timezone);
+    if (location != null) {
+      return tz.TZDateTime.from(utcTimestamp, location);
+    }
+    return utcTimestamp.add(_resolveTimezoneOffset(timezone, at: utcTimestamp));
+  }
+
+  /// Resolves timezone string to a UTC offset at [at].
+  static Duration _resolveTimezoneOffset(String timezone, {DateTime? at}) {
+    final fixedOffset = _resolveFixedTimezoneOffset(timezone);
+    if (fixedOffset != null) return fixedOffset;
+    final location = _resolveIanaLocation(timezone);
+    if (location != null) {
+      return tz.TZDateTime.from((at ?? DateTime.now()).toUtc(), location).timeZoneOffset;
+    }
+    _log.warning(
+      'Unrecognized timezone "$timezone" — falling back to UTC. '
+      'Supported formats: UTC, UTC+N, UTC-N, or IANA timezone names',
+    );
+    return Duration.zero;
+  }
+
+  static Duration? _resolveFixedTimezoneOffset(String timezone) {
+    final normalized = timezone.trim().toUpperCase();
+    if (normalized == 'UTC' || normalized == 'GMT') return Duration.zero;
+    final match = RegExp(r'^UTC([+-])(\d{1,2})$').firstMatch(normalized);
     if (match != null) {
       final sign = match.group(1) == '+' ? 1 : -1;
       final hours = int.parse(match.group(2)!);
       return Duration(hours: sign * hours);
     }
-    _log.warning(
-      'Unrecognized timezone "$timezone" — falling back to UTC. '
-      'Supported formats: UTC, UTC+N, UTC-N',
-    );
-    return Duration.zero;
+    return null;
+  }
+
+  static tz.Location? _resolveIanaLocation(String timezone) {
+    final value = timezone.trim();
+    if (value.isEmpty || !value.contains('/')) return null;
+    try {
+      if (!_timezoneDataInitialized) {
+        tzdata.initializeTimeZones();
+        _timezoneDataInitialized = true;
+      }
+      return tz.getLocation(value);
+    } on tz.LocationNotFoundException {
+      return null;
+    }
   }
 
   // Expose for testing.
   static String dateKeyForTime(DateTime localTime) => _dateKey(localTime);
-  static Duration resolveTimezoneOffset(String timezone) => _resolveTimezoneOffset(timezone);
+  static Duration resolveTimezoneOffset(String timezone, {DateTime? at}) => _resolveTimezoneOffset(timezone, at: at);
 }

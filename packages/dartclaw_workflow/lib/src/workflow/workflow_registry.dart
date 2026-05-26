@@ -1,7 +1,8 @@
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowDefinition;
+import 'workflow_definition.dart' show WorkflowDefinition;
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 import 'workflow_definition_source.dart';
 import 'workflow_definition_resolver.dart';
@@ -18,12 +19,30 @@ enum WorkflowSource {
   custom,
 }
 
+/// Record of a workflow YAML file that the registry could not load.
+///
+/// Captured for diagnostics so callers (CLI, API) can distinguish
+/// "no such workflow" from "workflow exists but was rejected at load time".
+class WorkflowExclusion {
+  /// Filesystem path of the workflow YAML that was excluded.
+  final String sourcePath;
+
+  /// Workflow name parsed from the YAML, if parsing succeeded; null otherwise.
+  final String? workflowName;
+
+  /// Reason(s) the workflow was excluded — validation errors or parse failures.
+  final List<String> errors;
+
+  const WorkflowExclusion({required this.sourcePath, this.workflowName, required this.errors});
+}
+
 class _RegisteredWorkflow {
   final WorkflowDefinition definition;
   final WorkflowSource source;
   final String? sourcePath;
+  final String? sourceFingerprint;
 
-  const _RegisteredWorkflow({required this.definition, required this.source, this.sourcePath});
+  const _RegisteredWorkflow({required this.definition, required this.source, this.sourcePath, this.sourceFingerprint});
 }
 
 /// Production registry of workflow definitions - materialized and custom.
@@ -47,6 +66,7 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
   final Logger _log;
 
   final Map<String, _RegisteredWorkflow> _definitions = {};
+  final List<WorkflowExclusion> _exclusions = [];
 
   WorkflowRegistry({
     required WorkflowDefinitionParser parser,
@@ -59,6 +79,17 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
        _log = log ?? Logger('WorkflowRegistry');
 
   set skillRegistry(SkillRegistry? registry) => _validator.skillRegistry = registry;
+
+  /// Workflow YAML files the registry could not load.
+  ///
+  /// Populated by [loadFromDirectory] when a YAML fails to parse, fails
+  /// validation, or cannot be read. Each entry is scoped to its [sourcePath];
+  /// re-running [loadFromDirectory] on the same directory drops prior entries
+  /// for files in that directory before recording the new outcome, so a
+  /// fixed-and-reloaded YAML disappears from this list. Entries from other
+  /// directories are preserved across calls. Diagnostics surface; not used
+  /// for resolution. Exposed read-only.
+  List<WorkflowExclusion> get exclusions => List.unmodifiable(_exclusions);
 
   /// Discovers and loads custom workflow YAML files from [directory].
   ///
@@ -74,6 +105,15 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
       return;
     }
 
+    // Drop prior exclusion entries from this directory so a re-load reflects
+    // current state (a fixed YAML disappears; a regressed one re-appears).
+    // Canonicalize both sides so the comparison survives relative paths,
+    // `..`-segments, and trailing-separator differences. Symlink-equivalent
+    // forms (macOS `/var` vs `/private/var`) remain distinct — `p.canonicalize`
+    // does not resolve symlinks; callers consistently use one form.
+    final scopedDir = p.canonicalize(directory);
+    _exclusions.removeWhere((excl) => p.canonicalize(p.dirname(excl.sourcePath)) == scopedDir);
+
     await for (final entity in dir.list()) {
       if (entity is! File) continue;
       if (!entity.path.endsWith('.yaml')) continue;
@@ -84,9 +124,13 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
         final definition = _parser.parse(content, sourcePath: entity.path);
         final ValidationReport report = _validator.validate(definition, continuityProviders: _continuityProviders);
         if (report.hasErrors) {
+          final errorMessages = report.errors.map((e) => e.toString()).toList(growable: false);
           _log.warning(
             '$sourceLabel workflow excluded: ${entity.path} — '
-            'validation errors: ${report.errors.join('; ')}',
+            'validation errors: ${errorMessages.join('; ')}',
+          );
+          _exclusions.add(
+            WorkflowExclusion(sourcePath: entity.path, workflowName: definition.name, errors: errorMessages),
           );
           continue;
         }
@@ -125,6 +169,7 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
           definition: definition,
           source: source,
           sourcePath: entity.path,
+          sourceFingerprint: _fingerprintString(content),
         );
         if (source == WorkflowSource.materialized) {
           _log.info('Loaded materialized workflow: ${definition.name}');
@@ -133,25 +178,33 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
         }
       } on FormatException catch (e) {
         _log.warning('$sourceLabel workflow excluded: ${entity.path} — invalid YAML: $e');
+        _exclusions.add(WorkflowExclusion(sourcePath: entity.path, errors: ['invalid YAML: $e']));
       } on ArgumentError catch (e) {
         _log.warning('$sourceLabel workflow excluded: ${entity.path} — invalid workflow definition: $e');
+        _exclusions.add(WorkflowExclusion(sourcePath: entity.path, errors: ['invalid workflow definition: $e']));
       } on TypeError catch (e, st) {
         // TypeError out of the parser indicates a hard cast failure inside
         // WorkflowDefinitionParser (a parser bug), not malformed user input.
         // Log at severe so it stays visible alongside other internal errors;
         // the workflow is still excluded so the registry remains usable.
         _log.severe('$sourceLabel workflow excluded: ${entity.path} — internal parser error: $e', e, st);
+        _exclusions.add(WorkflowExclusion(sourcePath: entity.path, errors: ['internal parser error: $e']));
       } on FileSystemException catch (e) {
         _log.warning('$sourceLabel workflow excluded: ${entity.path} — file read error: $e');
+        _exclusions.add(WorkflowExclusion(sourcePath: entity.path, errors: ['file read error: $e']));
       }
     }
   }
 
   @override
-  WorkflowDefinition? getByName(String name) => _definitions[name]?.definition;
+  WorkflowDefinition? getByName(String name) {
+    _refreshIfSourceChanged(name);
+    return _definitions[name]?.definition;
+  }
 
   @override
   String? authoredYaml(String name) {
+    _refreshIfSourceChanged(name);
     final registered = _definitions[name];
     if (registered == null) return null;
     final sourcePath = registered.sourcePath;
@@ -163,30 +216,95 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
   }
 
   @override
-  List<WorkflowSummary> listSummaries() =>
-      _definitions.values.map((registered) => _toSummary(registered.definition)).toList(growable: false);
+  List<WorkflowSummary> listSummaries() {
+    _refreshAllSources();
+    return _definitions.values.map((registered) => _toSummary(registered.definition)).toList(growable: false);
+  }
 
-  List<WorkflowDefinition> listAll() => _definitions.values.map((r) => r.definition).toList(growable: false);
+  List<WorkflowDefinition> listAll() {
+    _refreshAllSources();
+    return _definitions.values.map((r) => r.definition).toList(growable: false);
+  }
 
   /// Returns only materialized workflow definitions.
-  List<WorkflowDefinition> listMaterialized() => _definitions.values
-      .where((r) => r.source == WorkflowSource.materialized)
-      .map((r) => r.definition)
-      .toList(growable: false);
-
-  /// Compatibility alias for older callers.
-  @Deprecated('Use listMaterialized()')
-  List<WorkflowDefinition> listBuiltIn() => listMaterialized();
+  List<WorkflowDefinition> listMaterialized() {
+    _refreshAllSources();
+    return _definitions.values
+        .where((r) => r.source == WorkflowSource.materialized)
+        .map((r) => r.definition)
+        .toList(growable: false);
+  }
 
   /// Returns only custom workflow definitions.
-  List<WorkflowDefinition> listCustom() => _definitions.values
-      .where((r) => r.source == WorkflowSource.custom)
-      .map((r) => r.definition)
-      .toList(growable: false);
+  List<WorkflowDefinition> listCustom() {
+    _refreshAllSources();
+    return _definitions.values
+        .where((r) => r.source == WorkflowSource.custom)
+        .map((r) => r.definition)
+        .toList(growable: false);
+  }
 
   int get length => _definitions.length;
 
-  WorkflowSource? sourceOf(String name) => _definitions[name]?.source;
+  WorkflowSource? sourceOf(String name) {
+    _refreshIfSourceChanged(name);
+    return _definitions[name]?.source;
+  }
+
+  void _refreshAllSources() {
+    for (final name in _definitions.keys.toList(growable: false)) {
+      _refreshIfSourceChanged(name);
+    }
+  }
+
+  void _refreshIfSourceChanged(String name) {
+    final registered = _definitions[name];
+    if (registered == null) return;
+    final sourcePath = registered.sourcePath;
+    if (sourcePath == null) return;
+    final file = File(sourcePath);
+    if (!file.existsSync()) return;
+
+    final content = file.readAsStringSync();
+    final fingerprint = _fingerprintString(content);
+    if (fingerprint == registered.sourceFingerprint) return;
+
+    try {
+      final definition = _parser.parse(content, sourcePath: sourcePath);
+      if (definition.name != name) {
+        _log.warning(
+          'Workflow source changed name from "$name" to "${definition.name}" in $sourcePath; keeping previous definition.',
+        );
+        return;
+      }
+      final report = _validator.validate(definition, continuityProviders: _continuityProviders);
+      if (report.hasErrors) {
+        _log.warning(
+          'Workflow source changed but reload was rejected for $sourcePath — '
+          'validation errors: ${report.errors.join('; ')}',
+        );
+        return;
+      }
+      if (report.hasWarnings) {
+        _log.warning('Workflow source changed and reloaded for "$name" with warnings: ${report.warnings.join('; ')}');
+      }
+      _definitions[name] = _RegisteredWorkflow(
+        definition: definition,
+        source: registered.source,
+        sourcePath: sourcePath,
+        sourceFingerprint: fingerprint,
+      );
+      _log.info('Reloaded workflow definition "$name" from changed source: $sourcePath');
+    } on FormatException catch (e) {
+      _log.warning('Workflow source changed but reload was rejected for $sourcePath — invalid YAML: $e');
+    } on ArgumentError catch (e) {
+      _log.warning('Workflow source changed but reload was rejected for $sourcePath — invalid workflow definition: $e');
+    } on TypeError catch (e, st) {
+      _log.severe('Workflow source changed but reload hit an internal parser error for $sourcePath: $e', e, st);
+    } on FileSystemException catch (e) {
+      _log.warning('Workflow source changed but reload could not read $sourcePath: $e');
+    }
+  }
 
   static WorkflowSummary _toSummary(WorkflowDefinition definition) => (
     name: definition.name,
@@ -196,4 +314,14 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
     maxTokens: definition.maxTokens,
     variables: definition.variables,
   );
+
+  static String _fingerprintString(String value) {
+    var hash = 0xcbf29ce484222325;
+    const prime = 0x100000001b3;
+    for (final unit in value.codeUnits) {
+      hash ^= unit;
+      hash = (hash * prime) & 0xffffffffffffffff;
+    }
+    return hash.toRadixString(16).padLeft(16, '0');
+  }
 }

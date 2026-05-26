@@ -1,7 +1,7 @@
 // Systematic prompt and structural contract suite for the three built-in
 // workflow definitions (spec-and-implement, plan-and-implement, code-review).
 //
-// These tests are invariants — they assert properties that must hold for every
+// These tests are invariants – they assert properties that must hold for every
 // future edit to the YAML definitions. Breaking one of them means either the
 // contract has genuinely changed (update the test) or the definition drifted
 // in a way that would only be noticed 30+ minutes into an E2E run.
@@ -13,11 +13,11 @@
 //    `update-state` step; agents may update state docs during authored work.
 //  * Tool permissions: structured review steps are read-only, file-backed
 //    review steps may write their report artifact, implement/remediate may
-//    write, discover-project is read-only.
+//    write, discovery/classification steps are read-only.
 //  * Prompt minimality: step prompts are compact invocation hints that name
 //    the skill input and automation flags, not long instruction blocks.
-//  * Variable passthrough: authored input variables (FEATURE/REQUIREMENTS/
-//    TARGET) leak into at most the steps that need them.
+//  * Variable passthrough: authored input variables (FEATURE/TARGET) leak
+//    into at most the steps that need them.
 //
 // Tests that assert behavior the current YAML does NOT yet satisfy are marked
 // with a `skip:` and an explicit open-issue reference. They fire the moment
@@ -27,33 +27,24 @@ library;
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import '_support/workflow_test_paths.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-String _definitionsDir() {
-  var current = Directory.current;
-  while (true) {
-    final candidates = [
-      p.join(current.path, 'lib', 'src', 'workflow', 'definitions'),
-      p.join(current.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions'),
-    ];
-    for (final candidate in candidates) {
-      if (Directory(candidate).existsSync()) return candidate;
-    }
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate workflow definitions dir');
-    }
-    current = parent;
-  }
+WorkflowDefinition _load(String fileName) {
+  final yaml = File(p.join(workflowDefinitionsDir(), fileName)).readAsStringSync();
+  return WorkflowDefinitionParser().parse(yaml);
 }
 
-WorkflowDefinition _load(String fileName) {
-  final yaml = File(p.join(_definitionsDir(), fileName)).readAsStringSync();
+WorkflowDefinition _loadInline(String fileName) {
+  final dir = findAncestorDir(['dev/tools/dartclaw-workflows/custom-workflows']);
+  final yaml = File(p.join(dir, fileName)).readAsStringSync();
   return WorkflowDefinitionParser().parse(yaml);
 }
 
@@ -73,7 +64,11 @@ String _allPromptText(WorkflowStep step) {
   return buffer.toString();
 }
 
+String? _effectiveDescription(OutputConfig? config) =>
+    config == null ? null : PromptAugmenter.effectiveDescription(config);
+
 const _builtInWorkflows = ['spec-and-implement.yaml', 'plan-and-implement.yaml', 'code-review.yaml'];
+const _inlineWorkflows = ['spec-and-implement-inline.yaml', 'plan-and-implement-inline.yaml'];
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -93,7 +88,7 @@ void main() {
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
-          if (step.type != 'agent') continue;
+          if (step.type != WorkflowTaskType.agent) continue;
           expect(step.skill, isNotNull, reason: '$file → step "${step.id}" is type=agent but has no skill:');
           expect(step.skill, isNotEmpty, reason: '$file → step "${step.id}" skill is empty');
         }
@@ -130,20 +125,109 @@ void main() {
       }
     });
 
-    test('workflows that author artifacts start with discover-project', () {
-      for (final file in _builtInWorkflows) {
+    test('plan-and-implement starts with discover-plan-state', () {
+      final def = _load('plan-and-implement.yaml');
+      expect(
+        def.steps.first.id,
+        'discover-plan-state',
+        reason: 'plan-and-implement must fail fast on missing PRD and expose story_specs for foreach',
+      );
+      expect(def.steps.first.skill, 'dartclaw-discover-andthen-plan');
+
+      final plan = def.steps.singleWhere((step) => step.id == 'plan');
+      expect(plan.entryGate, isNot(contains('story_specs.items isEmpty')));
+      expect(plan.entryGate, "plan == null || plan == '' || story_specs == null || story_specs.items == null");
+
+      final inline = _loadInline('plan-and-implement-inline.yaml');
+      final inlinePlan = inline.steps.singleWhere((step) => step.id == 'plan');
+      expect(inlinePlan.entryGate, isNot(contains('story_specs.items isEmpty')));
+      expect(inlinePlan.entryGate, plan.entryGate);
+    });
+
+    test('spec-and-implement and code-review do not include project discovery steps', () {
+      for (final file in const ['spec-and-implement.yaml', 'code-review.yaml']) {
         final def = _load(file);
         expect(
-          def.steps.first.id,
-          'discover-project',
-          reason: '$file must begin with discover-project so the project_index context is available',
+          _flattenedSteps(def).map((s) => s.id),
+          isNot(contains('discover-project')),
+          reason: '$file should let downstream skills navigate the project directly',
         );
-        expect(def.steps.first.skill, 'dartclaw-discover-project');
       }
+    });
+
+    test('spec-and-implement and code-review begin with their respective guard/work step', () {
+      expect(_load('spec-and-implement.yaml').steps.first.id, 'detect-spec-input');
+      expect(_load('code-review.yaml').steps.first.id, 'review-code');
+    });
+
+    test('plan-and-implement simplifies inside each story after quick-review', () {
+      final def = _load('plan-and-implement.yaml');
+      expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);
+      expect(_flattenedSteps(def).where((step) => step.skill == 'andthen:simplify-code'), hasLength(1));
+
+      final storyPipeline = def.nodes.whereType<ForeachNode>().singleWhere((node) => node.stepId == 'story-pipeline');
+      final stepIds = storyPipeline.childStepIds;
+      expect(stepIds.indexOf('simplify-code'), stepIds.indexOf('quick-review') + 1);
+
+      final simplify = _flattenedSteps(def).singleWhere((step) => step.id == 'simplify-code');
+      expect(simplify.skill, 'andthen:simplify-code');
+      expect(simplify.provider, '@executor');
+      expect(simplify.model, '@executor');
+      expect(simplify.continueSession, '@previous');
+      expect(simplify.inputs, ['story_result']);
+      expect(_allPromptText(simplify), contains('changes for this story'));
+    });
+
+    test('spec-and-implement simplifies once between implement and reviews', () {
+      final def = _load('spec-and-implement.yaml');
+      expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);
+
+      final stepIds = def.steps.map((step) => step.id).toList();
+      expect(stepIds.indexOf('simplify-code'), stepIds.indexOf('implement') + 1);
+      expect(stepIds.indexOf('integrated-review'), greaterThan(stepIds.indexOf('simplify-code')));
+
+      final simplify = def.steps.singleWhere((step) => step.id == 'simplify-code');
+      expect(simplify.skill, 'andthen:simplify-code');
+      expect(simplify.provider, '@executor');
+      expect(simplify.model, '@executor');
+      expect(simplify.inputs, isEmpty);
+      expect(_allPromptText(simplify), contains('current branch'));
+    });
+
+    test('inline spec simplify-code scopes by FIS, not by base ref', () {
+      final def = _loadInline('spec-and-implement-inline.yaml');
+      final simplify = def.steps.singleWhere((step) => step.id == 'simplify-code');
+      final prompt = _allPromptText(simplify);
+
+      expect(simplify.provider, '@executor');
+      expect(simplify.model, '@executor');
+      expect(simplify.inputs, ['spec_path']);
+      expect(prompt, contains('{{context.spec_path}}'));
+      expect(prompt, contains('live checkout'));
+      expect(prompt, isNot(contains('base ref')));
+      expect(prompt, isNot(contains('current branch')));
+    });
+
+    test('inline plan-and-implement mirrors the per-story simplify-code shape', () {
+      final def = _loadInline('plan-and-implement-inline.yaml');
+      expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);
+      expect(_flattenedSteps(def).where((step) => step.skill == 'andthen:simplify-code'), hasLength(1));
+
+      final storyPipeline = def.nodes.whereType<ForeachNode>().singleWhere((node) => node.stepId == 'story-pipeline');
+      final stepIds = storyPipeline.childStepIds;
+      expect(stepIds.indexOf('simplify-code'), stepIds.indexOf('quick-review') + 1);
+
+      final simplify = _flattenedSteps(def).singleWhere((step) => step.id == 'simplify-code');
+      expect(simplify.skill, 'andthen:simplify-code');
+      expect(simplify.provider, '@executor');
+      expect(simplify.model, '@executor');
+      expect(simplify.continueSession, '@previous');
+      expect(simplify.inputs, ['story_result']);
+      expect(_allPromptText(simplify), contains('changes for this story'));
     });
   });
 
-  group('Tool permissions — review steps match their output contract', () {
+  group('Tool permissions – review steps match their output contract', () {
     // Structured review steps declare an explicit allowlist with `file_write`
     // absent so step_config_policy.stepIsReadOnly returns true. File-backed
     // review steps need `file_write`; they emit a path to a report artifact
@@ -155,6 +239,7 @@ void main() {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
           if (!step.id.contains('review')) continue;
+          if (step.type == WorkflowTaskType.aggregateReviews) continue;
           if (writeableReviewSteps.contains(step.id)) continue;
           expect(step.allowedTools, isNotNull, reason: '$file → review step "${step.id}" must declare allowedTools');
           final emitsPathArtifact = step.outputs?.values.any((config) => config.format == OutputFormat.path) ?? false;
@@ -190,27 +275,36 @@ void main() {
       }
     });
 
-    test('discover-project is read-only', () {
-      for (final file in _builtInWorkflows) {
-        final def = _load(file);
-        final discover = def.steps.firstWhere((s) => s.id == 'discover-project');
-        expect(discover.allowedTools, isNotNull);
-        expect(
-          discover.allowedTools,
-          isNot(contains('file_write')),
-          reason: '$file → discover-project must never include file_write',
-        );
-      }
+    test('discovery/classification steps are read-only', () {
+      final plan = _load('plan-and-implement.yaml');
+      final discover = plan.steps.firstWhere((s) => s.id == 'discover-plan-state');
+      expect(discover.allowedTools, isNotNull);
+      expect(
+        discover.allowedTools,
+        isNot(contains('file_write')),
+        reason: 'plan-and-implement → discover-plan-state must never include file_write',
+      );
+
+      final spec = _load('spec-and-implement.yaml');
+      final detect = spec.steps.firstWhere((s) => s.id == 'detect-spec-input');
+      expect(detect.allowedTools, isNotNull);
+      expect(
+        detect.allowedTools,
+        isNot(contains('file_write')),
+        reason: 'spec-and-implement → detect-spec-input must never include file_write',
+      );
     });
 
-    test('remediation steps pass exactly one report path source', () {
+    test('remediation steps pass at least one report path source and declare it', () {
       final reportKeys = {'review_findings', 'architecture_review_findings'};
       final referencePattern = RegExp(r'\{\{\s*context\.([A-Za-z0-9_.-]+)\s*\}\}');
+      var checked = 0;
 
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
-          if (step.skill != 'dartclaw-remediate-findings') continue;
+          if (step.skill != 'andthen:remediate-findings') continue;
+          checked++;
           final references = referencePattern
               .allMatches(_allPromptText(step))
               .map((match) => match.group(1)!)
@@ -218,89 +312,109 @@ void main() {
               .toList();
           expect(
             references,
-            hasLength(1),
-            reason: '$file → "${step.id}" must pass one report path to dartclaw-remediate-findings',
+            isNotEmpty,
+            reason: '$file → "${step.id}" must pass at least one report path to andthen:remediate-findings',
           );
-          expect(
-            step.inputs,
-            contains(references.single),
-            reason: '$file → "${step.id}" must declare its report path input',
-          );
+          for (final ref in references) {
+            expect(step.inputs, contains(ref), reason: '$file → "${step.id}" must declare report path input "$ref"');
+          }
         }
       }
+      expect(checked, greaterThan(0), reason: 'built-ins must include remediation steps');
     });
 
-    test('dartclaw-review report outputs request runtime absolute paths', () {
+    test('andthen:review report outputs direct writes into the runtime artifacts dir', () {
+      var checked = 0;
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
-          if (step.skill != 'dartclaw-review') continue;
+          if (step.skill != 'andthen:review') continue;
           final reviewFindings = step.outputs?['review_findings'];
           if (reviewFindings == null) continue;
+          checked++;
           expect(
             _allPromptText(step),
             contains('--output-dir "{{workflow.runtime_artifacts_dir}}/reviews"'),
             reason: '$file → "${step.id}" must write review reports under workflow runtime artifacts',
           );
-          final description = reviewFindings.description ?? '';
-          expect(
-            description,
-            contains('Absolute path'),
-            reason: '$file → "${step.id}" must ask for an absolute review report path',
-          );
+          final description = _effectiveDescription(reviewFindings) ?? '';
           expect(
             description,
             contains('--output-dir'),
-            reason: '$file → "${step.id}" must point the output contract at the rendered output-dir',
+            reason: '$file → "${step.id}" description must keep --output-dir guidance for andthen:review callers',
           );
           expect(
             description,
-            isNot(contains('Workspace-relative')),
-            reason: '$file → "${step.id}" must not request a worktree-relative runtime report path',
+            matches(RegExp(r'absolute.{0,80}--output-dir', dotAll: true)),
+            reason:
+                '$file → "${step.id}" description must pair the absolute-path form with --output-dir so andthen:review AUTO_MODE callers get the right contract',
           );
         }
       }
+      expect(checked, greaterThan(0), reason: 'built-ins must include file-backed andthen:review steps');
     });
 
-    test('split remediation loops consume fresh re-review reports after the first pass', () {
-      for (final file in ['spec-and-implement.yaml', 'plan-and-implement.yaml']) {
-        final def = _load(file);
-        final remediate = _flattenedSteps(def).firstWhere((s) => s.id == 'remediate');
-        final remediateArchitecture = _flattenedSteps(def).firstWhere((s) => s.id == 'remediate-architecture');
+    test('parallel review workflows aggregate first-pass findings and re-review overwrites simple names', () {
+      final expectedSources = {
+        'spec-and-implement.yaml': ['integrated-review', 'architecture-review'],
+        'plan-and-implement.yaml': ['plan-review', 'architecture-review'],
+        'spec-and-implement-inline.yaml': ['integrated-review', 'architecture-review'],
+        'plan-and-implement-inline.yaml': ['plan-review', 'architecture-review'],
+      };
 
+      for (final entry in expectedSources.entries) {
+        final file = entry.key;
+        final def = file.endsWith('-inline.yaml') ? _loadInline(file) : _load(file);
+        final aggregate = _flattenedSteps(def).firstWhere((s) => s.id == 'review-aggregate');
+        final loop = def.loops.firstWhere((l) => l.id == 'remediation-loop');
+        final remediate = _flattenedSteps(def).firstWhere((s) => s.id == 'remediate');
+        final reReview = _flattenedSteps(def).firstWhere((s) => s.id == 're-review');
+
+        expect(aggregate.type, WorkflowTaskType.aggregateReviews, reason: '$file → review-aggregate type');
+        expect(aggregate.aggregateReviews, entry.value, reason: '$file → aggregate source order');
+        expect(aggregate.outputKeys.toSet(), {'review_findings', 'findings_count', 'gating_findings_count'});
+        expect(loop.entryGate, 'gating_findings_count > 0', reason: '$file → loop entry gate');
+        expect(loop.exitGate, 'gating_findings_count == 0', reason: '$file → loop exit gate');
+        expect(remediate.entryGate, 'gating_findings_count > 0', reason: '$file → remediate entry gate');
+        expect(remediate.inputs, contains('review_findings'), reason: '$file → remediate report input');
+        expect(remediate.inputs, isNot(contains('architecture_review_findings')), reason: file);
+        expect(_allPromptText(remediate).trim(), '--auto {{context.review_findings}}', reason: file);
         expect(
-          remediate.entryGate,
-          contains('re-review.gating_findings_count > 0'),
-          reason: '$file → remediate must consume the latest re-review report on later loop iterations',
+          remediate.outputs?.containsKey('architecture-review.gating_findings_count'),
+          isNot(isTrue),
+          reason: file,
         );
-        expect(
-          remediateArchitecture.entryGate,
-          contains('loop.remediation-loop.iteration == 1'),
-          reason: '$file → architecture remediation must not keep consuming the initial architecture report',
-        );
+        expect(remediate.outputs?.containsKey('architecture_review_findings'), isNot(isTrue), reason: file);
+        expect(remediate.outputs?.containsKey('diff_summary'), isNot(isTrue), reason: file);
+        expect(reReview.outputKeys, containsAll(['review_findings', 'findings_count', 'gating_findings_count']));
+        expect(reReview.outputKeys, isNot(contains('re-review.findings_count')), reason: file);
+        expect(reReview.outputKeys, isNot(contains('re-review.gating_findings_count')), reason: file);
       }
     });
 
     test('all remediation steps resolve to the executor role', () {
       const resolver = WorkflowDefinitionResolver();
+      var checked = 0;
 
       for (final file in _builtInWorkflows) {
         final resolved = resolver.resolve(_load(file));
         for (final step in _flattenedSteps(resolved)) {
-          if (step.skill != 'dartclaw-remediate-findings') continue;
+          if (step.skill != 'andthen:remediate-findings') continue;
+          checked++;
           expect(step.provider, '@executor', reason: '$file → "${step.id}" should run on @executor');
           expect(step.model, '@executor', reason: '$file → "${step.id}" should use the @executor model');
         }
       }
+      expect(checked, greaterThan(0), reason: 'built-ins must include remediation steps');
     });
   });
 
-  group('Prompt minimality — built-in skill steps use compact invocation hints', () {
+  group('Prompt minimality – built-in skill steps use compact invocation hints', () {
     // Skills that don't currently expose an `--auto` flag (and therefore can't
     // opt into automation-safe execution via the prompt). Keep this list tight
-    // — the moment a skill grows an `--auto` flag, drop it from here so the
+    // – the moment a skill grows an `--auto` flag, drop it from here so the
     // contract assertion starts enforcing automation-safety on it.
-    const skillsWithoutAutoFlag = {'dartclaw-discover-project', 'dartclaw-refactor'};
+    const skillsWithoutAutoFlag = {'dartclaw-discover-andthen-spec', 'dartclaw-discover-andthen-plan'};
 
     test('custom skill prompts are short and automation-safe when present', () {
       for (final file in _builtInWorkflows) {
@@ -311,7 +425,10 @@ void main() {
 
           final key = '$file::${step.id}';
           expect(text.length, lessThanOrEqualTo(180), reason: '$key prompt should stay a compact routing hint');
-          if (!skillsWithoutAutoFlag.contains(step.skill)) {
+          // Bash and approval steps don't drive a skill – their prompt is a
+          // shell command or a checkpoint message and has no `--auto`
+          // contract.
+          if (step.skill != null && !skillsWithoutAutoFlag.contains(step.skill)) {
             expect(text, contains('--auto'), reason: '$key prompt should opt into automation-safe skill execution');
           }
           expect(text, isNot(contains('Use the ')), reason: '$key should not repeat generic skill-selection prose');
@@ -329,17 +446,20 @@ void main() {
       expect(text, contains('--auto'));
     });
 
-    test('dartclaw-review steps pin reports to workflow runtime artifacts dir', () {
+    test('andthen:review steps pin reports to workflow runtime artifacts dir', () {
+      var checked = 0;
       for (final file in _builtInWorkflows) {
         final def = _load(file);
-        for (final step in _flattenedSteps(def).where((s) => s.skill == 'dartclaw-review')) {
+        for (final step in _flattenedSteps(def).where((s) => s.skill == 'andthen:review')) {
+          checked++;
           expect(
             _allPromptText(step),
-            contains('--output-dir "{{workflow.runtime_artifacts_dir}}/reviews"'),
+            contains('--output-dir "{{workflow.runtime_artifacts_dir}}/reviews'),
             reason: '$file → "${step.id}" should avoid heuristic review report placement',
           );
         }
       }
+      expect(checked, greaterThan(0), reason: 'built-ins must include andthen:review steps');
     });
 
     test('plan-and-implement: per-story result output classifies sibling failures as non-blocking', () {
@@ -350,7 +470,7 @@ void main() {
       final def = _load('plan-and-implement.yaml');
       final implement = _flattenedSteps(def).firstWhere((s) => s.id == 'implement');
       final output = implement.outputs!['story_result']!;
-      expect(output.schema, equals('story-result'));
+      expect(output.schema, equals('story_result'));
       expect(output.description, isNull);
 
       final rendered = SkillPromptBuilder.formatContextSummary(
@@ -359,43 +479,78 @@ void main() {
       );
       expect(rendered, contains('unrelated sibling or baseline failures are non-blocking'));
     });
+
+    test('plan-and-implement: plan outputs describe JSON-first plan artifacts', () {
+      final def = _load('plan-and-implement.yaml');
+      final discover = _flattenedSteps(def).firstWhere((s) => s.id == 'discover-plan-state');
+      final plan = _flattenedSteps(def).firstWhere((s) => s.id == 'plan');
+
+      for (final output in [discover.outputs!['plan']!, plan.outputs!['plan']!]) {
+        final description = _effectiveDescription(output) ?? '';
+        expect(description, contains('plan.json'));
+        expect(description, contains('plan.md'));
+      }
+    });
+
+    test('migrated path outputs route through canonical presets', () {
+      final definitions = <String, WorkflowDefinition>{
+        for (final file in _builtInWorkflows) file: _load(file),
+        for (final file in _inlineWorkflows) file: _loadInline(file),
+      };
+
+      for (final entry in definitions.entries) {
+        final architectureReview = _flattenedSteps(entry.value).where((step) => step.id == 'architecture-review');
+        for (final step in architectureReview) {
+          final output = step.outputs!['architecture_review_findings']!;
+          expect(output.format, OutputFormat.path, reason: '${entry.key} → architecture-review output format');
+          expect(
+            output.presetName,
+            'review_report_path',
+            reason: '${entry.key} → architecture-review uses canonical preset',
+          );
+          expect(_effectiveDescription(output), contains('project-root-relative'), reason: entry.key);
+        }
+      }
+
+      for (final file in ['spec-and-implement.yaml', 'spec-and-implement-inline.yaml']) {
+        final def = file.endsWith('-inline.yaml') ? _loadInline(file) : _load(file);
+        final detect = _flattenedSteps(def).firstWhere((step) => step.id == 'detect-spec-input');
+        final output = detect.outputs!['spec_path']!;
+        expect(output.format, OutputFormat.path, reason: '$file → detect-spec-input.spec_path');
+        expect(
+          output.presetName,
+          'detected_fis_path',
+          reason: '$file → detect-spec-input uses canonical optional-path preset',
+        );
+        expect(_effectiveDescription(output), contains('empty when input requires spec synthesis'), reason: file);
+      }
+    });
+
+    test('discovery steps do not declare outputExamples – DC-native skill owns the example body', () {
+      // outputExamples on the workflow YAML is reserved for custom workflows
+      // extending a non-DC-native skill's output contract. For DC-native skills
+      // like dartclaw-discover-andthen-{plan,spec}, the example lives in SKILL.md
+      // alongside the contract description (single source).
+      final definitions = <String, WorkflowDefinition>{
+        'plan-and-implement.yaml': _load('plan-and-implement.yaml'),
+        'spec-and-implement.yaml': _load('spec-and-implement.yaml'),
+        'plan-and-implement-inline.yaml': _loadInline('plan-and-implement-inline.yaml'),
+        'spec-and-implement-inline.yaml': _loadInline('spec-and-implement-inline.yaml'),
+      };
+
+      for (final entry in definitions.entries) {
+        final step = _flattenedSteps(entry.value).first;
+        expect(step.outputExamples, anyOf(isNull, isEmpty), reason: entry.key);
+      }
+    });
   });
 
-  group('Variable passthrough — authored inputs reach only the steps that need them', () {
-    test('plan-and-implement: only discover-project and prd opt in to REQUIREMENTS', () {
+  group('Variable passthrough – authored inputs reach only the steps that need them', () {
+    test('plan-and-implement: only discover-plan-state opts in to FEATURE', () {
       final def = _load('plan-and-implement.yaml');
       for (final step in _flattenedSteps(def)) {
         final opts = step.workflowVariables;
-        if (step.id == 'discover-project' || step.id == 'prd') {
-          expect(opts, contains('REQUIREMENTS'));
-          continue;
-        }
-        expect(opts, isNot(contains('REQUIREMENTS')), reason: 'step "${step.id}" must not opt in to REQUIREMENTS');
-      }
-    });
-
-    test('plan-and-implement: no non-prd step references {{REQUIREMENTS}} in prompt text', () {
-      final def = _load('plan-and-implement.yaml');
-      final engine = WorkflowTemplateEngine();
-      for (final step in _flattenedSteps(def)) {
-        if (step.id == 'prd') continue;
-        final text = _allPromptText(step);
-        if (text.isEmpty) continue;
-        final refs = engine.extractVariableReferences(text);
-        expect(refs, isNot(contains('REQUIREMENTS')), reason: 'step "${step.id}" must not reference {{REQUIREMENTS}}');
-        expect(
-          text,
-          isNot(contains('<REQUIREMENTS>')),
-          reason: 'step "${step.id}" must not inline a <REQUIREMENTS> block',
-        );
-      }
-    });
-
-    test('spec-and-implement: only discover-project and spec opt in to FEATURE', () {
-      final def = _load('spec-and-implement.yaml');
-      for (final step in _flattenedSteps(def)) {
-        final opts = step.workflowVariables;
-        if (step.id == 'discover-project' || step.id == 'spec') {
+        if (step.id == 'discover-plan-state') {
           expect(opts, contains('FEATURE'));
           continue;
         }
@@ -403,11 +558,36 @@ void main() {
       }
     });
 
-    test('spec-and-implement: no non-spec step references {{FEATURE}} in prompt text', () {
+    test('plan-and-implement: no non-discovery step references {{FEATURE}} in prompt text', () {
+      final def = _load('plan-and-implement.yaml');
+      final engine = WorkflowTemplateEngine();
+      for (final step in _flattenedSteps(def)) {
+        if (step.id == 'discover-plan-state') continue;
+        final text = _allPromptText(step);
+        if (text.isEmpty) continue;
+        final refs = engine.extractVariableReferences(text);
+        expect(refs, isNot(contains('FEATURE')), reason: 'step "${step.id}" must not reference {{FEATURE}}');
+        expect(text, isNot(contains('<FEATURE>')), reason: 'step "${step.id}" must not inline a <FEATURE> block');
+      }
+    });
+
+    test('spec-and-implement: only detect-spec-input and spec opt in to FEATURE', () {
+      final def = _load('spec-and-implement.yaml');
+      for (final step in _flattenedSteps(def)) {
+        final opts = step.workflowVariables;
+        if (step.id == 'detect-spec-input' || step.id == 'spec') {
+          expect(opts, contains('FEATURE'));
+          continue;
+        }
+        expect(opts, isNot(contains('FEATURE')), reason: 'step "${step.id}" must not opt in to FEATURE');
+      }
+    });
+
+    test('spec-and-implement: no non-detection/spec step references {{FEATURE}} in prompt text', () {
       final def = _load('spec-and-implement.yaml');
       final engine = WorkflowTemplateEngine();
       for (final step in _flattenedSteps(def)) {
-        if (step.id == 'spec') continue;
+        if (step.id == 'detect-spec-input' || step.id == 'spec') continue;
         final text = _allPromptText(step);
         if (text.isEmpty) continue;
         final refs = engine.extractVariableReferences(text);
@@ -434,18 +614,69 @@ void main() {
   });
 
   group('Output schema coherence', () {
-    test('every findings_count output uses the non-negative-integer schema', () {
-      for (final file in _builtInWorkflows) {
-        final def = _load(file);
+    test('new output presets are registered with canonical descriptions', () {
+      expect(schemaPresets['gating_findings_count']?.format, OutputFormat.json);
+      expect(schemaPresets['findings_count']?.format, OutputFormat.json);
+      expect(schemaPresets['review_report_path']?.format, OutputFormat.path);
+      expect(schemaPresets['prd_path']?.description, 'Workspace-relative path to the required PRD on disk.');
+      expect(schemaPresets['plan_path']?.description, contains('plan.json'));
+      expect(schemaPresets['fis_path']?.description, contains('FIS on disk'));
+    });
+
+    test('built-in and inline workflows exercise the new shorthand presets', () {
+      final defs = [
+        for (final file in _builtInWorkflows) _load(file),
+        for (final file in _inlineWorkflows) _loadInline(file),
+      ];
+      final usedPresetNames = <String>{};
+      for (final def in defs) {
         for (final step in _flattenedSteps(def)) {
+          usedPresetNames.addAll(
+            step.outputs?.values.map((output) => output.presetName).whereType<String>() ?? const [],
+          );
+        }
+      }
+
+      expect(
+        usedPresetNames,
+        containsAll([
+          'gating_findings_count',
+          'findings_count',
+          'review_report_path',
+          'prd_path',
+          'plan_path',
+          'fis_path',
+          'detected_fis_path',
+          'spec_source',
+          'spec_confidence',
+          'story_specs',
+        ]),
+      );
+    });
+
+    test('every findings_count output uses a structured non-negative integer schema', () {
+      final definitions = <String, WorkflowDefinition>{
+        for (final file in _builtInWorkflows) file: _load(file),
+        for (final file in _inlineWorkflows) file: _loadInline(file),
+      };
+
+      for (final definitionEntry in definitions.entries) {
+        for (final step in _flattenedSteps(definitionEntry.value)) {
           final outputs = step.outputs;
           if (outputs == null) continue;
-          for (final entry in outputs.entries) {
-            if (!entry.key.endsWith('findings_count')) continue;
+          for (final outputEntry in outputs.entries) {
+            if (!outputEntry.key.endsWith('findings_count')) continue;
             expect(
-              entry.value.schema,
-              'non-negative-integer',
-              reason: '$file → "${step.id}".${entry.key} must use the non-negative-integer schema',
+              outputEntry.value.schema,
+              isIn(['non_negative_integer', 'findings_count', 'gating_findings_count']),
+              reason:
+                  '${definitionEntry.key} → "${step.id}".${outputEntry.key} must use a registered non-negative integer schema',
+            );
+            expect(
+              outputEntry.value.outputMode,
+              OutputMode.structured,
+              reason:
+                  '${definitionEntry.key} → "${step.id}".${outputEntry.key} must preserve strict structured count validation',
             );
           }
         }

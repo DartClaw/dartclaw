@@ -1,0 +1,6 @@
+# Allowlist for no_cross_package_env_plan_duplicates_test.dart
+# Format: <ClassName>@<relative-file-path>  # <rationale>
+# The @ separator distinguishes class name from file when the class name is reused.
+# Rationale is mandatory — explain why this impl cannot live in dartclaw_security.
+
+GitCredentialPlan@packages/dartclaw_server/lib/src/task/git_credential_env.dart  # credential-carrying impl, exempt — see Shared Decision #12

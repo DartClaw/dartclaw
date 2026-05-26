@@ -1,8 +1,7 @@
 import 'dart:async';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show TurnManager;
 import 'package:logging/logging.dart';
-
-import 'turn_manager.dart';
 
 /// Encapsulates the graceful restart lifecycle.
 ///

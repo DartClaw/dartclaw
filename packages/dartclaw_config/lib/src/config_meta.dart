@@ -14,7 +14,25 @@ enum ConfigMutability {
 }
 
 /// Type of a config field.
-enum ConfigFieldType { int_, string, bool_, enum_, stringList, objectList }
+enum ConfigFieldType {
+  /// Integer scalar.
+  int_,
+
+  /// String scalar.
+  string,
+
+  /// Boolean scalar.
+  bool_,
+
+  /// Enumerated string scalar.
+  enum_,
+
+  /// List of strings.
+  stringList,
+
+  /// List of object maps.
+  objectList,
+}
 
 /// Metadata describing a single config field.
 class FieldMeta {
@@ -24,7 +42,10 @@ class FieldMeta {
   /// CamelCase JSON key for API responses (e.g., `'scheduling.heartbeat.intervalMinutes'`).
   final String jsonKey;
 
+  /// type.
   final ConfigFieldType type;
+
+  /// mutability.
   final ConfigMutability mutability;
 
   /// Whether `null` is a valid value (field removal).
@@ -39,6 +60,7 @@ class FieldMeta {
   /// For [ConfigFieldType.enum_]: allowed string values.
   final List<String>? allowedValues;
 
+  /// Creates a [FieldMeta] value.
   const FieldMeta({
     required this.yamlPath,
     required this.jsonKey,
@@ -1275,28 +1297,6 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.int_,
       mutability: ConfigMutability.reloadable,
       min: 1,
-    ),
-
-    // --- AndThen runtime-skill provisioning ---
-    // All four restart-required: changing them implies re-clone / re-install.
-    'andthen.git_url': FieldMeta(
-      yamlPath: 'andthen.git_url',
-      jsonKey: 'andthen.gitUrl',
-      type: ConfigFieldType.string,
-      mutability: ConfigMutability.restart,
-    ),
-    'andthen.ref': FieldMeta(
-      yamlPath: 'andthen.ref',
-      jsonKey: 'andthen.ref',
-      type: ConfigFieldType.string,
-      mutability: ConfigMutability.restart,
-    ),
-    'andthen.network': FieldMeta(
-      yamlPath: 'andthen.network',
-      jsonKey: 'andthen.network',
-      type: ConfigFieldType.enum_,
-      mutability: ConfigMutability.restart,
-      allowedValues: ['auto', 'required', 'disabled'],
     ),
   };
 

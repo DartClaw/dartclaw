@@ -1,0 +1,2 @@
+apps/dartclaw_cli/lib/src/commands/workflow/workflow_status_command.dart:WorkflowRunStatus  # Connected status table renders persisted status names rather than enumerating all values.
+packages/dartclaw_server/lib/src/api/task_sse_routes.dart:WorkflowRunStatus  # SSE payload forwards event.newStatus.name; enum coverage is value-derived.

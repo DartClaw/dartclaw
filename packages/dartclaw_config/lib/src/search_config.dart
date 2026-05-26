@@ -2,9 +2,13 @@ import 'package:collection/collection.dart';
 
 /// Configuration for a single search provider (e.g. Brave, Tavily).
 class SearchProviderEntry {
+  /// enabled.
   final bool enabled;
+
+  /// apiKey.
   final String apiKey;
 
+  /// const SearchProviderEntry({required this.enabled, required t.
   const SearchProviderEntry({required this.enabled, required this.apiKey});
 
   @override
@@ -17,12 +21,22 @@ class SearchProviderEntry {
 
 /// Configuration for the search subsystem.
 class SearchConfig {
+  /// backend.
   final String backend;
+
+  /// qmdHost.
   final String qmdHost;
+
+  /// qmdPort.
   final int qmdPort;
+
+  /// defaultDepth.
   final String defaultDepth;
+
+  /// providers.
   final Map<String, SearchProviderEntry> providers;
 
+  /// Creates a [SearchConfig] value.
   const SearchConfig({
     this.backend = 'fts5',
     this.qmdHost = '127.0.0.1',

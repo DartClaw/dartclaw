@@ -196,7 +196,7 @@ String _formatTimeAgo(Object? value) {
     final dt = value is DateTime ? value : DateTime.parse(value.toString());
     return formatRelativeTime(dt);
   } catch (_) {
-    return value.toString();
+    return value.toString(); // Unparseable timestamp — fall back to raw string.
   }
 }
 
@@ -217,6 +217,6 @@ String _formatDuration(Object? startedAt, Object? completedAt) {
     }
     return '${diff.inSeconds}s';
   } catch (_) {
-    return '--';
+    return '--'; // Unparseable timestamp or null end time — fall back to placeholder.
   }
 }

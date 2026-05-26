@@ -82,7 +82,7 @@ tasks:
   budget: "not-a-map"
 ''');
       expect(config.tasks.budget.defaultMaxTokens, isNull);
-      expect(config.warnings, anyElement(contains('tasks.budget')));
+      expect(config.warnings, anyElement(contains('Invalid type for budget')));
     });
 
     test('zero or negative default_max_tokens treated as no budget', () {

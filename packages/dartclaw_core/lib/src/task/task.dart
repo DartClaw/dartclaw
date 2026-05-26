@@ -1,7 +1,6 @@
 import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
 
-import '../execution/agent_execution.dart';
-import '../execution/workflow_step_execution.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show AgentExecution, WorkflowStepExecution;
 import 'task_status.dart';
 
 /// Immutable task value object for orchestrated work.
@@ -35,6 +34,23 @@ class Task {
 
   /// Optional worktree metadata persisted for coding-style tasks.
   final Map<String, dynamic>? worktreeJson;
+
+  /// Typed view over [worktreeJson].
+  ///
+  /// Invalid or missing field values are exposed as `null`; the persisted map
+  /// remains the source of truth for serialization.
+  ({String? branch, String? path, DateTime? createdAt})? get worktree {
+    final map = worktreeJson;
+    if (map == null) {
+      return null;
+    }
+    final createdAtValue = _optionalString(map['createdAt']);
+    return (
+      branch: _optionalString(map['branch']),
+      path: _optionalString(map['path']),
+      createdAt: createdAtValue == null ? null : DateTime.tryParse(createdAtValue),
+    );
+  }
 
   /// Timestamp when this task record was created.
   final DateTime createdAt;
@@ -319,6 +335,8 @@ class Task {
 }
 
 const _sentinel = Object();
+
+String? _optionalString(Object? value) => value is String ? value : null;
 
 AgentExecution? _legacyAgentExecution({
   required String taskId,

@@ -4,8 +4,9 @@ import 'dart:io';
 import 'dart:math' show min;
 import 'dart:typed_data';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show ActionNode, OutputFormat, WorkflowRun, WorkflowStep;
-import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafeProcess, kDefaultSensitivePatterns;
+import 'workflow_definition.dart' show ActionNode, OutputFormat, WorkflowStep, WorkflowTaskType;
+import 'workflow_run.dart' show WorkflowRun;
+import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafeProcess, defaultSensitivePatterns;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -51,7 +52,7 @@ Future<StepOutcome> executeBashStep({
   List<String> envAllowlist = BashStepPolicy.defaultEnvAllowlist,
   List<String> extraStripPatterns = const <String>[],
 }) async {
-  assert(step.type == 'bash', 'bash runner received non-bash step ${step.id}');
+  assert(step.taskType == WorkflowTaskType.bash, 'bash runner received non-bash step ${step.id}');
   final String workDir;
   try {
     workDir = resolveBashWorkdir(step: step, context: context, dataDir: dataDir, templateEngine: templateEngine);
@@ -80,7 +81,7 @@ Future<StepOutcome> executeBashStep({
       ['-c', resolvedCommand],
       env: EnvPolicy.sanitize(
         allowlist: envAllowlist,
-        sensitivePatterns: [...kDefaultSensitivePatterns, ...extraStripPatterns],
+        sensitivePatterns: [...defaultSensitivePatterns, ...extraStripPatterns],
       ),
       baseEnvironment: hostEnvironment,
       workingDirectory: workDir,
@@ -218,7 +219,7 @@ String resolveBashWorkdir({
 
 /// Resolves template references in a shell command.
 ///
-/// Both `{{context.key}}` and `{{VAR}}` substitutions are shell-escaped via
+/// `{{context.key}}`, `{{workflow.key}}`, and `{{VAR}}` substitutions are shell-escaped via
 /// [shellEscape] — callers must not double-escape.
 String resolveBashCommand(String command, WorkflowContext context) {
   return command.replaceAllMapped(RegExp(r'\{\{([^}]+)\}\}'), (match) {
@@ -234,6 +235,13 @@ String resolveBashCommand(String command, WorkflowContext context) {
         return shellEscape('');
       }
       return shellEscape(value.toString());
+    }
+    if (ref.startsWith('workflow.')) {
+      final value = context.systemVariable(ref);
+      if (value == null) {
+        throw ArgumentError('Bash command references undefined workflow system variable: {{$ref}}');
+      }
+      return shellEscape(value);
     }
     final value = context.variable(ref);
     if (value == null) {

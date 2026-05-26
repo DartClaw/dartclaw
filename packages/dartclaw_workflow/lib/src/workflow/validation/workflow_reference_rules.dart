@@ -7,43 +7,39 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
     for (final step in definition.steps) {
       if (step.skill == null) continue;
 
-      final error = skillRegistry!.validateRef(step.skill!);
+      final resolvedStep = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults);
+      final effectiveProvider = resolvedStep.provider;
+      final error = skillRegistry!.validateRef(step.skill!, provider: effectiveProvider);
       if (error != null) {
-        errors.add(
-          ValidationError(
-            message: 'Step "${step.id}": $error',
-            type: ValidationErrorType.invalidReference,
-            stepId: step.id,
-          ),
-        );
+        errors.add(_refErr(step.id, 'Step "${step.id}": $error'));
         continue; // Skip harness checks if skill doesn't exist.
       }
 
-      final stepProvider = step.provider;
+      final stepProvider = effectiveProvider;
       if (stepProvider != null) {
-        final isRoleAlias = workflowRoleDefaultAliases.contains(stepProvider);
         // Explicit provider: hard error if skill not native for that harness.
-        if (!stepProvider.startsWith('@') && !isRoleAlias && !skillRegistry!.isNativeFor(step.skill!, stepProvider)) {
-          final skill = skillRegistry!.getByName(step.skill!);
-          final available = skill?.nativeHarnesses.join(', ') ?? 'none';
+        if (!stepProvider.startsWith('@') && !skillRegistry!.isNativeFor(step.skill!, stepProvider)) {
+          final resolvedSkill = skillRegistry!.resolveRef(step.skill!, stepProvider);
+          final available = resolvedSkill?.skill.nativeHarnesses.join(', ') ?? 'none';
+          final searched = resolvedSkill?.invocationName ?? step.skill!;
           errors.add(
-            ValidationError(
-              message:
-                  'Step "${step.id}": skill "${step.skill}" not available '
-                  'for provider "$stepProvider". '
-                  'Skill is native for: $available. '
-                  'Install it in the provider\'s skill directory or remove the '
-                  'explicit provider.',
-              type: ValidationErrorType.invalidReference,
-              stepId: step.id,
+            _refErr(
+              step.id,
+              'Step "${step.id}": skill "${step.skill}" not available '
+              'for provider "$stepProvider" (searched "$searched"). '
+              'Skill is native for: $available. '
+              'Install it in the provider\'s skill directory or remove the '
+              'explicit provider.',
             ),
           );
         }
       }
 
-      if (stepProvider == null || workflowRoleDefaultAliases.contains(stepProvider)) {
+      if (step.provider == null || workflowRoleDefaultAliases.contains(step.provider)) {
         // Default provider: warn if skill only found in one harness.
-        final skill = skillRegistry!.getByName(step.skill!);
+        final skill = effectiveProvider == null
+            ? skillRegistry!.getByName(step.skill!)
+            : skillRegistry!.resolveRef(step.skill!, effectiveProvider)?.skill;
         if (skill != null && skill.nativeHarnesses.length == 1) {
           WorkflowDefinitionValidator._log.warning(
             'Step "${step.id}": skill "${step.skill}" found only in '
@@ -61,14 +57,10 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
       final workflowProjectRefs = _engine.extractVariableReferences(definition.project!);
       for (final ref in workflowProjectRefs) {
         if (!declaredVars.contains(ref)) {
-          errors.add(
-            ValidationError(
-              message: 'Workflow project field references undeclared variable "{{$ref}}".',
-              type: ValidationErrorType.invalidReference,
-            ),
-          );
+          errors.add(_refErr(null, 'Workflow project field references undeclared variable "{{$ref}}".'));
         }
       }
+      _validateWorkflowSystemReferences(definition.project!, errors, location: 'Workflow project field');
     }
 
     // Build a step-id → enclosing-map-aliases lookup so that substep prompts
@@ -92,30 +84,95 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
       final allPromptRefs = <String>{
         for (final p in step.prompts ?? const <String>[]) ..._engine.extractVariableReferences(p, mapAliases: aliases),
       };
+      for (final prompt in step.prompts ?? const <String>[]) {
+        _validateWorkflowSystemReferences(prompt, errors, stepId: step.id, location: 'Step "${step.id}" prompt');
+      }
+      _validateStepWorkflowSystemReferences(step, errors);
       for (final ref in allPromptRefs) {
         if (!declaredVars.contains(ref)) {
-          errors.add(
-            ValidationError(
-              message: 'Step "${step.id}" prompt references undeclared variable "{{$ref}}".',
-              type: ValidationErrorType.invalidReference,
-              stepId: step.id,
-            ),
-          );
+          errors.add(_refErr(step.id, 'Step "${step.id}" prompt references undeclared variable "{{$ref}}".'));
         }
       }
       for (final name in step.workflowVariables) {
         if (!declaredVars.contains(name)) {
           errors.add(
-            ValidationError(
-              message:
-                  'Step "${step.id}" declares workflowVariables entry "$name" '
-                  'but the workflow has no top-level variable with that name.',
-              type: ValidationErrorType.invalidReference,
-              stepId: step.id,
+            _refErr(
+              step.id,
+              'Step "${step.id}" declares workflowVariables entry "$name" '
+              'but the workflow has no top-level variable with that name.',
             ),
           );
         }
       }
+    }
+    final gitStrategy = definition.gitStrategy;
+    if (gitStrategy != null) {
+      _validateGitStrategyWorkflowSystemReferences(gitStrategy, errors);
+    }
+  }
+
+  void _validateStepWorkflowSystemReferences(WorkflowStep step, List<ValidationError> errors) {
+    final workdir = step.workdir;
+    if (workdir != null) {
+      _validateWorkflowSystemReferences(workdir, errors, stepId: step.id, location: 'Step "${step.id}" workdir');
+    }
+    final maxParallel = step.maxParallel;
+    if (maxParallel is String) {
+      _validateWorkflowSystemReferences(
+        maxParallel,
+        errors,
+        stepId: step.id,
+        location: 'Step "${step.id}" maxParallel',
+      );
+    }
+  }
+
+  void _validateGitStrategyWorkflowSystemReferences(WorkflowGitStrategy strategy, List<ValidationError> errors) {
+    final artifacts = strategy.artifacts;
+    if (artifacts != null) {
+      final project = artifacts.project;
+      if (project != null) {
+        _validateWorkflowSystemReferences(project, errors, location: 'gitStrategy.artifacts.project');
+      }
+      final commitMessage = artifacts.commitMessage;
+      if (commitMessage != null) {
+        _validateWorkflowSystemReferences(commitMessage, errors, location: 'gitStrategy.artifacts.commitMessage');
+      }
+    }
+
+    final mount = strategy.worktree?.externalArtifactMount;
+    if (mount != null) {
+      _validateWorkflowSystemReferences(
+        mount.fromProject,
+        errors,
+        location: 'gitStrategy.worktree.externalArtifactMount.fromProject',
+      );
+      final source = mount.source;
+      if (source != null) {
+        _validateWorkflowSystemReferences(
+          source,
+          errors,
+          location: 'gitStrategy.worktree.externalArtifactMount.source',
+        );
+      }
+    }
+  }
+
+  void _validateWorkflowSystemReferences(
+    String template,
+    List<ValidationError> errors, {
+    String? stepId,
+    required String location,
+  }) {
+    for (final ref in _engine.extractWorkflowSystemReferences(template)) {
+      if (_engine.isKnownWorkflowSystemVariable(ref)) continue;
+      errors.add(
+        _refErr(
+          stepId,
+          '$location references unknown workflow system variable "{{$ref}}". '
+          'Known workflow system variables: ${_engine.knownWorkflowSystemVariablesDescription}.',
+        ),
+      );
     }
   }
 
@@ -126,23 +183,19 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
       if (alias == null) continue;
       if (!step.isMapStep) {
         errors.add(
-          ValidationError(
-            message:
-                'Step "${step.id}": "as: $alias" is only valid on map/foreach controllers '
-                '(steps that declare map_over).',
-            type: ValidationErrorType.invalidReference,
-            stepId: step.id,
+          _refErr(
+            step.id,
+            'Step "${step.id}": "as: $alias" is only valid on map/foreach controllers '
+            '(steps that declare map_over).',
           ),
         );
       }
       if (declaredVars.contains(alias)) {
         errors.add(
-          ValidationError(
-            message:
-                'Step "${step.id}": "as: $alias" collides with a declared workflow variable '
-                '(pick a different identifier).',
-            type: ValidationErrorType.invalidReference,
-            stepId: step.id,
+          _refErr(
+            step.id,
+            'Step "${step.id}": "as: $alias" collides with a declared workflow variable '
+            '(pick a different identifier).',
           ),
         );
       }
@@ -184,10 +237,9 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
       for (final input in step.inputs) {
         if (!producedSoFar.contains(input) && !loopProduced.contains(input)) {
           errors.add(
-            ValidationError(
-              message: 'Step "${step.id}" reads context key "$input" but no preceding step declares it as an output.',
-              type: ValidationErrorType.contextInconsistency,
-              stepId: step.id,
+            _contextErr(
+              step.id,
+              'Step "${step.id}" reads context key "$input" but no preceding step declares it as an output.',
             ),
           );
         }
@@ -207,12 +259,10 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
       if (mapOver != null) {
         if (!producedSoFar.contains(mapOver)) {
           errors.add(
-            ValidationError(
-              message:
-                  'Step "${step.id}" mapOver references "$mapOver" but no prior step '
-                  'declares it as a contextOutput.',
-              type: ValidationErrorType.contextInconsistency,
-              stepId: step.id,
+            _contextErr(
+              step.id,
+              'Step "${step.id}" mapOver references "$mapOver" but no prior step '
+              'declares it as a contextOutput.',
             ),
           );
         }

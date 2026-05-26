@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -56,7 +57,7 @@ void main() {
       final limiter = SlidingWindowRateLimiter(limit: 5, window: const Duration(minutes: 1));
       final runner = buildRunner(globalRateLimiter: limiter);
 
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'done';
       final turnId = await runner.reserveTurn(session.id).timeout(const Duration(seconds: 2));
 
@@ -70,7 +71,7 @@ void main() {
     test('no rate limiter — no limiting (backward compat)', () async {
       final runner = buildRunner(); // no globalRateLimiter
 
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'done';
       final turnId = await runner.reserveTurn(session.id).timeout(const Duration(seconds: 2));
 
@@ -93,7 +94,7 @@ void main() {
       limiter.check('global', now: t0.add(const Duration(seconds: 3)));
 
       final runner = buildRunner(globalRateLimiter: limiter, sse: sse);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'done';
 
       // Next check() will be 5th event = 100% usage which crosses 80% threshold.
@@ -119,7 +120,7 @@ void main() {
       expect(limiter.check('global'), isFalse); // verify at limit
 
       final runner = buildRunner(globalRateLimiter: limiter);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'done';
 
       // reserveTurn must defer until the 150ms window expires and then proceed.

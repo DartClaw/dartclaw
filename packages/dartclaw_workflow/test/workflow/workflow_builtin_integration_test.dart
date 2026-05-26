@@ -21,7 +21,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowExecutor,
-        WorkflowGitBootstrapResult,
+        WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
@@ -61,6 +61,7 @@ _StubResponse _architectureReviewStub({int findingsCount = 0, int? gatingFinding
   assistantContent: _contextOutput({
     'architecture_review_findings': 'docs/specs/test/architecture-review-codex-2026-04-29.md',
     'findings_count': findingsCount,
+    'gating_findings_count': gatingFindingsCount ?? findingsCount,
     'architecture-review.findings_count': findingsCount,
     'architecture-review.gating_findings_count': gatingFindingsCount ?? findingsCount,
   }),
@@ -78,6 +79,7 @@ Map<String, Object?> _reviewReportContext(
   return {
     'review_findings': p.join(runtimeArtifactsDir, 'reviews', '$stepId-codex-2026-04-29.md'),
     'findings_count': findingsCount,
+    'gating_findings_count': gatingFindingsCount ?? findingsCount,
     '$stepId.findings_count': findingsCount,
     '$stepId.gating_findings_count': gatingFindingsCount ?? findingsCount,
   };
@@ -239,12 +241,6 @@ void main() {
     }
 
     rewriteProjectRoot(decoded);
-    final projectIndex = decoded['project_index'];
-    if (projectIndex is Map) {
-      final normalizedProjectIndex = projectIndex.map((key, value) => MapEntry('$key', value));
-      rewriteProjectRoot(normalizedProjectIndex);
-      decoded['project_index'] = normalizedProjectIndex;
-    }
     if (!changed) return content;
     if (content.contains('<workflow-context>')) {
       return _contextOutput(decoded);
@@ -275,15 +271,9 @@ void main() {
     if (workflowProjectId != null && workflowProjectId.isNotEmpty && workflowProjectId != '_local') {
       roots.add(p.join(tempDir.path, 'projects', workflowProjectId));
     }
-    final projectIndex = context['project_index'];
-    final projectRoot = switch (projectIndex) {
-      final Map<dynamic, dynamic> map => map['project_root'] as String?,
-      _ => null,
-    };
-    if (projectRoot != null && projectRoot.isNotEmpty) roots.add(projectRoot);
     roots.add(tempDir.path);
 
-    void writeRelative(String? rawPath) {
+    void writeRelative(String? rawPath, {String body = ''}) {
       final path = rawPath?.trim();
       if (path == null || path.isEmpty) return;
       final targets = p.isAbsolute(path) ? [path] : roots.map((root) => p.join(root, path));
@@ -291,30 +281,22 @@ void main() {
         final file = File(target);
         file.parent.createSync(recursive: true);
         if (!file.existsSync()) {
-          file.writeAsStringSync('Generated test artifact for $path\n');
+          file.writeAsStringSync(body.isEmpty ? 'Generated test artifact for $path\n' : body);
         }
       }
     }
 
-    final projectIndexMap = decoded['project_index'];
-    final discoveredPrdPath = switch (projectIndexMap) {
-      final Map<dynamic, dynamic> map => map['active_prd'] as String?,
-      _ => null,
-    };
-    final discoveredPlanPath = switch (projectIndexMap) {
-      final Map<dynamic, dynamic> map => map['active_plan'] as String?,
-      _ => null,
-    };
-
-    writeRelative((decoded['prd'] as String?) ?? discoveredPrdPath);
-    final planPath = (decoded['plan'] as String?) ?? discoveredPlanPath;
-    writeRelative(planPath);
-    writeRelative(decoded['spec_path'] as String?);
+    writeRelative(decoded['prd'] as String?);
+    final planPath = decoded['plan'] as String?;
+    final storySpecs = decoded['story_specs'];
+    final planBody = planPath?.endsWith('.json') == true && storySpecs is Map && storySpecs['items'] is List
+        ? jsonEncode({'stories': <Map<String, dynamic>>[]})
+        : '';
+    writeRelative(planPath, body: planBody);
+    writeRelative(decoded['spec_path'] as String?, body: '# FIS\n\n## Scope\n');
     writeRelative(decoded['review_findings'] as String?);
     writeRelative(decoded['architecture_review_findings'] as String?);
     final planDir = planPath == null || planPath.trim().isEmpty ? null : p.dirname(planPath.trim());
-    final activeStorySpecs = projectIndexMap is Map ? projectIndexMap['active_story_specs'] : null;
-    final storySpecs = decoded['story_specs'] ?? activeStorySpecs;
     if (storySpecs is Map) {
       final items = storySpecs['items'];
       if (items is List) {
@@ -344,7 +326,10 @@ void main() {
     final session = await sessionService.createSession(type: SessionType.task);
     final projectId = task.projectId?.trim();
     final effectiveWorktreeJson =
-        worktreeJson ?? (projectId == null || projectId == '_local' ? {'path': tempDir.path} : null);
+        worktreeJson ??
+        (projectId == null || projectId == '_local'
+            ? {'path': tempDir.path}
+            : {'path': p.join(tempDir.path, 'projects', projectId), 'branch': 'main'});
     final normalizedContent = normalizeStubProjectRoot(content);
     materializeClaimedPathOutputs(task, normalizedContent, context, effectiveWorktreeJson);
     await taskService.updateFields(task.id, sessionId: session.id, worktreeJson: effectiveWorktreeJson);
@@ -376,9 +361,9 @@ void main() {
               reserveTurn: (_) => Future.value('turn-1'),
               executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
               waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-              bootstrapWorkflowGit:
+              initializeWorkflowGit:
                   ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                      WorkflowGitBootstrapResult(
+                      WorkflowGitIntegrationBranchResult(
                         integrationBranch: perMapItem ? 'dartclaw/integration/$runId' : 'dartclaw/shared/$runId',
                       ),
               promoteWorkflowBranch:
@@ -452,16 +437,48 @@ void main() {
     final queuedTasks = <_QueuedTaskRecord>[];
     final occurrenceByStep = <String, int>{};
 
+    _StubResponse detectSpecInputResponse(String feature) {
+      final trimmed = feature.trim();
+      final isMarkdownPath = trimmed.endsWith('.md') && !trimmed.contains('\n') && trimmed.contains('/');
+      return _StubResponse(
+        assistantContent: _contextOutput({
+          'spec_path': isMarkdownPath ? trimmed : '',
+          'spec_source': isMarkdownPath ? 'existing' : 'synthesized',
+          'spec_confidence': 0,
+        }),
+      );
+    }
+
+    _StubResponse normalizeDiscoverAndthenPlanResponse(String rawStepKey, _StubResponse response) {
+      if (rawStepKey != 'discover-plan-state') return response;
+      final decoded = decodeStubPayload(response.assistantContent);
+      if (decoded == null) {
+        return _StubResponse(
+          assistantContent: _contextOutput({
+            'prd': 'docs/specs/test/prd.md',
+            'plan': '',
+            'story_specs': {'items': <Map<String, dynamic>>[]},
+          }),
+          worktreeJson: response.worktreeJson,
+        );
+      }
+      decoded['prd'] ??= 'docs/specs/test/prd.md';
+      decoded['plan'] ??= '';
+      decoded['story_specs'] ??= {'items': <Map<String, dynamic>>[]};
+      return _StubResponse(assistantContent: _contextOutput(decoded), worktreeJson: response.worktreeJson);
+    }
+
     final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
       await Future<void>.delayed(Duration.zero);
       final task = await taskService.get(e.taskId);
       if (task == null) return;
 
-      final stepKey = switch (task.title) {
+      final rawStepKey = switch (task.title) {
         final title when title.contains('[quick-review]') => 'runtime-quick-review',
         final title when title.contains('[quick-remediate]') => 'runtime-quick-remediate',
         _ => definition.steps[task.stepIndex!].id,
       };
+      final stepKey = rawStepKey;
       final occurrence = occurrenceByStep.update(stepKey, (count) => count + 1, ifAbsent: () => 0);
       descriptionsByStep.putIfAbsent(stepKey, () => []).add(task.description);
       queuedStepOrder.add(stepKey);
@@ -484,7 +501,11 @@ void main() {
         occurrence: occurrence,
         mapIndex: task.workflowStepExecution?.mapIterationIndex,
       );
-      final response = await responseForStep(queued);
+      final response = switch (rawStepKey) {
+        'detect-spec-input' => detectSpecInputResponse(variables['FEATURE'] ?? ''),
+        'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
+        _ => normalizeDiscoverAndthenPlanResponse(rawStepKey, await responseForStep(queued)),
+      };
       await attachAssistantOutput(
         task,
         content: response.assistantContent,
@@ -513,15 +534,6 @@ void main() {
       variables: {'FEATURE': 'Add validate step', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'dart',
-              'project_root': '/repo/demo',
-              'document_locations': {'product': 'PRODUCT.md'},
-              'state_protocol': {'state_file': 'docs/STATE.md'},
-              'marker': 'DISCOVER_MARKER',
-            }),
-          ),
           'spec' => _StubResponse(
             assistantContent: _contextOutput({
               'spec_path': 'docs/specs/test/spec.md',
@@ -554,8 +566,41 @@ void main() {
               ),
             ),
           ),
-          'update-state' => _StubResponse(
-            assistantContent: _contextOutput({'state_update_summary': 'State updated cleanly'}),
+          'architecture-review' => _architectureReviewStub(),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.descriptionsByStep['spec']!.single, contains('Add validate step'));
+    expect(trace.descriptionsByStep['implement']!.single, contains('docs/specs/test/spec.md'));
+    expect(trace.descriptionsByStep['integrated-review']!.single, contains('docs/specs/test/spec.md'));
+    _expectReviewOutputDir(trace.descriptionsByStep['integrated-review']!.single);
+  });
+
+  test('spec-and-implement: revise-spec is skipped when spec reuses an existing FIS (spec_confidence == 0)', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'spec-and-implement.yaml',
+      variables: {'FEATURE': 'dev/specs/test/s01-pre-authored.md', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'spec' => _StubResponse(
+            assistantContent: _contextOutput({
+              'spec_path': 'dev/specs/test/s01-pre-authored.md',
+              'spec_source': 'existing',
+              'spec_confidence': 0,
+            }),
+          ),
+          'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
+          'integrated-review' => _StubResponse(
+            assistantContent: _contextOutput(
+              _reviewReportContext(
+                queued.stepKey,
+                runtimeArtifactsDir: _runtimeArtifactsDirForTask(queued.task, tempDir.path),
+                findingsCount: 0,
+              ),
+            ),
           ),
           'architecture-review' => _architectureReviewStub(),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -564,10 +609,55 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.descriptionsByStep['spec']!.single, contains('DISCOVER_MARKER'));
-    expect(trace.descriptionsByStep['implement']!.single, contains('docs/specs/test/spec.md'));
-    expect(trace.descriptionsByStep['integrated-review']!.single, contains('IMPLEMENT_DIFF_MARKER'));
-    _expectReviewOutputDir(trace.descriptionsByStep['integrated-review']!.single);
+    // Reuse path: spec emitted confidence 0; revise-spec must not run.
+    expect(trace.tasksForStep('revise-spec'), isEmpty);
+    // Downstream steps still execute against the reused spec.
+    expect(trace.tasksForStep('implement').single.description, contains('dev/specs/test/s01-pre-authored.md'));
+    expect(trace.tasksForStep('integrated-review'), isNotEmpty);
+  });
+
+  test('spec-and-implement: revise-spec runs when synthesized spec has low confidence', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'spec-and-implement.yaml',
+      variables: {'FEATURE': 'A vague feature description', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'spec' => _StubResponse(
+            assistantContent: _contextOutput({
+              'spec_path': 'docs/specs/test/spec.md',
+              'spec_source': 'synthesized',
+              'spec_confidence': 4,
+            }),
+          ),
+          // revise-spec declares no `outputs:` – it edits the FIS in place.
+          // An empty workflow-context payload is enough to satisfy the protocol.
+          'revise-spec' => _StubResponse(assistantContent: _contextOutput(const {})),
+          'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
+          'integrated-review' => _StubResponse(
+            assistantContent: _contextOutput(
+              _reviewReportContext(
+                queued.stepKey,
+                runtimeArtifactsDir: _runtimeArtifactsDirForTask(queued.task, tempDir.path),
+                findingsCount: 0,
+              ),
+            ),
+          ),
+          'architecture-review' => _architectureReviewStub(),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.tasksForStep('revise-spec'), hasLength(1));
+    // Downstream pipeline must still execute after the revise-spec detour.
+    expect(trace.tasksForStep('implement'), hasLength(1));
+    expect(trace.tasksForStep('integrated-review'), hasLength(1));
+    expect(trace.tasksForStep('architecture-review'), hasLength(1));
+    // Step order: revise-spec runs after spec and before implement.
+    final order = trace.queuedStepOrder;
+    expect(order.indexOf('spec'), lessThan(order.indexOf('revise-spec')));
+    expect(order.indexOf('revise-spec'), lessThan(order.indexOf('implement')));
   });
 
   test('spec-and-implement integration binds project-aware steps to the workflow PROJECT', () async {
@@ -576,14 +666,6 @@ void main() {
       variables: {'FEATURE': 'Project binding check', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'dart',
-              'project_root': '/repo/demo-project',
-              'document_locations': {'product': 'PRODUCT.md'},
-              'state_protocol': {'state_file': 'docs/STATE.md'},
-            }),
-          ),
           'spec' => _StubResponse(
             assistantContent: _contextOutput({
               'spec_path': 'docs/specs/test/spec.md',
@@ -613,7 +695,6 @@ void main() {
               ),
             ),
           ),
-          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _architectureReviewStub(),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
@@ -621,31 +702,21 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
     expect(trace.tasksForStep('spec').single.projectId, 'demo-project');
     expect(trace.tasksForStep('spec').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('spec').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('integrated-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('remediate'), isEmpty);
-    expect(trace.tasksForStep('update-state'), isEmpty);
     expect(trace.tasksForStep('integrated-review').single.configJson['_workflowNeedsWorktree'], isTrue);
   });
 
-  test('spec-and-implement integration keeps discovery read-only and file-backed reviews writable', () async {
+  test('spec-and-implement integration keeps file-backed reviews writable', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': 'Read-only policy check', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'dart',
-              'project_root': '/repo/demo-project',
-              'document_locations': {'product': 'PRODUCT.md'},
-              'state_protocol': {'state_file': 'docs/STATE.md'},
-            }),
-          ),
           'spec' => _StubResponse(
             assistantContent: _contextOutput({
               'spec_path': 'docs/specs/test/spec.md',
@@ -675,7 +746,6 @@ void main() {
               ),
             ),
           ),
-          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _architectureReviewStub(),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
@@ -683,10 +753,6 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-
-    final discover = trace.tasksForStep('discover-project').single;
-    expect(discover.configJson['readOnly'], isTrue);
-    expect(discover.configJson['allowedTools'], ['shell', 'file_read']);
 
     expect(trace.tasksForStep('integrated-review').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('integrated-review').single.configJson['_workflowNeedsWorktree'], isTrue);
@@ -695,24 +761,15 @@ void main() {
     expect(trace.tasksForStep('spec').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('implement').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('remediate'), isEmpty);
-    expect(trace.tasksForStep('update-state'), isEmpty);
   });
 
-  test('spec-and-implement discovery prompt excludes authored feature text', () async {
-    const feature = 'FEATURE_SHOULD_NOT_APPEAR_IN_DISCOVERY_PROMPT';
+  test('spec-and-implement: spec step receives FEATURE but does not leak BRANCH text', () async {
+    const feature = 'FEATURE_SENTINEL_VALUE';
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': feature, 'PROJECT': 'demo-project', 'BRANCH': 'feature/discovery-baseline'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'none',
-              'project_root': '/repo/demo-project',
-              'document_locations': {'product': null},
-              'state_protocol': {'type': 'none'},
-            }),
-          ),
           'spec' => _StubResponse(
             assistantContent: _contextOutput({
               'spec_path': 'docs/specs/test/spec.md',
@@ -742,19 +799,18 @@ void main() {
               ),
             ),
           ),
-          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
           'architecture-review' => _architectureReviewStub(),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
     );
 
-    // discover-project receives FEATURE via workflowVariables so it can fast-path
-    // when the input resolves to a pre-authored FIS file.
-    final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains("Use the 'dartclaw-discover-project' skill."));
-    expect(discover, contains('<FEATURE>\n$feature\n</FEATURE>'));
-    expect(discover, isNot(contains('feature/discovery-baseline')));
+    // spec opts in to FEATURE via workflowVariables; the spec step's prompt
+    // explicitly inlines `{{FEATURE}}` so the value flows in directly rather
+    // than via an auto-framed <FEATURE>…</FEATURE> block. BRANCH must not leak.
+    final spec = trace.tasksForStep('spec').single.description;
+    expect(spec, contains('--auto $feature'));
+    expect(spec, isNot(contains('feature/discovery-baseline')));
   });
 
   test(
@@ -762,18 +818,9 @@ void main() {
     () async {
       final trace = await executeBuiltInWorkflow(
         workflowFileName: 'spec-and-implement.yaml',
-        variables: {'FEATURE': 'Refactor workflows', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+        variables: {'FEATURE': 'Simplify-code workflows', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
         responseForStep: (queued) async {
           return switch (queued.stepKey) {
-            'discover-project' => _StubResponse(
-              assistantContent: jsonEncode({
-                'framework': 'dart',
-                'project_root': '/repo/demo',
-                'document_locations': {'product': 'PRODUCT.md'},
-                'state_protocol': {'state_file': 'docs/STATE.md'},
-                'marker': 'DISCOVER_LOOP_MARKER',
-              }),
-            ),
             'spec' => _StubResponse(
               assistantContent: _contextOutput({
                 'spec_path': 'docs/specs/test/spec-loop.md',
@@ -806,9 +853,6 @@ void main() {
                 ),
               ),
             ),
-            'update-state' => _StubResponse(
-              assistantContent: _contextOutput({'state_update_summary': 'State updated after remediation'}),
-            ),
             'architecture-review' => _architectureReviewStub(),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
@@ -820,86 +864,73 @@ void main() {
       expect(trace.count('re-review'), 1);
       expect(
         trace.descriptionsByStep['remediate']!.single,
-        contains('/runtime-artifacts/reviews/integrated-review-codex-2026-04-29.md'),
+        contains('/runtime-artifacts/reviews/aggregated-review-aggregate.md'),
       );
-      expect(trace.descriptionsByStep['remediate']!.single, isNot(contains('architecture-review-codex')));
-      expect(trace.descriptionsByStep['re-review']!.single, contains('LOOP_DIFF_MARKER_AFTER_FIX'));
       _expectReviewOutputDir(trace.descriptionsByStep['re-review']!.single);
     },
   );
 
-  test('spec-and-implement remediates fresh re-review findings after an architecture-only first pass', () async {
-    final trace = await executeBuiltInWorkflow(
-      workflowFileName: 'spec-and-implement.yaml',
-      variables: {'FEATURE': 'Harden remediation loop', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async {
-        return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'dart',
-              'project_root': '/repo/demo',
-              'document_locations': {'product': 'PRODUCT.md'},
-              'state_protocol': {'state_file': 'docs/STATE.md'},
-            }),
-          ),
-          'spec' => _StubResponse(
-            assistantContent: _contextOutput({
-              'spec_path': 'docs/specs/test/spec-loop.md',
-              'spec_source': 'synthesized',
-              'spec_confidence': 9,
-            }),
-          ),
-          'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'ARCH_ONLY_DIFF'})),
-          'integrated-review' => _StubResponse(
-            assistantContent: _contextOutput(
-              _reviewReportContext(
-                queued.stepKey,
-                runtimeArtifactsDir: _runtimeArtifactsDirForTask(queued.task, tempDir.path),
-                findingsCount: 0,
+  test(
+    'spec-and-implement narrows to the re-review report after the first remediation pass clears architecture inputs',
+    () async {
+      final trace = await executeBuiltInWorkflow(
+        workflowFileName: 'spec-and-implement.yaml',
+        variables: {'FEATURE': 'Harden remediation loop', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+        responseForStep: (queued) async {
+          return switch (queued.stepKey) {
+            'spec' => _StubResponse(
+              assistantContent: _contextOutput({
+                'spec_path': 'docs/specs/test/spec-loop.md',
+                'spec_source': 'synthesized',
+                'spec_confidence': 9,
+              }),
+            ),
+            'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'ARCH_ONLY_DIFF'})),
+            'integrated-review' => _StubResponse(
+              assistantContent: _contextOutput(
+                _reviewReportContext(
+                  queued.stepKey,
+                  runtimeArtifactsDir: _runtimeArtifactsDirForTask(queued.task, tempDir.path),
+                  findingsCount: 0,
+                ),
               ),
             ),
-          ),
-          'architecture-review' => _architectureReviewStub(findingsCount: 1),
-          'remediate-architecture' => _StubResponse(
-            assistantContent: _contextOutput({
-              'architecture_remediation_summary': 'Fixed the architecture finding',
-              'architecture_diff_summary': 'ARCH_ONLY_DIFF_AFTER_ARCH_FIX',
-            }),
-          ),
-          'remediate' => _StubResponse(
-            assistantContent: _contextOutput({
-              'remediation_summary': 'Fixed the re-review finding',
-              'diff_summary': 'ARCH_ONLY_DIFF_AFTER_REREVIEW_FIX',
-            }),
-          ),
-          're-review' => _StubResponse(
-            assistantContent: _contextOutput(
-              _reviewReportContext(
-                queued.stepKey,
-                runtimeArtifactsDir: _runtimeArtifactsDirForTask(queued.task, tempDir.path),
-                findingsCount: queued.occurrence == 0 ? 1 : 0,
+            'architecture-review' => _architectureReviewStub(findingsCount: 1),
+            'remediate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'remediation_summary': 'Fixed the findings',
+                'diff_summary': queued.occurrence == 0
+                    ? 'ARCH_ONLY_DIFF_AFTER_FIRST_FIX'
+                    : 'ARCH_ONLY_DIFF_AFTER_REREVIEW_FIX',
+              }),
+            ),
+            're-review' => _StubResponse(
+              assistantContent: _contextOutput(
+                _reviewReportContext(
+                  queued.stepKey,
+                  runtimeArtifactsDir: _runtimeArtifactsDirForTask(queued.task, tempDir.path),
+                  findingsCount: queued.occurrence == 0 ? 1 : 0,
+                ),
               ),
             ),
-          ),
-          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-        };
-      },
-    );
+            _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+          };
+        },
+      );
 
-    expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
-    expect(trace.count('remediate-architecture'), 1);
-    expect(trace.count('remediate'), 1);
-    expect(trace.count('re-review'), 2);
-    expect(
-      trace.descriptionsByStep['remediate-architecture']!.single,
-      contains('docs/specs/test/architecture-review-codex-2026-04-29.md'),
-    );
-    expect(
-      trace.descriptionsByStep['remediate']!.single,
-      contains('/runtime-artifacts/reviews/re-review-codex-2026-04-29.md'),
-    );
-    expect(trace.descriptionsByStep['remediate']!.single, isNot(contains('architecture-review-codex')));
-  });
+      expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
+      expect(trace.count('remediate'), 2);
+      expect(trace.count('re-review'), 2);
+      // Iteration 1: the aggregator collapses integrated + architecture reports
+      // into a single file path for remediation.
+      final firstRemediate = trace.descriptionsByStep['remediate']![0];
+      expect(firstRemediate, contains('/runtime-artifacts/reviews/aggregated-review-aggregate.md'));
+      // Iteration 2: the loop consumes only the fresh re-review report.
+      final secondRemediate = trace.descriptionsByStep['remediate']![1];
+      expect(secondRemediate, contains('/runtime-artifacts/reviews/re-review-codex-2026-04-29.md'));
+      expect(secondRemediate, isNot(contains('architecture-review-codex')));
+    },
+  );
 
   test(
     'spec-and-implement commits generated artifacts to a local-path workflow branch and publishes to origin',
@@ -935,10 +966,10 @@ void main() {
         reserveTurn: (_) async => 'turn-1',
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
         waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
           workflowBranch = 'workflow/$runId';
           runGit(['checkout', '-b', workflowBranch!, baseRef]);
-          return WorkflowGitBootstrapResult(integrationBranch: workflowBranch!);
+          return WorkflowGitIntegrationBranchResult(integrationBranch: workflowBranch!);
         },
         promoteWorkflowBranch:
             ({
@@ -967,14 +998,6 @@ void main() {
         turnAdapter: turnAdapter,
         responseForStep: (queued) async {
           return switch (queued.stepKey) {
-            'discover-project' => _StubResponse(
-              assistantContent: jsonEncode({
-                'framework': 'dart',
-                'project_root': repoDir.path,
-                'document_locations': {'product': 'PRODUCT.md'},
-                'state_protocol': {'state_file': 'docs/STATE.md'},
-              }),
-            ),
             'spec' => () {
               final specFile = File(p.join(repoDir.path, 'docs', 'specs', 'test', 'spec.md'));
               specFile.parent.createSync(recursive: true);
@@ -1017,9 +1040,6 @@ void main() {
                 ),
               ),
             ),
-            'update-state' => _StubResponse(
-              assistantContent: _contextOutput({'state_update_summary': 'State updated cleanly'}),
-            ),
             'architecture-review' => _architectureReviewStub(),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
@@ -1054,15 +1074,10 @@ void main() {
   test('plan-and-implement integration runs per-story foreach pipeline after merged plan step', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
-      variables: {
-        'REQUIREMENTS': 'Ship validate step',
-        'PROJECT': 'demo-project',
-        'BRANCH': 'main',
-        'MAX_PARALLEL': '1',
-      },
+      variables: {'FEATURE': 'Ship validate step', 'PROJECT': 'demo-project', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
+          'discover-plan-state' => _StubResponse(
             assistantContent: jsonEncode({
               'framework': 'dart',
               'project_root': '/repo/demo',
@@ -1119,6 +1134,8 @@ void main() {
                     'key_files': ['lib/a.dart'],
                     'effort': 'small',
                     'spec_path': 'docs/specs/test/fis/s01-story-one.md',
+                    'fis_source': 'synthesized',
+                    'spec_confidence': 5,
                   },
                   {
                     'id': 'S02',
@@ -1130,11 +1147,14 @@ void main() {
                     'key_files': ['lib/b.dart'],
                     'effort': 'small',
                     'spec_path': 'docs/specs/test/fis/s02-story-two.md',
+                    'fis_source': 'existing',
+                    'spec_confidence': 0,
                   },
                 ],
               },
             }),
           ),
+          'revise-story-spec' => _StubResponse(assistantContent: _contextOutput({})),
           'implement' => _StubResponse(
             assistantContent: _contextOutput({
               'story_result': 'STORY_RESULT_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
@@ -1145,13 +1165,8 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          // quick-review is now an authored per-story step (not a runtime-synthesized task).
-          'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'quick_review_summary': 'No issues for ${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
-              'quick_review_findings_count': 0,
-            }),
-          ),
+          // quick-review declares no outputs in plan-and-implement.yaml.
+          'quick-review' => _StubResponse(assistantContent: _contextOutput({})),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
               'implementation_summary': 'Both stories merged successfully',
@@ -1173,6 +1188,7 @@ void main() {
               'remediation_plan': 'No further batch remediation needed',
               'findings_count': 0,
               're-review.findings_count': 0,
+              'gating_findings_count': 0,
               're-review.gating_findings_count': 0,
             }),
           ),
@@ -1185,22 +1201,40 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
-    // prd runs once; merged plan emits stories + story_specs once; foreach runs per story.
-    expect(trace.count('prd'), 1);
-    expect(trace.count('review-prd'), 0);
+    // PRD is discovered input; merged plan emits stories + story_specs once; foreach runs per story.
+    expect(trace.count('prd'), 0);
     expect(trace.count('plan'), 1);
     // The PRD path is passed through to the plan step unchanged.
     expect(trace.descriptionsByStep['plan']!.single, contains('docs/specs/test/prd.md'));
+    expect(trace.count('revise-story-spec'), 1);
     expect(trace.count('implement'), 2);
     expect(trace.count('quick-review'), 2);
     expect(trace.count('plan-review'), 1);
+
+    // Per-iteration `continueSession` isolation guard: each iteration's
+    // quick-review must inherit a *distinct* implement session id, never the
+    // prior iteration's. Foreach runs each iteration in a fresh iterContext
+    // so the bare `${implement.id}.sessionId` never bleeds across iterations;
+    // this assertion is the runtime check that proves that structural property.
+    final quickReviewTasks = trace.tasksForStep('quick-review');
+    expect(quickReviewTasks, hasLength(2));
+    final iter0SessionId = quickReviewTasks[0].configJson['_continueSessionId'];
+    final iter1SessionId = quickReviewTasks[1].configJson['_continueSessionId'];
+    expect(iter0SessionId, isNotNull, reason: 'iteration 0 quick-review should resolve a continueSessionId');
+    expect(iter1SessionId, isNotNull, reason: 'iteration 1 quick-review should resolve a continueSessionId');
+    expect(
+      iter0SessionId,
+      isNot(equals(iter1SessionId)),
+      reason: 'per-iteration session isolation: continueSession must resolve to distinct ids across iterations',
+    );
 
     // Per-story results are aggregated in story_results from the foreach controller outputs.
     final storyResults = trace.context['story_results'] as List<dynamic>;
@@ -1215,14 +1249,14 @@ void main() {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
-        'REQUIREMENTS': 'Project binding check for plan workflow',
+        'FEATURE': 'Project binding check for plan workflow',
         'PROJECT': 'demo-project',
         'BRANCH': 'main',
         'MAX_PARALLEL': '1',
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
+          'discover-plan-state' => _StubResponse(
             assistantContent: jsonEncode({
               'framework': 'dart',
               'project_root': '/repo/demo-project',
@@ -1281,7 +1315,8 @@ void main() {
             },
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+            // quick-review declares no outputs in plan-and-implement.yaml.
+            assistantContent: _contextOutput({}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -1301,6 +1336,7 @@ void main() {
               'remediation_plan': 'No further remediation',
               'findings_count': 0,
               're-review.findings_count': 0,
+              'gating_findings_count': 0,
               're-review.gating_findings_count': 0,
             }),
           ),
@@ -1311,19 +1347,16 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
-    expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('prd').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueSessionId'), isFalse);
-    expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
-    expect(trace.tasksForStep('discover-project').single.type, TaskType.coding);
-    expect(trace.tasksForStep('prd').single.type, TaskType.coding);
+    expect(trace.tasksForStep('discover-plan-state').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('discover-plan-state').single.type, TaskType.coding);
     expect(trace.tasksForStep('plan').single.projectId, 'demo-project');
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
@@ -1333,7 +1366,7 @@ void main() {
     expect(trace.tasksForStep('quick-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('quick-review').single.type, TaskType.coding);
     // quick-review uses `continueSession: true` to pin to the implement task's
-    // harness session — the dispatcher must have threaded the prior root's
+    // harness session – the dispatcher must have threaded the prior root's
     // session id through `_continueSessionId`. Provider-session id only
     // propagates when the implement task actually emitted one (the test stub
     // does not, so that key stays absent).
@@ -1351,14 +1384,14 @@ void main() {
       final trace = await executeBuiltInWorkflow(
         workflowFileName: 'plan-and-implement.yaml',
         variables: {
-          'REQUIREMENTS': 'Per-map-item worktree flag check',
+          'FEATURE': 'Per-map-item worktree flag check',
           'PROJECT': 'demo-project',
           'BRANCH': 'main',
           'MAX_PARALLEL': '2',
         },
         responseForStep: (queued) async {
           return switch (queued.stepKey) {
-            'discover-project' => _StubResponse(
+            'discover-plan-state' => _StubResponse(
               assistantContent: jsonEncode({
                 'framework': 'none',
                 'project_root': '/repo/demo-project',
@@ -1406,7 +1439,8 @@ void main() {
               },
             ),
             'quick-review' => _StubResponse(
-              assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+              // quick-review declares no outputs in plan-and-implement.yaml.
+              assistantContent: _contextOutput({}),
             ),
             'plan-review' => _StubResponse(
               assistantContent: _contextOutput({
@@ -1426,6 +1460,7 @@ void main() {
                 'remediation_plan': 'No further remediation',
                 'findings_count': 0,
                 're-review.findings_count': 0,
+                'gating_findings_count': 0,
                 're-review.gating_findings_count': 0,
               }),
             ),
@@ -1436,9 +1471,8 @@ void main() {
                 'architecture-review.gating_findings_count': 0,
               }),
             ),
-            'refactor' => _StubResponse(
-              assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
-            ),
+            // simplify-code declares no outputs in plan-and-implement.yaml.
+            'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
         },
@@ -1453,24 +1487,23 @@ void main() {
     },
   );
 
-  test('plan-and-implement discovery prompt excludes authored requirements text', () async {
-    const requirements = 'REQUIREMENTS_SHOULD_NOT_APPEAR_IN_DISCOVERY_PROMPT';
+  test('plan-and-implement discovery prompt excludes authored feature text', () async {
+    const feature = 'FEATURE_SHOULD_NOT_APPEAR_IN_DISCOVERY_PROMPT';
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
-        'REQUIREMENTS': requirements,
+        'FEATURE': feature,
         'PROJECT': 'demo-project',
         'BRANCH': 'feature/discovery-baseline',
         'MAX_PARALLEL': '1',
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'none',
-              'project_root': '/repo/demo-project',
-              'document_locations': {'product': null},
-              'state_protocol': {'type': 'none'},
+          'discover-plan-state' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/test/prd.md',
+              'plan': '',
+              'story_specs': {'items': <Map<String, dynamic>>[]},
             }),
           ),
           'prd' => _StubResponse(assistantContent: _contextOutput({'prd': '# PRD\n\nDISCOVERY_SCOPE_PRD'})),
@@ -1516,7 +1549,8 @@ void main() {
             },
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+            // quick-review declares no outputs in plan-and-implement.yaml.
+            assistantContent: _contextOutput({}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -1536,6 +1570,7 @@ void main() {
               'remediation_plan': 'No further remediation',
               'findings_count': 0,
               're-review.findings_count': 0,
+              'gating_findings_count': 0,
               're-review.gating_findings_count': 0,
             }),
           ),
@@ -1546,28 +1581,29 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
     );
 
-    // discover-project receives REQUIREMENTS via workflowVariables so it can
+    // discover-plan-state receives FEATURE via workflowVariables so it can
     // fast-path when the input resolves to a pre-authored PRD/plan file.
-    final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains("Use the 'dartclaw-discover-project' skill."));
-    expect(discover, contains('<REQUIREMENTS>\n$requirements\n</REQUIREMENTS>'));
+    final discover = trace.tasksForStep('discover-plan-state').single.description;
+    expect(discover, contains("Use the 'dartclaw-discover-andthen-plan' skill."));
+    expect(discover, contains(feature));
     expect(discover, isNot(contains('feature/discovery-baseline')));
   });
 
-  test('plan-and-implement threads authored requirements only into the prd step', () async {
-    const requirements = 'Create exactly two thin note stories from this request.';
+  test('plan-and-implement threads authored feature only into discovery', () async {
+    const feature = 'Create exactly two thin note stories from this request.';
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
-      variables: {'REQUIREMENTS': requirements, 'PROJECT': 'demo-project', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
+      variables: {'FEATURE': feature, 'PROJECT': 'demo-project', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
+          'discover-plan-state' => _StubResponse(
             assistantContent: jsonEncode({
               'framework': 'none',
               'project_root': '/repo/demo-project',
@@ -1592,7 +1628,7 @@ void main() {
                     'id': 'S01',
                     'title': 'Thin Story',
                     'spec_path': 'docs/specs/demo/fis/s01-thin-story.md',
-                    'acceptance_criteria': ['prompt includes authored requirements'],
+                    'acceptance_criteria': ['prompt includes authored feature'],
                     'dependencies': <String>[],
                   },
                 ],
@@ -1608,7 +1644,8 @@ void main() {
             },
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+            // quick-review declares no outputs in plan-and-implement.yaml.
+            assistantContent: _contextOutput({}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -1628,6 +1665,7 @@ void main() {
               'remediation_plan': 'No further remediation',
               'findings_count': 0,
               're-review.findings_count': 0,
+              'gating_findings_count': 0,
               're-review.gating_findings_count': 0,
             }),
           ),
@@ -1638,40 +1676,35 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
     );
 
-    final discover = trace.tasksForStep('discover-project').single.description;
-    final prd = trace.tasksForStep('prd').single.description;
+    final discover = trace.tasksForStep('discover-plan-state').single.description;
     final plan = trace.tasksForStep('plan').single.description;
 
-    // Both `prd` and `discover-project` opt in to REQUIREMENTS via
-    // `workflowVariables: [REQUIREMENTS]`. Promptless discovery gets the
-    // variable auto-framed, while `prd` passes it as the explicit skill input
-    // with --auto. The plan step and all downstream steps must not receive the
-    // raw requirements string.
-    expect(discover, contains('<REQUIREMENTS>\n$requirements\n</REQUIREMENTS>'));
-    expect(prd, contains('--auto $requirements'));
-    expect(prd, isNot(contains('<REQUIREMENTS>')));
-    expect(plan, isNot(contains(requirements)));
-    expect(plan, isNot(contains('<REQUIREMENTS>')));
+    // Discovery opts in to FEATURE as a path/context hint. The plan step
+    // and all downstream steps must not receive the raw feature string.
+    expect(discover, contains(feature));
+    expect(plan, isNot(contains(feature)));
+    expect(plan, isNot(contains('<FEATURE>')));
   });
 
   test('plan-and-implement normalizes relative story spec paths against the emitted plan path', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
-        'REQUIREMENTS': 'Normalize story spec paths',
+        'FEATURE': 'Normalize story spec paths',
         'PROJECT': 'demo-project',
         'BRANCH': 'main',
         'MAX_PARALLEL': '1',
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
+          'discover-plan-state' => _StubResponse(
             assistantContent: jsonEncode({
               'framework': 'none',
               'project_root': '/repo/demo-project',
@@ -1712,7 +1745,8 @@ void main() {
             },
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+            // quick-review declares no outputs in plan-and-implement.yaml.
+            assistantContent: _contextOutput({}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -1732,6 +1766,7 @@ void main() {
               'remediation_plan': 'No further remediation',
               'findings_count': 0,
               're-review.findings_count': 0,
+              'gating_findings_count': 0,
               're-review.gating_findings_count': 0,
             }),
           ),
@@ -1742,7 +1777,8 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1758,22 +1794,18 @@ void main() {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
-        'REQUIREMENTS': 'Reuse an existing PRD only',
+        'FEATURE': 'Reuse an existing PRD only',
         'PROJECT': 'demo-project',
         'BRANCH': 'main',
         'MAX_PARALLEL': '1',
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
+          'discover-plan-state' => _StubResponse(
             assistantContent: _contextOutput({
-              'project_index': {
-                'framework': 'dart',
-                'project_root': '/repo/demo-project',
-                'document_locations': {'product': 'PRODUCT.md', 'prd': 'docs/specs/reused/prd.md'},
-                'active_prd': 'docs/specs/reused/prd.md',
-                'state_protocol': {'state_file': 'docs/STATE.md'},
-              },
+              'prd': 'docs/specs/reused/prd.md',
+              'plan': '',
+              'story_specs': {'items': <Map<String, dynamic>>[]},
             }),
           ),
           'plan' => _StubResponse(
@@ -1800,7 +1832,8 @@ void main() {
             },
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+            // quick-review declares no outputs in plan-and-implement.yaml.
+            assistantContent: _contextOutput({}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -1816,7 +1849,8 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1828,31 +1862,22 @@ void main() {
     expect(trace.descriptionsByStep['plan']!.single, contains('docs/specs/reused/prd.md'));
   });
 
-  test('plan-and-implement reruns plan when active_story_specs is missing for a reused plan', () async {
+  test('plan-and-implement replans when an empty discovered story catalog is unproven', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
-        'REQUIREMENTS': 'Recover a reused plan without a discovered story catalog',
+        'FEATURE': 'Recover a reused plan without a discovered story catalog',
         'PROJECT': 'demo-project',
         'BRANCH': 'main',
         'MAX_PARALLEL': '1',
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
+          'discover-plan-state' => _StubResponse(
             assistantContent: _contextOutput({
-              'project_index': {
-                'framework': 'dart',
-                'project_root': '/repo/demo-project',
-                'document_locations': {
-                  'product': 'PRODUCT.md',
-                  'prd': 'docs/specs/reused/prd.md',
-                  'plan': 'docs/specs/reused/plan.md',
-                },
-                'active_prd': 'docs/specs/reused/prd.md',
-                'active_plan': 'docs/specs/reused/plan.md',
-                'state_protocol': {'state_file': 'docs/STATE.md'},
-              },
+              'prd': 'docs/specs/reused/prd.md',
+              'plan': 'docs/specs/reused/plan.md',
+              'story_specs': {'items': <Map<String, dynamic>>[]},
             }),
           ),
           'plan' => _StubResponse(
@@ -1879,7 +1904,8 @@ void main() {
             },
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+            // quick-review declares no outputs in plan-and-implement.yaml.
+            assistantContent: _contextOutput({}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -1895,7 +1921,8 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -1903,34 +1930,71 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.count('prd'), 0, reason: 'an existing active plan should suppress PRD synthesis');
-    expect(
-      trace.count('plan'),
-      1,
-      reason: 'missing active_story_specs should force the plan step to republish the catalog',
-    );
+    expect(trace.count('plan'), 1, reason: 'a markdown plan cannot prove every story is terminal');
     expect(trace.count('implement'), 1);
   });
 
-  test('plan-and-implement still drafts a PRD when only an active plan path was discovered', () async {
+  test('plan-and-implement resumes all-closed plans without replanning or story work', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
-        'REQUIREMENTS': 'Recover a discovered plan path without an active PRD',
+        'FEATURE': 'Resume a completed plan',
         'PROJECT': 'demo-project',
         'BRANCH': 'main',
         'MAX_PARALLEL': '1',
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
+          'discover-plan-state' => _StubResponse(
             assistantContent: _contextOutput({
-              'project_index': {
-                'framework': 'dart',
-                'project_root': '/repo/demo-project',
-                'document_locations': {'product': 'PRODUCT.md', 'plan': 'docs/specs/reused/plan.md'},
-                'active_plan': 'docs/specs/reused/plan.md',
-                'state_protocol': {'state_file': 'docs/STATE.md'},
-              },
+              'prd': 'docs/specs/closed/prd.md',
+              'plan': 'docs/specs/closed/plan.json',
+              'story_specs': {'items': <Map<String, dynamic>>[]},
+            }),
+          ),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
+            }),
+          ),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
+          ),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.count('prd'), 0, reason: 'discovery supplied the existing PRD');
+    expect(trace.count('plan'), 0, reason: 'an empty discovered story catalog means all stories are closed');
+    expect(trace.count('implement'), 0);
+    expect(trace.count('quick-review'), 0);
+    expect(trace.count('simplify-code'), 0);
+    expect(trace.count('plan-review'), 1);
+  });
+
+  test('plan-and-implement uses the required PRD path when only an active plan path was discovered', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'FEATURE': 'Recover a discovered plan path without an active PRD',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-plan-state' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/test/prd.md',
+              'plan': 'docs/specs/reused/plan.md',
+              'story_specs': {'items': <Map<String, dynamic>>[]},
             }),
           ),
           'prd' => _StubResponse(
@@ -1964,7 +2028,8 @@ void main() {
             },
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+            // quick-review declares no outputs in plan-and-implement.yaml.
+            assistantContent: _contextOutput({}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -1980,47 +2045,43 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.count('prd'), 1, reason: 'an active plan path without an active PRD still needs PRD synthesis');
-    expect(trace.count('plan'), 1, reason: 'missing active_story_specs should still force plan republishing');
-    expect(trace.descriptionsByStep['plan']!.single, contains('docs/specs/reused/prd.md'));
+    expect(trace.count('prd'), 0, reason: 'plan-and-implement now requires PRD discovery instead of synthesis');
+    expect(trace.count('plan'), 1, reason: 'a markdown plan cannot prove the empty story catalog is exhausted');
+    expect(trace.count('implement'), 1);
   });
 
-  test('plan-and-implement still drafts a PRD when an executable reused plan lacks an active PRD', () async {
+  test('plan-and-implement reuses an executable plan with discovered PRD fallback', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
-        'REQUIREMENTS': 'Repair a missing PRD while reusing an executable plan',
+        'FEATURE': 'Repair a missing PRD while reusing an executable plan',
         'PROJECT': 'demo-project',
         'BRANCH': 'main',
         'MAX_PARALLEL': '1',
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
+          'discover-plan-state' => _StubResponse(
             assistantContent: _contextOutput({
-              'project_index': {
-                'framework': 'dart',
-                'project_root': '/repo/demo-project',
-                'document_locations': {'product': 'PRODUCT.md', 'plan': 'docs/specs/reused/plan.md'},
-                'active_plan': 'docs/specs/reused/plan.md',
-                'active_story_specs': {
-                  'items': [
-                    {
-                      'id': 'S01',
-                      'title': 'Existing Story',
-                      'spec_path': 'docs/specs/reused/fis/s01-existing-story.md',
-                      'dependencies': <String>[],
-                    },
-                  ],
-                },
-                'state_protocol': {'state_file': 'docs/STATE.md'},
+              'prd': 'docs/specs/test/prd.md',
+              'plan': 'docs/specs/reused/plan.md',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Existing Story',
+                    'spec_path': 'docs/specs/reused/fis/s01-existing-story.md',
+                    'dependencies': <String>[],
+                  },
+                ],
               },
             }),
           ),
@@ -2040,7 +2101,8 @@ void main() {
             },
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+            // quick-review declares no outputs in plan-and-implement.yaml.
+            assistantContent: _contextOutput({}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -2056,14 +2118,15 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.count('prd'), 1, reason: 'missing active_prd should still trigger PRD synthesis');
+    expect(trace.count('prd'), 0, reason: 'plan-and-implement now requires PRD discovery instead of synthesis');
     expect(trace.count('plan'), 0, reason: 'the executable reused plan should still be reused');
   });
 
@@ -2071,36 +2134,26 @@ void main() {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
-        'REQUIREMENTS': 'Normalize reused-plan story spec paths',
+        'FEATURE': 'Normalize reused-plan story spec paths',
         'PROJECT': 'demo-project',
         'BRANCH': 'main',
         'MAX_PARALLEL': '1',
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
+          'discover-plan-state' => _StubResponse(
             assistantContent: _contextOutput({
-              'project_index': {
-                'framework': 'dart',
-                'project_root': '/repo/demo-project',
-                'document_locations': {
-                  'product': 'PRODUCT.md',
-                  'prd': 'docs/specs/reused/prd.md',
-                  'plan': 'docs/specs/reused/plan.md',
-                },
-                'active_prd': 'docs/specs/reused/prd.md',
-                'active_plan': 'docs/specs/reused/plan.md',
-                'active_story_specs': {
-                  'items': [
-                    {
-                      'id': 'S01',
-                      'title': 'Relative Story',
-                      'spec_path': 'fis/s01-relative-story.md',
-                      'dependencies': <String>[],
-                    },
-                  ],
-                },
-                'state_protocol': {'state_file': 'docs/STATE.md'},
+              'prd': 'docs/specs/reused/prd.md',
+              'plan': 'docs/specs/reused/plan.md',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Relative Story',
+                    'spec_path': 'fis/s01-relative-story.md',
+                    'dependencies': <String>[],
+                  },
+                ],
               },
             }),
           ),
@@ -2113,7 +2166,8 @@ void main() {
             },
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+            // quick-review declares no outputs in plan-and-implement.yaml.
+            assistantContent: _contextOutput({}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -2129,7 +2183,8 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -2142,20 +2197,98 @@ void main() {
     expect(implementPrompt, isNot(contains('(story 1 of 1):')));
   });
 
+  test('plan-and-implement drops terminal story specs emitted by discovery', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'FEATURE': 'Resume a partially completed plan',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-plan-state' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/resume/prd.md',
+              'plan': 'docs/specs/resume/plan.json',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Done Story',
+                    'spec_path': 'docs/specs/resume/fis/s01-done-story.md',
+                    'dependencies': <String>[],
+                    'status': 'done',
+                  },
+                  {
+                    'id': 'S02',
+                    'title': 'Skipped Story',
+                    'spec_path': 'docs/specs/resume/fis/s02-skipped-story.md',
+                    'dependencies': <String>[],
+                    'status': 'skipped',
+                  },
+                  {
+                    'id': 'S03',
+                    'title': 'Open Story',
+                    'spec_path': 'docs/specs/resume/fis/s03-open-story.md',
+                    'dependencies': <String>[],
+                    'status': 'spec-ready',
+                  },
+                ],
+              },
+            }),
+          ),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'Implemented the open story.'}),
+            worktreeJson: {
+              'branch': 'open-story',
+              'path': '/tmp/worktrees/open-story',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'quick-review' => _StubResponse(assistantContent: _contextOutput({})),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+              'plan-review.gating_findings_count': 0,
+            }),
+          ),
+          'architecture-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'architecture-review.findings_count': 0,
+              'architecture-review.gating_findings_count': 0,
+            }),
+          ),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.count('plan'), 0);
+    expect(trace.count('implement'), 1);
+    final implementPrompt = trace.tasksForStep('implement').single.description;
+    expect(implementPrompt, contains('docs/specs/resume/fis/s03-open-story.md'));
+    expect(implementPrompt, isNot(contains('s01-done-story.md')));
+    expect(implementPrompt, isNot(contains('s02-skipped-story.md')));
+  });
+
   test(
     'plan-and-implement integration enters remediation when plan-review finds issues and exits after re-validation',
     () async {
       final trace = await executeBuiltInWorkflow(
         workflowFileName: 'plan-and-implement.yaml',
         variables: {
-          'REQUIREMENTS': 'Loop until findings are cleared',
+          'FEATURE': 'Loop until findings are cleared',
           'PROJECT': 'demo-project',
           'BRANCH': 'main',
           'MAX_PARALLEL': '1',
         },
         responseForStep: (queued) async {
           return switch (queued.stepKey) {
-            'discover-project' => _StubResponse(
+            'discover-plan-state' => _StubResponse(
               assistantContent: jsonEncode({
                 'framework': 'dart',
                 'project_root': '/repo/demo',
@@ -2237,12 +2370,8 @@ void main() {
                 'createdAt': DateTime.now().toIso8601String(),
               },
             ),
-            'quick-review' => _StubResponse(
-              assistantContent: _contextOutput({
-                'quick_review_summary': 'Minor issues for ${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
-                'quick_review_findings_count': 0,
-              }),
-            ),
+            // quick-review declares no outputs in plan-and-implement.yaml.
+            'quick-review' => _StubResponse(assistantContent: _contextOutput({})),
             'plan-review' => _StubResponse(
               assistantContent: _contextOutput({
                 ..._reviewReportContext(
@@ -2266,6 +2395,7 @@ void main() {
                 'remediation_plan': 'No further remediation needed',
                 'findings_count': 0,
                 're-review.findings_count': 0,
+                'gating_findings_count': 0,
                 're-review.gating_findings_count': 0,
               }),
             ),
@@ -2278,9 +2408,8 @@ void main() {
                 'architecture-review.gating_findings_count': 0,
               }),
             ),
-            'refactor' => _StubResponse(
-              assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'}),
-            ),
+            // simplify-code declares no outputs in plan-and-implement.yaml.
+            'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
         },
@@ -2296,41 +2425,31 @@ void main() {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
-        'REQUIREMENTS': 'Execute a pre-authored plan',
+        'FEATURE': 'Execute a pre-authored plan',
         'PROJECT': 'demo-project',
         'BRANCH': 'main',
         'MAX_PARALLEL': '1',
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
+          'discover-plan-state' => _StubResponse(
             assistantContent: _contextOutput({
-              'project_index': {
-                'framework': 'dart',
-                'project_root': '/repo/demo-project',
-                'document_locations': {
-                  'product': 'PRODUCT.md',
-                  'prd': 'docs/specs/reused/prd.md',
-                  'plan': 'docs/specs/reused/plan.md',
-                },
-                'active_prd': 'docs/specs/reused/prd.md',
-                'active_plan': 'docs/specs/reused/plan.md',
-                'active_story_specs': {
-                  'items': [
-                    {
-                      'id': 'S01',
-                      'title': 'Existing Story',
-                      'description': 'Already planned story',
-                      'acceptance_criteria': ['passes review'],
-                      'type': 'coding',
-                      'dependencies': <String>[],
-                      'key_files': ['lib/existing.dart'],
-                      'effort': 'small',
-                      'spec_path': 'docs/specs/reused/fis/s01-existing-story.md',
-                    },
-                  ],
-                },
-                'state_protocol': {'state_file': 'docs/STATE.md'},
+              'prd': 'docs/specs/reused/prd.md',
+              'plan': 'docs/specs/reused/plan.md',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Existing Story',
+                    'description': 'Already planned story',
+                    'acceptance_criteria': ['passes review'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['lib/existing.dart'],
+                    'effort': 'small',
+                    'spec_path': 'docs/specs/reused/fis/s01-existing-story.md',
+                  },
+                ],
               },
             }),
           ),
@@ -2342,12 +2461,8 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'quick_review_summary': 'Story looks good',
-              'quick_review_findings_count': 0,
-            }),
-          ),
+          // quick-review declares no outputs in plan-and-implement.yaml.
+          'quick-review' => _StubResponse(assistantContent: _contextOutput({})),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
               ..._reviewReportContext(
@@ -2367,6 +2482,7 @@ void main() {
             assistantContent: _contextOutput({
               'findings_count': 0,
               're-review.findings_count': 0,
+              'gating_findings_count': 0,
               're-review.gating_findings_count': 0,
             }),
           ),
@@ -2379,16 +2495,17 @@ void main() {
               'architecture-review.gating_findings_count': 0,
             }),
           ),
-          'refactor' => _StubResponse(assistantContent: _contextOutput({'refactor_summary': 'No refactoring needed'})),
+          // simplify-code declares no outputs in plan-and-implement.yaml.
+          'simplify-code' => _StubResponse(assistantContent: _contextOutput({})),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.count('prd'), 0, reason: 'discover-project should fast-path the existing PRD');
+    expect(trace.count('prd'), 0, reason: 'discover-plan-state should fast-path the existing PRD');
     expect(trace.count('revise-prd'), 0, reason: 'reused PRDs should still skip revise-prd');
-    expect(trace.count('plan'), 0, reason: 'discover-project should fast-path the existing plan');
+    expect(trace.count('plan'), 0, reason: 'discover-plan-state should fast-path the existing plan');
     expect(trace.count('plan-review'), 1, reason: 'full implementation review should run for reused plans');
     expect(trace.count('remediate'), 1, reason: 'reused plans should still enter remediation when review finds issues');
     expect(trace.count('re-review'), 1);
@@ -2406,14 +2523,6 @@ void main() {
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'dart',
-              'project_root': '/repo/demo-project',
-              'document_locations': {'product': 'PRODUCT.md'},
-              'state_protocol': {'state_file': 'docs/STATE.md'},
-            }),
-          ),
           'review-code' => _StubResponse(
             assistantContent: _contextOutput(
               _reviewReportContext(
@@ -2448,7 +2557,6 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
     expect(trace.tasksForStep('review-code').single.projectId, 'demo-project');
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
@@ -2458,7 +2566,7 @@ void main() {
     expect(trace.tasksForStep('re-review'), isEmpty);
   });
 
-  test('code-review integration keeps discovery read-only and file-backed review writable', () async {
+  test('code-review integration keeps file-backed review writable', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'code-review.yaml',
       variables: {
@@ -2470,14 +2578,6 @@ void main() {
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'dart',
-              'project_root': '/repo/demo-project',
-              'document_locations': {'product': 'PRODUCT.md'},
-              'state_protocol': {'state_file': 'docs/STATE.md'},
-            }),
-          ),
           'review-code' => _StubResponse(
             assistantContent: _contextOutput(
               _reviewReportContext(
@@ -2506,89 +2606,17 @@ void main() {
               ),
             ),
           ),
-          'architecture-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'architecture_review_findings': 'docs/specs/test/architecture-review-codex-2026-04-29.md',
-              'findings_count': 0,
-              'architecture-review.findings_count': 0,
-              'architecture-review.gating_findings_count': 0,
-            }),
-          ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-
-    final discover = trace.tasksForStep('discover-project').single;
-    expect(discover.configJson['readOnly'], isTrue);
-    expect(discover.configJson['allowedTools'], ['shell', 'file_read']);
 
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('review-code').single.configJson['_workflowNeedsWorktree'], isTrue);
     expect(trace.tasksForStep('re-review'), isEmpty);
     expect(trace.tasksForStep('remediate'), isEmpty);
-  });
-
-  test('code-review discovery prompt excludes authored target text', () async {
-    const target = 'TARGET_SHOULD_NOT_APPEAR_IN_DISCOVERY_PROMPT';
-    final trace = await executeBuiltInWorkflow(
-      workflowFileName: 'code-review.yaml',
-      variables: {
-        'TARGET': target,
-        'BRANCH': 'feature/discovery-baseline',
-        'PR_NUMBER': '42',
-        'BASE_BRANCH': 'main',
-        'PROJECT': 'demo-project',
-      },
-      responseForStep: (queued) async {
-        return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'none',
-              'project_root': '/repo/demo-project',
-              'document_locations': {'product': null},
-              'state_protocol': {'type': 'none'},
-            }),
-          ),
-          'review-code' => _StubResponse(
-            assistantContent: _contextOutput(
-              _reviewReportContext(
-                queued.stepKey,
-                runtimeArtifactsDir: _runtimeArtifactsDirForTask(queued.task, tempDir.path),
-                findingsCount: 1,
-              ),
-            ),
-          ),
-          'remediate' => _StubResponse(
-            assistantContent: _contextOutput({
-              'remediation_result': jsonEncode({
-                'remediation_summary': 'No remediation needed',
-                'diff_summary': 'No diff',
-              }),
-              'remediation_summary': 'No remediation needed',
-              'diff_summary': 'No diff',
-            }),
-          ),
-          're-review' => _StubResponse(
-            assistantContent: _contextOutput(
-              _reviewReportContext(
-                queued.stepKey,
-                runtimeArtifactsDir: _runtimeArtifactsDirForTask(queued.task, tempDir.path),
-                findingsCount: 0,
-              ),
-            ),
-          ),
-          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-        };
-      },
-    );
-
-    final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains("Use the 'dartclaw-discover-project' skill."));
-    expect(discover, isNot(contains(target)));
-    expect(discover, isNot(contains('feature/discovery-baseline')));
   });
 
   test('code-review integration keeps looping until re-review findings reach zero', () async {
@@ -2603,15 +2631,6 @@ void main() {
       },
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'dart',
-              'project_root': '/repo/demo',
-              'document_locations': {'product': 'PRODUCT.md'},
-              'state_protocol': {'state_file': 'docs/STATE.md'},
-              'marker': 'REVIEW_DISCOVER_MARKER',
-            }),
-          ),
           'review-code' => _StubResponse(
             assistantContent: _contextOutput(
               _reviewReportContext(

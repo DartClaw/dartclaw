@@ -122,6 +122,49 @@ void main() {
       expect(response.text, contains('sess-7'));
       expect(response.text, contains('[INFO]'));
     });
+
+    test('LoopDetectedEvent includes [CRITICAL], session and mechanism in body + details', () {
+      final event = LoopDetectedEvent(
+        sessionId: 'sess-1',
+        mechanism: 'turnChainDepth',
+        message: 'loop detected',
+        action: 'abort',
+        timestamp: _now,
+      );
+      final response = _formatter.format(
+        event: event,
+        alertType: 'loop_detected',
+        severity: AlertSeverity.critical,
+        channelType: 'googlechat',
+      );
+
+      expect(response.text, contains('[CRITICAL]'));
+      expect(response.text, contains('sess-1'));
+      expect(response.text, contains('turnChainDepth'));
+      final payload = response.structuredPayload as Map<String, dynamic>;
+      expect(payload.toString(), contains('Session'));
+      expect(payload.toString(), contains('Mechanism'));
+      expect(payload.toString(), contains('Action'));
+    });
+
+    test('EmergencyStopEvent includes [CRITICAL], actor and counters in body + details', () {
+      final event = EmergencyStopEvent(stoppedBy: 'admin', turnsCancelled: 2, tasksCancelled: 1, timestamp: _now);
+      final response = _formatter.format(
+        event: event,
+        alertType: 'emergency_stop',
+        severity: AlertSeverity.critical,
+        channelType: 'googlechat',
+      );
+
+      expect(response.text, contains('[CRITICAL]'));
+      expect(response.text, contains('admin'));
+      expect(response.text, contains('2'));
+      expect(response.text, contains('1'));
+      final payload = response.structuredPayload as Map<String, dynamic>;
+      expect(payload.toString(), contains('Stopped by'));
+      expect(payload.toString(), contains('Turns cancelled'));
+      expect(payload.toString(), contains('Tasks cancelled'));
+    });
   });
 
   group('AlertFormatter Google Chat', () {
@@ -265,6 +308,62 @@ void main() {
 
       // All 6 should produce distinct text outputs.
       expect(texts.length, 6);
+    });
+
+    test('AdvisorInsightEvent stuck formats warning body and details', () {
+      final event = AdvisorInsightEvent(
+        status: 'stuck',
+        observation: 'Tasks stalled in review',
+        suggestion: 'Escalate owner',
+        triggerType: 'watchdog',
+        taskIds: const ['t-1', 't-2'],
+        sessionKey: 'agent:main:web:',
+        timestamp: _now,
+      );
+      final response = _formatter.format(
+        event: event,
+        alertType: 'advisor_insight',
+        severity: AlertSeverity.warning,
+        channelType: 'googlechat',
+      );
+
+      expect(response.text, contains('[WARNING]'));
+      expect(response.text, contains('status "stuck"'));
+      expect(response.text, contains('Tasks stalled in review'));
+      final payload = response.structuredPayload as Map<String, dynamic>;
+      final payloadText = payload.toString();
+      expect(payloadText, contains('Status'));
+      expect(payloadText, contains('Observation'));
+      expect(payloadText, contains('Suggestion'));
+      expect(payloadText, contains('Trigger'));
+      expect(payloadText, contains('Tasks'));
+      expect(payloadText, contains('Session'));
+    });
+
+    test('AdvisorInsightEvent concerning formats critical body and details', () {
+      final event = AdvisorInsightEvent(
+        status: 'concerning',
+        observation: 'Multiple retries failing',
+        suggestion: null,
+        triggerType: 'watchdog',
+        taskIds: const ['t-9'],
+        sessionKey: 'agent:main:web:',
+        timestamp: _now,
+      );
+      final response = _formatter.format(
+        event: event,
+        alertType: 'advisor_insight',
+        severity: AlertSeverity.critical,
+        channelType: 'googlechat',
+      );
+
+      expect(response.text, contains('[CRITICAL]'));
+      expect(response.text, contains('status "concerning"'));
+      expect(response.text, contains('Multiple retries failing'));
+      final payload = response.structuredPayload as Map<String, dynamic>;
+      expect(payload.toString(), contains('Status'));
+      expect(payload.toString(), contains('Observation'));
+      expect(payload.toString(), contains('Trigger'));
     });
   });
 }

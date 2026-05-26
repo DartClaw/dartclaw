@@ -910,7 +910,7 @@ abstract class _InitImpl extends Command<void> {
     try {
       return loadCliConfig(configPath: configPath);
     } catch (_) {
-      return null;
+      return null; // Config parse failure at init time — proceed without existing config.
     }
   }
 
@@ -924,7 +924,7 @@ abstract class _InitImpl extends Command<void> {
           return resolved.split('\n').first.trim();
         }
       }
-    } catch (_) {}
+    } catch (_) {} // `where`/`which` not available — fall back to plain 'dartclaw'.
     return 'dartclaw';
   }
 

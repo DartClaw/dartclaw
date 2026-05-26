@@ -1,7 +1,8 @@
 import 'dart:async';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -78,7 +79,7 @@ void main() {
   group('TurnRunner — loop detection disabled', () {
     test('no detector → no loop detection (backward compat)', () async {
       final runner = buildRunner(); // no loopDetector
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'done';
       final turnId = await runner.startTurn(session.id, []).timeout(const Duration(seconds: 2));
       expect(turnId, isNotEmpty);
@@ -88,7 +89,7 @@ void main() {
     test('disabled detector → no detection even after many turns', () async {
       final loopDetector = LoopDetector(config: loopConfig(enabled: false));
       final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.abort);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'done';
 
       for (var i = 0; i < 10; i++) {
@@ -105,7 +106,7 @@ void main() {
     test('exceeds threshold → LoopDetectedException thrown from reserveTurn', () async {
       final loopDetector = LoopDetector(config: loopConfig(maxConsecutiveTurns: 2));
       final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.abort);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'ok';
 
       // First 2 turns succeed (depth 1 and 2 — at threshold, not exceeding)
@@ -122,7 +123,7 @@ void main() {
       final sse = _RecordingSseBroadcast();
       final loopDetector = LoopDetector(config: loopConfig(maxConsecutiveTurns: 1));
       final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.abort, sse: sse);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'ok';
 
       // First turn sets depth=1 (at threshold, no detection yet)
@@ -142,7 +143,7 @@ void main() {
 
       final loopDetector = LoopDetector(config: loopConfig(maxConsecutiveTurns: 1));
       final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.abort, eventBus: eventBus);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'ok';
 
       await runner.startTurn(session.id, []).timeout(const Duration(seconds: 2));
@@ -165,7 +166,7 @@ void main() {
       final sse = _RecordingSseBroadcast();
       final loopDetector = LoopDetector(config: loopConfig(maxConsecutiveTurns: 1, action: LoopAction.warn));
       final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.warn, sse: sse);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'ok';
 
       // Turn 1 — depth=1, at threshold, no detection
@@ -188,7 +189,7 @@ void main() {
     test('isHumanInput: true resets consecutive turn counter', () async {
       final loopDetector = LoopDetector(config: loopConfig(maxConsecutiveTurns: 1));
       final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.abort);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'ok';
 
       // Autonomous turn 1 — depth=1
@@ -217,7 +218,7 @@ void main() {
         config: loopConfig(maxConsecutiveTurns: 999, maxConsecutiveIdenticalToolCalls: 2),
       );
       final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.warn);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
 
       // First turn: emit one tool event
       worker.responseText = 'done';

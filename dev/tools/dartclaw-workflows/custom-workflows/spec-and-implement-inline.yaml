@@ -1,0 +1,175 @@
+name: spec-and-implement-inline
+description: >-
+  Inline variant of spec-and-implement – same pipeline, but runs directly on
+  the current branch in the live checkout: no integration branch, no worktree,
+  no merge-back at the end. Use when you want the workflow to operate on the
+  branch you are already working on.
+variables:
+  FEATURE:
+    required: true
+    description: "Feature description – free text or path to an existing FIS file"
+  PROJECT:
+    required: false
+    description: Target project for coding steps (omit for default project)
+  BRANCH:
+    required: false
+    description: >-
+      Injected by run.sh from the operator's current branch. Not consumed by
+      this workflow – review prompts scope by the FIS, not by branch diff,
+      because inline mode has no synthetic base ref.
+    default: ""
+
+project: "{{PROJECT}}"
+
+gitStrategy:
+  integrationBranch: false
+  worktree: inline
+
+stepDefaults:
+  - match: "spec"
+    provider: "@planner"
+    model: "@planner"
+  - match: "revise*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "implement*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "*review*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "remediate*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "simplify-code"
+    provider: "@executor"
+    model: "@executor"
+  - match: "*"
+    provider: "@workflow"
+    model: "@workflow"
+
+steps:
+  - id: detect-spec-input
+    name: Detect Spec Input
+    skill: dartclaw-discover-andthen-spec
+    allowedTools: [shell, file_read]
+    # FEATURE is auto-framed as a <FEATURE> data tag (untrusted input).
+    # Never reference {{FEATURE}} inline – that would suppress auto-framing
+    # and route attacker-controlled text through as instructions.
+    workflowVariables: [FEATURE]
+    outputs:
+      spec_path: detected_fis_path
+      spec_source: spec_source
+      spec_confidence: spec_confidence
+
+  - id: spec
+    name: Generate Specification
+    skill: andthen:spec
+    entryGate: "spec_source == synthesized"
+    workflowVariables: [FEATURE]
+    prompt: "--auto {{FEATURE}}"
+    outputs:
+      spec_path: fis_path
+      spec_source: spec_source
+      spec_confidence: spec_confidence
+
+  - id: revise-spec
+    name: Revise Spec (low confidence)
+    skill: andthen:review
+    entryGate: "spec_confidence > 0 && spec_confidence < 7"
+    inputs: [spec_path, spec_confidence]
+    prompt: >-
+      --mode doc --fix --auto
+      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      {{context.spec_path}}
+
+  - id: implement
+    name: Implement
+    skill: andthen:exec-spec
+    inputs: [spec_path]
+    prompt: "--auto {{context.spec_path}}"
+
+  - id: simplify-code
+    name: Simplify Code
+    skill: andthen:simplify-code
+    provider: "@executor"
+    model: "@executor"
+    inputs: [spec_path]
+    prompt: >-
+      --auto - simplify only the changes implementing {{context.spec_path}}
+      in the live checkout; preserve behavior; no scope creep into unrelated
+      operator work.
+
+  - id: integrated-review
+    name: Integrated Review
+    skill: andthen:review
+    parallel: true
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    inputs: [spec_path]
+    prompt: >-
+      --mode mixed --auto
+      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      Review implementation of {{context.spec_path}}. Scope by the FIS –
+      assess only the working-tree state implementing this spec; the live
+      checkout may contain unrelated operator work, so do not flag it.
+    outputs:
+      review_findings: review_report_path
+      integrated-review.findings_count: findings_count
+      integrated-review.gating_findings_count: gating_findings_count
+
+  - id: architecture-review
+    name: Architecture Review
+    skill: andthen:architecture
+    parallel: true
+    inputs: [spec_path]
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: >-
+      --mode review --auto {{context.spec_path}}. Scope by the FIS – review
+      only packages this spec touched in the working tree; ignore unrelated
+      operator work in other parts of the live checkout.
+    outputs:
+      architecture_review_findings: review_report_path
+      architecture-review.findings_count: findings_count
+      architecture-review.gating_findings_count: gating_findings_count
+
+  - id: review-aggregate
+    name: Aggregate Review Findings
+    type: aggregate-reviews
+    aggregateReviews: [integrated-review, architecture-review]
+    outputs:
+      review_findings: review_report_path
+      findings_count: findings_count
+      gating_findings_count: gating_findings_count
+
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    entryGate: "gating_findings_count > 0"
+    exitGate: "gating_findings_count == 0"
+    steps:
+      - id: remediate
+        name: Remediate Findings
+        skill: andthen:remediate-findings
+        entryGate: "gating_findings_count > 0"
+        inputs: [spec_path, review_findings]
+        prompt: "--auto {{context.review_findings}}"
+        outputs:
+          remediation_summary: remediation_summary
+
+      - id: re-review
+        name: Re-review Gaps
+        skill: andthen:review
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        inputs: [spec_path, remediation_summary]
+        prompt: >-
+          --mode mixed --auto
+          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          Review implementation of {{context.spec_path}}. Scope by the FIS
+          – assess only the working-tree state implementing this spec; the
+          live checkout may contain unrelated operator work, so do not
+          flag it.
+        outputs:
+          review_findings: review_report_path
+          findings_count: findings_count
+          gating_findings_count: gating_findings_count

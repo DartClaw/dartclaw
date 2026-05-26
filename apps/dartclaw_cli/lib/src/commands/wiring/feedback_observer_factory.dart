@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' show TurnRunner;
 import 'package:logging/logging.dart';
 
 /// Builds a [TurnObserver] that bridges [TurnRunner.progressEvents] to a
@@ -48,7 +48,7 @@ class FeedbackObserverFactory {
         placeholderMessageId: sourceChannel.peekPlaceholderMessageId(spaceName: recipientJid, turnId: message.id),
       );
 
-      final runners = turnManagerGetter().pool.runners;
+      final runners = turnManagerGetter().pool.runners.cast<TurnRunner>();
 
       // Configure status tick interval on runners.
       for (final runner in runners) {
@@ -113,7 +113,7 @@ class FeedbackObserverFactory {
           message: 'Google Chat feedback completion failed',
         );
       } catch (_) {
-        return false;
+        return false; // Feedback strategy threw — non-critical; do not block the turn.
       } finally {
         for (final subscription in subscriptions) {
           await subscription.cancel();

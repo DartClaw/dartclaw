@@ -1,9 +1,12 @@
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_status_command.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ServerConfig;
-import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowDefinition, WorkflowRunStatus, WorkflowStep;
+import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository, openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun;
 import 'package:test/test.dart';
@@ -94,7 +97,7 @@ void main() {
           name: 'approval-wf',
           description: '',
           steps: [
-            WorkflowStep(id: stepId, name: 'Gate', type: 'approval', prompts: ['Approve?']),
+            WorkflowStep(id: stepId, name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
             const WorkflowStep(id: 'next', name: 'Next', prompts: ['Continue']),
           ],
           variables: const {},

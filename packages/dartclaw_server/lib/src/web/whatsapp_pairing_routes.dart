@@ -6,7 +6,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import 'page_registry.dart';
-import 'web_routes.dart' show buildSidebarData;
+import 'sidebar_data_builder.dart';
 import 'web_utils.dart';
 import 'whatsapp_pairing.dart';
 
@@ -25,7 +25,7 @@ Router whatsappPairingRoutes({
 
   // GET /pairing — WhatsApp pairing/status page.
   router.get('/pairing', (Request request) async {
-    final sidebarData = await buildSidebarData(sessions, tasksEnabled: tasksEnabled);
+    final sidebarData = await buildMinimalSidebarData(sessions, tasksEnabled: tasksEnabled);
     final fragment = wantsFragment(request);
     final pairingCode = request.requestedUri.queryParameters['code'];
 
@@ -46,7 +46,7 @@ Router whatsappPairingRoutes({
     }
 
     try {
-      final status = await whatsAppChannel.gowa.getStatus();
+      final status = await whatsAppChannel.gowa.status();
       if (status.isLoggedIn) {
         return Response.ok(
           whatsappPairingTemplate(
@@ -60,7 +60,7 @@ Router whatsappPairingRoutes({
         );
       }
       // GOWA reachable but not logged in — show QR + pairing code
-      final loginQr = await whatsAppChannel.gowa.getLoginQr();
+      final loginQr = await whatsAppChannel.gowa.loginQr();
       // Use local proxy URL to avoid CSP img-src blocking.
       final proxyUrl = loginQr.url != null ? '/whatsapp/pairing/qr' : null;
       return Response.ok(
@@ -92,7 +92,7 @@ Router whatsappPairingRoutes({
   // GET /pairing/qr — proxy QR image from GOWA to avoid CSP issues.
   router.get('/pairing/qr', (Request request) async {
     try {
-      final loginQr = await whatsAppChannel.gowa.getLoginQr();
+      final loginQr = await whatsAppChannel.gowa.loginQr();
       if (loginQr.url == null) return Response.notFound('No QR available');
       final client = HttpClient();
       try {
@@ -113,10 +113,10 @@ Router whatsappPairingRoutes({
   // when pairing completes.
   router.get('/pairing/poll', (Request request) async {
     try {
-      final status = await whatsAppChannel.gowa.getStatus();
+      final status = await whatsAppChannel.gowa.status();
       if (!status.isLoggedIn) return Response(204);
       // Connected — render full page.
-      final sidebarData = await buildSidebarData(sessions, tasksEnabled: tasksEnabled);
+      final sidebarData = await buildMinimalSidebarData(sessions, tasksEnabled: tasksEnabled);
       return Response.ok(
         whatsappPairingTemplate(
           isConnected: true,

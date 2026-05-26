@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:math';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -509,7 +509,7 @@ GuardChain _buildTaskGuardChain(GuardChain? base, TaskToolFilterGuard filter) {
 Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
   final environment = SafeProcess.sanitize(
     baseEnvironment: Platform.environment,
-    sensitivePatterns: [...kDefaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
+    sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
     extraEnvironment: claudeHardeningEnvVars,
   );
   final apiKey = registry.getApiKey(providerId);

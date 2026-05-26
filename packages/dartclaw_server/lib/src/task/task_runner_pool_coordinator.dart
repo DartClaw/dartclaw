@@ -3,9 +3,6 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
-import '../harness_pool.dart';
-import '../turn_runner.dart';
-
 /// Coordinates task-runner acquisition from the harness pool.
 final class TaskRunnerPoolCoordinator {
   TaskRunnerPoolCoordinator({required HarnessPool pool, Future<void> Function()? onSpawnNeeded, Logger? log})

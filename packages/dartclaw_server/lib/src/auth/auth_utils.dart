@@ -43,6 +43,7 @@ Future<String?> readBounded(Request request, int limit) async {
   return utf8.decode(bytes);
 }
 
+/// Resolves the remote IP key for [request], honoring trusted-proxy `X-Forwarded-For` chains.
 String? requestRemoteKey(Request request, {List<String> trustedProxies = const []}) {
   final connectionInfo = request.context['shelf.io.connection_info'];
   if (connectionInfo is HttpConnectionInfo) {
@@ -60,6 +61,7 @@ String? requestRemoteKey(Request request, {List<String> trustedProxies = const [
   return null;
 }
 
+/// Publishes a `FailedAuthEvent` to [eventBus] describing [reason] and the originating request.
 void fireFailedAuthEvent(
   EventBus? eventBus,
   Request request, {

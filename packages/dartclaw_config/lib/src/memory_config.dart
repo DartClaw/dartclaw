@@ -1,10 +1,18 @@
 /// Configuration for the memory subsystem.
 class MemoryConfig {
+  /// maxBytes.
   final int maxBytes;
+
+  /// pruningEnabled.
   final bool pruningEnabled;
+
+  /// archiveAfterDays.
   final int archiveAfterDays;
+
+  /// pruningSchedule.
   final String pruningSchedule;
 
+  /// Creates a [MemoryConfig] value.
   const MemoryConfig({
     this.maxBytes = 32 * 1024,
     this.pruningEnabled = true,

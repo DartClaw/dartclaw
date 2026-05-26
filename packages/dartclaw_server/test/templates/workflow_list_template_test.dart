@@ -15,6 +15,7 @@ final SidebarData _emptySidebar = (
   activeWorkflows: <SidebarActiveWorkflow>[],
   showChannels: false,
   tasksEnabled: false,
+  activeSessionId: null,
 );
 
 Map<String, dynamic> _makeRun({

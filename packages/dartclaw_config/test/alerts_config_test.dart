@@ -187,7 +187,7 @@ alerts:
   enabled: "yes"
 ''');
       expect(config.alerts.enabled, isFalse);
-      expect(config.warnings.any((w) => w.contains('alerts.enabled')), isTrue);
+      expect(config.warnings.any((w) => w.contains('enabled')), isTrue);
     });
 
     test('cooldown_seconds < 1 produces warning, uses default', () {

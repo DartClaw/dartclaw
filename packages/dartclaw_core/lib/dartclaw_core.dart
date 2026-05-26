@@ -9,6 +9,14 @@
 ///
 /// This package has no sqlite3 dependency. For FTS5 search and memory
 /// pruning, see `dartclaw_storage`.
+///
+/// ## Directory conventions
+///
+/// - `dataDir`: the DartClaw instance root, typically `~/.dartclaw/`.
+/// - `workspaceDir` / `workspaceRoot`: the user's active project working tree;
+///   `workspaceRoot` is canonical for new code while some legacy parameters
+///   keep the historical `workspaceDir` spelling.
+/// - `projectDir`: the per-project clone under `$dataDir/projects/<id>/`.
 library;
 
 // Models & data types (re-exported from dartclaw_models)
@@ -71,6 +79,8 @@ export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, Pairi
 
 // Harness interfaces
 export 'src/harness/agent_harness.dart' show AgentHarness, PromptStrategy;
+export 'src/harness/base_protocol_adapter.dart' show intValue, stringValue;
+export 'src/harness/claude_settings_builder.dart' show ClaudeSettingsBuilder;
 export 'src/harness/conversation_history.dart' show buildReplaySafeHistory;
 export 'src/harness/canonical_tool.dart' show CanonicalTool;
 export 'src/harness/claude_code_harness.dart' show ClaudeCodeHarness;
@@ -115,34 +125,45 @@ export 'src/scoping/common_channel_fields.dart' show CommonChannelFields;
 export 'src/scoping/group_config_resolver.dart' show GroupConfigResolver;
 export 'src/scoping/group_entry.dart' show GroupEntry;
 export 'src/scoping/live_scope_config.dart' show LiveScopeConfig;
-export 'src/governance/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;
+// Types moved to dartclaw_config (re-exported here for backward compat)
+export 'package:dartclaw_config/dartclaw_config.dart'
+    show
+        AgentExecution,
+        AgentExecutionRepository,
+        ExecutionRepositoryTransactor,
+        WorkflowStepExecution,
+        WorkflowStepExecutionRepository,
+        LoopDetection,
+        LoopDetectedException,
+        LoopDetector,
+        LoopMechanism,
+        SlidingWindowRateLimiter,
+        PromptScope,
+        canonicalizePathWithExistingAncestors,
+        truncate,
+        normalizeDynamicMap,
+        SearchBackend;
 
 // Agents
 export 'src/agents/session_delegate.dart' show SessionDelegate;
 export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyGuard;
 export 'src/agents/subagent_limits.dart' show SubagentLimits;
 
-// Execution
-export 'src/execution/agent_execution.dart' show AgentExecution;
-export 'src/execution/agent_execution_repository.dart' show AgentExecutionRepository;
-export 'src/execution/execution_repository_transactor.dart' show ExecutionRepositoryTransactor;
-export 'src/execution/workflow_step_execution.dart' show WorkflowStepExecution;
-export 'src/execution/workflow_step_execution_repository.dart' show WorkflowStepExecutionRepository;
-
 // Tasks
 export 'src/task/goal.dart' show Goal;
 export 'src/task/goal_repository.dart' show GoalRepository;
 export 'src/task/task.dart' show Task;
 export 'src/task/task_artifact.dart' show ArtifactKind, TaskArtifact;
+export 'src/task/task_event.dart' show TaskEvent, TaskEventKind;
 export 'src/task/task_repository.dart' show TaskRepository;
+// Turn
+export 'src/turn/tool_call_record.dart' show ToolCallRecord;
+export 'src/turn/turn_trace.dart' show TurnTrace, computeEffectiveTokens;
+export 'src/turn/turn_trace_summary.dart' show TurnTraceSummary;
 export 'src/task/task_status.dart' show TaskStatus;
 export 'src/task/workflow_task_service.dart' show WorkflowTaskService;
-
 // Concurrency
 export 'src/concurrency/repo_lock.dart' show RepoLock;
-
-// Search (abstract interface — sqlite3-free)
-export 'src/search/search_backend.dart' show SearchBackend;
 
 // Project service interface
 export 'src/project/project_service.dart' show ProjectService;
@@ -198,14 +219,17 @@ export 'src/events/dartclaw_event.dart'
         CompactionCompletedEvent,
         ScheduledJobFailedEvent;
 
-// Governance
-export 'src/governance/loop_detection.dart' show LoopDetection, LoopMechanism, LoopDetectedException;
-export 'src/governance/loop_detector.dart' show LoopDetector;
-
 export 'src/worker/worker_state.dart' show WorkerState;
 
-// Behavior
-export 'src/behavior/prompt_scope.dart' show PromptScope;
+// Turn abstractions (interfaces + value types)
+export 'src/turn/busy_turn_exception.dart' show BusyTurnException;
+export 'src/turn/turn_manager.dart' show TurnManager;
+export 'src/turn/turn_outcome.dart' show TurnOutcome;
+export 'src/turn/turn_runner.dart' show TurnRunner;
+export 'src/turn/turn_status.dart' show TurnStatus;
 
-// Paths
-export 'src/paths/path_canonicalization.dart' show canonicalizePathWithExistingAncestors;
+// Harness pool interface
+export 'src/harness/harness_pool.dart' show HarnessPool;
+
+// Auth abstractions
+export 'src/auth/google_jwt_verifier.dart' show GoogleJwtVerifier;

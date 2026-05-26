@@ -4,8 +4,6 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
-import 'harness_pool.dart';
-
 final _log = Logger('ProviderStatusService');
 
 /// Callback to check whether a provider binary has its own authentication
@@ -55,6 +53,7 @@ class ProviderStatus {
   };
 }
 
+/// Reports the runtime status of configured agent providers.
 class ProviderStatusService {
   final ProvidersConfig _providers;
   final CredentialRegistry _registry;
@@ -96,12 +95,12 @@ class ProviderStatusService {
     }
   }
 
-  List<ProviderStatus> getAll() {
+  List<ProviderStatus> get all {
     return _configuredEntries.entries.map(_buildStatus).toList(growable: false);
   }
 
-  Map<String, dynamic> getSummary() {
-    final statuses = getAll();
+  Map<String, dynamic> get summary {
+    final statuses = all;
     return <String, dynamic>{
       'configured': statuses.length,
       'healthy': statuses.where((status) => status.health == 'healthy').length,

@@ -42,9 +42,9 @@ void main() {
         expect(result, contains('findings'));
       });
 
-      test('appends section for story-plan preset', () {
+      test('appends section for story_plan preset', () {
         const prompt = 'Plan the work';
-        final outputs = {'stories': const OutputConfig(format: OutputFormat.json, schema: 'story-plan')};
+        final outputs = {'stories': const OutputConfig(format: OutputFormat.json, schema: 'story_plan')};
         final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
         expect(result, contains('id (string)'));
@@ -60,9 +60,9 @@ void main() {
         expect(result, contains('all_pass'));
       });
 
-      test('appends section for story-specs preset', () {
+      test('appends section for story_specs preset', () {
         const prompt = 'Spec the stories';
-        final outputs = {'story_specs': const OutputConfig(format: OutputFormat.json, schema: 'story-specs')};
+        final outputs = {'story_specs': const OutputConfig(format: OutputFormat.json, schema: 'story_specs')};
         final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
         expect(result, contains('spec_path'));
@@ -72,9 +72,9 @@ void main() {
         expect(result, isNot(contains('acceptance_criteria')));
       });
 
-      test('appends section for file-list preset', () {
+      test('appends section for file_list preset', () {
         const prompt = 'List files';
-        final outputs = {'files': const OutputConfig(format: OutputFormat.json, schema: 'file-list')};
+        final outputs = {'files': const OutputConfig(format: OutputFormat.json, schema: 'file_list')};
         final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
         expect(result, contains('path'));
@@ -149,7 +149,7 @@ void main() {
         const prompt = 'Multi output step';
         final outputs = {
           'verdict': const OutputConfig(format: OutputFormat.json, schema: 'verdict'),
-          'files': const OutputConfig(format: OutputFormat.json, schema: 'file-list'),
+          'files': const OutputConfig(format: OutputFormat.json, schema: 'file_list'),
         };
         final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('findings'));
@@ -230,6 +230,38 @@ void main() {
         final schemaIdx = result.indexOf('## Required Output Format');
         expect(schemaIdx, greaterThan(0));
         expect(outcomeIdx, greaterThan(schemaIdx));
+      });
+    });
+
+    group('outputExamples', () {
+      test('renders examples after schema and before step outcome protocol', () {
+        const prompt = 'Do work';
+        final outputs = {'r': const OutputConfig(format: OutputFormat.json, schema: 'verdict')};
+        const examples = [
+          '<workflow-context>\n{"prd":"a.md"}\n</workflow-context>',
+          '<workflow-context>\n{"prd":""}\n</workflow-context>',
+        ];
+        final result = augmenter.augment(
+          prompt,
+          outputs: outputs,
+          outputExamples: examples,
+          emitStepOutcomeProtocol: true,
+        );
+
+        final schemaIdx = result.indexOf('## Required Output Format');
+        final examplesIdx = result.indexOf('## Output Examples');
+        final outcomeIdx = result.indexOf('## Step Outcome Protocol');
+        expect(schemaIdx, greaterThan(0));
+        expect(examplesIdx, greaterThan(schemaIdx));
+        expect(outcomeIdx, greaterThan(examplesIdx));
+        expect(result, contains(examples[0]));
+        expect(result, contains('${examples[0]}\n\n${examples[1]}'));
+      });
+
+      test('omits section when examples are null or empty', () {
+        const prompt = 'Do work';
+        expect(augmenter.augment(prompt, outputExamples: null), isNot(contains('## Output Examples')));
+        expect(augmenter.augment(prompt, outputExamples: const []), isNot(contains('## Output Examples')));
       });
     });
   });

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show WorkflowExecutionCursor, WorkflowRun, WorkflowRunStatus, WorkflowWorktreeBinding;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowExecutionCursor, WorkflowRun, WorkflowRunRepository, WorkflowRunStatus, WorkflowWorktreeBinding;
 import 'package:logging/logging.dart';
 import 'package:sqlite3/sqlite3.dart';
 
@@ -9,10 +9,11 @@ import 'package:sqlite3/sqlite3.dart';
 ///
 /// Shares the tasks database ([Database]) with [SqliteTaskRepository].
 /// Uses CREATE TABLE IF NOT EXISTS for idempotent schema initialization.
-class SqliteWorkflowRunRepository {
+class SqliteWorkflowRunRepository implements WorkflowRunRepository {
   static final _log = Logger('SqliteWorkflowRunRepository');
   final Database _db;
 
+  /// Creates the repository against [_db] and initializes its schema.
   SqliteWorkflowRunRepository(this._db) {
     _initSchema();
   }
@@ -99,11 +100,13 @@ class SqliteWorkflowRunRepository {
         '(awaitingApproval=$awaitingApprovalCount, failed=$failedCount)',
       );
     } catch (_) {
+      // Migration step threw — roll back the in-flight transaction and bubble the original cause.
       _db.execute('ROLLBACK');
       rethrow;
     }
   }
 
+  @override
   Future<void> insert(WorkflowRun run) async {
     final stmt = _db.prepare('''
       INSERT INTO workflow_runs (
@@ -141,6 +144,7 @@ class SqliteWorkflowRunRepository {
     }
   }
 
+  @override
   Future<WorkflowRun?> getById(String id) async {
     final stmt = _db.prepare('SELECT * FROM workflow_runs WHERE id = ?');
     try {
@@ -151,6 +155,7 @@ class SqliteWorkflowRunRepository {
     }
   }
 
+  @override
   Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) async {
     final where = <String>[];
     final params = <Object?>[];
@@ -176,6 +181,7 @@ class SqliteWorkflowRunRepository {
     }
   }
 
+  @override
   Future<void> update(WorkflowRun run) async {
     final stmt = _db.prepare('''
       UPDATE workflow_runs
@@ -221,6 +227,7 @@ class SqliteWorkflowRunRepository {
     }
   }
 
+  @override
   Future<void> delete(String id) async {
     final stmt = _db.prepare('DELETE FROM workflow_runs WHERE id = ?');
     try {
@@ -230,6 +237,7 @@ class SqliteWorkflowRunRepository {
     }
   }
 
+  @override
   Future<void> setWorktreeBinding(String runId, WorkflowWorktreeBinding binding) async {
     final existing = await getWorktreeBindings(runId);
     final updated = <WorkflowWorktreeBinding>[
@@ -256,11 +264,13 @@ class SqliteWorkflowRunRepository {
     }
   }
 
+  @override
   Future<WorkflowWorktreeBinding?> getWorktreeBinding(String runId) async {
     final bindings = await getWorktreeBindings(runId);
     return bindings.isEmpty ? null : bindings.last;
   }
 
+  @override
   Future<List<WorkflowWorktreeBinding>> getWorktreeBindings(String runId) async {
     final stmt = _db.prepare('SELECT workflow_worktree_json FROM workflow_runs WHERE id = ?');
     try {

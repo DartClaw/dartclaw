@@ -17,6 +17,7 @@ class PerSenderRateLimitConfig {
   /// Whether inbound rate limiting is active (messages > 0 and windowMinutes > 0).
   bool get enabled => messages > 0 && windowMinutes > 0;
 
+  /// Creates a [PerSenderRateLimitConfig] value.
   const PerSenderRateLimitConfig({
     this.messages = 0,
     this.windowMinutes = 5,
@@ -24,6 +25,7 @@ class PerSenderRateLimitConfig {
     this.maxPauseQueued = 0,
   });
 
+  /// Creates a [PerSenderRateLimitConfig.defaults] value.
   const PerSenderRateLimitConfig.defaults() : this();
 
   @override
@@ -55,8 +57,10 @@ class GlobalRateLimitConfig {
   /// Whether rate limiting is active (turns > 0 and windowMinutes > 0).
   bool get enabled => turns > 0 && windowMinutes > 0;
 
+  /// const GlobalRateLimitConfig({this.turns = 0, this.windowMinu.
   const GlobalRateLimitConfig({this.turns = 0, this.windowMinutes = 60});
 
+  /// Creates a [GlobalRateLimitConfig.defaults] value.
   const GlobalRateLimitConfig.defaults() : this();
 
   @override
@@ -73,14 +77,19 @@ class GlobalRateLimitConfig {
 
 /// Container for per-sender and global rate limit configs.
 class RateLimitsConfig {
+  /// perSender.
   final PerSenderRateLimitConfig perSender;
+
+  /// global.
   final GlobalRateLimitConfig global;
 
+  /// Creates a [RateLimitsConfig] value.
   const RateLimitsConfig({
     this.perSender = const PerSenderRateLimitConfig.defaults(),
     this.global = const GlobalRateLimitConfig.defaults(),
   });
 
+  /// Creates a [RateLimitsConfig.defaults] value.
   const RateLimitsConfig.defaults() : this();
 
   @override

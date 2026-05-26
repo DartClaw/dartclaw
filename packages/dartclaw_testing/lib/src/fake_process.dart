@@ -221,7 +221,7 @@ class _LineRecordingIOSink implements IOSink {
         return Map<String, dynamic>.from(decoded);
       }
     } catch (_) {
-      return null;
+      return null; // Malformed JSON line — caller treats null as skip.
     }
     return null;
   }

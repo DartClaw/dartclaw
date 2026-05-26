@@ -11,8 +11,6 @@ import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../templates/loader.dart';
 import 'api_helpers.dart';
 import 'chat_command_handler.dart';
-import '../harness_pool.dart';
-import '../turn_manager.dart';
 import 'stream_handler.dart';
 
 final _log = Logger('SessionRoutes');
@@ -30,9 +28,8 @@ Router sessionRoutes(
   SessionResetService? resetService,
   MessageRedactor? redactor,
   ChatCommandHandler? chatCommandHandler,
-  Future<SidebarData> Function()? buildSidebarData,
-  String Function({required SidebarData sidebarData, String? activeSessionId, List<NavItem> navItems})?
-  buildSidebarHtml,
+  Future<SidebarData> Function({String? activeSessionId})? sidebarData,
+  String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
 }) {
   final router = Router();
 
@@ -286,19 +283,15 @@ Router sessionRoutes(
         return errorResponse(500, 'INTERNAL_ERROR', 'Failed to update session type');
       }
 
-      final sidebarDataBuilder = buildSidebarData;
+      final sidebarDataBuilder = sidebarData;
       final sidebarHtmlBuilder = buildSidebarHtml;
       final activeSessionId = _trimmedOrNull(request.headers['x-dartclaw-active-session-id']);
       if (sidebarDataBuilder != null && sidebarHtmlBuilder != null) {
         if (activeSessionId == id) {
           return Response(200, headers: {'HX-Redirect': '/'});
         }
-        final sidebarData = await sidebarDataBuilder();
-        final sidebarHtml = sidebarHtmlBuilder(
-          sidebarData: sidebarData,
-          activeSessionId: activeSessionId,
-          navItems: const [],
-        );
+        final sidebarData = await sidebarDataBuilder(activeSessionId: activeSessionId);
+        final sidebarHtml = sidebarHtmlBuilder(sidebarData: sidebarData, navItems: const []);
         return Response(
           200,
           body: _withSidebarOobSwap(sidebarHtml),

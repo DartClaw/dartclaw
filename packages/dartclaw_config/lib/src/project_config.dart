@@ -1,17 +1,27 @@
 import 'dart:io';
 
 import 'package:collection/collection.dart';
-import 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, PrStrategy;
+import 'project_runtime.dart' show CloneStrategy, PrConfig, PrStrategy;
 import 'package:path/path.dart' as p;
 
 /// Validation result for a configured or API-supplied local project path.
 class LocalProjectPathValidation {
+  /// normalizedPath.
   final String normalizedPath;
+
+  /// errorCode.
   final String? errorCode;
+
+  /// errorMessage.
   final String? errorMessage;
+
+  /// pathExists.
   final bool pathExists;
+
+  /// gitRepository.
   final bool gitRepository;
 
+  /// Creates a [LocalProjectPathValidation] value.
   const LocalProjectPathValidation({
     required this.normalizedPath,
     this.errorCode,
@@ -20,6 +30,7 @@ class LocalProjectPathValidation {
     required this.gitRepository,
   });
 
+  /// isValid.
   bool get isValid => errorCode == null;
 }
 
@@ -117,6 +128,7 @@ class ProjectDefinition {
   /// Whether this project should be the default when no projectId is specified.
   final bool isDefault;
 
+  /// Creates a [ProjectDefinition] value.
   const ProjectDefinition({
     required this.id,
     this.remote,
@@ -166,6 +178,7 @@ class ProjectConfig {
   /// Absolute-path allowlist for config/API local-path projects.
   final List<String> localPathAllowlist;
 
+  /// Creates a [ProjectConfig] value.
   const ProjectConfig({
     this.definitions = const {},
     this.fetchCooldownMinutes = 5,
@@ -173,6 +186,7 @@ class ProjectConfig {
     this.localPathAllowlist = const [],
   });
 
+  /// Creates a [ProjectConfig.defaults] value.
   const ProjectConfig.defaults() : this();
 
   /// Whether any projects are configured.

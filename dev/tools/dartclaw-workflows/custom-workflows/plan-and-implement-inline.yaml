@@ -1,0 +1,221 @@
+name: plan-and-implement-inline
+description: >-
+  Inline variant of plan-and-implement – same multi-story pipeline, but runs
+  directly on the current branch in the live checkout: no integration branch,
+  no per-story worktrees, no merge-back. Stories execute sequentially because
+  parallel sessions in a shared checkout would clobber each other.
+variables:
+  FEATURE:
+    required: true
+    description: "Path to a PRD or path hint pointing at one – plan-and-implement requires an existing PRD"
+  PROJECT:
+    required: false
+    description: Target project for coding steps (omit for default project)
+  BRANCH:
+    required: false
+    description: >-
+      Injected by run.sh from the operator's current branch. Not consumed by
+      this workflow – review prompts scope by the FIS, not by branch diff,
+      because inline mode has no synthetic base ref.
+    default: ""
+
+project: "{{PROJECT}}"
+
+gitStrategy:
+  integrationBranch: false
+  worktree: inline
+  # Inline mode runs in the live checkout. Don't auto-commit generated artifacts –
+  # the operator owns the commit boundary on their working branch. There is no
+  # integration branch to abandon and no auto-commit boundary, so a mid-pipeline
+  # crash leaves PRD / plan / FIS / code edits intermixed with operator state in
+  # the working tree; recovery is manual (operator stages or discards the partial
+  # output and re-runs). Use the worktree-isolated `plan-and-implement` for any
+  # batch where uncommitted-state risk is unacceptable.
+  artifacts:
+    commit: false
+
+stepDefaults:
+  - match: "prd"
+    provider: "@planner"
+    model: "@planner"
+  - match: "plan"
+    provider: "@planner"
+    model: "@planner"
+  - match: "revise*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "implement*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "*review*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "remediate*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "simplify-code"
+    provider: "@executor"
+    model: "@executor"
+  - match: "*"
+    provider: "@workflow"
+    model: "@workflow"
+
+steps:
+  - id: discover-plan-state
+    name: Discover Plan State
+    skill: dartclaw-discover-andthen-plan
+    allowedTools: [shell, file_read]
+    # FEATURE is auto-framed as a <FEATURE> data tag (untrusted
+    # input). Never reference {{FEATURE}} inline – that would suppress
+    # auto-framing and route attacker-controlled text through as instructions.
+    workflowVariables: [FEATURE]
+    outputs:
+      prd: prd_path
+      plan: plan_path
+      story_specs: story_specs
+
+  - id: plan
+    name: Plan Stories and Specs
+    skill: andthen:plan
+    entryGate: "plan == null || plan == '' || story_specs == null || story_specs.items == null"
+    inputs: [prd, plan]
+    onFailure: retry
+    maxRetries: 1
+    prompt: "--auto {{context.prd}}"
+    outputs:
+      story_specs: story_specs
+      plan: plan_path
+
+  - id: story-pipeline
+    name: Per-Story Pipeline
+    type: foreach
+    map_over: story_specs
+    max_parallel: 1
+    onFailure: continue
+    outputs:
+      story_results:
+        format: json
+    steps:
+      # The shared runtime review dir is pre-created; story-specific dirs are
+      # not knowable before foreach iteration.
+      - id: revise-story-spec
+        name: Revise Story Spec (low confidence)
+        skill: andthen:review
+        entryGate: "map.item.fis_source == synthesized && map.item.spec_confidence > 0 && map.item.spec_confidence < 7"
+        inputs: [story_specs]
+        prompt: >-
+          --mode doc --fix --auto
+          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          {{map.item.spec_path}}
+
+      - id: implement
+        name: Implement Story
+        skill: andthen:exec-spec
+        maxRetries: 1
+        prompt: "--auto {{map.item.spec_path}}"
+        inputs: [story_specs]
+        outputs:
+          story_result: story_result
+
+      - id: quick-review
+        name: Quick Review Story
+        skill: andthen:quick-review
+        provider: "@executor"
+        model: "@executor"
+        continueSession: true
+        maxRetries: 1
+        prompt: "--fix --auto"
+        inputs: [story_result]
+        # No outputs – quick-review fixes issues in-session via --fix.
+
+      - id: simplify-code
+        name: Simplify Story Code
+        skill: andthen:simplify-code
+        # Per-iteration session isolation is structural – foreach_iteration_runner
+        # builds a fresh iterContext per iteration so iteration N+1's
+        # continueSession cannot resolve to iteration N's session. See the
+        # matching note in the built-in plan-and-implement.yaml.
+        provider: "@executor"
+        model: "@executor"
+        continueSession: true
+        maxRetries: 1
+        prompt: >-
+          --auto simplify only the changes for this story; preserve
+          behavior; no scope creep into other packages.
+        inputs: [story_result]
+
+  - id: plan-review
+    name: Review Full Implementation
+    skill: andthen:review
+    parallel: true
+    inputs: [story_specs, story_results, plan]
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: >-
+      --mode mixed --auto
+      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      Review implementation of {{context.plan}}. Scope by the plan and
+      per-story FIS – assess only the working-tree state implementing this
+      plan; the live checkout may contain unrelated operator work, so do
+      not flag it.
+    outputs:
+      review_findings: review_report_path
+      plan-review.findings_count: findings_count
+      plan-review.gating_findings_count: gating_findings_count
+
+  - id: architecture-review
+    name: Architecture Review
+    skill: andthen:architecture
+    parallel: true
+    inputs: [story_specs, story_results, plan]
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: >-
+      --mode review --auto {{context.plan}}. Scope by the plan and
+      per-story FIS – review only packages this plan touched in the
+      working tree; ignore unrelated operator work in other parts of the
+      live checkout.
+    outputs:
+      architecture_review_findings: review_report_path
+      architecture-review.findings_count: findings_count
+      architecture-review.gating_findings_count: gating_findings_count
+
+  - id: review-aggregate
+    name: Aggregate Review Findings
+    type: aggregate-reviews
+    aggregateReviews: [plan-review, architecture-review]
+    outputs:
+      review_findings: review_report_path
+      findings_count: findings_count
+      gating_findings_count: gating_findings_count
+
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    entryGate: "gating_findings_count > 0"
+    exitGate: "gating_findings_count == 0"
+    steps:
+      - id: remediate
+        name: Remediate Findings
+        skill: andthen:remediate-findings
+        entryGate: "gating_findings_count > 0"
+        inputs: [review_findings, story_results]
+        prompt: "--auto {{context.review_findings}}"
+        outputs:
+          remediation_summary: remediation_summary
+
+      - id: re-review
+        name: Re-review After Remediation
+        skill: andthen:review
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        inputs: [story_specs, story_results, remediation_summary]
+        prompt: >-
+          --mode mixed --auto
+          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          Review implementation of {{context.plan}}. Scope by the plan
+          and per-story FIS – assess only the working-tree state
+          implementing this plan; the live checkout may contain unrelated
+          operator work, so do not flag it.
+        outputs:
+          review_findings: review_report_path
+          findings_count: findings_count
+          gating_findings_count: gating_findings_count

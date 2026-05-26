@@ -1,0 +1,75 @@
+# Allowlist for barrel_show_clauses_test.dart
+# Format: <relative-file-path>:<line>  # <rationale>
+# Add entries here only for intentional wholesale exports with a justification.
+# New exports without a show clause will fail CI — prefer adding show clauses.
+
+# dartclaw_workflow: 13 wholesale exports pending S09 narrowing
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:37  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:45  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:67  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:69  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:79  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:84  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:88  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:90  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:103  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:122  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:137  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:149  # wholesale export pending show-clause narrowing (post-S09 baseline)
+packages/dartclaw_workflow/lib/dartclaw_workflow.dart:158  # wholesale export pending show-clause narrowing (post-S09 baseline)
+
+# dartclaw_testing: 2 wholesale exports (test helpers, not re-exported to consumers)
+packages/dartclaw_testing/lib/dartclaw_testing.dart:44  # test-helper file; all public symbols are part of the test-helpers API surface
+packages/dartclaw_testing/lib/dartclaw_testing.dart:46  # test-helper file; all public symbols are part of the test-helpers API surface
+
+# dartclaw_server: sub-barrel delegates (each *_exports.dart is itself show-scoped internally)
+packages/dartclaw_server/lib/dartclaw_server.dart:19  # sub-barrel delegate; symbols are scoped inside src/api/api_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:20  # sub-barrel delegate; symbols are scoped inside src/alerts/alerts_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:21  # sub-barrel delegate; symbols are scoped inside src/advisor/advisor_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:22  # sub-barrel delegate; symbols are scoped inside src/audit/audit_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:23  # sub-barrel delegate; symbols are scoped inside src/auth/auth_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:24  # sub-barrel delegate; symbols are scoped inside src/behavior/behavior_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:25  # sub-barrel delegate; symbols are scoped inside src/canvas/canvas_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:26  # sub-barrel delegate; symbols are scoped inside src/config/config_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:27  # sub-barrel delegate; symbols are scoped inside src/context/context_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:28  # sub-barrel delegate; symbols are scoped inside src/container/container_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:29  # sub-barrel delegate; symbols are scoped inside src/governance/governance_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:30  # sub-barrel delegate; symbols are scoped inside src/health/health_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:31  # sub-barrel delegate; symbols are scoped inside src/host_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:32  # sub-barrel delegate; symbols are scoped inside src/logging/logging_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:33  # sub-barrel delegate; symbols are scoped inside src/mcp/mcp_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:34  # sub-barrel delegate; symbols are scoped inside src/memory/memory_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:35  # sub-barrel delegate; symbols are scoped inside src/params/params_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:36  # sub-barrel delegate; symbols are scoped inside src/project/project_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:37  # sub-barrel delegate; symbols are scoped inside src/scheduling/scheduling_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:38  # sub-barrel delegate; symbols are scoped inside src/session/session_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:39  # sub-barrel delegate; symbols are scoped inside src/task/task_exports.dart
+packages/dartclaw_server/lib/dartclaw_server.dart:40  # sub-barrel delegate; symbols are scoped inside src/ui_exports.dart
+
+# dartclaw_security: 2 wholesale exports (small focused files; all symbols intended public)
+packages/dartclaw_security/lib/dartclaw_security.dart:18  # inline_process_environment_plan.dart is a single-class file; all symbols public
+packages/dartclaw_security/lib/dartclaw_security.dart:20  # safe_process.dart is a small focused file; all symbols public
+
+# dartclaw_google_chat: 2 wholesale exports
+packages/dartclaw_google_chat/lib/dartclaw_google_chat.dart:24  # google_chat_config.dart: all symbols intentionally public
+packages/dartclaw_google_chat/lib/dartclaw_google_chat.dart:38  # cloud_event_adapter.dart: all symbols intentionally public
+
+# dartclaw_config: 4 wholesale exports
+packages/dartclaw_config/lib/dartclaw_config.dart:23  # github_config.dart: all symbols intentionally public
+packages/dartclaw_config/lib/dartclaw_config.dart:25  # governance_config.dart: all symbols intentionally public
+packages/dartclaw_config/lib/dartclaw_config.dart:42  # project_config.dart: all symbols intentionally public
+packages/dartclaw_config/lib/dartclaw_config.dart:57  # workflow_config.dart: all symbols intentionally public
+
+# dartclaw_core: 7 wholesale exports
+packages/dartclaw_core/lib/dartclaw_core.dart:24  # bridge_events.dart: all symbols intentionally public
+packages/dartclaw_core/lib/dartclaw_core.dart:36  # channel_feedback.dart: all symbols intentionally public
+packages/dartclaw_core/lib/dartclaw_core.dart:43  # review_command_parser.dart: all symbols intentionally public
+packages/dartclaw_core/lib/dartclaw_core.dart:57  # turn_progress_event.dart: all symbols intentionally public
+packages/dartclaw_core/lib/dartclaw_core.dart:87  # merge_resolve_env_vars.dart: all symbols intentionally public
+packages/dartclaw_core/lib/dartclaw_core.dart:99  # protocol_message.dart: all symbols intentionally public
+packages/dartclaw_core/lib/dartclaw_core.dart:158  # dartclaw_event.dart: all symbols intentionally public
+
+# dartclaw_models: 3 wholesale exports
+packages/dartclaw_models/lib/dartclaw_models.dart:29  # task_event.dart: all symbols intentionally public
+packages/dartclaw_models/lib/dartclaw_models.dart:42  # workflow_definition.dart: all symbols intentionally public
+packages/dartclaw_models/lib/dartclaw_models.dart:69  # workflow_run.dart: all symbols intentionally public

@@ -5,12 +5,13 @@ import 'workflow_context_resolver.dart';
 
 /// Evaluates simple gate expressions against workflow context.
 ///
-/// Gate syntax: `<key> <operator> <value>` leaves joined as
-/// `<a> [&& <b>]* [|| <c> [&& <d>]*]*`; `&&` binds tighter than `||`.
+/// Gate syntax: `<key> <operator> <value>` or `<key> isEmpty` leaves joined
+/// as `<a> [&& <b>]* [|| <c> [&& <d>]*]*`; `&&` binds tighter than `||`.
 /// Parentheses, NOT, and deeper nesting are not supported.
 class GateEvaluator {
   static final _log = Logger('GateEvaluator');
-  static final _conditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
+  static final _binaryConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
+  static final _unaryConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s+(isEmpty|isNotEmpty)$');
 
   /// Tracks keys that have already produced a "context." prefix warning,
   /// so gates evaluated on every loop iteration don't spam the log.
@@ -27,7 +28,7 @@ class GateEvaluator {
     }
     for (final group in orGroups) {
       final conditions = group.split('&&').map((s) => s.trim()).toList();
-      if (conditions.any((condition) => condition.isEmpty || !_conditionPattern.hasMatch(condition))) {
+      if (conditions.any((condition) => condition.isEmpty || !_isConditionSyntaxValid(condition))) {
         _log.warning('Invalid gate expression: "$expression"');
         return false;
       }
@@ -39,26 +40,23 @@ class GateEvaluator {
   }
 
   bool _evaluateCondition(String condition, WorkflowContext context) {
-    final match = _conditionPattern.firstMatch(condition.trim());
+    final unaryMatch = _unaryConditionPattern.firstMatch(condition.trim());
+    if (unaryMatch != null) {
+      final key = _normalizeKey(unaryMatch.group(1)!.trim());
+      final op = unaryMatch.group(2)!.trim();
+      final isEmpty = _isEmptyValue(resolveContextKey(context, key));
+      final result = op == 'isEmpty' ? isEmpty : !isEmpty;
+      _log.fine('Gate condition: $key $op → result=$result');
+      return result;
+    }
+
+    final match = _binaryConditionPattern.firstMatch(condition.trim());
     if (match == null) {
       _log.warning('Invalid gate expression: "$condition"');
       return false;
     }
 
-    var key = match.group(1)!.trim();
-    // Gate keys are unprefixed; forgive a stray "context." prefix (as used in
-    // prompt templates) by stripping it, and nudge the author to drop it.
-    if (key.startsWith('context.')) {
-      final stripped = key.substring('context.'.length);
-      if (_warnedPrefixKeys.add(stripped)) {
-        _log.warning(
-          'Gate expression used "context.$stripped"; gate keys are bare '
-          '(unlike prompt templates). Treating as "$stripped" — please remove '
-          'the "context." prefix.',
-        );
-      }
-      key = stripped;
-    }
+    final key = _normalizeKey(match.group(1)!.trim());
     final op = match.group(2)!.trim();
     final expected = match.group(3)!.trim();
     final rawActual = resolveContextKey(context, key)?.toString() ?? '';
@@ -75,7 +73,7 @@ class GateEvaluator {
       return result;
     }
     // When the *actual* value is the literal "null" but expected is a
-    // non-"null" string, `!=` should be true and `==` false — matches user
+    // non-"null" string, `!=` should be true and `==` false – matches user
     // intuition for gates like `source != synthesized` when `source` is null.
     // Nothing special to do: string comparison already handles this case.
 
@@ -94,6 +92,33 @@ class GateEvaluator {
     };
     _log.fine('Gate condition: $key $op $expected → actual="$actual", result=$result');
     return result;
+  }
+
+  bool _isConditionSyntaxValid(String condition) =>
+      _binaryConditionPattern.hasMatch(condition) || _unaryConditionPattern.hasMatch(condition);
+
+  String _normalizeKey(String key) {
+    if (!key.startsWith('context.')) return key;
+    final stripped = key.substring('context.'.length);
+    if (_warnedPrefixKeys.add(stripped)) {
+      _log.warning(
+        'Gate expression used "context.$stripped"; gate keys are bare '
+        '(unlike prompt templates). Treating as "$stripped" – please remove '
+        'the "context." prefix.',
+      );
+    }
+    return stripped;
+  }
+
+  bool _isEmptyValue(Object? value) {
+    if (value == null) return true;
+    if (value is String) {
+      final trimmed = value.trim();
+      return trimmed.isEmpty || trimmed == 'null';
+    }
+    if (value is Iterable) return value.isEmpty;
+    if (value is Map) return value.isEmpty;
+    return false;
   }
 
   bool _evaluateNumericComparison(String a, String b, bool Function(int comparison) predicate) {

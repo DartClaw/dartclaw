@@ -20,12 +20,16 @@ export 'merge_executor.dart'
 export 'pr_creator.dart' show PrCreator, PrCreationResult, PrCreated, PrGhNotFound, PrCreationFailed;
 export 'remote_push_service.dart'
     show RemotePushService, PushResult, PushSuccess, PushAuthFailure, PushRejected, PushError;
-export 'git_credential_env.dart' show GitCredentialPlan, resolveGitCredentialEnv, resolveGitCredentialPlan;
+export 'git_credential_env.dart' show GitCredentialPlan, resolveGitCredentialPlan;
 export 'task_event_recorder.dart' show TaskEventRecorder;
 export 'task_executor.dart' show TaskExecutor;
+export 'task_executor_limits.dart' show TaskExecutorLimits;
+export 'task_executor_runners.dart' show TaskExecutorRunners;
+export 'task_executor_services.dart' show TaskExecutorServices;
 export 'task_file_guard.dart' show TaskFileGuard;
 export 'task_notification_subscriber.dart' show TaskNotificationSubscriber;
-export 'workflow_cli_runner.dart' show WorkflowCliProviderConfig, WorkflowCliRunner, WorkflowCliTurnResult;
+export 'workflow_cli_runner.dart'
+    show CliProvider, CliTurnRequest, WorkflowCliProviderConfig, WorkflowCliRunner, WorkflowCliTurnResult;
 export 'task_review_service.dart'
     show
         TaskReviewService,
@@ -38,5 +42,6 @@ export 'task_review_service.dart'
         ReviewInvalidRequest,
         ReviewActionFailed;
 export 'task_service.dart' show TaskService;
-export 'worktree_manager.dart' show WorktreeManager, WorktreeInfo, WorktreeException, GitNotFoundException;
+export 'worktree_manager.dart'
+    show WorktreeManager, WorktreeInfo, WorktreeException, GitNotFoundException, WorktreeSkillMaterializer;
 export 'workflow_git_port_process.dart' show WorkflowGitPortProcess;

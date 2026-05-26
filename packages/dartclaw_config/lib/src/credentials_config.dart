@@ -29,6 +29,7 @@ class CredentialEntry {
   /// Empty when the credential was configured with a literal value.
   final List<String> envVars;
 
+  /// const CredentialEntry({required String apiKey, this.envVars .
   const CredentialEntry({required String apiKey, this.envVars = const <String>[]})
     : type = CredentialType.apiKey,
       secret = apiKey,
@@ -78,8 +79,10 @@ class CredentialsConfig {
   /// Credential entries keyed by credential name.
   final Map<String, CredentialEntry> entries;
 
+  /// const CredentialsConfig({this.entries = const {}});.
   const CredentialsConfig({this.entries = const {}});
 
+  /// Creates a [CredentialsConfig.defaults] value.
   const CredentialsConfig.defaults() : this();
 
   /// Returns the entry for [name], or `null` if not configured.

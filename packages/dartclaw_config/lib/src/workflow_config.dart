@@ -3,10 +3,16 @@ import 'provider_identity.dart';
 
 /// Provider/model selection for a workflow execution role.
 class WorkflowRoleModelConfig {
+  /// provider.
   final String? provider;
+
+  /// model.
   final String? model;
+
+  /// effort.
   final String? effort;
 
+  /// const WorkflowRoleModelConfig({this.provider, this.model, th.
   const WorkflowRoleModelConfig({this.provider, this.model, this.effort});
 
   @override
@@ -26,11 +32,19 @@ class WorkflowRoleModelConfig {
 /// `workflow` is the general fallback. The other roles inherit missing values
 /// from it at runtime.
 class WorkflowRoleDefaultsConfig {
+  /// workflow.
   final WorkflowRoleModelConfig workflow;
+
+  /// planner.
   final WorkflowRoleModelConfig planner;
+
+  /// executor.
   final WorkflowRoleModelConfig executor;
+
+  /// reviewer.
   final WorkflowRoleModelConfig reviewer;
 
+  /// Creates a [WorkflowRoleDefaultsConfig] value.
   const WorkflowRoleDefaultsConfig({
     this.workflow = const WorkflowRoleModelConfig(provider: 'claude'),
     this.planner = const WorkflowRoleModelConfig(),
@@ -38,6 +52,7 @@ class WorkflowRoleDefaultsConfig {
     this.reviewer = const WorkflowRoleModelConfig(model: 'claude-opus-4'),
   });
 
+  /// Creates a [WorkflowRoleDefaultsConfig.defaults] value.
   const WorkflowRoleDefaultsConfig.defaults() : this();
 
   @override
@@ -64,10 +79,13 @@ class WorkflowRoleDefaultsConfig {
 
 /// Cleanup behavior for workflow-owned git resources.
 class WorkflowCleanupConfig {
+  /// deleteRemoteBranchOnFailure.
   final bool deleteRemoteBranchOnFailure;
 
+  /// const WorkflowCleanupConfig({this.deleteRemoteBranchOnFailur.
   const WorkflowCleanupConfig({this.deleteRemoteBranchOnFailure = false});
 
+  /// Creates a [WorkflowCleanupConfig.defaults] value.
   const WorkflowCleanupConfig.defaults() : this();
 
   @override
@@ -96,6 +114,7 @@ class WorkflowConfig {
   /// Workflow-owned git cleanup settings.
   final WorkflowCleanupConfig cleanup;
 
+  /// Creates a [WorkflowConfig] value.
   const WorkflowConfig({
     this.workspaceDir,
     this.defaults = const WorkflowRoleDefaultsConfig.defaults(),

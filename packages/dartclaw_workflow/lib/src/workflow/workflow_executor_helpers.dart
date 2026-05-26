@@ -1,14 +1,5 @@
 part of 'workflow_executor.dart';
 
-class _WorkflowRunWaitAbort implements Exception {
-  const _WorkflowRunWaitAbort(this.message);
-
-  final String message;
-
-  @override
-  String toString() => message;
-}
-
 /// Shared helper methods used by extracted workflow runners.
 extension WorkflowExecutorHelpers on WorkflowExecutor {
   Map<String, OutputConfig> _inputConfigsFor(WorkflowDefinition definition, List<String> keys) {
@@ -21,23 +12,32 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   /// Returns the `workflow.default_prompt` declared in the step's skill
   /// frontmatter, or null when no registry is wired, the step has no skill,
   /// or the skill declares no default.
-  String? _skillDefaultPromptFor(WorkflowStep step) {
+  String? _skillDefaultPromptFor(WorkflowStep step, ResolvedSkillRef? resolvedSkill) {
     final skill = step.skill;
     if (skill == null) return null;
-    return _skillRegistry?.getByName(skill)?.defaultPrompt;
+    return resolvedSkill?.skill.defaultPrompt ?? _skillRegistry?.getByName(skill)?.defaultPrompt;
   }
 
   /// Returns the effective `outputs:` for a step, shallow-merging the skill's
   /// `workflow.default_outputs` (keys only in the skill default are added;
   /// keys on the step win).
-  Map<String, OutputConfig>? _effectiveOutputsFor(WorkflowStep step) {
+  Map<String, OutputConfig>? _effectiveOutputsFor(WorkflowStep step, {ResolvedSkillRef? resolvedSkill}) {
     final explicit = step.outputs;
     final skill = step.skill;
     if (skill == null || _skillRegistry == null) return explicit;
-    final defaults = _skillRegistry.getByName(skill)?.defaultOutputs;
+    final defaults = resolvedSkill?.skill.defaultOutputs ?? _skillRegistry.getByName(skill)?.defaultOutputs;
     if (defaults == null || defaults.isEmpty) return explicit;
     if (explicit == null || explicit.isEmpty) return defaults;
     return {...defaults, ...explicit};
+  }
+
+  List<String> _effectiveOutputKeysFor(WorkflowStep step, Map<String, OutputConfig>? effectiveOutputs) =>
+      effectiveOutputs?.keys.toList(growable: false) ?? step.outputKeys;
+
+  ResolvedSkillRef? _resolvedSkillFor(WorkflowStep step, String? provider) {
+    final skill = step.skill;
+    if (skill == null || _skillRegistry == null || provider == null) return null;
+    return _skillRegistry.resolveRef(skill, provider);
   }
 
   /// Resolved values for a step's inputs plus workflow variables used
@@ -45,7 +45,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   ///
   /// Context inputs render missing entries as `''` so the auto-frame pass can
   /// drop an `_(empty)_` placeholder per the shared convention. Workflow
-  /// variables only participate when they have a bound or default value —
+  /// variables only participate when they have a bound or default value –
   /// null-valued variables are intentionally omitted so they do not render as
   /// `_(empty)_`.
   Map<String, Object?> _resolvedInputValuesFor(
@@ -62,50 +62,13 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     return values;
   }
 
-  Map<String, dynamic> _canonicalizeReusableArtifactPaths(
-    WorkflowStep step,
-    Map<String, dynamic> outputs,
-    WorkflowContext context,
-  ) {
-    if (step.id != 'plan') return outputs;
-    final planPath = (outputs['plan'] as String?)?.trim();
-    if (planPath != null && planPath.isNotEmpty) return outputs;
-    final projectIndex = switch (context['project_index']) {
-      final Map<dynamic, dynamic> map => map,
-      _ => null,
-    };
-    final activePlan = (projectIndex?['active_plan'] as String?)?.trim();
-    if (activePlan == null || activePlan.isEmpty) return outputs;
-    return {...outputs, 'plan': activePlan};
-  }
-
   // Workflow-level `variables` are opt-in per step. Only names listed in
   // `step.workflowVariables` are auto-framed as `<NAME>{value}</NAME>` blocks
   // on that step's prompt. Undeclared variables never reach unrelated steps
-  // (e.g. REQUIREMENTS must not land on discover-project). `inputs`
+  // (e.g. FEATURE must not land on unrelated steps). `inputs`
   // remains the declarative channel for upstream step outputs and is still
   // auto-framed by SkillPromptBuilder when `autoFrameContext` is true.
   List<String> _autoFrameVariableNames(WorkflowStep step) => step.workflowVariables;
-
-  Future<workflow_artifact_committer.ArtifactCommitResult> _maybeCommitArtifacts({
-    required WorkflowRun run,
-    required WorkflowDefinition definition,
-    required WorkflowStep step,
-    required WorkflowContext context,
-    required Task task,
-  }) => workflow_artifact_committer.maybeCommitStepArtifacts(
-    workflow_artifact_committer.ArtifactCommitPolicy(
-      run: run,
-      definition: definition,
-      step: step,
-      context: context,
-      task: task,
-      projectService: _projectService,
-      dataDir: _dataDir,
-      templateEngine: _templateEngine,
-      workflowGitPort: _workflowGitPort,
-    ),
-  );
 
   /// Returns an updated [WorkflowRun] when [step].entryGate evaluates false.
   ///
@@ -141,77 +104,6 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     await _persistContext(run.id, context);
     await _repository.update(updated);
     return updated;
-  }
-
-  // ── Parallel group helpers ──────────────────────────────────────────────────
-
-  int _nodeIndexForStepIndex(List<WorkflowNode> nodes, Map<String, int> stepIndexById, int stepIndex) {
-    if (nodes.isEmpty) return 0;
-    for (var index = 0; index < nodes.length; index++) {
-      final referencedIndexes = _referencedStepIdsForNode(
-        nodes[index],
-      ).map((stepId) => stepIndexById[stepId]).nonNulls.toList(growable: false);
-      if (referencedIndexes.contains(stepIndex)) {
-        return index;
-      }
-      final firstStepIndex = referencedIndexes.isEmpty
-          ? 0
-          : referencedIndexes.reduce((left, right) => left < right ? left : right);
-      if (firstStepIndex >= stepIndex) {
-        return index;
-      }
-    }
-    return nodes.length;
-  }
-
-  int _nodeIndexForCursor(List<WorkflowNode> nodes, Map<String, int> stepIndexById, WorkflowExecutionCursor cursor) =>
-      _nodeIndexForStepIndex(nodes, stepIndexById, cursor.stepIndex);
-
-  WorkflowExecutionCursor? _legacyResumeCursor(
-    WorkflowDefinition definition, {
-    int? startFromLoopIndex,
-    int? startFromLoopIteration,
-    String? startFromLoopStepId,
-  }) {
-    if (startFromLoopIndex == null || startFromLoopIndex < 0 || startFromLoopIndex >= definition.loops.length) {
-      return null;
-    }
-    final loop = definition.loops[startFromLoopIndex];
-    final firstStepId = startFromLoopStepId ?? loop.steps.firstOrNull;
-    final stepIndex = firstStepId == null ? 0 : definition.steps.indexWhere((step) => step.id == firstStepId);
-    return WorkflowExecutionCursor.loop(
-      loopId: loop.id,
-      stepIndex: stepIndex >= 0 ? stepIndex : 0,
-      iteration: startFromLoopIteration ?? 1,
-      stepId: startFromLoopStepId,
-    );
-  }
-
-  int _firstStepIndexForNode(WorkflowNode node, Map<String, int> stepIndexById) {
-    final indexes = _referencedStepIdsForNode(
-      node,
-    ).map((stepId) => stepIndexById[stepId]).nonNulls.toList(growable: false);
-    if (indexes.isEmpty) return 0;
-    return indexes.reduce((left, right) => left < right ? left : right);
-  }
-
-  Iterable<String> _referencedStepIdsForNode(WorkflowNode node) sync* {
-    switch (node) {
-      case ActionNode(stepId: final stepId):
-        yield stepId;
-      case MapNode(stepId: final stepId):
-        yield stepId;
-      case ParallelGroupNode(stepIds: final stepIds):
-        yield* stepIds;
-      case LoopNode(stepIds: final stepIds, finallyStepId: final finallyStepId):
-        yield* stepIds;
-        if (finallyStepId != null) {
-          yield finallyStepId;
-        }
-      case ForeachNode(stepId: final stepId, childStepIds: final childStepIds):
-        yield stepId;
-        yield* childStepIds;
-    }
   }
 
   // ── Shared helpers ──────────────────────────────────────────────────────────
@@ -263,84 +155,6 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     taskConfig: taskConfig,
   );
 
-  /// Waits for a task to complete using a pre-created [completer] and [sub].
-  Future<Task> _waitForTaskCompletion(
-    String taskId,
-    WorkflowStep step,
-    Completer<Task> completer,
-    StreamSubscription<TaskStatusChangedEvent> sub, {
-    String? runId,
-  }) async {
-    // Wake the wait if the owning workflow run transitions away from `running`
-    // (e.g. `WorkflowService.pause(runId)` → `WorkflowRunStatusChangedEvent`).
-    // Without this, a step blocked on a task that never completes would hold
-    // the executor indefinitely, and pause/cancel would observe no effect.
-    StreamSubscription<WorkflowRunStatusChangedEvent>? runSub;
-    final taskCompletion = completer.future;
-    Future<Object> awaitedCompletion = taskCompletion;
-    Completer<_WorkflowRunWaitAbort>? runAbort;
-    if (runId != null) {
-      final abort = Completer<_WorkflowRunWaitAbort>();
-      runAbort = abort;
-      void abortWait(String message) {
-        if (!abort.isCompleted) {
-          abort.complete(_WorkflowRunWaitAbort(message));
-        }
-      }
-
-      awaitedCompletion = Future.any<Object>([taskCompletion, abort.future]);
-      runSub = _eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((event) {
-        if (event.newStatus != WorkflowRunStatus.running) {
-          abortWait(
-            'Workflow run "$runId" transitioned to ${event.newStatus.name} while step "${step.name}" awaited task $taskId',
-          );
-        }
-      });
-      // Close the race: if pause fired before we subscribed, the broadcast
-      // stream dropped the event. Re-check current state from the repository
-      // and abort if the run is no longer running.
-      final currentRun = await _repository.getById(runId);
-      if (currentRun != null && currentRun.status != WorkflowRunStatus.running) {
-        abortWait(
-          'Workflow run "$runId" is ${currentRun.status.name}; step "${step.name}" wait aborted before task $taskId completed',
-        );
-      }
-    }
-    final currentTask = await _taskService.get(taskId);
-    // Skip the early-completion shortcut when the run-abort already fired —
-    // otherwise `Future.any` may resolve to the task (registered first) and
-    // silently drop the abort signal.
-    if (currentTask != null &&
-        currentTask.status.terminal &&
-        !completer.isCompleted &&
-        !(runAbort?.isCompleted ?? false)) {
-      completer.complete(currentTask);
-    }
-    try {
-      Future<Task> awaitResult(Future<Object> future) async {
-        final result = await future;
-        if (result is Task) return result;
-        if (result is _WorkflowRunWaitAbort) throw result;
-        throw StateError('Unexpected workflow task wait result: $result');
-      }
-
-      if (step.timeoutSeconds != null) {
-        return await awaitResult(
-          awaitedCompletion.timeout(
-            Duration(seconds: step.timeoutSeconds!),
-            onTimeout: () =>
-                throw TimeoutException('Step "${step.name}" timed out', Duration(seconds: step.timeoutSeconds!)),
-          ),
-        );
-      } else {
-        return await awaitResult(awaitedCompletion);
-      }
-    } finally {
-      await sub.cancel();
-      await runSub?.cancel();
-    }
-  }
-
   /// Builds configJson for a task from a workflow step and its resolved config.
   Map<String, dynamic> _buildStepConfig(
     WorkflowRun run,
@@ -350,6 +164,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     WorkflowContext context, {
     required String resolvedWorktreeMode,
     required String effectivePromotion,
+    Map<String, OutputConfig>? effectiveOutputs,
   }) => workflow_task_factory.buildStepConfig(
     run,
     definition,
@@ -359,6 +174,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     resolvedWorktreeMode: resolvedWorktreeMode,
     effectivePromotion: effectivePromotion,
     workflowWorkspaceDir: _resolveWorkflowWorkspaceDir(),
+    effectiveOutputs: effectiveOutputs,
   );
 
   String _resolvedWorktreeModeForScope(
@@ -385,7 +201,14 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     WorkflowStep step,
     ResolvedStepConfig resolved, {
     required String resolvedWorktreeMode,
-  }) => step_config_policy.stepNeedsWorktree(definition, step, resolved, resolvedWorktreeMode: resolvedWorktreeMode);
+    Map<String, OutputConfig>? effectiveOutputs,
+  }) => step_config_policy.stepNeedsWorktree(
+    definition,
+    step,
+    resolved,
+    resolvedWorktreeMode: resolvedWorktreeMode,
+    effectiveOutputs: effectiveOutputs,
+  );
 
   bool _isLastBranchTouchingStepInScope(
     WorkflowDefinition definition,
@@ -403,8 +226,12 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     return true;
   }
 
-  bool _shouldBindWorkflowProject(WorkflowDefinition definition, WorkflowStep step, ResolvedStepConfig resolved) =>
-      step_config_policy.shouldBindWorkflowProject(definition, step, resolved);
+  bool _shouldBindWorkflowProject(
+    WorkflowDefinition definition,
+    WorkflowStep step,
+    ResolvedStepConfig resolved, {
+    Map<String, OutputConfig>? effectiveOutputs,
+  }) => step_config_policy.shouldBindWorkflowProject(definition, step, resolved, effectiveOutputs: effectiveOutputs);
 
   bool _stepTouchesProjectBranch(WorkflowDefinition definition, WorkflowStep step) {
     return step_config_policy.stepTouchesProjectBranch(definition, step, roleDefaults: _roleDefaults);
@@ -412,75 +239,6 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
 
   String _continueSessionRootStepId(WorkflowDefinition definition, WorkflowStep step) =>
       _resolveContinueSessionRootStep(definition, step)?.id ?? step.id;
-
-  Future<String?> _promoteWorkflowTask({
-    required WorkflowRun run,
-    required WorkflowStep step,
-    required Task task,
-    required WorkflowContext context,
-    required Map<String, dynamic> outputs,
-    required String? projectId,
-    required String promotionStrategy,
-  }) async {
-    if (task.type != TaskType.coding || promotionStrategy == 'none') {
-      return null;
-    }
-
-    final promote = _turnAdapter?.promoteWorkflowBranch;
-    if (promote == null) {
-      outputs['${step.id}.promotion'] = 'failed';
-      return 'promotion failed: host promotion callback is not configured';
-    }
-
-    final promotionProjectId = projectId?.trim();
-    if (promotionProjectId == null || promotionProjectId.isEmpty) {
-      outputs['${step.id}.promotion'] = 'failed';
-      return 'promotion failed: step has no project binding';
-    }
-
-    if (task.worktreeJson == null) {
-      // No worktree was bound to this task — nothing to promote.
-      return null;
-    }
-    final branch = (task.worktreeJson?['branch'] as String?)?.trim();
-    if (branch == null || branch.isEmpty) {
-      outputs['${step.id}.promotion'] = 'failed';
-      return 'promotion failed: task worktree branch is unavailable';
-    }
-
-    final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
-    if (integrationBranch == null || integrationBranch.isEmpty) {
-      outputs['${step.id}.promotion'] = 'failed';
-      return 'promotion failed: integration branch is not initialized';
-    }
-
-    final promotionResult = await promote(
-      runId: run.id,
-      projectId: promotionProjectId,
-      branch: branch,
-      integrationBranch: integrationBranch,
-      strategy: promotionStrategy,
-    );
-
-    switch (promotionResult) {
-      case WorkflowGitPromotionSuccess(:final commitSha):
-        outputs['${step.id}.promotion'] = 'success';
-        outputs['${step.id}.promotion_sha'] = commitSha;
-        return null;
-      case WorkflowGitPromotionConflict(:final conflictingFiles, :final details):
-        outputs['${step.id}.promotion'] = 'conflict';
-        outputs['${step.id}.promotion_details'] = details;
-        final summary = conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ');
-        return 'promotion-conflict: $summary';
-      case WorkflowGitPromotionError(:final message):
-        outputs['${step.id}.promotion'] = 'failed';
-        return 'promotion failed: $message';
-      case WorkflowGitPromotionSerializeRemaining():
-        // This helper is used for non-foreach promotion; sentinel is unreachable here.
-        outputs['${step.id}.promotion'] = 'failed';
-        return 'promotion failed: unexpected serialize-remaining sentinel';
-    }
-  }
 
   /// Validates `story_specs` outputs emitted by the plan step.
   ///
@@ -492,35 +250,122 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     WorkflowRun run,
     WorkflowStep step,
     Map<String, dynamic> outputs,
-    WorkflowContext context,
+    String? activeWorkspaceRoot,
   ) {
-    final outputProjectIndex = switch (outputs['project_index']) {
-      final Map<dynamic, dynamic> map => map,
-      _ => null,
-    };
-    final contextProjectIndex = switch (context['project_index']) {
-      final Map<dynamic, dynamic> map => map,
-      _ => null,
-    };
-    final projectIndex = outputProjectIndex ?? contextProjectIndex;
     final explicitPlanPath = (outputs['plan'] as String?)?.trim();
-    final planPath = explicitPlanPath == null || explicitPlanPath.isEmpty
-        ? (projectIndex?['active_plan'] as String?)?.trim()
-        : explicitPlanPath;
+    final planPath = explicitPlanPath == null || explicitPlanPath.isEmpty ? null : explicitPlanPath;
     final planDir = (planPath == null || planPath.isEmpty) ? '' : p.dirname(planPath);
-    final projectRoot = projectIndex?['project_root'] as String?;
 
     final validation = step_outcome_normalizer.validateStorySpecOutputs(
       outputs,
       planDir: planDir,
-      projectRoot: projectRoot,
+      activeWorkspaceRoot: activeWorkspaceRoot,
     );
+    if (validation.validationFailure == null &&
+        outputs.containsKey('story_specs') &&
+        (activeWorkspaceRoot == null || activeWorkspaceRoot.isEmpty)) {
+      const failure = StepValidationFailure(
+        reason: 'Plan step cannot validate story-spec paths without an active workspace root.',
+      );
+      WorkflowExecutor._log.severe("Workflow '${run.id}': step '${step.id}': ${failure.reason}");
+      return (outputs: validation.outputs, validationFailure: failure);
+    }
     final validationFailure = validation.validationFailure;
     if (validationFailure != null) {
       WorkflowExecutor._log.severe("Workflow '${run.id}': step '${step.id}': ${validationFailure.reason}");
     }
     return validation;
   }
+
+  StepValidationFailure? _validateDiscoverAndthenSpecOutputs(
+    WorkflowStep step,
+    Map<String, dynamic> outputs,
+    WorkflowContext context,
+    String? activeWorkspaceRoot,
+  ) {
+    if (step.skill != 'dartclaw-discover-andthen-spec') return null;
+    if (activeWorkspaceRoot == null || activeWorkspaceRoot.isEmpty) {
+      const missingRoot = StepValidationFailure(
+        reason: 'Detect spec input cannot validate paths without an active workspace root.',
+      );
+      WorkflowExecutor._log.severe("Workflow step '${step.id}': ${missingRoot.reason}");
+      return missingRoot;
+    }
+    final validation = step_outcome_normalizer.validateDiscoverAndthenSpecOutputs(
+      outputs,
+      feature: context.variable('FEATURE') ?? '',
+      activeWorkspaceRoot: activeWorkspaceRoot,
+    );
+    final failure = validation.validationFailure;
+    if (failure != null) {
+      WorkflowExecutor._log.severe("Workflow step '${step.id}': ${failure.reason}");
+    } else if (!identical(validation.outputs, outputs)) {
+      outputs
+        ..clear()
+        ..addAll(validation.outputs);
+    }
+    return failure;
+  }
+
+  StepValidationFailure? _validateDiscoverAndthenPlanOutputs(
+    WorkflowStep step,
+    Map<String, dynamic> outputs,
+    String? activeWorkspaceRoot,
+  ) {
+    if (step.skill != 'dartclaw-discover-andthen-plan') return null;
+    if (activeWorkspaceRoot == null || activeWorkspaceRoot.isEmpty) {
+      const missingRoot = StepValidationFailure(
+        reason: 'Discover plan state cannot validate paths without an active workspace root.',
+      );
+      WorkflowExecutor._log.severe("Workflow step '${step.id}': ${missingRoot.reason}");
+      return missingRoot;
+    }
+    final validation = step_outcome_normalizer.validateDiscoverAndthenPlanOutputs(
+      outputs,
+      activeWorkspaceRoot: activeWorkspaceRoot,
+    );
+    final failure = validation.validationFailure;
+    if (failure != null) {
+      WorkflowExecutor._log.severe("Workflow step '${step.id}': ${failure.reason}");
+    } else if (!identical(validation.outputs, outputs)) {
+      outputs
+        ..clear()
+        ..addAll(validation.outputs);
+    }
+    return failure;
+  }
+
+  Future<String?> _resolveActiveWorkspaceRoot(
+    WorkflowRun run,
+    WorkflowDefinition definition,
+    WorkflowContext context,
+  ) async {
+    final runWorktreePath = run.workflowWorktree?.path.trim();
+    if (runWorktreePath != null && runWorktreePath.isNotEmpty) return runWorktreePath;
+
+    final persistedWorktreePath = (await _repository.getWorktreeBinding(run.id))?.path.trim();
+    if (persistedWorktreePath != null && persistedWorktreePath.isNotEmpty) return persistedWorktreePath;
+
+    final String? projectId;
+    try {
+      projectId = _resolveWorkflowProjectTemplate(definition.project, context);
+    } on ArgumentError {
+      return null;
+    }
+    if (projectId == null || projectId.isEmpty) return null;
+
+    final localPath = (await _projectService?.get(projectId))?.localPath.trim();
+    if (localPath != null && localPath.isNotEmpty) return localPath;
+
+    final dataDirProjectPath = p.join(_dataDir, 'projects', projectId);
+    return Directory(dataDirProjectPath).existsSync() ? dataDirProjectPath : null;
+  }
+
+  bool _requiresActiveWorkspaceRoot(WorkflowDefinition definition) => definition.steps.any((step) {
+    if (step.skill == 'dartclaw-discover-andthen-spec') return true;
+    if (step.skill == 'dartclaw-discover-andthen-plan') return true;
+    return step.outputs?.containsKey('story_specs') ?? false;
+  });
 
   bool _isPromotionAwareScope(
     WorkflowGitStrategy? strategy, {
@@ -540,6 +385,18 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     final raw = switch (item) {
       final Map<String, dynamic> map => map['spec_path'],
       final Map<Object?, Object?> map => map['spec_path'],
+      _ => null,
+    };
+    if (raw is! String) return null;
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  String? _mapItemDisplayScope(MapContext mapCtx) {
+    final item = mapCtx.item;
+    final raw = switch (item) {
+      final Map<String, dynamic> map => map['id'],
+      final Map<Object?, Object?> map => map['id'],
       _ => null,
     };
     if (raw is! String) return null;
@@ -580,7 +437,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
 
   /// Fires a warning event when the workflow reaches 80% of its token budget.
   ///
-  /// Deduplicated via `_budget.warningFired` in [run.contextJson] — fires once per run.
+  /// Deduplicated via `_budget.warningFired` in [run.contextJson] – fires once per run.
   /// Returns updated [run] if the flag was set, otherwise returns [run] unchanged.
   Future<WorkflowRun> _checkWorkflowBudgetWarning(WorkflowRun run, WorkflowDefinition definition) =>
       workflow_budget_monitor.checkWorkflowBudgetWarning(
@@ -600,182 +457,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   /// Reads the raw cumulative token total for [sessionId] from KV store.
   Future<int> _readSessionTokens(String sessionId) => workflow_budget_monitor.readSessionTokens(_kvService, sessionId);
 
-  String? _resolveProjectId(
-    WorkflowDefinition definition,
-    WorkflowStep step,
-    WorkflowContext context, {
-    required ResolvedStepConfig resolved,
-  }) {
-    if (!_shouldBindWorkflowProject(definition, step, resolved)) {
-      return null;
-    }
-    return _resolveWorkflowProjectTemplate(definition.project, context);
-  }
-
-  String? _resolveProjectIdWithMap(
-    WorkflowDefinition definition,
-    WorkflowStep step,
-    WorkflowContext context,
-    MapContext mapContext, {
-    required ResolvedStepConfig resolved,
-  }) {
-    if (!_shouldBindWorkflowProject(definition, step, resolved)) {
-      return null;
-    }
-    return _resolveWorkflowProjectTemplateWithMap(definition.project, context, mapContext);
-  }
-
-  String? _resolveWorkflowProjectTemplate(String? template, WorkflowContext context) {
-    if (template == null) return null;
-    final resolved = _templateEngine.resolve(template, context).trim();
-    return resolved.isEmpty ? null : resolved;
-  }
-
-  String? _resolveWorkflowProjectTemplateWithMap(String? template, WorkflowContext context, MapContext mapContext) {
-    if (template == null) return null;
-    final resolved = _templateEngine.resolveWithMap(template, context, mapContext).trim();
-    return resolved.isEmpty ? null : resolved;
-  }
-
-  /// Resolves the effective provider for a continued session step.
-  ///
-  /// Session continuity requires the same provider family (e.g. both `codex`).
-  /// If the current step's resolved provider matches the root step's family,
-  /// the root's provider is used (the session thread belongs to it). If the
-  /// families differ, the root's provider is used with a warning – the step
-  /// cannot resume a thread from a different provider.
-  ///
-  /// The current step's **model** is preserved regardless – models can switch
-  /// between turns within the same provider session.
-  String? _resolveContinueSessionProvider(
-    WorkflowDefinition definition,
-    WorkflowStep step,
-    WorkflowStep rootStep,
-    ResolvedStepConfig resolved,
-  ) {
-    final rootResolved = resolveStepConfig(rootStep, definition.stepDefaults, roleDefaults: _roleDefaults);
-    final rootProvider = rootResolved.provider;
-    final stepProvider = resolved.provider;
-
-    if (stepProvider != null && rootProvider != null) {
-      final rootFamily = ProviderIdentity.family(rootProvider);
-      final stepFamily = ProviderIdentity.family(stepProvider);
-      if (rootFamily != stepFamily) {
-        WorkflowExecutor._log.warning(
-          'Step "${step.id}" uses continueSession but its resolved provider "$stepProvider" '
-          '(family: $stepFamily) differs from root step "${rootStep.id}" provider "$rootProvider" '
-          '(family: $rootFamily). Falling back to root provider "$rootProvider" for session continuity.',
-        );
-      }
-    }
-
-    return rootProvider;
-  }
-
-  String? _resolveContinueSessionRootProviderSessionId(
-    WorkflowDefinition definition,
-    WorkflowStep step,
-    WorkflowContext context,
-  ) {
-    final rootStep = _resolveContinueSessionRootStep(definition, step);
-    if (rootStep == null) return null;
-    final raw = context['${rootStep.id}.providerSessionId'];
-    return raw is String && raw.isNotEmpty ? raw : null;
-  }
-
-  List<String> _buildOneShotFollowUpPrompts(
-    WorkflowStep step,
-    WorkflowContext context,
-    Map<String, OutputConfig>? effectiveOutputs, {
-    required List<String> outputKeys,
-    MapContext? mapCtx,
-  }) => workflow_task_factory.buildOneShotFollowUpPrompts(
-    step,
-    context,
-    effectiveOutputs,
-    outputKeys: outputKeys,
-    mapCtx: mapCtx,
-    templateEngine: _templateEngine,
-    skillPromptBuilder: _skillPromptBuilder,
-  );
-
-  Map<String, dynamic>? _buildStructuredOutputEnvelopeSchema(WorkflowStep step) =>
-      workflow_task_factory.buildStructuredOutputEnvelopeSchema(step, _effectiveOutputsFor(step));
-
-  WorkflowStep? _resolveContinueSessionRootStep(WorkflowDefinition definition, WorkflowStep step) {
-    final visited = <String>{step.id};
-    var current = step;
-
-    while (current.continueSession != null) {
-      final targetStepId = _resolveContinueSessionTargetStepId(definition, current);
-      if (targetStepId == null || !visited.add(targetStepId)) {
-        return null;
-      }
-      final targetStep = definition.steps.where((candidate) => candidate.id == targetStepId).firstOrNull;
-      if (targetStep == null) return null;
-      if (targetStep.continueSession == null) return targetStep;
-      current = targetStep;
-    }
-
-    return null;
-  }
-
-  String? _resolveContinueSessionRootSessionId(
-    WorkflowDefinition definition,
-    WorkflowStep step,
-    WorkflowContext context,
-  ) {
-    final rootStep = _resolveContinueSessionRootStep(definition, step);
-    if (rootStep == null) return null;
-    final raw = context['${rootStep.id}.sessionId'];
-    return raw is String && raw.isNotEmpty ? raw : null;
-  }
-
-  String? _resolveContinueSessionTargetStepId(WorkflowDefinition definition, WorkflowStep step) {
-    final ref = step.continueSession;
-    if (ref == null) return null;
-    if (ref == '@previous') {
-      final idx = definition.steps.indexWhere((candidate) => candidate.id == step.id);
-      return idx > 0 ? definition.steps[idx - 1].id : null;
-    }
-    return ref;
-  }
-
   void dispose() {
     approval_step_runner.cancelApprovalTimers(_approvalTimers);
-  }
-
-  /// Persists [context] to `<dataDir>/workflows/runs/<runId>/context.json` atomically.
-  Future<void> _persistContext(String runId, WorkflowContext context) async {
-    final file = File(workflowRunContextJson(dataDir: _dataDir, runId: runId));
-    await file.parent.create(recursive: true);
-    await atomicWriteJson(file, context.toJson());
-  }
-
-  Future<String> _initializeRuntimeArtifactsDir(String runId) async {
-    final dir = Directory(workflowRuntimeArtifactsDir(dataDir: _dataDir, runId: runId));
-    await dir.create(recursive: true);
-    await Directory(p.join(dir.path, 'reviews')).create(recursive: true);
-    return p.normalize(dir.path);
-  }
-
-  Future<String?> _initializeWorkflowGit(WorkflowRun run, WorkflowDefinition definition, WorkflowContext context) =>
-      workflow_git_lifecycle.initializeWorkflowGit(
-        run: run,
-        definition: definition,
-        context: context,
-        turnAdapter: _turnAdapter,
-        repository: _repository,
-        persistContext: _persistContext,
-        workflowProjectId: _workflowProjectId,
-        requiresPerMapItemBootstrap: _requiresPerMapItemBootstrap,
-      );
-
-  String? _workflowProjectId(WorkflowRun run, WorkflowContext context) {
-    final fromContext = context.variables['PROJECT']?.trim();
-    if (fromContext != null && fromContext.isNotEmpty) return fromContext;
-    final fromRun = run.variablesJson['PROJECT']?.trim();
-    if (fromRun != null && fromRun.isNotEmpty) return fromRun;
-    return null;
   }
 }

@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -160,7 +161,7 @@ void main() {
       });
 
       // Yield to microtask queue — second should still be waiting
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
       expect(secondStarted, isFalse);
 
       // Complete first turn

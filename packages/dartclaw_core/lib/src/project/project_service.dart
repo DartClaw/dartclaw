@@ -1,4 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
+import 'package:dartclaw_config/dartclaw_config.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
 
 /// Service for managing external project repositories.
 ///
@@ -95,13 +95,13 @@ abstract class ProjectService {
   /// 1. First config-defined project with `default: true`
   /// 2. First registered external project (config-defined or runtime)
   /// 3. Implicit `_local` project as fallback
-  Future<Project> getDefaultProject();
+  Future<Project> get defaultProject;
 
   /// Returns the implicit `_local` project.
   ///
   /// The `_local` project represents `Directory.current.path`. It is always
   /// [ProjectStatus.ready] and is never persisted to `projects.json`.
-  Project getLocalProject();
+  Project get localProject;
 
   /// Initializes the service: loads `projects.json`, reconciles with config,
   /// recovers stale cloning states.

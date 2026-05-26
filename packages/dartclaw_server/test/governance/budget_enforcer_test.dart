@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
@@ -66,24 +66,24 @@ void main() {
       expect(BudgetEnforcer.resolveTimezoneOffset('UTC+12'), const Duration(hours: 12));
     });
 
-    test('invalid timezone (named IANA) → UTC with warning', () {
-      final logs = <LogRecord>[];
-      final sub = Logger.root.onRecord.listen(logs.add);
-      addTearDown(sub.cancel);
-
-      final offset = BudgetEnforcer.resolveTimezoneOffset('America/New_York');
-      expect(offset, Duration.zero);
-      expect(logs.any((r) => r.message.contains('Unrecognized timezone')), isTrue);
+    test('Europe/Stockholm resolves DST offset in summer', () {
+      final offset = BudgetEnforcer.resolveTimezoneOffset('Europe/Stockholm', at: DateTime.utc(2026, 5, 18, 12));
+      expect(offset, const Duration(hours: 2));
     });
 
-    test('completely invalid string → UTC with warning', () {
+    test('Europe/Stockholm resolves standard-time offset in winter', () {
+      final offset = BudgetEnforcer.resolveTimezoneOffset('Europe/Stockholm', at: DateTime.utc(2026, 1, 15, 12));
+      expect(offset, const Duration(hours: 1));
+    });
+
+    test('unknown timezone resolves to UTC with warning naming offending value', () {
       final logs = <LogRecord>[];
       final sub = Logger.root.onRecord.listen(logs.add);
       addTearDown(sub.cancel);
 
-      final offset = BudgetEnforcer.resolveTimezoneOffset('bogus');
+      final offset = BudgetEnforcer.resolveTimezoneOffset('Not/AReal_Zone');
       expect(offset, Duration.zero);
-      expect(logs.any((r) => r.message.contains('Unrecognized timezone')), isTrue);
+      expect(logs.any((r) => r.message.contains('Unrecognized timezone "Not/AReal_Zone"')), isTrue);
     });
   });
 
@@ -232,6 +232,27 @@ void main() {
       final utcTime = DateTime(2026, 3, 15, 13, 0); // UTC time
       final result = await enforcer.check(now: utcTime);
       expect(result.decision, BudgetDecision.block);
+    });
+
+    test('IANA timezone applies DST offset when computing local day', () async {
+      // 2026-03-29 22:30 UTC is 2026-03-30 00:30 in Stockholm after DST starts.
+      await seedTokens('usage_daily:2026-03-30', input: 600, output: 400);
+      final enforcer = buildEnforcer(dailyTokens: 1000, action: BudgetAction.block, timezone: 'Europe/Stockholm');
+      final result = await enforcer.check(now: DateTime.utc(2026, 3, 29, 22, 30));
+      expect(result.decision, BudgetDecision.block);
+    });
+
+    test('Not/AReal_Zone falls back to UTC with warning during check', () async {
+      await seedTokens('usage_daily:2026-03-15', input: 600, output: 400);
+      final logs = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(logs.add);
+      addTearDown(sub.cancel);
+
+      final enforcer = buildEnforcer(dailyTokens: 1000, action: BudgetAction.block, timezone: 'Not/AReal_Zone');
+      final result = await enforcer.check(now: DateTime.utc(2026, 3, 15, 12));
+
+      expect(result.decision, BudgetDecision.block);
+      expect(logs.any((r) => r.message.contains('Unrecognized timezone "Not/AReal_Zone"')), isTrue);
     });
 
     test('config change (higher dailyTokens) → previously blocked turns now allowed', () async {

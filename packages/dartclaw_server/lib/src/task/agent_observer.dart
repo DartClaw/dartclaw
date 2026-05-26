@@ -1,7 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
-import '../harness_pool.dart';
-
 /// Runtime state of a single agent runner.
 enum AgentState { idle, busy, stopped, crashed }
 

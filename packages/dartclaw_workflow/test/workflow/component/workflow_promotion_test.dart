@@ -58,7 +58,7 @@ void main() {
       expect(result, isA<WorkflowGitPromotionSuccess>());
 
       final integrationLog = await fixture.logSubjects(fixture.integrationBranch);
-      expect(integrationLog, anyElement(contains('sweep integration worktree before promotion')));
+      expect(integrationLog, anyElement(contains('integration cleanup')));
       expect(integrationLog, anyElement(contains('promote S01')));
 
       // All four artifacts must be present in the integration tree: the
@@ -87,7 +87,7 @@ void main() {
 
       final integrationLog = await fixture.logSubjects(fixture.integrationBranch);
       expect(
-        integrationLog.where((s) => s.contains('sweep integration worktree')),
+        integrationLog.where((s) => s.contains('integration cleanup')),
         isEmpty,
         reason: 'Sweep commit should only fire when the integration worktree has pending changes.',
       );
@@ -107,8 +107,8 @@ void main() {
       );
 
       final integrationLog = await fixture.logSubjects(fixture.integrationBranch);
-      final sweepSubject = integrationLog.firstWhere((s) => s.contains('sweep integration worktree'), orElse: () => '');
-      expect(sweepSubject, 'workflow(${fixture.runId}): sweep integration worktree before promotion');
+      final sweepSubject = integrationLog.firstWhere((s) => s.contains('integration cleanup'), orElse: () => '');
+      expect(sweepSubject, 'chore(workflow): S03 integration cleanup');
     });
   });
 

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+export 'package:dartclaw_core/dartclaw_core.dart' show truncate;
+
 /// Formats [seconds] into a human-readable uptime string like "3d 14h 22m".
 String formatUptime(int seconds) {
   final d = seconds ~/ 86400;
@@ -42,12 +44,6 @@ String formatNumber(int n) {
     buffer.write(s[i]);
   }
   return buffer.toString();
-}
-
-/// Truncates [s] to [maxLength], appending [suffix] if truncated.
-String truncate(String s, int maxLength, {String suffix = '\u2026'}) {
-  if (s.length <= maxLength) return s;
-  return '${s.substring(0, maxLength - suffix.length)}$suffix';
 }
 
 /// Escapes HTML special characters in [s].

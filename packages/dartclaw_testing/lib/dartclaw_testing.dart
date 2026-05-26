@@ -10,6 +10,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         AgentExecutionRepository,
         AgentHarness,
         BridgeEvent,
+        BusyTurnException,
         Channel,
         ChannelMessage,
         ChannelResponse,
@@ -17,6 +18,8 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         DartclawEvent,
         EventBus,
         ExecutionRepositoryTransactor,
+        GoogleJwtVerifier,
+        HarnessPool,
         PromptStrategy,
         ProjectService,
         SessionKey,
@@ -26,15 +29,18 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         TaskRepository,
         TaskStatus,
         TaskType,
+        TurnManager,
+        TurnOutcome,
+        TurnRunner,
+        TurnStatus,
         WorkflowStepExecution,
         WorkflowStepExecutionRepository,
         WorkerState;
+export 'package:dartclaw_config/dartclaw_config.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
 export 'package:dartclaw_google_chat/dartclaw_google_chat.dart'
     show GoogleChatAudienceConfig, GoogleChatAudienceMode, GoogleChatRestClient;
-export 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
 export 'package:dartclaw_security/dartclaw_security.dart' show Guard, GuardContext, GuardVerdict;
-export 'package:dartclaw_server/dartclaw_server.dart'
-    show BusyTurnException, GoogleJwtVerifier, HarnessPool, TurnManager, TurnOutcome, TurnRunner, TurnStatus;
+export 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskBindingCoordinator;
 export 'src/channel_test_helpers.dart'
     show RecordingReviewHandler, TaskOps, channelOriginJson, createTask, putTaskInReview, shortTaskId;
 export 'src/codex_harness_test_helpers.dart'
@@ -59,6 +65,7 @@ export 'src/fake_git_gateway.dart' show FakeGitGateway;
 export 'src/fake_project_service.dart' show FakeProjectService;
 export 'src/fake_process.dart' show CapturingFakeProcess, FakeProcess;
 export 'src/fake_turn_manager.dart' show FakeTurnManager;
+export 'src/fake_workflow_task_binding_coordinator.dart' show FakeWorkflowTaskBindingCoordinator;
 export 'src/flush_async.dart' show flushAsync;
 export 'src/in_memory_agent_execution_repository.dart' show InMemoryAgentExecutionRepository;
 export 'src/in_memory_execution_repository_transactor.dart' show InMemoryExecutionRepositoryTransactor;

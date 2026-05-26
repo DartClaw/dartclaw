@@ -17,13 +17,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
+
 import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart';
-import 'package:dartclaw_models/dartclaw_models.dart'
+import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         MergeResolveConfig,
         MergeResolveEscalation,
         OutputConfig,
-        SessionType,
         WorkflowGitStrategy,
         WorkflowGitPublishStrategy,
         WorkflowGitWorktreeStrategy;
@@ -35,7 +37,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
-        WorkflowGitBootstrapResult,
+        WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
         WorkflowRun,
@@ -44,8 +46,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStep,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
-        kWorkflowContextClose,
-        kWorkflowContextOpen;
+        workflowContextClose,
+        workflowContextOpen;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -72,8 +74,8 @@ WorkflowDefinition _makeDefinition({
     description: 'merge-resolve E2E test workflow',
     project: '{{PROJECT}}',
     gitStrategy: WorkflowGitStrategy(
-      bootstrap: true,
-      worktree: const WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+      integrationBranch: true,
+      worktree: const WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
       promotion: 'merge',
       publish: const WorkflowGitPublishStrategy(enabled: false),
       mergeResolve: MergeResolveConfig(
@@ -89,7 +91,7 @@ WorkflowDefinition _makeDefinition({
       WorkflowStep(
         id: 'pipeline',
         name: 'Story Pipeline',
-        type: 'foreach',
+        type: WorkflowTaskType.foreach,
         mapOver: 'stories',
         maxParallel: maxParallel,
         foreachSteps: const ['implement'],
@@ -132,7 +134,7 @@ String _mrMessage({
     'merge_resolve.resolution_summary': summary,
     if (errorMessage != null && errorMessage.isNotEmpty) 'merge_resolve.error_message': errorMessage,
   };
-  return '$kWorkflowContextOpen${jsonEncode(payload)}$kWorkflowContextClose';
+  return '$workflowContextOpen${jsonEncode(payload)}$workflowContextClose';
 }
 
 /// Reads all merge-resolve artifacts for the given story task id.
@@ -232,8 +234,9 @@ void main() {
             reserveTurn: (_) => Future.value('turn-p1'),
             executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
             waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+            initializeWorkflowGit:
+                ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+                    const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
             promoteWorkflowBranch:
                 ({
                   required runId,
@@ -331,8 +334,9 @@ void main() {
             reserveTurn: (_) => Future.value('turn-p2'),
             executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
             waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+            initializeWorkflowGit:
+                ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+                    const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
             promoteWorkflowBranch:
                 ({
                   required runId,
@@ -438,8 +442,9 @@ void main() {
             reserveTurn: (_) => Future.value('turn-p3'),
             executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
             waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+            initializeWorkflowGit:
+                ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+                    const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
             promoteWorkflowBranch:
                 ({
                   required runId,
@@ -547,8 +552,9 @@ void main() {
             reserveTurn: (_) => Future.value('turn-p4'),
             executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
             waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+            initializeWorkflowGit:
+                ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+                    const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
             promoteWorkflowBranch:
                 ({
                   required runId,
@@ -630,8 +636,9 @@ void main() {
             reserveTurn: (_) => Future.value('turn-p5'),
             executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
             waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+            initializeWorkflowGit:
+                ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+                    const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
             promoteWorkflowBranch:
                 ({
                   required runId,

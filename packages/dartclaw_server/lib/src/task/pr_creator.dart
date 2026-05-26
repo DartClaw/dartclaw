@@ -38,6 +38,7 @@ final class PrCreationFailed extends PrCreationResult {
   const PrCreationFailed({required this.error, required this.details});
 }
 
+/// Issues an authenticated GitHub REST API call and returns the raw response.
 typedef GitHubApiRunner =
     Future<({int statusCode, String body})> Function(
       String method,

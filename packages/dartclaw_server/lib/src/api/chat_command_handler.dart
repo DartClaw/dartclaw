@@ -1,10 +1,11 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowRun, WorkflowService;
 import 'package:meta/meta.dart';
 import 'package:shelf/shelf.dart';
 
+/// Handles inbound chat slash-commands by dispatching them to the workflow runtime.
 class ChatCommandHandler {
   final WorkflowService workflows;
   final WorkflowDefinitionSource definitions;

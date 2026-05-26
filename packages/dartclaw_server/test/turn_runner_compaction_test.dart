@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -94,7 +95,7 @@ void main() {
       worker.completeSuccess(_turnResult());
     }());
 
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'compact me'},
     ]);
@@ -130,7 +131,7 @@ void main() {
       worker.completeSuccess(_turnResult());
     }());
 
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'needs flush'},
     ]);
@@ -157,7 +158,7 @@ void main() {
       worker.completeSuccess(_turnResult(inputTokens: 190001, outputTokens: 1));
     }());
 
-    final session = await sessions.getOrCreateMain();
+    final session = await sessions.getOrCreateMainSession();
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'claude compaction hook'},
     ]);

@@ -16,7 +16,8 @@ agent:
     cron:
       model: sonnet                    # cost-optimized for scheduled jobs
 
-memory_max_bytes: 65536
+memory:
+  max_bytes: 65536
 
 sessions:
   idle_timeout_minutes: 480

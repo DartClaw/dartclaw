@@ -1,0 +1,6 @@
+# Allowlist for package_cycles_test.dart
+# Format: <cycle-description>  # <rationale>
+#
+# This file MUST remain empty. Any non-comment entry is an architectural
+# finding that must be broken, not allowlisted. Cycles in the workspace
+# package graph are never intentional.

@@ -9,85 +9,23 @@ import 'package:dartclaw_core/src/harness/process_types.dart';
 import 'package:dartclaw_core/src/harness/tool_policy.dart';
 import 'package:dartclaw_core/src/container/container_executor.dart';
 import 'package:dartclaw_core/src/worker/worker_state.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show NullIoSink;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-// ---------------------------------------------------------------------------
-// FakeProcess — controllable Process for unit tests
-// ---------------------------------------------------------------------------
+/// Creates a [FakeProcess] whose stdout uses a non-broadcast [StreamController].
+///
+/// Non-broadcast controllers buffer events, so [scheduleMicrotask] emission
+/// before the harness subscribes is still delivered — matching the original
+/// hand-rolled local FakeProcess behavior.
+FakeProcess _makeProcess() => FakeProcess(stdoutController: StreamController<List<int>>());
 
-class FakeProcess implements Process {
-  final StreamController<List<int>> _stdoutCtrl;
-  final StreamController<List<int>> _stderrCtrl;
-  final Completer<int> _exitCodeCompleter = Completer<int>();
+/// Creates a [CapturingFakeProcess] with a non-broadcast stdout controller.
+CapturingFakeProcess _makeCapturingProcess() => CapturingFakeProcess(stdoutController: StreamController<List<int>>());
 
-  FakeProcess({StreamController<List<int>>? stdoutCtrl, StreamController<List<int>>? stderrCtrl})
-    : _stdoutCtrl = stdoutCtrl ?? StreamController<List<int>>(),
-      _stderrCtrl = stderrCtrl ?? StreamController<List<int>>();
-
-  @override
-  int get pid => 42;
-
-  @override
-  IOSink get stdin => NullIoSink();
-
-  @override
-  Stream<List<int>> get stdout => _stdoutCtrl.stream;
-
-  @override
-  Stream<List<int>> get stderr => _stderrCtrl.stream;
-
-  @override
-  Future<int> get exitCode => _exitCodeCompleter.future;
-
-  @override
-  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
-    // Complete exitCode on kill so _stopInternal's SIGKILL escalation
-    // doesn't wait for the grace period timeout in tests.
-    if (!_exitCodeCompleter.isCompleted) _exitCodeCompleter.complete(0);
-    return true;
-  }
-
-  /// Emit a line on stdout (simulates claude binary output).
-  void emitStdout(String line) {
-    _stdoutCtrl.add(utf8.encode('$line\n'));
-  }
-
-  /// Complete the process with the given exit code.
-  void exit(int code) {
-    if (!_exitCodeCompleter.isCompleted) _exitCodeCompleter.complete(code);
-  }
-}
-
-/// A [FakeProcess] variant that captures JSONL lines written to stdin.
-class CapturingFakeProcess extends FakeProcess {
-  final List<Map<String, dynamic>> _captured;
-
-  CapturingFakeProcess(this._captured);
-
-  @override
-  IOSink get stdin => _CapturingIOSink(_captured);
-}
-
-class _CapturingIOSink extends NullIoSink {
-  final List<Map<String, dynamic>> _captured;
-  _CapturingIOSink(this._captured);
-
-  @override
-  void add(List<int> data) {
-    final line = utf8.decode(data).trim();
-    if (line.isNotEmpty) {
-      try {
-        _captured.add(jsonDecode(line) as Map<String, dynamic>);
-      } catch (_) {}
-    }
-  }
-}
-
-/// [FakeProcess] variant that tracks kill signals for SIGKILL escalation tests.
+/// [FakeProcess] variant that tracks all kill signals for SIGKILL escalation tests.
 class _KillTrackingFakeProcess extends FakeProcess {
   final List<ProcessSignal> killSignals = [];
   final bool _completeExitOnKill;
@@ -95,7 +33,8 @@ class _KillTrackingFakeProcess extends FakeProcess {
 
   _KillTrackingFakeProcess({bool completeExitOnKill = false, int killExitCode = 0})
     : _completeExitOnKill = completeExitOnKill,
-      _killExitCode = killExitCode;
+      _killExitCode = killExitCode,
+      super(stdoutController: StreamController<List<int>>());
 
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
@@ -146,7 +85,7 @@ class _FakeClaudeContainerExecutor implements ContainerExecutor {
   @override
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
     lastCommand = List<String>.from(command);
-    final fake = FakeProcess();
+    final fake = _makeProcess();
     scheduleMicrotask(() {
       fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
     });
@@ -224,7 +163,7 @@ Future<Process> _defaultProcessFactory(
   Map<String, String>? environment,
   bool includeParentEnvironment = true,
 }) async {
-  final fake = FakeProcess();
+  final fake = _makeProcess();
   // Schedule init response so _sendInitialize completes.
   scheduleMicrotask(() {
     fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
@@ -360,7 +299,7 @@ void main() {
       });
 
       test('throws when called while busy', () async {
-        final fakeProcess = FakeProcess();
+        final fakeProcess = _makeProcess();
 
         final h = _buildHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
@@ -405,7 +344,7 @@ void main() {
             capturedExe = exe;
             capturedArgs = args;
             capturedEnv = environment;
-            final fake = FakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -438,7 +377,7 @@ void main() {
           providerOptions: const {'permissionMode': 'dontAsk'},
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             capturedArgs = args;
-            final fake = FakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -461,7 +400,7 @@ void main() {
           providerOptions: const {'permissionMode': 'plan'},
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             capturedArgs = args;
-            final fake = FakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -510,7 +449,7 @@ void main() {
           },
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             capturedArgs = args;
-            final fake = FakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -547,7 +486,7 @@ void main() {
           },
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             capturedArgs = args;
-            final fake = FakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -580,7 +519,7 @@ void main() {
           },
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             capturedArgs = args;
-            final fake = FakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -610,7 +549,7 @@ void main() {
           },
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             capturedArgs = args;
-            final fake = FakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -727,7 +666,7 @@ void main() {
         final h = _buildHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             workingDirectories.add(workingDirectory);
-            final fake = FakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -768,7 +707,7 @@ void main() {
 
     group('state transitions', () {
       test('crashed state on unexpected process exit', () async {
-        final fakeProcess = FakeProcess();
+        final fakeProcess = _makeProcess();
 
         final h = _buildHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
@@ -838,7 +777,7 @@ void main() {
       });
 
       test('kills the spawned process', () async {
-        final fakeProcess = FakeProcess();
+        final fakeProcess = _makeProcess();
 
         final h = _buildHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
@@ -886,7 +825,7 @@ void main() {
           harnessConfig: const HarnessConfig(appendSystemPrompt: 'test behavior prompt'),
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             capturedArgs = args;
-            final fake = FakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -909,7 +848,7 @@ void main() {
         final h = _buildHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             capturedArgs = args;
-            final fake = FakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -925,11 +864,11 @@ void main() {
       });
 
       test('JSONL payload omits system_prompt for append-strategy harness', () async {
-        final stdinLines = <Map<String, dynamic>>[];
+        late CapturingFakeProcess fake;
 
         final h = _buildHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            final fake = CapturingFakeProcess(stdinLines);
+            fake = _makeCapturingProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -965,7 +904,7 @@ void main() {
         );
 
         // Find the user-type payload (the turn message)
-        final userPayloads = stdinLines.where((p) => p['type'] == 'user').toList();
+        final userPayloads = fake.capturedStdinJson.where((p) => p['type'] == 'user').toList();
         expect(userPayloads, isNotEmpty, reason: 'Should have sent a user message');
         for (final p in userPayloads) {
           expect(
@@ -979,13 +918,12 @@ void main() {
 
     group('hook callbacks', () {
       test('can_use_tool denies when dontAsk mode unexpectedly emits a native permission request', () async {
-        final stdinLines = <Map<String, dynamic>>[];
         late CapturingFakeProcess fake;
 
         final h = _buildHarness(
           providerOptions: const {'permissionMode': 'dontAsk'},
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = CapturingFakeProcess(stdinLines);
+            fake = _makeCapturingProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -1006,13 +944,12 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 10));
 
         expect(
-          stdinLines,
+          fake.capturedStdinJson,
           contains(containsPair('response', containsPair('response', containsPair('behavior', 'deny')))),
         );
       });
 
       test('PreToolUse maps Claude tool names before guard evaluation and preserves raw provider name', () async {
-        final stdinLines = <Map<String, dynamic>>[];
         final guard = _RecordingGuard();
         late CapturingFakeProcess fake;
         List<String>? capturedArgs;
@@ -1021,7 +958,7 @@ void main() {
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             capturedArgs = args;
-            fake = CapturingFakeProcess(stdinLines);
+            fake = _makeCapturingProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -1058,7 +995,7 @@ void main() {
         expect(guard.lastContext!.rawProviderToolName, 'Bash');
         expect(guard.lastContext!.toolInput, {'command': 'git status'});
         expect(
-          stdinLines,
+          fake.capturedStdinJson,
           contains(
             containsPair(
               'response',
@@ -1069,7 +1006,6 @@ void main() {
       });
 
       test('PreToolUse evaluates unmapped Claude tools under claude: prefix and logs warning', () async {
-        final stdinLines = <Map<String, dynamic>>[];
         final guard = _RecordingGuard();
         final records = <LogRecord>[];
         final oldLevel = Logger.root.level;
@@ -1084,7 +1020,7 @@ void main() {
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = CapturingFakeProcess(stdinLines);
+            fake = _makeCapturingProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -1127,7 +1063,7 @@ void main() {
           ),
           isTrue,
         );
-        expect(stdinLines, isNotEmpty);
+        expect(fake.capturedStdinJson, isNotEmpty);
       });
     });
 
@@ -1135,15 +1071,14 @@ void main() {
 
     group('PreCompact hook callback', () {
       test('PreCompact hook callback invokes onCompactionStarting with sessionId and trigger', () async {
-        final stdinLines = <Map<String, dynamic>>[];
         String? capturedSessionId;
         String? capturedTrigger;
-        late FakeProcess fake;
+        late CapturingFakeProcess fake;
 
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = CapturingFakeProcess(stdinLines);
+            fake = _makeCapturingProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -1178,7 +1113,7 @@ void main() {
         expect(capturedTrigger, 'auto');
         // Response must be allow: true
         expect(
-          stdinLines,
+          fake.capturedStdinJson,
           contains(containsPair('response', containsPair('response', allOf(containsPair('continue', true))))),
         );
       });
@@ -1191,7 +1126,7 @@ void main() {
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = FakeProcess();
+            fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -1226,7 +1161,7 @@ void main() {
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = FakeProcess();
+            fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -1257,12 +1192,12 @@ void main() {
       });
 
       test('initialize request includes PreCompact hook', () async {
-        final stdinLines = <Map<String, dynamic>>[];
+        late CapturingFakeProcess fake;
 
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            final fake = CapturingFakeProcess(stdinLines);
+            fake = _makeCapturingProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -1276,7 +1211,7 @@ void main() {
 
         await h.start();
 
-        final initReq = stdinLines.firstWhere(
+        final initReq = fake.capturedStdinJson.firstWhere(
           (m) => m['type'] == 'control_request' && (m['request'] as Map?)?.containsKey('hooks') == true,
           orElse: () => throw StateError('No initialize control_request found'),
         );
@@ -1357,11 +1292,10 @@ void main() {
     group('T11: Effort tolerance', () {
       test('null processEffort adopts first-use non-null effort without restart', () async {
         var spawnCount = 0;
-        final stdinLines = <Map<String, dynamic>>[];
 
         Future<Process> makeProcess() async {
           spawnCount++;
-          final fake = CapturingFakeProcess(stdinLines);
+          final fake = _makeCapturingProcess();
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });
@@ -1417,7 +1351,7 @@ void main() {
 
         Future<Process> makeProcess() async {
           spawnCount++;
-          final fake = FakeProcess();
+          final fake = _makeProcess();
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });
@@ -1473,11 +1407,12 @@ void main() {
     group('T12: Restart mid-session produces conversation_history', () {
       test('second spawn receives <conversation_history> when messages > 1', () async {
         var spawnCount = 0;
-        final capturedPayloads = <Map<String, dynamic>>[];
+        late CapturingFakeProcess lastFake;
 
         Future<Process> makeProcess() async {
           spawnCount++;
-          final fake = CapturingFakeProcess(capturedPayloads);
+          final fake = _makeCapturingProcess();
+          lastFake = fake;
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });
@@ -1538,7 +1473,7 @@ void main() {
         expect(spawnCount, 2, reason: 'Model change should trigger restart');
 
         // The payload sent to the second process should contain conversation_history.
-        final userPayloads = capturedPayloads.where((p) => p['type'] == 'user').toList();
+        final userPayloads = lastFake.capturedStdinJson.where((p) => p['type'] == 'user').toList();
         final secondTurnPayload = userPayloads.last;
         final messageContent = secondTurnPayload['message']?['content'] as String? ?? '';
         expect(
@@ -1560,7 +1495,7 @@ void main() {
         addTearDown(sub.cancel);
 
         Future<Process> makeProcess() async {
-          final fake = FakeProcess();
+          final fake = _makeProcess();
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });

@@ -41,6 +41,7 @@ class LoopDetectionConfig {
   /// Action to take when a loop is detected.
   final LoopAction action;
 
+  /// Creates a [LoopDetectionConfig] value.
   const LoopDetectionConfig({
     this.enabled = false,
     this.maxConsecutiveTurns = 0,
@@ -50,6 +51,7 @@ class LoopDetectionConfig {
     this.action = LoopAction.abort,
   });
 
+  /// Creates a [LoopDetectionConfig.defaults] value.
   const LoopDetectionConfig.defaults() : this();
 
   @override

@@ -17,7 +17,7 @@
 - Sociable by default — let real collaborators participate; reserve test doubles for external boundaries (network, harness, channels, third-party APIs)
 - Security-critical code gets exhaustive coverage; plumbing code gets smoke coverage
 - False-positive tests (verifying we *don't* block legitimate input) are as valuable as true-positive tests
-- No real-time waits in tests — use `fake_async` for timer logic, `Duration.zero` delays only for microtask yields
+- No real-time waits in tests — use `fake_async` for timer logic, `pumpEventQueue()` for microtask flushing
 - Test gates must encode their infrastructure assumptions — if a suite binds ports, starts processes, or relies on filesystem/static-asset fixtures, run it with explicit serialization or isolate those resources per test
 - Tests are production code — same lint rules, same review standards
 
@@ -72,6 +72,9 @@ group('SessionKey', () {
 - Shared fakes from `dartclaw_testing` for external boundaries (harness, channels, processes)
 - Per-test isolation — `setUp` creates fresh state, `tearDown` cleans up
 - May require serialized execution when testing real local resources such as TCP ports, process wiring, current working directory behavior, or static-asset filesystem lookup. Prefer random ports and per-test temp directories; when that is not practical, the command must use `-j 1` and the reason must be documented.
+- Keep filesystem assertions portable across Linux CI and local macOS. For POSIX file permission assertions, prefer
+  `File.statSync().mode & 0x1ff` and compare the octal string; do not shell out to platform-specific `stat` flags
+  (`stat -f` is BSD/macOS, `stat -c` is GNU/Linux).
 
 **When to write**: For any behavior that requires storage, persistence, or interaction with an external boundary that must be faked.
 
@@ -244,6 +247,7 @@ These categories get comprehensive test coverage — no exceptions.
 ### Public API Contracts
 - **Barrel exports** — one smoke test per package verifying the public API surface
 - **Contract tests** — any interface with multiple implementations (e.g., `SearchBackend`) gets a shared test suite that all implementations must pass
+- **Dartdoc lint rail** — `public_member_api_docs` is enabled in `dartclaw_models`, `dartclaw_storage`, `dartclaw_security`, and `dartclaw_config`; new undocumented public surface in those packages fails CI.
 
 ---
 
@@ -371,9 +375,15 @@ test('event bus delivers typed events in order', () async {
 });
 ```
 
-### Microtask yields
+### Microtask yields — use `pumpEventQueue()`
 
-When testing broadcast streams or EventBus, use `await Future<void>.delayed(Duration.zero)` to yield exactly once to the event loop. Never use real-time delays (`Duration(milliseconds: 100)`) in tests.
+When testing broadcast streams or `EventBus`, use `await pumpEventQueue()` (from `package:test/test.dart`) to flush all pending microtasks and timer callbacks before making assertions. This is the canonical approach because:
+
+- It flushes the entire microtask queue (not just one turn), giving deterministic delivery of all pending stream events.
+- It communicates intent clearly — "flush pending async work" — unlike `Future.delayed(Duration.zero)` which looks like an arbitrary wait.
+- It composes correctly with `fake_async` and other test scheduling helpers.
+
+**Never** use `await Future.delayed(Duration.zero)` in tests — it flushes only a single microtask turn, may miss later deliveries, and obscures intent. Never use real-time delays (`Duration(milliseconds: 100)`) in tests.
 
 ### Async loop safety
 
@@ -504,7 +514,8 @@ These are guidance targets, not enforcement gates. A package at 65% with well-ch
 
 ## Anti-Patterns
 
-- **Real-time waits** — `await Future.delayed(Duration(milliseconds: 200))` in tests. Use `fake_async` or `Duration.zero` microtask yield.
+- **Real-time waits** — `await Future.delayed(Duration(milliseconds: 200))` in tests. Use `fake_async` or `await pumpEventQueue()` for microtask flushing.
+- **`Future.delayed(Duration.zero)` in tests** — use `await pumpEventQueue()` instead; it flushes the whole queue and communicates intent clearly.
 - **Local fake redeclaration** — Copying `FakeAgentHarness` into a test file instead of importing from `dartclaw_testing`. Causes drift.
 - **Testing implementation details** — Asserting on private field values, internal call sequences between domain classes, or the specific way a result was computed. Test what the system *produces*, not *how* it produces it. Note: asserting on interactions with *external boundaries* (e.g., verifying a message was sent to a channel, or that the correct review action was dispatched) is testing observable behavior, not implementation — that is appropriate.
 - **Mocking internal collaborators** — Replacing domain classes with mocks to test another domain class in isolation. Let real collaborators participate. Only use fakes at external boundaries. If constructing a collaborator is painful, that's design feedback — fix the design, not the test.
@@ -514,3 +525,26 @@ These are guidance targets, not enforcement gates. A package at 65% with well-ch
 - **Ignoring tearDown** — Temp directories and database connections must be cleaned up. Leaked resources cause flaky CI.
 - **100% coverage chasing** — Writing tests for trivial getters or delegation methods. Focus on risk.
 - **Mock returning a mock** — If a test double returns another test double, the test is likely testing nothing real. Step back and reconsider whether you are testing at the right level of abstraction.
+
+---
+
+## Fitness Functions
+
+DartClaw ships a Level-1 fitness suite at `packages/dartclaw_testing/test/fitness/` — six Dart test files that run in ≤30s on every commit and catch the drift classes surfaced in 0.16.4.
+
+Run locally: `bash dev/tools/run-fitness.sh`
+
+The six L1 checks (plus a separate `dart format --line-length=120 --set-exit-if-changed` CI gate):
+
+| Test file | What it enforces |
+|-----------|-----------------|
+| `barrel_show_clauses_test.dart` | Every `export 'src/...'` in a package barrel has an explicit `show` clause |
+| `max_file_loc_test.dart` | No `lib/src/**/*.dart` file exceeds 1,500 LOC |
+| `package_cycles_test.dart` | Zero cycles in the workspace package dependency graph |
+| `constructor_param_count_test.dart` | No public constructor has more than 12 parameters |
+| `no_cross_package_env_plan_duplicates_test.dart` | `ProcessEnvironmentPlan` implementations live only in `dartclaw_security` |
+| `safe_process_usage_test.dart` | No raw `Process.run/start('git', ...)` in production code |
+
+Intentional exceptions are committed as plain-text allowlists under `packages/dartclaw_testing/test/fitness/allowlist/<test-name>.txt`. Each allowlist entry requires a `  # rationale` comment — no silent waivers. See `packages/dartclaw_testing/test/fitness/README.md` for per-test "How to resolve a failure" guidance.
+
+A Level-2 suite in the same directory extends these checks with dependency-direction data, cross-package `src/` import hygiene, testing-package dependency shape, barrel export ceilings, enum/event consumer exhaustiveness, and per-file method-count ceilings. The crash-recovery smoke lives under `packages/dartclaw_server/test/integration/` and is explicitly gated with `--run-skipped -t integration`.

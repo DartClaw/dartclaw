@@ -5,6 +5,81 @@
 class SchemaValidator {
   const SchemaValidator();
 
+  /// JSON Schema keywords supported by this validator.
+  static const _supportedKeywords = {
+    'type',
+    'required',
+    'properties',
+    'additionalProperties',
+    'items',
+    'enum',
+    'minimum',
+    'maximum',
+    r'$schema',
+    'description',
+    'title',
+    'default',
+  };
+
+  /// JSON Schema keywords that are unsupported and would silently pass.
+  ///
+  /// These keywords require implementation before they can be trusted to
+  /// validate correctly.
+  static const _unsupportedKeywords = {
+    'oneOf',
+    'anyOf',
+    'allOf',
+    'not',
+    'if',
+    'then',
+    'else',
+    r'$ref',
+    'pattern',
+    'minLength',
+    'maxLength',
+    'minItems',
+    'maxItems',
+    'uniqueItems',
+  };
+
+  /// Checks [schema] for unsupported JSON Schema keywords.
+  ///
+  /// Returns a list of diagnostic strings naming each unsupported keyword
+  /// found, so callers can fail fast at load time. An empty list means the
+  /// schema uses only supported keywords.
+  List<String> checkUnsupportedKeywords(Map<String, dynamic> schema, {String path = ''}) {
+    final diagnostics = <String>[];
+    _collectUnsupportedKeywords(schema, path, diagnostics);
+    return diagnostics;
+  }
+
+  void _collectUnsupportedKeywords(Map<String, dynamic> schema, String path, List<String> out) {
+    for (final key in schema.keys) {
+      if (_unsupportedKeywords.contains(key)) {
+        out.add(
+          '${_at(path)}Unsupported JSON Schema keyword "$key". '
+          'Supported subset: ${_supportedKeywords.where((k) => !k.startsWith(r'$')).join(', ')}.',
+        );
+      }
+    }
+    final properties = schema['properties'];
+    if (properties is Map<String, dynamic>) {
+      for (final entry in properties.entries) {
+        if (entry.value is Map<String, dynamic>) {
+          _collectUnsupportedKeywords(
+            entry.value as Map<String, dynamic>,
+            path.isEmpty ? entry.key : '$path.${entry.key}',
+            out,
+          );
+        }
+      }
+    }
+    final items = schema['items'];
+    if (items is Map<String, dynamic>) {
+      _collectUnsupportedKeywords(items, path.isEmpty ? '[]' : '$path[]', out);
+    }
+  }
+
   /// Validates [value] against [schema].
   ///
   /// [schema] is a JSON Schema-like Map with `type`, `required`, `properties`.

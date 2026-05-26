@@ -4,21 +4,40 @@
 
 ## Active Milestone
 
-### 0.16.5 — Stabilisation & Hardening (Planned)
-
-Consolidation sprint covering the full public codebase and user-facing docs. Closes a safety gap in alert routing, decomposes the top god files (`workflow_executor.dart`, `task_executor.dart`, `config_parser.dart`, `service_wiring.dart`, `server.dart`), formalises barrel-hygiene discipline (`dartclaw_workflow` narrowed), extracts turn/pool/harness interfaces to `dartclaw_core`, wires 7 orphan observability events, installs 10 fitness functions (6 Level-1 + 4 Level-2), refreshes `AGENTS.md` and the user guide. Absorbs the 0.16.4 advisory carry-over (`workflow_executor.dart` LOC trim, `WorkflowCliRunner` placement, typed inter-package `taskConfig` DTOs — see `TECH-DEBT-BACKLOG.md` TD-069). Zero new user-facing features. 21+ stories.
-
-## Planned
-
-### 0.16.6 — Web UI Stimulus Adoption (Planned)
+### 0.16.6 — Web UI Stimulus Adoption (Active)
 
 Standardize the browser interaction layer on Stimulus across the Web UI while preserving HTMX + Trellis and the zero-Node toolchain. Covers shared shell behavior, page/controller migration across the main browser surfaces, legacy page-global pattern removal, and post-migration doc/spec synchronization.
+
+## Planned
 
 ### 0.17 — Personal AI & Developer Experience (Planned)
 
 Structured `USER.md` identity context, conversational onboarding bootstrapping, inbox-drop knowledge ingestion, LLM-maintained knowledge wiki, temporal knowledge graph (SQLite-based structured facts with time-validity), guard config editor, SDK docs Phase 2, chat input redesign (composable input, slash command palette, file attachments, @-mention context references), interrupted-turn retry UX, automated kill/restart crash-recovery validation.
 
+Backlog migrations from 0.16.5 close-out triage:
+- TD-020: Reply-to-bot gating with GOWA v8 `replied_to_id` tracking.
+- TD-035: Validate and re-enable phone-number pairing alternatives when channel flows are proven.
+- TD-037: NDJSON message compaction or tail-window loading for long-lived sessions.
+- TD-040: Live turn crash retry UX for SSE sessions.
+- TD-043: Merge-conflict artifact format and task-detail resolution UX.
+- TD-046: Kill/restart crash-recovery integration validation.
+- TD-076: Gate-expression parser to replace regex-based gate parsing.
+- TD-079: Output-contract inference from `outputs:` declarations.
+- TD-080: Agent-resolved-merge v2 cluster: pause escalation, conflict review UI, default-on rollout.
+- TD-084: Foreach/map empty-collection policy (`onEmpty`) for misconfigured upstream outputs.
+
+### 0.18 — Provider Harness Expansion (Planned)
+
+Provider-runtime expansion beyond the current Claude/Codex families, including per-provider pool structure and queueing semantics needed when a third built-in provider is introduced.
+
+Backlog migrations from 0.16.5 close-out triage:
+- TD-068: Replace the shared mixed-provider `HarnessPool` with provider-scoped pools before adding the third built-in provider.
+
 ## Recently Shipped
+
+### 0.16.5 — Stabilisation & Hardening ✅
+
+Consolidation sprint with zero new user-facing features. Closes the alert-classifier safety gap (`LoopDetectedEvent` + `EmergencyStopEvent` now critical via compiler-enforced exhaustive switch over `sealed DartclawEvent`), wires all 7 orphan sealed events to SSE + alerts, narrows the `dartclaw_workflow` barrel to ≤35 explicit `show` clauses, installs 13 governance fitness checks in CI (7 Level-1 + 6 Level-2), flips `public_member_api_docs` lint on in `dartclaw_models/_storage/_security/_config`, extracts `WorkflowRunRepository` / `WorkflowTaskBindingCoordinator` / `ProcessEnvironmentPlan` / `ClaudeSettingsBuilder` to their canonical packages, shrinks `dartclaw_models` to a true shared kernel (workflow / project / task-event / turn-trace / skill-info migrated to owning packages; `TaskEventKind` enum-ified), types four stringly-typed workflow flags as enums, renames `k`-prefix constants and `get*` service methods per Effective Dart, formalises ADR-023 (workflow↔task boundary) + ADR-025 (AndThen-as-runtime-prerequisite + direct skill-name resolution), refreshes `AGENTS.md` and the user guide, and bundles 13 tech-debt closures (TD-046/053/054/055/056/060/061/063/072/073/074/082/085/088/102/103) plus three explicit triage decisions. 24 catalogued stories + standalone work for workflow output presets shorthand, `aggregate-reviews` step type, AndThen direct skill-name resolution, data-dir skill provisioning, and AndThen `plan.json` adoption. See `CHANGELOG.md` for details.
 
 ### 0.16.4 — CLI Operations, Connected Workflows & Workflow Platform Hardening ✅
 

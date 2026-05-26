@@ -129,7 +129,7 @@ Replace the test interval with your target cron expression and set the log level
 
 ## Memory Consolidation
 
-MEMORY.md is the agent's persistent knowledge base, written via the `memory_save` tool. When MEMORY.md exceeds 32KB (configurable via `memory_max_bytes`), consolidation runs during the next heartbeat cycle -- the agent deduplicates and reorganizes entries automatically.
+MEMORY.md is the agent's persistent knowledge base, written via the `memory_save` tool. When MEMORY.md exceeds 32KB (configurable via `memory.max_bytes`), consolidation runs during the next heartbeat cycle -- the agent deduplicates and reorganizes entries automatically.
 
 Key points:
 - `memory_save` appends new entries; consolidation merges duplicates
@@ -137,15 +137,12 @@ Key points:
 - Entries are structured as timestamped items grouped by category
 - Git sync (if enabled) commits workspace changes after heartbeat
 
-**Note on config layout**: `memory_max_bytes` is a top-level key, while memory pruning settings are nested under `memory.pruning`. These are related but configured separately:
+**Note on config layout**: `memory.max_bytes` and memory pruning settings are both nested under `memory:`:
 
 ```yaml
-# Top-level: consolidation threshold for MEMORY.md
-memory_max_bytes: 65536
-
-# Nested: automated memory entry pruning (archive old entries)
 memory:
-  pruning:
+  max_bytes: 65536          # consolidation threshold for MEMORY.md
+  pruning:                  # automated memory entry pruning (archive old entries)
     enabled: true
     archive_after_days: 90
     schedule: "0 3 * * *"

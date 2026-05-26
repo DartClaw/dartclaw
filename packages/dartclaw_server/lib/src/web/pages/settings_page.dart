@@ -10,10 +10,12 @@ import '../../params/display_params.dart';
 import '../../provider_status_service.dart';
 import '../../templates/guard_config_summary.dart';
 import '../../templates/settings.dart';
+import '../channel_status.dart';
 import '../dashboard_page.dart';
 import '../page_support.dart';
 import '../web_utils.dart';
 
+/// Renders the runtime-settings dashboard page.
 class SettingsPage extends DashboardPage {
   SettingsPage({
     this.healthService,
@@ -54,13 +56,13 @@ class SettingsPage extends DashboardPage {
     ensureDartclawGoogleChatRegistered();
 
     final allSessions = await context.sessions.listSessions();
-    final sidebarData = await context.buildSidebarData();
+    final sidebarData = await context.sidebar.build();
     final status = await getStatus(healthService, workerStateGetter, allSessions.length);
     final gc = guardChain;
     final guardsEnabled = gc != null;
     final guardConfigs = extractGuardConfigs(gc, contentGuardDisplay: contentGuardDisplay);
-    final providerCards = _buildProviderCards(providerStatus?.getAll() ?? const <ProviderStatus>[]);
-    final providerSummary = _buildProviderSummary(providerStatus?.getSummary());
+    final providerCards = _buildProviderCards(providerStatus?.all ?? const <ProviderStatus>[]);
+    final providerSummary = _buildProviderSummary(providerStatus?.summary);
     final waStatus = await whatsAppChannelStatus(whatsAppChannel);
     final sigStatus = await signalChannelStatus(signalChannel);
     final googleChatConfig =
@@ -80,26 +82,19 @@ class SettingsPage extends DashboardPage {
       providerHealthyCount: providerSummary.healthy,
       providerDegradedCount: providerSummary.degraded,
       whatsAppEnabled: whatsAppChannel != null,
-      whatsAppStatusLabel: waStatus.label,
-      whatsAppStatusClass: waStatus.badgeClass,
+      whatsAppStatus: waStatus,
       whatsAppPhone: jidToPhone(whatsAppChannel?.gowa.pairedJid),
       whatsAppPendingCount: whatsAppChannel?.dmAccess.pendingPairings.length ?? 0,
       signalEnabled: signalChannel != null,
       signalPhone: signalChannel?.sidecar.registeredPhone,
-      signalStatusLabel: sigStatus.label,
-      signalStatusClass: sigStatus.badgeClass,
+      signalStatus: sigStatus,
       signalPendingCount: signalChannel?.dmAccess.pendingPairings.length ?? 0,
       googleChatEnabled: googleChatConfigured,
-      googleChatStatusLabel: googleChatConnected
-          ? 'Connected'
+      googleChatStatus: googleChatConnected
+          ? ChannelStatus.connected
           : googleChatConfigured
-          ? 'Configured'
-          : 'Disabled',
-      googleChatStatusClass: googleChatConnected
-          ? 'status-badge-success'
-          : googleChatConfigured
-          ? 'status-badge-warning'
-          : 'status-badge-muted',
+          ? ChannelStatus.configured
+          : ChannelStatus.disabled,
       googleChatPendingCount: googleChatChannel?.dmAccess?.pendingPairings.length ?? 0,
       guardsEnabled: guardsEnabled,
       guardFailOpen: gc?.failOpen ?? false,

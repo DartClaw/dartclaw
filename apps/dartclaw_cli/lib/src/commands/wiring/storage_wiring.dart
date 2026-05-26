@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
@@ -79,7 +79,7 @@ class StorageWiring {
 
     _sessions = SessionService(baseDir: config.sessionsDir, eventBus: _eventBus);
     _messages = MessageService(baseDir: config.sessionsDir);
-    await _sessions.getOrCreateMain();
+    await _sessions.getOrCreateMainSession();
 
     try {
       _searchDb = _searchDbFactory(config.searchDbPath);

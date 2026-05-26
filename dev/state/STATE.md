@@ -2,9 +2,9 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-05-01 07:51 CEST
+Last Updated: 2026-05-25 09:44 CEST
 
-### Implemented Features (through 0.16.4)
+### Implemented Features (through 0.16.5)
 
 - **Runtime**: 2-layer model (Dart host → Claude Code JSONL + Codex JSON-RPC binaries). Multi-provider `HarnessPool` with per-task provider override. Task orchestrator: lifecycle state machine, parallel execution, optimistic locking. Coding tasks: worktree isolation, diff, merge, PR creation. Standalone AOT binary with embedded templates, static assets, and skills (`dev/tools/build.sh`)
 - **CLI**: `dartclaw init` onboarding wizard (interactive + non-interactive), `dartclaw service` management (LaunchAgent/systemd), connected-by-default workflow execution with SSE lifecycle control (`workflow run/status/pause/resume/cancel`), operational command groups (`tasks`, `config`, `projects`, `sessions`, `agents`, `traces`, `jobs`). Unified instance directory (`~/.dartclaw/`)
@@ -17,36 +17,35 @@ Last Updated: 2026-05-01 07:51 CEST
 - **Observability**: Alert routing to channels, health monitoring, date-partitioned audit logging, usage/token tracking, turn traces, SSE streaming (tasks/chat/workflows), context monitoring, compaction observability (Claude + Codex lifecycle signals)
 - **Web UI & API**: HTMX+SSE UI (Trellis, zero JS build): dashboard, chat, tasks, workflows (with launch forms), projects, scheduling, memory, settings, health, canvas admin. REST API + MCP server. Multi-project support with PR creation. API read surfaces for sessions, traces, and scheduled jobs
 - **Storage**: Files as source of truth (YAML/JSON/NDJSON) + SQLite indexes (tasks.db, search.db, state.db). Workspace behavior files (SOUL/USER/TOOLS/AGENTS/MEMORY.md). FTS5 search with QMD hybrid opt-in. Shareable canvas with workshop templates
+- **Governance** (0.16.5): 13 fitness checks in CI (7 Level-1 every commit + 6 Level-2 every PR) — barrel `show`-clauses, file-LOC ceilings, package cycles, constructor param counts, `ProcessEnvironmentPlan` boundary, safe-process usage, format gate; plus dependency direction, cross-package `src/` import hygiene, testing-package deps, barrel export counts, enum/event consumer exhaustiveness, per-file method-count ceilings. `public_member_api_docs` lint flipped on in `dartclaw_models/_storage/_security/_config`. Alert classifier closes the `LoopDetectedEvent` / `EmergencyStopEvent` safety gap via compiler-enforced exhaustive switch over `sealed DartclawEvent`. All 7 orphan sealed events wired to SSE + alerts
 
 
 ## Current Phase
 
-**0.16.4** — released. All 81 stories Done (72 in main plan + 9 in agent-resolved-merge sub-plan). Headline scope: connected-by-default CLI workflow execution, operational command groups (`agents`, `config`, `jobs`, `projects`, `tasks`, `traces`, expanded `sessions`), workflow trigger surfaces (web launch forms, `/workflow` chat, GitHub PR webhooks), redesigned `plan-and-implement` built-in (per-story `story-pipeline` + `foreach` sub-pipelines with worktree isolation and publish-step PR creation), file-based artifact transport with auto-commit, AndThen-as-runtime-prerequisite skill provisioning under the `dartclaw-` namespace, agent-resolved-merge bundle (`gitStrategy.merge_resolve` + `dartclaw-merge-resolve` skill), `AgentExecution` primitive decomposition, closed `agent|bash|approval|foreach|loop` step-type vocabulary, the `inputs:`/`outputs:` rename, and engine-managed runtime artifacts at `{{workflow.runtime_artifacts_dir}}`. Live release-gate proofs (S65, S76) passed end-to-end with the real Codex harness.
+**0.16.5** — Stabilisation & Hardening. Release-ready, awaiting tag. Closed all 24 planned-target stories plus six in-flight standalone features (workflow output presets shorthand + review aggregator step, AndThen direct skill-name resolution, data-dir skill provisioning, AndThen `plan.json` adoption, discover-project split remediation). Zero new user-facing features. See `CHANGELOG.md` for shipped scope and `dev/specs/0.16.5/` in the private repo for canonical PRD + plan + per-story FIS.
 
-**Next**: 0.16.5 — Stabilisation & Hardening (consolidation sprint; zero new user-facing features). See `dev/state/ROADMAP.md`.
+**Status**: Release-ready, awaiting tag (squash-merge to `main` → `v0.16.5` tag).
+
+**Previous**: 0.16.4 — CLI Operations, Connected Workflows & Workflow Platform Hardening — tagged `v0.16.4` on 2026-05-04.
+
+**Next**: 0.16.6 — Web UI Stimulus Adoption. See `dev/state/ROADMAP.md`.
 
 ## Active Stories
 
-None — 0.16.4 is shipped. 0.16.5 stories will be enumerated when the milestone enters planning.
-
-## Next Planned
-
-0.16.5 — Stabilisation & Hardening → 0.16.6 — Web UI Stimulus Adoption. See `dev/state/ROADMAP.md`.
+None. All 0.16.5 work is merged onto `feat/0.16.5`; the branch is scope-frozen pending the squash-merge to `main`.
 
 ## Blockers
 
-- None currently recorded.
+None outstanding. Pre-tag manual gates (integration tests, UI smoke test) still owned by the human releaser.
 
 ## Recent Decisions
 
-- 0.16.4 advisory carry-over (`workflow_executor.dart` LOC trim, `WorkflowCliRunner` placement, typed inter-package `taskConfig` DTOs) booked as 0.16.5+ work in `TECH-DEBT-BACKLOG.md` TD-069. `WorkflowGitPort` extraction is closed.
+- 0.16.4 advisory carry-over (`workflow_executor.dart` LOC trim, `WorkflowCliRunner` placement, typed inter-package `taskConfig` DTOs) closed in 0.16.5 via S15 / S31 / S34 (TD-069 retired).
+- ADR-023 (workflow↔task boundary) formalised as a behavioural contract on top of ADR-021/ADR-022.
 - Agent-resolved-merge contract: bash `{{VAR}}` substitutions are shell-escaped for symmetry with `{{context.X}}` (security-by-design; breaking change). Schema validator enforces `additionalProperties` / `enum` / `minimum` / `maximum` as warnings (soft-validate contract). `escalation: serialize-remaining` is the default; per-attempt structured artifacts carry 9 v1 fields scoped per iteration.
 - Dependency-aware fan-out is a shared `mapOver` / `foreach` contract: records carry `id` + `dependencies`, `story_specs` preserves adjacency, promotion conflicts keep downstream stories pending for retry/resume.
-- Stabilisation sprint inserted as 0.16.5 ahead of Stimulus adoption (0.16.6).
+- Stabilisation sprint shipped as 0.16.5 ahead of Stimulus adoption (0.16.6) so the Web-UI work bakes against a clean structural baseline.
 
 ## Session Continuity Notes
 
-- [2026-05-01] 0.16.4 release-prep doc updates landed: CHANGELOG `dartclaw_workflow` version line corrected (0.9.0 → 0.16.0), STATE.md trimmed to released state, ROADMAP.md advanced to 0.16.5 active, architecture markers verified at 0.16.4, `feature-comparison.md` advanced to 0.16.4 with new entries. `dartclawVersion` was already 0.16.4.
-- [2026-04-30] S80 complete — built-in workflows now consume AndThen 0.15.8's `dartclaw-review --output-dir <path>` support by pinning every `dartclaw-review` report to an engine-managed absolute runtime artifacts directory under `<data_dir>/workflows/runs/<runId>/runtime-artifacts/reviews`. Supersedes the unlanded S79 in-worktree `.agent_temp/reviews` convention.
-- [2026-04-28] S65 release-gate recheck complete — two consecutive integration runs of `merge_resolve_integration_test.dart` passed with real Codex.
-- [2026-04-28] S76 credentialed publish recheck complete — credentialed `plan-and-implement` passed end-to-end with real Codex, merge-resolve, forced remediation/re-review, HTTPS/token branch push, and real `gh pr create`.
+(Cleared at 0.16.5 close-out — shipped detail lives in `CHANGELOG.md` and the per-story FIS in `dev/specs/0.16.5/` of the private repo.)

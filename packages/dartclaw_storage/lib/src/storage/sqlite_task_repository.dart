@@ -6,6 +6,7 @@ import 'package:sqlite3/sqlite3.dart';
 
 /// SQLite-backed task persistence for [Task] and [TaskArtifact].
 class SqliteTaskRepository implements TaskRepository {
+  /// Creates the repository against [_db] and initializes its schema.
   SqliteTaskRepository(this._db) {
     _initSchema();
   }
@@ -535,6 +536,7 @@ class SqliteTaskRepository implements TaskRepository {
       _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_workflow_run_id ON tasks(workflow_run_id)');
       _db.execute('COMMIT');
     } catch (_) {
+      // Schema-rewrite step threw — roll back the transaction and bubble the original error.
       _db.execute('ROLLBACK');
       rethrow;
     }

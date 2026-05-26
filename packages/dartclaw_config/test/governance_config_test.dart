@@ -205,7 +205,7 @@ governance:
   crowd_coding: true
 ''');
         expect(config.governance.crowdCoding, const CrowdCodingConfig.defaults());
-        expect(config.warnings, anyElement(contains('Invalid type for governance.crowd_coding')));
+        expect(config.warnings, anyElement(contains('Invalid type for crowd_coding')));
       });
 
       test('unrecognized crowd_coding model warns; effort passes through verbatim', () {

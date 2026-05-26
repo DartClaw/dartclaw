@@ -23,24 +23,28 @@ class CliProgressPrinter {
     _writeLine('[workflow] Starting: $workflowName ($totalSteps steps)');
   }
 
-  void stepRunning(int stepIndex, String stepId, String stepName, String? provider) {
+  void stepRunning(int stepIndex, String stepId, String stepName, String? provider, {String? displayScope}) {
     final providerSuffix = provider != null ? ' ($provider)' : '';
-    _writeLine('[step ${stepIndex + 1}/$totalSteps] $stepId: $stepName — running$providerSuffix');
+    _writeLine(
+      '[step ${stepIndex + 1}/$totalSteps] ${_scopedStepId(stepId, displayScope)}: $stepName — running$providerSuffix',
+    );
   }
 
-  void stepReview(int stepIndex, String stepId) {
-    _writeLine('[step ${stepIndex + 1}/$totalSteps] $stepId: review (auto-accepted)');
+  void stepReview(int stepIndex, String stepId, {String? displayScope}) {
+    _writeLine('[step ${stepIndex + 1}/$totalSteps] ${_scopedStepId(stepId, displayScope)}: review (auto-accepted)');
   }
 
-  void stepCompleted(int stepIndex, String stepId, Duration duration, int tokens) {
+  void stepCompleted(int stepIndex, String stepId, Duration duration, int tokens, {String? displayScope}) {
     final durationStr = _formatDuration(duration);
     final tokenStr = _formatTokens(tokens);
-    _writeLine('[step ${stepIndex + 1}/$totalSteps] $stepId: completed ($durationStr, $tokenStr)');
+    _writeLine(
+      '[step ${stepIndex + 1}/$totalSteps] ${_scopedStepId(stepId, displayScope)}: completed ($durationStr, $tokenStr)',
+    );
   }
 
-  void stepFailed(int stepIndex, String stepId, String? error) {
+  void stepFailed(int stepIndex, String stepId, String? error, {String? displayScope}) {
     _writeLine(
-      '[step ${stepIndex + 1}/$totalSteps] $stepId: '
+      '[step ${stepIndex + 1}/$totalSteps] ${_scopedStepId(stepId, displayScope)}: '
       'failed${error != null ? ' — $error' : ''}',
     );
   }
@@ -89,5 +93,10 @@ class CliProgressPrinter {
   String _formatTokens(int tokens) {
     if (tokens >= 1000) return '${(tokens / 1000).toStringAsFixed(0)}K tokens';
     return '$tokens tokens';
+  }
+
+  String _scopedStepId(String stepId, String? displayScope) {
+    final trimmed = displayScope?.trim();
+    return trimmed == null || trimmed.isEmpty ? stepId : '$stepId[$trimmed]';
   }
 }

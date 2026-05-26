@@ -1,4 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskEvent, TaskEventKind;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show TaskEventService;
 
 import '../task/tool_call_summary.dart';
@@ -124,13 +125,14 @@ String tasksPageTemplate({
           }
           // Recent events (last 3, most recent first).
           // listForTask returns ASC; take last 3 in reverse for most-recent-first.
-          final allEvents = taskEventService?.listForTask(taskId) ?? const [];
+          final allEvents = taskEventService?.listForTask(taskId) ?? const <TaskEvent>[];
           final recentSlice = allEvents.length > 3 ? allEvents.sublist(allEvents.length - 3) : allEvents;
           recentEvents = recentSlice.reversed.map(_buildCompactEventViewModel).toList();
           hasEvents = recentEvents.isNotEmpty;
         } else {
           // Non-running: compute final token total from tokenUpdate events.
-          final tokenEvents = taskEventService?.listForTask(taskId, kind: const TokenUpdate()) ?? const [];
+          final tokenEvents =
+              taskEventService?.listForTask(taskId, kind: TaskEventKind.tokenUpdate) ?? const <TaskEvent>[];
           int total = 0;
           for (final e in tokenEvents) {
             total +=
@@ -319,29 +321,29 @@ Map<String, dynamic> _buildCompactEventViewModel(TaskEvent event) {
   final kind = event.kind;
   final details = event.details;
   final text = switch (kind) {
-    StatusChanged() => truncate('Status \u2192 ${details['newStatus']?.toString() ?? 'unknown'}', 80),
-    ToolCalled() => formatToolEventText(
+    TaskEventKind.statusChanged => truncate('Status \u2192 ${details['newStatus']?.toString() ?? 'unknown'}', 80),
+    TaskEventKind.toolCalled => formatToolEventText(
       details['name']?.toString() ?? '(tool)',
       context: details['context']?.toString(),
       maxLength: 80,
     ),
-    ArtifactCreated() => truncate(details['name']?.toString() ?? '(artifact)', 80),
-    StructuredOutputInlineUsed() => truncate(
+    TaskEventKind.artifactCreated => truncate(details['name']?.toString() ?? '(artifact)', 80),
+    TaskEventKind.structuredOutputInlineUsed => truncate(
       'Structured inline: ${details['outputKey']?.toString() ?? '(output)'}',
       80,
     ),
-    StructuredOutputFallbackUsed() => truncate(
+    TaskEventKind.structuredOutputFallbackUsed => truncate(
       'Structured fallback: ${details['outputKey']?.toString() ?? '(output)'}',
       80,
     ),
-    PushBack() => truncate(details['comment']?.toString() ?? 'Push-back', 80),
-    TokenUpdate() => () {
+    TaskEventKind.pushBack => truncate(details['comment']?.toString() ?? 'Push-back', 80),
+    TaskEventKind.tokenUpdate => () {
       final input = (details['inputTokens'] as num?)?.toInt() ?? 0;
       final output = (details['outputTokens'] as num?)?.toInt() ?? 0;
       return '${_formatTokens(input + output)} tokens';
     }(),
-    TaskErrorEvent() => truncate(details['message']?.toString() ?? 'Error', 80),
-    Compaction() => truncate('Compaction (trigger: ${details['trigger'] ?? 'auto'})', 80),
+    TaskEventKind.taskError => truncate(details['message']?.toString() ?? 'Error', 80),
+    TaskEventKind.compaction => truncate('Compaction (trigger: ${details['trigger'] ?? 'auto'})', 80),
   };
   return {'iconClass': compactEventIconClass(kind), 'iconChar': compactEventIconChar(kind), 'text': text};
 }

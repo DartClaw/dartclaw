@@ -7,12 +7,12 @@ import 'package:shelf_router/shelf_router.dart';
 
 import '../api/api_helpers.dart';
 import '../templates/canvas_standalone.dart';
-import '../turn_manager.dart';
 import 'canvas_service.dart';
 import 'canvas_share_middleware.dart';
 import 'canvas_state.dart';
 import 'canvas_utils.dart';
 
+/// Builds the shelf [Router] mounting share-token-gated canvas endpoints.
 Router canvasRoutes({
   required CanvasService canvasService,
   required TurnManager turns,
@@ -143,7 +143,7 @@ String? _parseCookie(String? header, String name) {
     try {
       return Uri.decodeComponent(raw);
     } catch (_) {
-      return raw;
+      return raw; // Malformed percent-encoding — return raw value.
     }
   }
   return null;

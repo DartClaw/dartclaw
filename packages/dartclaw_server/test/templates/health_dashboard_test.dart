@@ -16,6 +16,7 @@ SidebarData _emptySidebar() => (
   activeWorkflows: <SidebarActiveWorkflow>[],
   showChannels: true,
   tasksEnabled: false,
+  activeSessionId: null,
 );
 
 const _emptyNavItems = <NavItem>[];

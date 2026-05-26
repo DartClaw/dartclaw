@@ -21,40 +21,13 @@ import 'package:dartclaw_core/src/harness/codex_harness.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
+/// Creates a [FakeProcess] with a non-broadcast stdout controller so that
+/// [scheduleMicrotask] emission before subscription is still delivered.
+FakeProcess _makeProcess() => FakeProcess(stdoutController: StreamController<List<int>>());
+
 // ---------------------------------------------------------------------------
 // ClaudeCodeHarness helpers
 // ---------------------------------------------------------------------------
-
-/// Minimal process fake for Claude harness tests — uses a non-broadcast
-/// StreamController so the harness's stdout subscription doesn't miss the
-/// initialize response emitted via scheduleMicrotask.
-class _ClaudeFakeProcess implements Process {
-  final _stdoutCtrl = StreamController<List<int>>();
-  final _exitCompleter = Completer<int>();
-
-  @override
-  int get pid => 42;
-
-  @override
-  IOSink get stdin => NullIoSink();
-
-  @override
-  Stream<List<int>> get stdout => _stdoutCtrl.stream;
-
-  @override
-  Stream<List<int>> get stderr => const Stream.empty();
-
-  @override
-  Future<int> get exitCode => _exitCompleter.future;
-
-  void emitStdout(String line) => _stdoutCtrl.add(utf8.encode('$line\n'));
-
-  @override
-  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
-    if (!_exitCompleter.isCompleted) _exitCompleter.complete(0);
-    return true;
-  }
-}
 
 ClaudeCodeHarness _buildClaudeHarness({
   required Map<String, String> environment,
@@ -64,7 +37,7 @@ ClaudeCodeHarness _buildClaudeHarness({
     cwd: '/tmp',
     processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
       onSpawn(environment ?? {});
-      final fake = _ClaudeFakeProcess();
+      final fake = _makeProcess();
       scheduleMicrotask(() {
         fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
       });
@@ -191,7 +164,7 @@ void main() {
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             captured = environment == null ? null : Map<String, String>.from(environment);
-            final fake = _ClaudeFakeProcess();
+            final fake = _makeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });

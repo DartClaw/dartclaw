@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task;
-import 'package:dartclaw_models/dartclaw_models.dart' show Project;
+import 'package:dartclaw_config/dartclaw_config.dart' show Project;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -60,6 +60,9 @@ final class _RegisteredWorktree {
   const _RegisteredWorktree({required this.path, required this.branch});
 }
 
+/// Hook invoked after a worktree is created and before it is returned.
+typedef WorktreeSkillMaterializer = Future<void> Function(String worktreePath);
+
 /// Git worktree lifecycle manager for coding tasks.
 ///
 /// Worktrees are keyed by the caller-supplied `taskId`, which must be globally
@@ -85,6 +88,7 @@ class WorktreeManager {
   final Map<String, WorktreeInfo> _worktrees = {};
   final Future<Task?> Function(String taskId)? _taskLookup;
   final Future<Project?> Function(String projectId)? _projectLookup;
+  final WorktreeSkillMaterializer _skillMaterializer;
 
   bool? _gitAvailable;
 
@@ -100,6 +104,7 @@ class WorktreeManager {
     String? worktreesDir,
     Future<Task?> Function(String taskId)? taskLookup,
     Future<Project?> Function(String projectId)? projectLookup,
+    WorktreeSkillMaterializer? skillMaterializer,
     Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
     processRunner,
   }) : _projectDir = projectDir,
@@ -108,6 +113,7 @@ class WorktreeManager {
        _worktreesDir = worktreesDir ?? p.join(dataDir, 'worktrees'),
        _taskLookup = taskLookup,
        _projectLookup = projectLookup,
+       _skillMaterializer = skillMaterializer ?? _noopSkillMaterializer,
        _runProcess = processRunner ?? _defaultProcessRunner;
 
   // All git spawns routed through the default runner carry
@@ -130,6 +136,8 @@ class WorktreeManager {
     }
     return Process.run(executable, arguments, workingDirectory: workingDirectory);
   }
+
+  static Future<void> _noopSkillMaterializer(String worktreePath) async {}
 
   /// Creates a new git worktree for the given task.
   ///
@@ -170,20 +178,24 @@ class WorktreeManager {
       return adopted;
     }
 
-    final branch = createBranch
-        ? await _resolveBranchName(taskId, projectDir: effectiveProjectDir)
-        : (_trimmedOrNull(baseRef) ??
-              persistedInfo?.branch ??
-              await _resolveBranchName(taskId, projectDir: effectiveProjectDir));
+    final branch = normalizeGitRefOperand(
+      createBranch
+          ? await _resolveBranchName(taskId, projectDir: effectiveProjectDir)
+          : (_trimmedOrNull(baseRef) ??
+                persistedInfo?.branch ??
+                await _resolveBranchName(taskId, projectDir: effectiveProjectDir)),
+      label: 'worktree branch',
+    );
 
     if (project != null) {
       // Project-backed: create from remote tracking ref by default, but stay
       // on the local default branch when the project has no remote.
       final hasExplicitBaseRef = baseRef != null && baseRef.trim().isNotEmpty;
       final hasRemote = project.remoteUrl.isNotEmpty;
+      final fallbackBaseRef = _fallbackBaseRef(project.defaultBranch, hasRemote: hasRemote);
       final requestedBaseRef = hasExplicitBaseRef
-          ? baseRef.trim()
-          : (hasRemote ? 'origin/${project.defaultBranch}' : project.defaultBranch);
+          ? normalizeGitRefOperand(baseRef.trim(), label: 'worktree base ref')
+          : fallbackBaseRef;
       final effectiveBaseRef = await _resolveProjectBaseRef(
         requestedBaseRef: requestedBaseRef,
         defaultBranch: project.defaultBranch,
@@ -207,9 +219,14 @@ class WorktreeManager {
       }
     } else {
       // Local fallback: two-step branch + worktree creation.
-      final ref = baseRef ?? _baseRef;
+      final ref = normalizeGitRefOperand(baseRef ?? _baseRef, label: 'worktree base ref');
       if (createBranch) {
-        final branchResult = await _runProcess('git', ['branch', branch, ref], workingDirectory: effectiveProjectDir);
+        final branchResult = await _runProcess('git', [
+          'branch',
+          '--',
+          branch,
+          ref,
+        ], workingDirectory: effectiveProjectDir);
         if (branchResult.exitCode != 0) {
           throw WorktreeException(
             'Failed to create branch $branch from $ref',
@@ -240,12 +257,54 @@ class WorktreeManager {
       branch: createBranch ? branch : ((baseRef != null && baseRef.trim().isNotEmpty) ? baseRef.trim() : branch),
       createdAt: DateTime.now(),
     );
+    try {
+      await _skillMaterializer(worktreePath);
+    } catch (e) {
+      await _rollbackCreatedWorktree(
+        worktreePath: worktreePath,
+        branch: createBranch ? branch : null,
+        workingDirectory: effectiveProjectDir,
+      );
+      throw WorktreeException('Failed to materialize workflow skills for worktree at $worktreePath: $e');
+    }
     _worktrees[taskId] = info;
     _log.info(
       'Created worktree for task $taskId at $worktreePath '
       '(branch: $branch, project: ${project?.id ?? "_local"})',
     );
     return info;
+  }
+
+  Future<void> _rollbackCreatedWorktree({
+    required String worktreePath,
+    required String? branch,
+    required String workingDirectory,
+  }) async {
+    final removeResult = await _runProcess('git', [
+      'worktree',
+      'remove',
+      '--force',
+      worktreePath,
+    ], workingDirectory: workingDirectory);
+    if (removeResult.exitCode != 0) {
+      _log.warning(
+        'Failed to roll back worktree $worktreePath after skill materialization failure: '
+        '${(removeResult.stderr as String).trim()}',
+      );
+    }
+    if (branch == null) return;
+    final branchResult = await _runProcess('git', [
+      'branch',
+      '--delete',
+      '--force',
+      branch,
+    ], workingDirectory: workingDirectory);
+    if (branchResult.exitCode != 0) {
+      _log.warning(
+        'Failed to roll back branch $branch after skill materialization failure: '
+        '${(branchResult.stderr as String).trim()}',
+      );
+    }
   }
 
   Future<String> _resolveProjectBaseRef({
@@ -255,9 +314,10 @@ class WorktreeManager {
     required String workingDirectory,
     required bool preserveLocalRef,
   }) async {
-    final ref = requestedBaseRef;
-    final trimmed = ref.trim();
-    if (trimmed.isEmpty) return hasRemote ? 'origin/$defaultBranch' : defaultBranch;
+    if (requestedBaseRef.trim().isEmpty) {
+      return _fallbackBaseRef(defaultBranch, hasRemote: hasRemote);
+    }
+    final trimmed = normalizeGitRefOperand(requestedBaseRef, label: 'worktree base ref');
     if (trimmed.startsWith('origin/') || trimmed.startsWith('refs/')) return trimmed;
     if (preserveLocalRef && trimmed != defaultBranch && await _localRefExists(trimmed, workingDirectory)) {
       return trimmed;
@@ -268,12 +328,19 @@ class WorktreeManager {
     return 'origin/$trimmed';
   }
 
+  String _fallbackBaseRef(String defaultBranch, {required bool hasRemote}) {
+    final fallback = defaultBranch.trim().isEmpty ? 'main' : defaultBranch.trim();
+    final safeFallback = normalizeGitRefOperand(fallback, label: 'project default branch');
+    return hasRemote ? 'origin/$safeFallback' : safeFallback;
+  }
+
   Future<bool> _localRefExists(String ref, String workingDirectory) async {
+    final safeRef = normalizeGitRefOperand(ref, label: 'worktree base ref');
     final result = await _runProcess('git', [
       'rev-parse',
       '--verify',
       '--quiet',
-      ref,
+      safeRef,
     ], workingDirectory: workingDirectory);
     return result.exitCode == 0;
   }
@@ -288,7 +355,7 @@ class WorktreeManager {
   Future<void> cleanup(String taskId, {Project? project}) async {
     final info = _worktrees[taskId];
     final worktreePath = info?.path ?? p.join(_worktreesDir, taskId);
-    final branch = info?.branch ?? 'dartclaw/task-$taskId';
+    final branch = normalizeGitRefOperand(info?.branch ?? 'dartclaw/task-$taskId', label: 'worktree branch');
     final effectiveProjectDir = project?.localPath ?? _defaultProjectDir;
 
     // Remove worktree
@@ -428,10 +495,12 @@ class WorktreeManager {
       final existingHash = sha256.convert(targetFile.readAsBytesSync()).toString();
       final sourceHash = sha256.convert(sourceFile.readAsBytesSync()).toString();
       if (existingHash != sourceHash) {
-        _log.warning(
-          'externalArtifactMount target already exists with different content: '
-          '${targetFile.path} (existing ${existingHash.substring(0, 8)}, '
-          'incoming ${sourceHash.substring(0, 8)}). Overwriting.',
+        throw WorktreeException(
+          'externalArtifactMount: destination already exists with different content '
+          '(collision detected before overwrite): ${targetFile.path} '
+          '(existing ${existingHash.substring(0, 8)}, '
+          'incoming ${sourceHash.substring(0, 8)}). '
+          'This indicates two workflow steps wrote different artifacts to the same path.',
         );
       }
     }
@@ -454,7 +523,7 @@ class WorktreeManager {
 
   /// Derives a unique branch name, appending `-N` suffix on collision.
   Future<String> _resolveBranchName(String taskId, {String? projectDir}) async {
-    final base = 'dartclaw/task-$taskId';
+    final base = normalizeGitRefOperand('dartclaw/task-$taskId', label: 'worktree branch');
 
     if (!await _branchExists(base, projectDir: projectDir)) return base;
 
@@ -480,7 +549,7 @@ class WorktreeManager {
     try {
       return WorktreeInfo.fromJson(json);
     } catch (_) {
-      return null;
+      return null; // Persisted worktree state is malformed — treat as absent.
     }
   }
 

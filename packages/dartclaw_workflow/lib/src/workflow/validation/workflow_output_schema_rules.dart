@@ -23,11 +23,10 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
         // mistake — either provide content or omit the key.
         if (config.description != null && config.description!.trim().isEmpty) {
           errors.add(
-            ValidationError(
-              message:
-                  'Step "${step.id}" output "$key" has a blank "description" — '
-                  'provide content or remove the key.',
-              type: ValidationErrorType.missingField,
+            _err(
+              ValidationErrorType.missingField,
+              'Step "${step.id}" output "$key" has a blank "description" — '
+              'provide content or remove the key.',
               stepId: step.id,
             ),
           );
@@ -38,9 +37,9 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
           final preset = schemaPresets[config.presetName];
           if (preset == null) {
             errors.add(
-              ValidationError(
-                message: 'Step "${step.id}" output "$key" references unknown schema preset "${config.presetName}".',
-                type: ValidationErrorType.invalidReference,
+              _err(
+                ValidationErrorType.invalidReference,
+                'Step "${step.id}" output "$key" references unknown schema preset "${config.presetName}".',
                 stepId: step.id,
               ),
             );
@@ -52,28 +51,32 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
             // defeating the point of referencing the preset. Warn the author
             // so they can drop one or the other intentionally.
             warnings.add(
-              ValidationError(
-                message:
-                    'Step "${step.id}" output "$key" sets both an inline "description" and '
-                    'references preset "${config.presetName}" which already provides one. '
-                    'The inline description overrides the preset — drop one to avoid drift.',
-                type: ValidationErrorType.contextInconsistency,
-                stepId: step.id,
+              _contextErr(
+                step.id,
+                'Step "${step.id}" output "$key" sets both an inline "description" and '
+                'references preset "${config.presetName}" which already provides one. '
+                'The inline description overrides the preset — drop one to avoid drift.',
               ),
             );
           }
         }
 
-        // Inline schema must be an object with 'type'.
+        // Inline schema must be an object with 'type', and must not use
+        // unsupported JSON Schema keywords that would silently green-light.
         if (config.inlineSchema != null) {
           if (!config.inlineSchema!.containsKey('type')) {
             errors.add(
-              ValidationError(
-                message: 'Step "${step.id}" output "$key" inline schema missing "type" field.',
-                type: ValidationErrorType.missingField,
+              _err(
+                ValidationErrorType.missingField,
+                'Step "${step.id}" output "$key" inline schema missing "type" field.',
                 stepId: step.id,
               ),
             );
+          }
+          final schemaValidator = const SchemaValidator();
+          final unsupportedDiagnostics = schemaValidator.checkUnsupportedKeywords(config.inlineSchema!, path: key);
+          for (final diagnostic in unsupportedDiagnostics) {
+            errors.add(_contextErr(step.id, 'Step "${step.id}" output "$key" inline schema: $diagnostic'));
           }
         }
 
@@ -82,11 +85,10 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
         // response, so the json+schema requirement does not apply.
         if (config.format == OutputFormat.json && !config.hasSchema && !step.isForeachController) {
           errors.add(
-            ValidationError(
-              message:
-                  'Step "${step.id}" output "$key": format: json requires a schema '
-                  '(preset name or inline schema).',
-              type: ValidationErrorType.missingField,
+            _err(
+              ValidationErrorType.missingField,
+              'Step "${step.id}" output "$key": format: json requires a schema '
+              '(preset name or inline schema).',
               stepId: step.id,
             ),
           );
@@ -95,22 +97,19 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
         if (config.outputMode == OutputMode.structured) {
           if (config.format != OutputFormat.json) {
             errors.add(
-              ValidationError(
-                message:
-                    'Step "${step.id}" output "$key" uses outputMode: structured but format is '
-                    '"${config.format.name}". Structured output requires format: json.',
-                type: ValidationErrorType.contextInconsistency,
-                stepId: step.id,
+              _contextErr(
+                step.id,
+                'Step "${step.id}" output "$key" uses outputMode: structured but format is '
+                '"${config.format.name}". Structured output requires format: json.',
               ),
             );
           }
           if (!config.hasSchema) {
             errors.add(
-              ValidationError(
-                message:
-                    'Step "${step.id}" output "$key" uses outputMode: structured but has no schema. '
-                    'Structured output requires a schema preset or inline schema.',
-                type: ValidationErrorType.missingField,
+              _err(
+                ValidationErrorType.missingField,
+                'Step "${step.id}" output "$key" uses outputMode: structured but has no schema. '
+                'Structured output requires a schema preset or inline schema.',
                 stepId: step.id,
               ),
             );
@@ -120,13 +119,7 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
             final violations = <String>[];
             _collectStructuredSchemaViolations(inlineSchema, path: key, violations: violations);
             for (final violation in violations) {
-              errors.add(
-                ValidationError(
-                  message: 'Step "${step.id}" output "$key" inline schema $violation',
-                  type: ValidationErrorType.contextInconsistency,
-                  stepId: step.id,
-                ),
-              );
+              errors.add(_contextErr(step.id, 'Step "${step.id}" output "$key" inline schema $violation'));
             }
           }
         }
@@ -138,11 +131,10 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
       if (uniqueDescriptions.length < 2) continue;
       final producers = entry.value.map((item) => item.$1).join(', ');
       warnings.add(
-        ValidationError(
-          message:
-              'Output "${entry.key}" is produced by multiple steps with different descriptions '
-              '($producers). The first producer wins in context-summary rendering.',
-          type: ValidationErrorType.contextInconsistency,
+        _contextErr(
+          null,
+          'Output "${entry.key}" is produced by multiple steps with different descriptions '
+          '($producers). The first producer wins in context-summary rendering.',
         ),
       );
     }

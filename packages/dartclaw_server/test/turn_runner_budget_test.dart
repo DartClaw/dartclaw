@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -62,7 +63,7 @@ void main() {
   group('TurnRunner — budget enforcement', () {
     test('no budget enforcer → no budget check (backward compat)', () async {
       final runner = buildRunner(); // no budgetEnforcer
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'done';
 
       final turnId = await runner.startTurn(session.id, []).timeout(const Duration(seconds: 2));
@@ -85,7 +86,7 @@ void main() {
       );
 
       final runner = buildRunner(budgetEnforcer: realEnforcer);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'ok';
 
       final turnId = await runner.startTurn(session.id, []).timeout(const Duration(seconds: 2));
@@ -112,7 +113,7 @@ void main() {
       runner.budgetWarningNotifier = (sessionId, result) async {
         notifications.add((sessionId, result));
       };
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
       worker.responseText = 'done';
 
       final turnId = await runner.startTurn(session.id, []).timeout(const Duration(seconds: 2));
@@ -138,7 +139,7 @@ void main() {
       );
 
       final runner = buildRunner(budgetEnforcer: blockEnforcer);
-      final session = await sessions.getOrCreateMain();
+      final session = await sessions.getOrCreateMainSession();
 
       // Should throw BudgetExhaustedException (reserveTurn throws before executeTurn).
       await expectLater(runner.reserveTurn(session.id), throwsA(isA<BudgetExhaustedException>()));

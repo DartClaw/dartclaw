@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1",
+  "prd": "prd.md",
+  "overview": {
+    "summary": "Fixture plan with one pending story whose FIS has not been generated.",
+    "phases": [
+      {
+        "id": "P1",
+        "name": "Foundation",
+        "waves": ["W1"]
+      }
+    ]
+  },
+  "stories": [
+    {
+      "id": "S01",
+      "name": "Ready Foundation",
+      "phase": "P1",
+      "wave": "W1",
+      "dependsOn": [],
+      "parallel": false,
+      "risk": "low",
+      "status": "spec-ready",
+      "fis": "fis/s01-ready-foundation.md",
+      "scope": "Ready fixture story with a generated FIS."
+    },
+    {
+      "id": "S02",
+      "name": "Ready Follow-up",
+      "phase": "P1",
+      "wave": "W1",
+      "dependsOn": ["S01"],
+      "parallel": false,
+      "risk": "medium",
+      "status": "spec-ready",
+      "fis": "fis/s02-ready-follow-up.md",
+      "scope": "Second ready fixture story with a generated FIS."
+    },
+    {
+      "id": "S03",
+      "name": "Pending Story",
+      "phase": "P1",
+      "wave": "W1",
+      "dependsOn": ["S02"],
+      "parallel": false,
+      "risk": "medium",
+      "status": "pending",
+      "fis": null,
+      "scope": "Pending fixture story without a generated FIS."
+    }
+  ],
+  "metadata": {
+    "immutableDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

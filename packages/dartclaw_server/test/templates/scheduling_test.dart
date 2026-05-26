@@ -19,6 +19,7 @@ void main() {
     activeWorkflows: <SidebarActiveWorkflow>[],
     showChannels: true,
     tasksEnabled: false,
+    activeSessionId: null,
   );
   const emptyNavItems = <NavItem>[];
 

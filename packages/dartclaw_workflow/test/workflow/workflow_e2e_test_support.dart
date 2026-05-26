@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowRunStatus;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunStatus;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';

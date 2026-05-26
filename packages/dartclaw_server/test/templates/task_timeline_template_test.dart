@@ -1,5 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show TaskEvent, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent;
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskEvent, TaskEventKind;
 import 'package:dartclaw_server/src/templates/loader.dart';
 import 'package:dartclaw_server/src/templates/task_timeline.dart';
 import 'package:test/test.dart';
@@ -13,7 +12,7 @@ TaskEvent _statusEvent(String id, String newStatus) => TaskEvent(
   id: id,
   taskId: _taskId,
   timestamp: _now,
-  kind: const StatusChanged(),
+  kind: TaskEventKind.statusChanged,
   details: {'newStatus': newStatus, 'oldStatus': 'draft'},
 );
 
@@ -25,30 +24,30 @@ TaskEvent _toolEvent(String id, {bool success = true, String? errorType, String?
   if (context case final value?) {
     details['context'] = value;
   }
-  return TaskEvent(id: id, taskId: _taskId, timestamp: _now, kind: const ToolCalled(), details: details);
+  return TaskEvent(id: id, taskId: _taskId, timestamp: _now, kind: TaskEventKind.toolCalled, details: details);
 }
 
 TaskEvent _artifactEvent(String id) => TaskEvent(
   id: id,
   taskId: _taskId,
   timestamp: _now,
-  kind: const ArtifactCreated(),
+  kind: TaskEventKind.artifactCreated,
   details: {'name': 'output.md', 'kind': 'document'},
 );
 
 TaskEvent _pushBackEvent(String id, {String comment = 'Please fix the tests'}) =>
-    TaskEvent(id: id, taskId: _taskId, timestamp: _now, kind: const PushBack(), details: {'comment': comment});
+    TaskEvent(id: id, taskId: _taskId, timestamp: _now, kind: TaskEventKind.pushBack, details: {'comment': comment});
 
 TaskEvent _tokenEvent(String id, {int input = 1000, int output = 500, int cacheRead = 0}) => TaskEvent(
   id: id,
   taskId: _taskId,
   timestamp: _now,
-  kind: const TokenUpdate(),
+  kind: TaskEventKind.tokenUpdate,
   details: {'inputTokens': input, 'outputTokens': output, 'cacheReadTokens': cacheRead},
 );
 
 TaskEvent _errorEvent(String id, {String message = 'Something went wrong'}) =>
-    TaskEvent(id: id, taskId: _taskId, timestamp: _now, kind: const TaskErrorEvent(), details: {'message': message});
+    TaskEvent(id: id, taskId: _taskId, timestamp: _now, kind: TaskEventKind.taskError, details: {'message': message});
 
 void main() {
   setUpAll(() => initTemplates(resolveTemplatesDir()));
@@ -312,35 +311,35 @@ void main() {
 
   group('eventMatchesFilter', () {
     test('null filter matches all kinds', () {
-      expect(eventMatchesFilter(const StatusChanged(), null), isTrue);
-      expect(eventMatchesFilter(const ToolCalled(), null), isTrue);
+      expect(eventMatchesFilter(TaskEventKind.statusChanged, null), isTrue);
+      expect(eventMatchesFilter(TaskEventKind.toolCalled, null), isTrue);
     });
 
     test('filter=all matches all kinds', () {
-      expect(eventMatchesFilter(const ArtifactCreated(), 'all'), isTrue);
+      expect(eventMatchesFilter(TaskEventKind.artifactCreated, 'all'), isTrue);
     });
 
-    test('filter=tools only matches ToolCalled', () {
-      expect(eventMatchesFilter(const ToolCalled(), 'tools'), isTrue);
-      expect(eventMatchesFilter(const StatusChanged(), 'tools'), isFalse);
+    test('filter=tools only matches toolCalled', () {
+      expect(eventMatchesFilter(TaskEventKind.toolCalled, 'tools'), isTrue);
+      expect(eventMatchesFilter(TaskEventKind.statusChanged, 'tools'), isFalse);
     });
 
-    test('filter=artifacts only matches ArtifactCreated', () {
-      expect(eventMatchesFilter(const ArtifactCreated(), 'artifacts'), isTrue);
-      expect(eventMatchesFilter(const ToolCalled(), 'artifacts'), isFalse);
+    test('filter=artifacts only matches artifactCreated', () {
+      expect(eventMatchesFilter(TaskEventKind.artifactCreated, 'artifacts'), isTrue);
+      expect(eventMatchesFilter(TaskEventKind.toolCalled, 'artifacts'), isFalse);
     });
 
-    test('filter=errors only matches TaskErrorEvent', () {
-      expect(eventMatchesFilter(const TaskErrorEvent(), 'errors'), isTrue);
-      expect(eventMatchesFilter(const PushBack(), 'errors'), isFalse);
+    test('filter=errors only matches taskError', () {
+      expect(eventMatchesFilter(TaskEventKind.taskError, 'errors'), isTrue);
+      expect(eventMatchesFilter(TaskEventKind.pushBack, 'errors'), isFalse);
     });
 
-    test('filter=status matches StatusChanged, PushBack, TokenUpdate', () {
-      expect(eventMatchesFilter(const StatusChanged(), 'status'), isTrue);
-      expect(eventMatchesFilter(const PushBack(), 'status'), isTrue);
-      expect(eventMatchesFilter(const TokenUpdate(), 'status'), isTrue);
-      expect(eventMatchesFilter(const ToolCalled(), 'status'), isFalse);
-      expect(eventMatchesFilter(const ArtifactCreated(), 'status'), isFalse);
+    test('filter=status matches statusChanged, pushBack, tokenUpdate', () {
+      expect(eventMatchesFilter(TaskEventKind.statusChanged, 'status'), isTrue);
+      expect(eventMatchesFilter(TaskEventKind.pushBack, 'status'), isTrue);
+      expect(eventMatchesFilter(TaskEventKind.tokenUpdate, 'status'), isTrue);
+      expect(eventMatchesFilter(TaskEventKind.toolCalled, 'status'), isFalse);
+      expect(eventMatchesFilter(TaskEventKind.artifactCreated, 'status'), isFalse);
     });
   });
 }

@@ -3,6 +3,8 @@ library;
 
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowContext, WorkflowDefinition, WorkflowStep;
 import 'package:dartclaw_workflow/src/workflow/workflow_run_paths.dart';
 import 'package:path/path.dart' as p;
@@ -138,7 +140,7 @@ void main() {
         WorkflowStep(
           id: 'review-each',
           name: 'Review Each',
-          type: 'foreach',
+          type: WorkflowTaskType.foreach,
           mapOver: 'items',
           foreachSteps: ['review-child'],
         ),

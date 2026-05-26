@@ -6,8 +6,10 @@ class HistoryConfig {
   /// Total character budget for the replay history block.
   final int maxTotalChars;
 
+  /// const HistoryConfig({this.maxMessageChars = 4000, this.maxTo.
   const HistoryConfig({this.maxMessageChars = 4000, this.maxTotalChars = 50000});
 
+  /// Creates a [HistoryConfig.defaults] value.
   const HistoryConfig.defaults() : this();
 
   @override

@@ -8,6 +8,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         OutputConfig,
@@ -172,7 +174,7 @@ void main() {
             prompts: ['Plan this'],
             outputs: {
               'prd': OutputConfig(format: OutputFormat.text),
-              'stories': OutputConfig(format: OutputFormat.json, schema: 'story-plan'),
+              'stories': OutputConfig(format: OutputFormat.json, schema: 'story_plan'),
             },
           ),
         ],
@@ -440,7 +442,7 @@ void main() {
         name: 'test-wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'fix', name: 'Fix Bug', type: 'coding', prompts: ['Fix the bug']),
+          WorkflowStep(id: 'fix', name: 'Fix Bug', type: WorkflowTaskType.agent, prompts: ['Fix the bug']),
         ],
       );
 
@@ -477,7 +479,7 @@ void main() {
         name: 'test-wf',
         description: 'd',
         steps: const [
-          WorkflowStep(id: 'fix', name: 'Fix Bug', type: 'coding', prompts: ['Fix the bug']),
+          WorkflowStep(id: 'fix', name: 'Fix Bug', type: WorkflowTaskType.agent, prompts: ['Fix the bug']),
         ],
       );
 

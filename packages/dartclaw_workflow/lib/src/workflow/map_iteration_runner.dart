@@ -46,11 +46,11 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
             final deletions = (json['deletions'] as int?) ?? 0;
             return '$files files changed, +$additions -$deletions';
           } catch (_) {
-            return raw;
+            return raw; // Malformed diff_summary JSON – fall back to raw string.
           }
         }
       }
-    } catch (_) {}
+    } catch (_) {} // Task config access failed – return null diff_summary.
     return null;
   }
 
@@ -76,6 +76,8 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     WorkflowContext context, {
     required int stepIndex,
     WorkflowExecutionCursor? resumeCursor,
+    required String? activeWorkspaceRoot,
+    bool Function()? isCancelled,
   }) async {
     // 1. Resolve collection from context.
     final rawCollection = context[step.mapOver!];
@@ -119,16 +121,17 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
       );
     }
     final collection = resolvedCollection;
+    final maxItems = step.maxItems;
 
     // 2. Check maxItems.
-    if (collection.length > step.maxItems) {
+    if (maxItems != null && collection.length > maxItems) {
       return MapStepResult(
         results: const [],
         totalTokens: 0,
         success: false,
         error:
             "Map step '${step.id}': collection has ${collection.length} items "
-            'which exceeds maxItems (${step.maxItems}). '
+            'which exceeds maxItems ($maxItems). '
             'Consider decomposing into smaller batches.',
       );
     }
@@ -144,7 +147,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     // 4. Empty collection → succeed immediately.
     if (collection.isEmpty) {
       WorkflowExecutor._log.warning(
-        "Workflow '${run.id}': map step '${step.id}' has empty collection — "
+        "Workflow '${run.id}': map step '${step.id}' has empty collection – "
         'succeeding with empty result array',
       );
       return const MapStepResult(results: [], totalTokens: 0, success: true);
@@ -176,7 +179,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     }
 
     // 6. Create MapStepContext.
-    final mapCtx = MapStepContext(collection: collection, maxParallel: maxParallel, maxItems: step.maxItems);
+    final mapCtx = MapStepContext(collection: collection, maxParallel: maxParallel, maxItems: maxItems);
     final completedIds = <String>{};
     _restoreMapProgress(mapCtx, completedIds, resumeCursor, collectionLength: collection.length);
 
@@ -226,6 +229,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
       final poolAvailable = _turnAdapter?.availableRunnerCount?.call();
       final concurrencyCap = mapCtx.effectiveConcurrency(poolAvailable);
       while (inFlight.length < concurrencyCap && pending.isNotEmpty) {
+        if (isCancelled?.call() ?? false) break;
         // Find the next dependency-eligible index from the pending queue.
         int? nextIndex;
         if (depGraph.hasDependencies) {
@@ -250,8 +254,6 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
           length: collection.length,
           alias: step.mapAlias,
         );
-        final effectiveProjectId = _resolveProjectIdWithMap(definition, step, context, mapContext, resolved: resolved);
-
         // Resolve per-iteration prompt (resolveWithMap handles {{map.*}}).
         final rawPrompt = step.prompt;
         final resolvedPrompt = rawPrompt != null
@@ -263,7 +265,16 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
               }, outputConfigs: _inputConfigsFor(definition, step.inputs))
             : null;
         final effectiveOutputs = _effectiveOutputsFor(step);
-        final skillDefaultPrompt = _skillDefaultPromptFor(step);
+        final effectiveOutputKeys = _effectiveOutputKeysFor(step, effectiveOutputs);
+        final effectiveProjectId = _resolveProjectIdWithMap(
+          definition,
+          step,
+          context,
+          mapContext,
+          resolved: resolved,
+          effectiveOutputs: effectiveOutputs,
+        );
+        final skillDefaultPrompt = _skillDefaultPromptFor(step, null);
         final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
         final variableNames = _autoFrameVariableNames(step);
         final iterPrompt = _skillPromptBuilder.build(
@@ -271,7 +282,8 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
           resolvedPrompt: resolvedPrompt,
           contextSummary: contextSummary,
           outputs: effectiveOutputs,
-          outputKeys: step.outputKeys,
+          outputKeys: effectiveOutputKeys,
+          outputExamples: step.outputExamples,
           skillDefaultPrompt: skillDefaultPrompt,
           autoFrameContext: step.autoFrameContext,
           inputs: step.inputs,
@@ -288,8 +300,9 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
           context,
           resolvedWorktreeMode: resolvedWorktreeMode,
           effectivePromotion: promotionStrategy,
+          effectiveOutputs: effectiveOutputs,
         );
-        final iterTitle = '${definition.name} — ${step.name} (${iterIndex + 1}/${collection.length})';
+        final iterTitle = '${definition.name} – ${step.name} (${iterIndex + 1}/${collection.length})';
 
         // Dispatch: create the task and await its completion in a detached future.
         // Increment inFlight count synchronously before awaiting to prevent races.
@@ -338,7 +351,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
                 ),
               );
             }
-            // Controller-level invariant breach — abort remaining iterations
+            // Controller-level invariant breach – abort remaining iterations
             // rather than silently re-dispatching against possibly-corrupt
             // state. See foreach_iteration_runner for the same rationale.
             mapCtx.budgetExhausted = true;
@@ -353,17 +366,17 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
         });
       }
 
-      // If nothing dispatched and nothing in-flight but items remain — deadlock.
+      // If nothing dispatched and nothing in-flight but items remain – deadlock.
       if (inFlight.isEmpty && pending.isNotEmpty) {
         if (promotionAware && depGraph.hasDependencies && mapCtx.failedIndices.isNotEmpty) {
           WorkflowExecutor._log.warning(
-            "Workflow '${run.id}': map step '${step.id}' — "
+            "Workflow '${run.id}': map step '${step.id}' – "
             '${pending.length} items remain blocked on unresolved promoted dependencies; leaving them pending for resume.',
           );
           break;
         }
         WorkflowExecutor._log.warning(
-          "Workflow '${run.id}': map step '${step.id}' — "
+          "Workflow '${run.id}': map step '${step.id}' – "
           '${pending.length} items blocked by unsatisfiable dependencies (deadlock guard).',
         );
         while (pending.isNotEmpty) {
@@ -501,8 +514,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     final updatedRun = refreshedRun.copyWith(
       executionCursor: cursor,
       contextJson: {
-        for (final e in refreshedRun.contextJson.entries)
-          if (e.key.startsWith('_') && !e.key.startsWith('_map.current')) e.key: e.value,
+        ...privateContextEntries(refreshedRun.contextJson, exclude: '_map.current'),
         ...context.toJson(),
         '_map.current.stepId': step.id,
         '_map.current.total': mapCtx.collection.length,

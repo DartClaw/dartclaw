@@ -7,10 +7,9 @@ import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 
 import '../canvas/canvas_service.dart';
-import '../harness_pool.dart';
 import '../task/task_service.dart';
-import '../turn_manager.dart';
 
+/// Identifies why an advisor evaluation was scheduled.
 enum AdvisorTriggerType {
   turnDepth,
   tokenVelocity,
@@ -36,6 +35,7 @@ enum AdvisorTriggerType {
   };
 }
 
+/// Represents the advisor's verdict on the session's trajectory.
 enum AdvisorStatus {
   onTrack,
   diverging,
@@ -58,6 +58,7 @@ enum AdvisorStatus {
   };
 }
 
+/// Captures the parsed result of an advisor harness invocation.
 class AdvisorOutput {
   final AdvisorStatus status;
   final String observation;
@@ -66,6 +67,7 @@ class AdvisorOutput {
   const AdvisorOutput({required this.status, required this.observation, this.suggestion});
 }
 
+/// Carries the metadata required to fire an advisor trigger.
 class AdvisorTriggerContext {
   final AdvisorTriggerType type;
   final String reason;
@@ -88,6 +90,7 @@ class AdvisorTriggerContext {
   bool get bypassCircuitBreaker => type == AdvisorTriggerType.explicit;
 }
 
+/// Represents a single observation inside the advisor's sliding window.
 class ContextEntry {
   final String kind;
   final String summary;
@@ -108,6 +111,7 @@ class ContextEntry {
   });
 }
 
+/// Holds a bounded ring of recent [ContextEntry] observations for the advisor.
 class SlidingContextWindow {
   final int maxEntries;
   final List<ContextEntry> _entries = <ContextEntry>[];
@@ -150,6 +154,7 @@ class SlidingContextWindow {
   }
 }
 
+/// Throttles advisor firings so they do not run on every primary turn.
 class CircuitBreaker {
   final int minPrimaryTurnsBetweenFirings;
   int _primaryTurnsSinceLastFire;
@@ -167,6 +172,7 @@ class CircuitBreaker {
   }
 }
 
+/// Evaluates incoming events against the configured advisor triggers.
 class TriggerEvaluator {
   final Set<AdvisorTriggerType> _triggers;
   final Duration _periodicInterval;
@@ -284,6 +290,7 @@ class TriggerEvaluator {
   }
 }
 
+/// Parses raw advisor harness text into a structured [AdvisorOutput].
 class AdvisorOutputParser {
   const AdvisorOutputParser();
 
@@ -336,6 +343,7 @@ class AdvisorOutputParser {
   }
 }
 
+/// Dispatches an [AdvisorOutput] to the appropriate channel destinations.
 class AdvisorOutputRouter {
   AdvisorOutputRouter({
     ChannelManager? channelManager,
@@ -472,6 +480,7 @@ class AdvisorOutputRouter {
   }
 }
 
+/// Subscribes to the [EventBus] and runs the advisor harness on configured triggers.
 class AdvisorSubscriber {
   static final _log = Logger('AdvisorSubscriber');
 
@@ -787,6 +796,7 @@ class AdvisorSubscriber {
   int _estimateTokens(String text) => (text.length / 4).ceil().clamp(1, 10000);
 }
 
+/// Renders the advisor insight card HTML for the given [AdvisorOutput] and trigger context.
 String renderAdvisorInsightCard({
   required AdvisorOutput output,
   required AdvisorTriggerContext trigger,

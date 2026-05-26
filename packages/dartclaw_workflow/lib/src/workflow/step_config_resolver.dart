@@ -1,4 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart';
+import 'workflow_definition.dart';
 
 const workflowRoleDefaultAlias = '@workflow';
 const plannerRoleDefaultAlias = '@planner';

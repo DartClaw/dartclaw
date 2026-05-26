@@ -7,11 +7,12 @@ import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
 import '../auth/auth_utils.dart';
-import '../security/google_jwt_verifier.dart';
 import 'slash_command_handler.dart';
 
+/// Dispatches an inbound Google Chat message and returns the reply text.
 typedef GoogleChatMessageDispatcher = Future<String> Function(ChannelMessage message);
 
+/// Handles signed Google Chat webhook deliveries and surfaces them to the runtime.
 class GoogleChatWebhookHandler {
   static final _log = Logger('GoogleChatWebhookHandler');
   static const _typingMessage = '_DartClaw is typing..._';

@@ -68,6 +68,23 @@ make clean
 ```
 
 
+## CI-Equivalent Gate
+
+Run this from the workspace root before pushing shared branches, before declaring a CI fix done, and after changes that
+touch package boundaries, tests, build tooling, workflow definitions, or cross-package behavior. It mirrors
+`.github/workflows/ci.yml`, with an added whitespace check.
+
+```bash
+dart format --line-length=120 --output=none --set-exit-if-changed .
+dart analyze --fatal-infos
+bash dev/tools/test_workspace.sh
+dart run dev/tools/arch_check.dart
+bash dev/tools/fitness/run_all.sh
+git diff --check
+git status --short
+```
+
+
 ## Package Discovery (pub.dev)
 
 ```bash
@@ -85,7 +102,7 @@ curl -s "https://pub.dev/api/packages/<package_name>" | jq '{name: .name, latest
 
 ```bash
 # Format a file or directory (120-char width configured in analysis_options.yaml)
-dart format <file_or_dir>
+dart format --line-length=120 <file_or_dir>
 
 # Static analysis + lint (strict-casts, strict-raw-types, lints/recommended)
 dart analyze

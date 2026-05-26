@@ -6,33 +6,14 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '_support/workflow_test_paths.dart';
+
 WorkflowRegistry _makeRegistry({Logger? log, Set<String>? continuityProviders}) => WorkflowRegistry(
   parser: WorkflowDefinitionParser(),
   validator: WorkflowDefinitionValidator(),
   continuityProviders: continuityProviders,
   log: log,
 );
-
-String _workflowDefinitionsDir() {
-  var current = Directory.current;
-  while (true) {
-    final candidates = [
-      p.join(current.path, 'lib', 'src', 'workflow', 'definitions'),
-      p.join(current.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions'),
-    ];
-    for (final candidate in candidates) {
-      if (Directory(candidate).existsSync()) {
-        return candidate;
-      }
-    }
-
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate workflow definitions dir');
-    }
-    current = parent;
-  }
-}
 
 /// A minimal valid workflow YAML for testing custom loading.
 String _validCustomYaml(String name) =>
@@ -75,7 +56,22 @@ loops:
     exitGate: step1.done == true
 ''';
 
-/// Valid YAML with a hard error (approval step as parallel — always an error).
+String _codexAllowedToolsWarningYaml(String name) =>
+    '''
+name: $name
+description: Workflow with Codex advisory allowedTools.
+steps:
+  - id: implement
+    name: Implement
+    provider: codex
+    allowedTools:
+      - shell
+      - file_read
+      - file_write
+    prompt: Do the thing.
+''';
+
+/// Valid YAML with a hard error (approval step as parallel – always an error).
 const _approvalParallelErrorYaml = '''
 name: approval-parallel-error
 description: Workflow with parallel approval step.
@@ -103,25 +99,25 @@ void main() {
   group('materialized loading', () {
     test('populates registry with 3 materialized workflows', () async {
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       expect(registry.length, equals(3));
     });
 
     test('listMaterialized() returns only materialized definitions', () async {
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       expect(registry.listMaterialized(), hasLength(3));
     });
 
     test('listCustom() is empty after materialized loading only', () async {
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       expect(registry.listCustom(), isEmpty);
     });
 
     test('getByName("spec-and-implement") returns the definition', () async {
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       final def = registry.getByName('spec-and-implement');
       expect(def, isNotNull);
       expect(def!.name, equals('spec-and-implement'));
@@ -130,39 +126,60 @@ void main() {
     test('bootstrap built-ins leave BRANCH empty so project resolution can infer the base ref', () async {
       final parser = WorkflowDefinitionParser();
       for (final name in ['spec-and-implement.yaml', 'plan-and-implement.yaml']) {
-        final definition = await parser.parseFile(p.join(_workflowDefinitionsDir(), name));
+        final definition = await parser.parseFile(p.join(workflowDefinitionsDir(), name));
         expect(
           definition.variables['BRANCH']?.defaultValue,
           anyOf(isNull, isEmpty),
-          reason: '$name should not hardcode main for workflow bootstrap',
+          reason: '$name should not hardcode main for workflow integration-branch creation',
         );
       }
 
-      final codeReview = await parser.parseFile(p.join(_workflowDefinitionsDir(), 'code-review.yaml'));
+      final codeReview = await parser.parseFile(p.join(workflowDefinitionsDir(), 'code-review.yaml'));
       expect(codeReview.variables['BASE_BRANCH']?.defaultValue, 'main');
     });
 
     test('getByName("nonexistent") returns null', () async {
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       expect(registry.getByName('nonexistent'), isNull);
+    });
+
+    test('getByName reloads a changed workflow source file', () async {
+      final registry = _makeRegistry();
+      final file = File(p.join(tempDir.path, 'hot.yaml'));
+      file.writeAsStringSync(_validCustomYaml('hot-wf'));
+
+      await registry.loadFromDirectory(tempDir.path, source: WorkflowSource.materialized);
+      expect(registry.getByName('hot-wf')?.description, 'Custom workflow for testing.');
+
+      file.writeAsStringSync('''
+name: hot-wf
+description: Reloaded workflow for testing.
+steps:
+  - id: step1
+    name: Step 1
+    prompt: Do the thing.
+''');
+
+      expect(registry.getByName('hot-wf')?.description, 'Reloaded workflow for testing.');
+      expect(registry.authoredYaml('hot-wf'), contains('Reloaded workflow for testing.'));
     });
 
     test('sourceOf("spec-and-implement") returns WorkflowSource.materialized', () async {
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.materialized));
     });
 
     test('listAll() returns all materialized definitions', () async {
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       expect(registry.listAll(), hasLength(3));
     });
 
     test('listSummaries() returns summary records without full step payloads', () async {
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
 
       final summaries = registry.listSummaries();
       expect(summaries, hasLength(3));
@@ -174,14 +191,42 @@ void main() {
 
     test('loads all expected materialized workflow names', () async {
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       final names = registry.listAll().map((d) => d.name).toSet();
       expect(names, containsAll(['spec-and-implement', 'plan-and-implement', 'code-review']));
     });
 
+    test('logs one Codex allowedTools warning through the registry load path', () async {
+      final file = File(p.join(tempDir.path, 'codex-policy.yaml'));
+      file.writeAsStringSync(_codexAllowedToolsWarningYaml('codex-policy'));
+      final logger = Logger('workflow-registry-test-codex-policy');
+      final records = <LogRecord>[];
+      final previousLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final sub = Logger.root.onRecord.listen(records.add);
+      addTearDown(() async {
+        await sub.cancel();
+        Logger.root.level = previousLevel;
+      });
+
+      final registry = _makeRegistry(log: logger);
+      await registry.loadFromDirectory(tempDir.path);
+      await pumpEventQueue();
+
+      final policyWarnings = records
+          .where(
+            (record) =>
+                record.level == Level.WARNING && record.message.contains('Codex CLI has no native tool allowlist'),
+          )
+          .toList(growable: false);
+      expect(policyWarnings, hasLength(1));
+      expect(policyWarnings.single.message, allOf(contains('codex-policy'), contains('implement')));
+      expect(registry.getByName('codex-policy'), isNotNull);
+    });
+
     test('materialized workflow YAMLs do not embed runtime budget policy', () async {
       final parser = WorkflowDefinitionParser();
-      final definitionsDir = _workflowDefinitionsDir();
+      final definitionsDir = workflowDefinitionsDir();
       final defs = await Future.wait([
         parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml')),
         parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml')),
@@ -194,7 +239,7 @@ void main() {
 
     test('built-ins adopt the shared project/branch contract and direct specialist review routing', () async {
       final parser = WorkflowDefinitionParser();
-      final definitionsDir = _workflowDefinitionsDir();
+      final definitionsDir = workflowDefinitionsDir();
       final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml'));
       final planAndImplement = await parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml'));
       final codeReview = await parser.parseFile(p.join(definitionsDir, 'code-review.yaml'));
@@ -221,35 +266,35 @@ void main() {
       expect(reviseSpec.entryGate, contains('spec_confidence'));
       // spec_path is referenced somewhere in the definition steps.
       expect(specAndImplement.steps.any((s) => s.prompts?.any((p) => p.contains('spec_path')) ?? false), isTrue);
-      assertSkills(specAndImplement, ['dartclaw-review'], ['andthen-review', 'dartclaw-review-gap']);
+      assertSkills(specAndImplement, ['andthen:review'], ['andthen-review', 'dartclaw-review-gap']);
 
-      // plan-and-implement: BRANCH variable, gitStrategy, revise-prd step, not review-prd.
+      // plan-and-implement: BRANCH variable, gitStrategy, required PRD discovery, no PRD synthesis/revision.
       expect(planAndImplement.variables.containsKey('BRANCH'), isTrue);
       expect(planAndImplement.gitStrategy, isNotNull);
-      expect(planAndImplement.steps.any((s) => s.id == 'revise-prd'), isTrue);
+      expect(planAndImplement.steps.any((s) => s.id == 'discover-plan-state'), isTrue);
+      expect(planAndImplement.steps.any((s) => s.id == 'prd'), isFalse);
+      expect(planAndImplement.steps.any((s) => s.id == 'revise-prd'), isFalse);
       expect(planAndImplement.steps.any((s) => s.id == 'review-prd'), isFalse);
-      final revisePrd = planAndImplement.steps.firstWhere((s) => s.id == 'revise-prd');
-      expect(revisePrd.entryGate, contains('prd_confidence'));
       expect(planAndImplement.steps.any((s) => s.id == 'update-state'), isFalse);
       assertSkills(
         planAndImplement,
-        ['dartclaw-quick-review', 'dartclaw-review', 'dartclaw-plan', 'dartclaw-prd'],
+        ['andthen:quick-review', 'andthen:review', 'andthen:plan', 'dartclaw-discover-andthen-plan'],
         ['andthen-quick-review', 'andthen-review', 'andthen-plan', 'andthen-prd', 'dartclaw-spec-plan'],
       );
 
-      // code-review: PROJECT variable (not REPO), gitStrategy, dartclaw-review skill.
+      // code-review: PROJECT variable (not REPO), gitStrategy, canonical review skill.
       expect(codeReview.variables.containsKey('PROJECT'), isTrue);
       expect(codeReview.variables.containsKey('REPO'), isFalse);
       expect(codeReview.gitStrategy, isNotNull);
-      assertSkills(codeReview, ['dartclaw-review'], ['andthen-review', 'dartclaw-review-code']);
+      assertSkills(codeReview, ['andthen:review'], ['andthen-review', 'dartclaw-review-code']);
     });
 
-    test('code-review uses dartclaw-review and forbids legacy andthen-review', () async {
+    test('code-review uses canonical andthen:review and forbids provider alias in YAML', () async {
       final parser = WorkflowDefinitionParser();
-      final codeReview = await parser.parseFile(p.join(_workflowDefinitionsDir(), 'code-review.yaml'));
+      final codeReview = await parser.parseFile(p.join(workflowDefinitionsDir(), 'code-review.yaml'));
 
-      // Exactly two steps use dartclaw-review (initial review + re-review).
-      final reviewSteps = codeReview.steps.where((s) => s.skill == 'dartclaw-review').toList();
+      // Exactly two steps use andthen:review (initial review + re-review).
+      final reviewSteps = codeReview.steps.where((s) => s.skill == 'andthen:review').toList();
       expect(reviewSteps.length, equals(2));
       expect(codeReview.steps.map((s) => s.skill), isNot(contains('andthen-review')));
 
@@ -266,9 +311,9 @@ void main() {
       }
     });
 
-    test('implementation built-ins gate remediation loops on re-review findings only', () async {
+    test('implementation built-ins gate remediation loops on active review findings', () async {
       final parser = WorkflowDefinitionParser();
-      final definitionsDir = _workflowDefinitionsDir();
+      final definitionsDir = workflowDefinitionsDir();
       final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml'));
       final planAndImplement = await parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml'));
       final codeReview = await parser.parseFile(p.join(definitionsDir, 'code-review.yaml'));
@@ -278,15 +323,15 @@ void main() {
         expect(def.steps.any((s) => s.id == 'verify-refine'), isFalse);
       }
 
-      // spec-and-implement remediation loop: entryGate on integrated-review, exitGate on re-review.
-      final specRemLoop = specAndImplement.loops.firstWhere((l) => l.entryGate?.contains('integrated-review') ?? false);
-      expect(specRemLoop.entryGate, contains('integrated-review.gating_findings_count > 0'));
-      expect(specRemLoop.exitGate, contains('re-review.gating_findings_count == 0'));
+      // spec-and-implement / plan-and-implement aggregate parallel reviews into
+      // simple context keys, then re-review overwrites the same keys inside the loop.
+      final specRemLoop = specAndImplement.loops.single;
+      expect(specRemLoop.entryGate, 'gating_findings_count > 0');
+      expect(specRemLoop.exitGate, 'gating_findings_count == 0');
 
-      // plan-and-implement remediation loop: entryGate on plan-review.
-      final planRemLoop = planAndImplement.loops.firstWhere((l) => l.entryGate?.contains('plan-review') ?? false);
-      expect(planRemLoop.entryGate, contains('plan-review.gating_findings_count > 0'));
-      expect(planRemLoop.exitGate, contains('re-review.gating_findings_count == 0'));
+      final planRemLoop = planAndImplement.loops.single;
+      expect(planRemLoop.entryGate, 'gating_findings_count > 0');
+      expect(planRemLoop.exitGate, 'gating_findings_count == 0');
 
       // code-review remediation loop: entryGate on review-code.
       final codeRemLoop = codeReview.loops.firstWhere((l) => l.entryGate?.contains('review-code') ?? false);
@@ -417,6 +462,92 @@ steps:
       expect(registry.getByName('valid-wf'), isNotNull);
       expect(registry.getByName('wrong-shaped'), isNull);
     });
+
+    test('exclusions records validation failures with the parsed name', () async {
+      final badPath = p.join(tempDir.path, 'approval-parallel.yaml');
+      File(badPath).writeAsStringSync(_approvalParallelErrorYaml);
+
+      final registry = _makeRegistry();
+      await registry.loadFromDirectory(tempDir.path);
+
+      expect(registry.exclusions, hasLength(1));
+      final excl = registry.exclusions.single;
+      expect(excl.sourcePath, badPath);
+      expect(excl.workflowName, 'approval-parallel-error');
+      expect(excl.errors, isNotEmpty);
+    });
+
+    test('exclusions records parse failures with no workflowName', () async {
+      final badPath = p.join(tempDir.path, 'bad-syntax.yaml');
+      File(badPath).writeAsStringSync(_invalidYaml);
+
+      final registry = _makeRegistry();
+      await registry.loadFromDirectory(tempDir.path);
+
+      expect(registry.exclusions, hasLength(1));
+      final excl = registry.exclusions.single;
+      expect(excl.sourcePath, badPath);
+      expect(excl.workflowName, isNull);
+      expect(excl.errors.single, contains('invalid YAML'));
+    });
+
+    test('exclusions stays empty when all workflows load cleanly', () async {
+      File(p.join(tempDir.path, 'valid.yaml')).writeAsStringSync(_validCustomYaml('valid-wf'));
+
+      final registry = _makeRegistry();
+      await registry.loadFromDirectory(tempDir.path);
+
+      expect(registry.exclusions, isEmpty);
+    });
+
+    test('reloading a directory drops exclusions for files that now load cleanly', () async {
+      final yaml = File(p.join(tempDir.path, 'flaky.yaml'))..writeAsStringSync(_approvalParallelErrorYaml);
+
+      final registry = _makeRegistry();
+      await registry.loadFromDirectory(tempDir.path);
+      expect(registry.exclusions, hasLength(1));
+
+      // Replace with a valid YAML; reload the same directory.
+      yaml.writeAsStringSync(_validCustomYaml('approval-parallel-error'));
+      await registry.loadFromDirectory(tempDir.path);
+
+      expect(registry.exclusions, isEmpty, reason: 'fixed file must not linger as a stale exclusion');
+      expect(registry.getByName('approval-parallel-error'), isNotNull);
+    });
+
+    test('reload drops exclusions when caller passes a relative directory path', () async {
+      final yaml = File(p.join(tempDir.path, 'flaky.yaml'))..writeAsStringSync(_approvalParallelErrorYaml);
+
+      // Compute the relative path from the current cwd to tempDir so we can
+      // pass it through loadFromDirectory unchanged. p.canonicalize on both
+      // sides should normalize record + cleanup forms to the same absolute.
+      final relativeDir = p.relative(tempDir.path);
+      final registry = _makeRegistry();
+      await registry.loadFromDirectory(relativeDir);
+      expect(registry.exclusions, hasLength(1));
+
+      yaml.writeAsStringSync(_validCustomYaml('approval-parallel-error'));
+      await registry.loadFromDirectory(relativeDir);
+
+      expect(registry.exclusions, isEmpty, reason: 'relative-path reload must drop the now-fixed entry');
+    });
+
+    test('reloading does not drop exclusions from other directories', () async {
+      final dirA = Directory(p.join(tempDir.path, 'a'))..createSync();
+      final dirB = Directory(p.join(tempDir.path, 'b'))..createSync();
+      File(p.join(dirA.path, 'bad.yaml')).writeAsStringSync(_approvalParallelErrorYaml);
+      File(p.join(dirB.path, 'bad.yaml')).writeAsStringSync(_approvalParallelErrorYaml);
+
+      final registry = _makeRegistry();
+      await registry.loadFromDirectory(dirA.path);
+      await registry.loadFromDirectory(dirB.path);
+      expect(registry.exclusions, hasLength(2));
+
+      // Reloading dirA must keep dirB's exclusion intact.
+      await registry.loadFromDirectory(dirA.path);
+      expect(registry.exclusions, hasLength(2));
+      expect(registry.exclusions.map((e) => p.dirname(e.sourcePath)).toSet(), {dirA.absolute.path, dirB.absolute.path});
+    });
   });
 
   // ------------------------------------------------------------------
@@ -436,7 +567,7 @@ steps:
       addTearDown(sub.cancel);
 
       final registry = _makeRegistry(log: logger);
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
       expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.materialized));
@@ -459,7 +590,7 @@ steps:
       await registry.loadFromDirectory(dir1.path);
       await registry.loadFromDirectory(dir2.path);
 
-      // Loaded, last-wins — only 1 entry with the name
+      // Loaded, last-wins – only 1 entry with the name
       expect(registry.getByName('my-wf'), isNotNull);
       expect(registry.length, equals(1));
     });
@@ -468,7 +599,7 @@ steps:
       File(p.join(tempDir.path, 'unique-wf.yaml')).writeAsStringSync(_validCustomYaml('unique-wf'));
 
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
       expect(registry.getByName('unique-wf'), isNotNull);
@@ -487,7 +618,7 @@ steps:
       File(p.join(tempDir.path, 'broken.yaml')).writeAsStringSync(_invalidYaml);
 
       final registry = _makeRegistry();
-      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
       // 3 materialized + 2 valid custom (broken excluded)
@@ -558,7 +689,7 @@ steps:
     test('continueSession fixture excluded when provider set excludes the provider', () async {
       File(p.join(tempDir.path, 'cont-wf.yaml')).writeAsStringSync(continueSessionYaml);
 
-      // Registry with empty continuityProviders set — claude not supported.
+      // Registry with empty continuityProviders set – claude not supported.
       final registry = WorkflowRegistry(
         parser: WorkflowDefinitionParser(),
         validator: WorkflowDefinitionValidator(),
@@ -573,7 +704,7 @@ steps:
     test('continueSession fixture passes when provider set includes the provider', () async {
       File(p.join(tempDir.path, 'cont-wf.yaml')).writeAsStringSync(continueSessionYaml);
 
-      // Registry with claude in continuityProviders — supported.
+      // Registry with claude in continuityProviders – supported.
       final registry = WorkflowRegistry(
         parser: WorkflowDefinitionParser(),
         validator: WorkflowDefinitionValidator(),

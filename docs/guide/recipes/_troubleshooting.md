@@ -43,7 +43,7 @@ If/when announce routing is implemented:
        enabled: true
        interval_minutes: 60
    ```
-2. **Check `memory_max_bytes`**: Consolidation only triggers when MEMORY.md exceeds this threshold. Default is 32KB (`32768`). If you set it very high, consolidation may never trigger
+2. **Check `memory.max_bytes`**: Consolidation only triggers when MEMORY.md exceeds this threshold. Default is 32KB (`32768`). If you set it very high, consolidation may never trigger
 3. **Is heartbeat firing?** Check logs for `HeartbeatScheduler` entries. If heartbeat is enabled but not firing, check that the server has been running long enough for the interval to elapse
 
 ### Memory search returns nothing

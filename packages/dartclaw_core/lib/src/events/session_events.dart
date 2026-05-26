@@ -17,6 +17,7 @@ sealed class SessionLifecycleEvent extends DartclawEvent {
 }
 
 /// Fired when a new session is created.
+// NOT_ALERTABLE: session lifecycle telemetry — surfaced via SSE only
 final class SessionCreatedEvent extends SessionLifecycleEvent {
   @override
   /// Identifier of the created session.
@@ -42,6 +43,7 @@ final class SessionCreatedEvent extends SessionLifecycleEvent {
 }
 
 /// Fired when a session ends normally.
+// NOT_ALERTABLE: session lifecycle telemetry — surfaced via SSE only
 final class SessionEndedEvent extends SessionLifecycleEvent {
   @override
   /// Identifier of the ended session.
@@ -67,6 +69,7 @@ final class SessionEndedEvent extends SessionLifecycleEvent {
 }
 
 /// Fired when a session encounters an error.
+// NOT_ALERTABLE: session lifecycle telemetry — surfaced via SSE only
 final class SessionErrorEvent extends SessionLifecycleEvent {
   @override
   /// Identifier of the affected session.

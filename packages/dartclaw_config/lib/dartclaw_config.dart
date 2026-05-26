@@ -6,8 +6,6 @@ export 'package:dartclaw_models/dartclaw_models.dart';
 export 'src/advisor_config.dart' show AdvisorConfig;
 export 'src/agent_config.dart' show AgentConfig;
 export 'src/alerts_config.dart' show AlertsConfig, AlertTarget;
-export 'src/andthen_config.dart'
-    show AndthenConfig, AndthenNetworkPolicy, AndthenNetworkPolicyYaml, parseAndthenNetworkPolicy;
 export 'src/auth_config.dart' show AuthConfig;
 export 'src/canvas_config.dart' show CanvasConfig, CanvasShareConfig, CanvasWorkshopConfig;
 export 'src/config_delta.dart' show ConfigDelta;
@@ -39,6 +37,7 @@ export 'src/governance_config.dart'
         LoopDetectionConfig,
         LoopAction;
 export 'src/history_config.dart' show HistoryConfig;
+export 'src/identifier_preservation_mode.dart' show IdentifierPreservationMode;
 export 'src/logging_config.dart' show LoggingConfig;
 export 'src/memory_config.dart' show MemoryConfig;
 export 'src/project_config.dart'
@@ -65,3 +64,18 @@ export 'src/workflow_config.dart'
         parseWorkflowConfig;
 export 'src/workspace_config.dart' show WorkspaceConfig;
 export 'src/path_utils.dart' show expandHome;
+export 'src/workflow_run_status.dart' show WorkflowRunStatus;
+export 'src/project_runtime.dart' show CloneStrategy, PrConfig, PrStrategy, Project, ProjectAuthStatus, ProjectStatus;
+export 'src/agent_execution.dart' show AgentExecution;
+export 'src/agent_execution_repository.dart' show AgentExecutionRepository;
+export 'src/execution_repository_transactor.dart' show ExecutionRepositoryTransactor;
+export 'src/workflow_step_execution.dart' show WorkflowStepExecution;
+export 'src/workflow_step_execution_repository.dart' show WorkflowStepExecutionRepository;
+export 'src/loop_detection.dart' show LoopDetection, LoopDetectedException, LoopMechanism;
+export 'src/loop_detector.dart' show LoopDetector;
+export 'src/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;
+export 'src/prompt_scope.dart' show PromptScope;
+export 'src/path_canonicalization.dart' show canonicalizePathWithExistingAncestors;
+export 'src/string_util.dart' show truncate;
+export 'src/dynamic_reader.dart' show normalizeDynamicMap;
+export 'src/search_backend.dart' show SearchBackend;

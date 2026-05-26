@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show OutputConfig, OutputFormat;
+import 'workflow_definition.dart' show OutputConfig, OutputFormat;
 
 import 'output_resolver.dart';
 import 'story_specs_schema.dart';
@@ -8,8 +8,11 @@ class SchemaPreset {
   /// Preset name (used in YAML: `schema: verdict`).
   final String name;
 
+  /// Output format this preset expects when referenced as output shorthand.
+  final OutputFormat format;
+
   /// JSON Schema definition. Per-property `description` fields drive prompt
-  /// generation for JSON presets — see `PromptAugmenter._writeProperties`.
+  /// generation for JSON presets – see `PromptAugmenter._writeProperties`.
   final Map<String, dynamic> schema;
 
   /// Optional override prompt fragment for JSON outputs. When null, the
@@ -32,6 +35,7 @@ class SchemaPreset {
 
   const SchemaPreset({
     required this.name,
+    required this.format,
     required this.schema,
     this.promptFragment,
     this.description,
@@ -85,8 +89,8 @@ OutputResolver _withSchemaKey(OutputResolver resolver, String fieldName) {
 
 String _defaultPathPattern(String outputKey) {
   return switch (outputKey) {
-    'prd' || 'prd_path' => '**/prd.md',
-    'plan' || 'plan_path' => '**/plan.md',
+    'prd' || 'prd_path' => '**/*prd.md',
+    'plan' || 'plan_path' => '**/*plan.{json,md}',
     'technical_research' || 'technical_research_path' => '**/.technical-research.md',
     'fis_paths' || 'story_spec_paths' => 'fis/s*.md',
     'spec_path' || 'story_spec' || 'story_spec_path' => '**/*.md',
@@ -116,24 +120,55 @@ const _narrativeOutputKeys = <String>{
 };
 
 /// Built-in schema presets registry.
-const schemaPresets = <String, SchemaPreset>{
+final schemaPresets = _validatedSchemaPresets({
   'verdict': verdictPreset,
-  'remediation-result': remediationResultPreset,
-  'story-plan': storyPlanPreset,
-  'story-specs': storySpecsPreset,
-  'file-list': fileListPreset,
+  'remediation_result': remediationResultPreset,
+  'story_plan': storyPlanPreset,
+  'story_specs': storySpecsPreset,
+  'file_list': fileListPreset,
   'checklist': checklistPreset,
-  'project-index': projectIndexPreset,
-  'non-negative-integer': nonNegativeIntegerPreset,
-  'diff-summary': diffSummaryPreset,
-  'validation-summary': validationSummaryPreset,
-  'state-update-summary': stateUpdateSummaryPreset,
-  'remediation-summary': remediationSummaryPreset,
-  'story-result': storyResultPreset,
-};
+  'non_negative_integer': nonNegativeIntegerPreset,
+  'diff_summary': diffSummaryPreset,
+  'validation_summary': validationSummaryPreset,
+  'state_update_summary': stateUpdateSummaryPreset,
+  'remediation_summary': remediationSummaryPreset,
+  'story_result': storyResultPreset,
+  'gating_findings_count': gatingFindingsCountPreset,
+  'findings_count': findingsCountPreset,
+  'review_report_path': reviewReportPathPreset,
+  'prd_path': prdPathPreset,
+  'plan_path': planPathPreset,
+  'fis_path': fisPathPreset,
+  'detected_fis_path': detectedFisPathPreset,
+  'spec_source': specSourcePreset,
+  'spec_confidence': specConfidencePreset,
+});
+
+/// Whether [presetName] identifies a review-report path preset.
+///
+/// Recognizes the canonical `review_report_path` plus any future vendor-prefixed
+/// variant ending in `_review_report_path` (reserved for review-report shapes
+/// that genuinely diverge in schema or semantics – not just producer label).
+/// The aggregate-reviews validator and runner share this predicate so both
+/// agree on what counts as a per-source review report output.
+bool isReviewReportPathPreset(String? presetName) =>
+    presetName == 'review_report_path' || (presetName?.endsWith('_review_report_path') ?? false);
+
+Map<String, SchemaPreset> _validatedSchemaPresets(Map<String, SchemaPreset> presets) {
+  for (final entry in presets.entries) {
+    if (entry.value.name != entry.key) {
+      throw StateError('Schema preset key "${entry.key}" does not match preset name "${entry.value.name}".');
+    }
+    if (OutputFormat.fromYaml(entry.key) != null) {
+      throw StateError('Schema preset "${entry.key}" must not shadow an output format shorthand keyword.');
+    }
+  }
+  return Map.unmodifiable(presets);
+}
 
 const verdictPreset = SchemaPreset(
   name: 'verdict',
+  format: OutputFormat.json,
   defaultResolver: NarrativeOutput(schemaKey: 'verdict'),
   schema: {
     'type': 'object',
@@ -166,7 +201,8 @@ const verdictPreset = SchemaPreset(
 );
 
 const storyPlanPreset = SchemaPreset(
-  name: 'story-plan',
+  name: 'story_plan',
+  format: OutputFormat.json,
   defaultResolver: InlineOutput(schemaKey: 'stories'),
   schema: {
     'type': 'object',
@@ -192,7 +228,8 @@ const storyPlanPreset = SchemaPreset(
 );
 
 const remediationResultPreset = SchemaPreset(
-  name: 'remediation-result',
+  name: 'remediation_result',
+  format: OutputFormat.json,
   defaultResolver: NarrativeOutput(schemaKey: 'remediation_result'),
   schema: {
     'type': 'object',
@@ -206,14 +243,18 @@ const remediationResultPreset = SchemaPreset(
 );
 
 const storySpecsPreset = SchemaPreset(
-  name: 'story-specs',
+  name: 'story_specs',
+  format: OutputFormat.json,
   defaultResolver: InlineOutput(schemaKey: 'story_specs'),
   fieldResolvers: {'story_specs': InlineOutput(schemaKey: 'story_specs')},
   schema: storySpecsSchema,
+  description:
+      'Per-story records driving the foreach controller; populated from an existing plan or by the plan step for a synthesized plan.',
 );
 
 const fileListPreset = SchemaPreset(
-  name: 'file-list',
+  name: 'file_list',
+  format: OutputFormat.json,
   defaultResolver: InlineOutput(schemaKey: 'files'),
   schema: {
     'type': 'object',
@@ -242,6 +283,7 @@ const fileListPreset = SchemaPreset(
 
 const checklistPreset = SchemaPreset(
   name: 'checklist',
+  format: OutputFormat.json,
   defaultResolver: InlineOutput(schemaKey: 'checklist'),
   schema: {
     'type': 'object',
@@ -270,149 +312,10 @@ const checklistPreset = SchemaPreset(
   },
 );
 
-/// Shape emitted by the `dartclaw-discover-project` skill and consumed as
-/// `project_index` by downstream workflow steps.
-const projectIndexPreset = SchemaPreset(
-  name: 'project-index',
-  defaultResolver: InlineOutput(schemaKey: 'project_index'),
-  schema: {
-    'type': 'object',
-    'additionalProperties': false,
-    'required': ['framework', 'project_root', 'document_locations', 'state_protocol'],
-    'properties': {
-      'framework': {
-        'type': 'string',
-        'description': 'Detected project framework (e.g. "andthen", "spec-kit"), or "none".',
-      },
-      'project_root': {'type': 'string', 'description': 'Absolute or repo-relative path to the project root.'},
-      'document_locations': {
-        'type': 'object',
-        'additionalProperties': false,
-        'description':
-            'Map of canonical document kind to workspace-relative path. '
-            'Each value is the path the document should live at even when the file is missing.',
-        'required': [
-          'product',
-          'backlog',
-          'roadmap',
-          'prd',
-          'plan',
-          'spec',
-          'state',
-          'readme',
-          'agent_rules',
-          'architecture',
-          'guide',
-        ],
-        'properties': {
-          'product': {
-            'type': ['string', 'null'],
-            'description': 'Product vision document.',
-          },
-          'backlog': {
-            'type': ['string', 'null'],
-            'description': 'Product backlog.',
-          },
-          'roadmap': {
-            'type': ['string', 'null'],
-            'description': 'Roadmap or milestone plan.',
-          },
-          'prd': {
-            'type': ['string', 'null'],
-            'description': 'Active milestone PRD.',
-          },
-          'plan': {
-            'type': ['string', 'null'],
-            'description': 'Active milestone plan.',
-          },
-          'spec': {
-            'type': ['string', 'null'],
-            'description': 'Active FIS / spec directory or file.',
-          },
-          'state': {
-            'type': ['string', 'null'],
-            'description': 'State-tracking document (e.g. STATE.md).',
-          },
-          'readme': {
-            'type': ['string', 'null'],
-            'description': 'Project README.',
-          },
-          'agent_rules': {
-            'type': ['string', 'null'],
-            'description': 'Project-level agent instructions (CLAUDE.md / AGENTS.md).',
-          },
-          'architecture': {
-            'type': ['string', 'null'],
-            'description': 'Architecture documentation root.',
-          },
-          'guide': {
-            'type': ['string', 'null'],
-            'description': 'Contributor / developer guide.',
-          },
-        },
-      },
-      'state_protocol': {
-        'type': 'object',
-        'additionalProperties': false,
-        'description': 'How project state transitions are recorded.',
-        'required': ['type', 'state_file', 'format'],
-        'properties': {
-          'type': {
-            'type': ['string', 'null'],
-            'description': 'State protocol identifier (e.g. "andthen-state", "none").',
-          },
-          'state_file': {
-            'type': ['string', 'null'],
-            'description': 'Path to the state file when one is tracked.',
-          },
-          'format': {
-            'type': ['string', 'null'],
-            'description': 'Encoding format (e.g. "markdown", "json").',
-          },
-        },
-      },
-      'project_name': {
-        'type': ['string', 'null'],
-        'description': 'Human-readable project name, when derivable from the root instruction files.',
-      },
-      'detected_markers': {
-        'type': ['array', 'null'],
-        'description': 'Framework markers that were observed during detection (e.g. `.specify/`, `docs/STATE.md`).',
-        'items': {'type': 'string'},
-      },
-      'active_milestone': {
-        'type': ['string', 'null'],
-        'description': 'Current milestone identifier (e.g. "0.16.5"), or `null` when unresolved.',
-      },
-      'active_prd': {
-        'type': ['string', 'null'],
-        'description': 'Workspace-relative PRD path for the active milestone, or `null` when absent.',
-      },
-      'active_plan': {
-        'type': ['string', 'null'],
-        'description': 'Workspace-relative plan path for the active milestone, or `null` when absent.',
-      },
-      'active_story_specs': nullableStorySpecsSchema,
-      'artifact_locations': {
-        'type': ['object', 'null'],
-        'description':
-            'Canonical artifact-write paths (`prd`, `plan`, `fis_dir`). Each value is workspace-relative or `null`.',
-        'additionalProperties': {
-          'type': ['string', 'null'],
-        },
-      },
-      'notes': {
-        'type': ['string', 'null'],
-        'description':
-            'Free-form notes, e.g. cross-repo relationships that cannot be expressed in `document_locations`.',
-      },
-    },
-  },
-);
-
 /// Simple scalar schema for non-negative integer counters like `findings_count`.
 const nonNegativeIntegerPreset = SchemaPreset(
-  name: 'non-negative-integer',
+  name: 'non_negative_integer',
+  format: OutputFormat.json,
   defaultResolver: NarrativeOutput(schemaKey: 'count'),
   fieldResolvers: {
     'confidence': NarrativeOutput(schemaKey: 'confidence'),
@@ -426,7 +329,8 @@ const nonNegativeIntegerPreset = SchemaPreset(
 /// Canonical text shape for `diff_summary` outputs across implementation,
 /// remediation, and validation steps.
 const diffSummaryPreset = SchemaPreset(
-  name: 'diff-summary',
+  name: 'diff_summary',
+  format: OutputFormat.text,
   defaultResolver: NarrativeOutput(schemaKey: 'diff_summary'),
   schema: {'type': 'string'},
   description: 'Compact description of file-level changes produced by this step (files touched, nature of edits).',
@@ -435,7 +339,8 @@ const diffSummaryPreset = SchemaPreset(
 /// Canonical text shape for `validation_summary` outputs emitted by verify /
 /// re-validate steps.
 const validationSummaryPreset = SchemaPreset(
-  name: 'validation-summary',
+  name: 'validation_summary',
+  format: OutputFormat.text,
   defaultResolver: NarrativeOutput(schemaKey: 'validation_summary'),
   schema: {'type': 'string'},
   description: 'Summary of validation outcomes for this step (build, tests, analyzer, and any refinements applied).',
@@ -444,7 +349,8 @@ const validationSummaryPreset = SchemaPreset(
 /// Canonical text shape for `state_update_summary` outputs emitted by
 /// user-authored or legacy workflows that still include an update-state step.
 const stateUpdateSummaryPreset = SchemaPreset(
-  name: 'state-update-summary',
+  name: 'state_update_summary',
+  format: OutputFormat.text,
   defaultResolver: NarrativeOutput(schemaKey: 'state_update_summary'),
   schema: {'type': 'string'},
   description: 'Summary of what was written to the project state document for this workflow execution.',
@@ -453,19 +359,98 @@ const stateUpdateSummaryPreset = SchemaPreset(
 /// Canonical text shape for `remediation_summary` outputs emitted inside
 /// remediation loops.
 const remediationSummaryPreset = SchemaPreset(
-  name: 'remediation-summary',
+  name: 'remediation_summary',
+  format: OutputFormat.text,
   defaultResolver: NarrativeOutput(schemaKey: 'remediation_summary'),
   schema: {'type': 'string'},
   description:
-      'Summary of what was changed during this remediation pass — issues addressed, approach taken, and any deferrals.',
+      'Summary of what was changed during this remediation pass – issues addressed, approach taken, and any deferrals.',
 );
 
 /// Canonical text shape for per-story `story_result` outputs emitted inside
 /// the plan-and-implement foreach pipeline.
 const storyResultPreset = SchemaPreset(
-  name: 'story-result',
+  name: 'story_result',
+  format: OutputFormat.text,
   defaultResolver: NarrativeOutput(schemaKey: 'story_result'),
   schema: {'type': 'string'},
   description:
       'Per-story result for this FIS only. Report success when scoped acceptance checks pass; unrelated sibling or baseline failures are non-blocking and should be named as external context, not as this story\'s failure.',
+);
+
+const _gatingFindingsCountDescription =
+    'Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain – the remediation loop reads this field to decide whether to iterate.';
+
+const gatingFindingsCountPreset = SchemaPreset(
+  name: 'gating_findings_count',
+  format: OutputFormat.json,
+  defaultResolver: NarrativeOutput(schemaKey: 'count'),
+  schema: {'type': 'integer', 'minimum': 0},
+  description: _gatingFindingsCountDescription,
+  promptFragment: 'Produce a non-negative integer (0 or greater). Output the number directly.',
+);
+
+const findingsCountPreset = SchemaPreset(
+  name: 'findings_count',
+  format: OutputFormat.json,
+  defaultResolver: NarrativeOutput(schemaKey: 'count'),
+  schema: {'type': 'integer', 'minimum': 0},
+  description: 'Number of issues flagged by this review; 0 means clean.',
+  promptFragment: 'Produce a non-negative integer (0 or greater). Output the number directly.',
+);
+
+const reviewReportPathPreset = SchemaPreset(
+  name: 'review_report_path',
+  format: OutputFormat.path,
+  schema: {'type': 'string'},
+  description:
+      'Path to the review report file written by the invoking review skill. The form is dictated by the skill contract: absolute when the skill writes via --output-dir outside the project root (e.g. andthen:review under AUTO_MODE); project-root-relative when the skill follows review-report-location.md (e.g. andthen:architecture). Aggregate-reviews joins relative values under the active workspace root.',
+);
+
+const prdPathPreset = SchemaPreset(
+  name: 'prd_path',
+  format: OutputFormat.path,
+  schema: {'type': 'string'},
+  description: 'Workspace-relative path to the required PRD on disk.',
+);
+
+const planPathPreset = SchemaPreset(
+  name: 'plan_path',
+  format: OutputFormat.path,
+  schema: {'type': 'string'},
+  description:
+      'Workspace-relative path to plan.json (preferred) or plan.md (legacy) on disk; empty when no plan exists yet.',
+);
+
+const fisPathPreset = SchemaPreset(
+  name: 'fis_path',
+  format: OutputFormat.path,
+  schema: {'type': 'string'},
+  description:
+      'Workspace-relative path to the FIS on disk – either pre-authored when input resolves to one, or freshly synthesized by the upstream skill.',
+);
+
+const detectedFisPathPreset = SchemaPreset(
+  name: 'detected_fis_path',
+  format: OutputFormat.path,
+  schema: {'type': 'string'},
+  description: 'Workspace-relative path to the existing FIS on disk, or empty when input requires spec synthesis.',
+);
+
+const specSourcePreset = SchemaPreset(
+  name: 'spec_source',
+  format: OutputFormat.text,
+  defaultResolver: NarrativeOutput(schemaKey: 'spec_source'),
+  schema: {'type': 'string'},
+  description: "'existing' when input resolves to a reusable FIS, 'synthesized' when andthen:spec authored a new one.",
+);
+
+const specConfidencePreset = SchemaPreset(
+  name: 'spec_confidence',
+  format: OutputFormat.json,
+  defaultResolver: NarrativeOutput(schemaKey: 'spec_confidence'),
+  schema: {'type': 'integer', 'minimum': 0},
+  description:
+      'Self-rated 1-10 readiness of a synthesized FIS authored by andthen:spec (per the Confidence Check in fis-authoring-guidelines.md). Emit 0 in every other case: at the detection step (no FIS authored yet, regardless of spec_source) and when an existing FIS is reused without synthesis. A value <7 triggers the revise-spec step.',
+  promptFragment: 'Produce a non-negative integer (0 or greater). Output the number directly.',
 );

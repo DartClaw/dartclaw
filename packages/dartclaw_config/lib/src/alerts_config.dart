@@ -8,6 +8,7 @@ class AlertTarget {
   /// Channel-specific recipient identifier (JID, space name, etc.).
   final String recipient;
 
+  /// const AlertTarget({required this.channel, required this.reci.
   const AlertTarget({required this.channel, required this.recipient});
 
   @override
@@ -47,6 +48,7 @@ class AlertsConfig {
   /// When empty, all recognized events are sent to all targets.
   final Map<String, List<String>> routes;
 
+  /// Creates a [AlertsConfig] value.
   const AlertsConfig({
     this.enabled = false,
     this.cooldownSeconds = 300,
@@ -55,6 +57,7 @@ class AlertsConfig {
     this.routes = const {},
   });
 
+  /// Creates a [AlertsConfig.defaults] value.
   const AlertsConfig.defaults() : this();
 
   @override

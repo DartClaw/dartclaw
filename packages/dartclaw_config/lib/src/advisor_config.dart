@@ -21,6 +21,7 @@ class AdvisorConfig {
   /// Maximum prior advisor reflections retained for prompting.
   final int maxPriorReflections;
 
+  /// Creates a [AdvisorConfig] value.
   const AdvisorConfig({
     this.enabled = false,
     this.model,
@@ -31,6 +32,7 @@ class AdvisorConfig {
     this.maxPriorReflections = 3,
   });
 
+  /// Creates a [AdvisorConfig.defaults] value.
   const AdvisorConfig.defaults() : this();
 
   @override

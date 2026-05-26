@@ -1,51 +1,8 @@
-import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_testing/dartclaw_testing.dart' show NullIoSink;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:test/test.dart';
-
-// ---------------------------------------------------------------------------
-// FakeProcess — mirrors the test double from gowa_manager_test
-// ---------------------------------------------------------------------------
-class FakeProcess implements Process {
-  final StreamController<List<int>> _stdoutCtrl = StreamController<List<int>>();
-  final StreamController<List<int>> _stderrCtrl = StreamController<List<int>>();
-  final Completer<int> _exitCodeCompleter = Completer<int>();
-
-  bool killed = false;
-  ProcessSignal? lastSignal;
-
-  @override
-  int get pid => 99;
-
-  @override
-  IOSink get stdin => NullIoSink();
-
-  @override
-  Stream<List<int>> get stdout => _stdoutCtrl.stream;
-
-  @override
-  Stream<List<int>> get stderr => _stderrCtrl.stream;
-
-  @override
-  Future<int> get exitCode => _exitCodeCompleter.future;
-
-  @override
-  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
-    killed = true;
-    lastSignal = signal;
-    if (!_exitCodeCompleter.isCompleted) _exitCodeCompleter.complete(0);
-    return true;
-  }
-
-  void emitStdout(String line) => _stdoutCtrl.add(utf8.encode('$line\n'));
-  void emitStderr(String line) => _stderrCtrl.add(utf8.encode('$line\n'));
-  void exit(int code) {
-    if (!_exitCodeCompleter.isCompleted) _exitCodeCompleter.complete(code);
-  }
-}
 
 void main() {
   group('SignalCliManager', () {
@@ -130,7 +87,7 @@ void main() {
       }
 
       await mgr.stop();
-      expect(proc.killed, isTrue);
+      expect(proc.killCalled, isTrue);
       expect(mgr.isRunning, isFalse);
     });
 
@@ -159,9 +116,9 @@ void main() {
         healthProbe: () async => false,
       );
 
-      expect(proc.killed, isFalse);
+      expect(proc.killCalled, isFalse);
       await expectLater(() => mgr.start(), throwsStateError);
-      expect(proc.killed, isTrue);
+      expect(proc.killCalled, isTrue);
     });
 
     test('requestVoiceVerification exists and is callable', () {

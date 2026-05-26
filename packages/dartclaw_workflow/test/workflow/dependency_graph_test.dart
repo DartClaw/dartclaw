@@ -1,4 +1,4 @@
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show DependencyGraph;
+import 'package:dartclaw_workflow/src/workflow/dependency_graph.dart' show DependencyGraph;
 import 'package:test/test.dart';
 
 void main() {

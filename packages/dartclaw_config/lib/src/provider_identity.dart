@@ -4,7 +4,10 @@
 /// This helper keeps family-level decisions consistent without introducing
 /// a heavier abstraction.
 class ProviderIdentity {
+  /// claude.
   static const String claude = 'claude';
+
+  /// codex.
   static const String codex = 'codex';
 
   /// Returns the normalized provider ID, falling back to [fallback].

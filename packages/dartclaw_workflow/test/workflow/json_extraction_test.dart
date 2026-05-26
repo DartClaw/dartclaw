@@ -1,4 +1,4 @@
-import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:dartclaw_workflow/src/workflow/json_extraction.dart' show extractJson, extractLines;
 import 'package:test/test.dart';
 
 void main() {

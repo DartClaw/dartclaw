@@ -72,13 +72,12 @@ void main() {
     });
 
     test('source file stays task and workflow agnostic', () {
-      // Resolve relative to the test file itself so the test is CWD-agnostic
-      // (works from the package dir and from the repo root / pub workspace).
+      // AgentExecution moved to dartclaw_config in S22 TI08.
+      // Resolve relative to the test file so the test is CWD-agnostic.
       final testDir = p.dirname(Platform.script.toFilePath());
       final candidates = [
-        p.join(testDir, '..', '..', 'lib', 'src', 'execution', 'agent_execution.dart'),
-        p.join(Directory.current.path, 'lib', 'src', 'execution', 'agent_execution.dart'),
-        p.join(Directory.current.path, 'packages', 'dartclaw_core', 'lib', 'src', 'execution', 'agent_execution.dart'),
+        p.join(testDir, '..', '..', '..', '..', 'dartclaw_config', 'lib', 'src', 'agent_execution.dart'),
+        p.join(Directory.current.path, 'packages', 'dartclaw_config', 'lib', 'src', 'agent_execution.dart'),
       ];
       final sourcePath = candidates.firstWhere((path) => File(path).existsSync(), orElse: () => candidates.first);
       final source = File(sourcePath).readAsStringSync();

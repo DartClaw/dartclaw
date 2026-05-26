@@ -23,6 +23,7 @@ class MessageRedactor {
   /// Invalid regexes in [extraPatterns] are logged as warnings and skipped.
   MessageRedactor({List<String> extraPatterns = const []}) : _compiled = _compilePatterns(extraPatterns);
 
+  /// Recompiles redaction patterns with [extraPatterns] replacing any prior extras.
   void recompilePatterns(List<String> extraPatterns) {
     _compiled = _compilePatterns(extraPatterns);
     _log.info('MessageRedactor patterns recompiled (${extraPatterns.length} extra patterns)');

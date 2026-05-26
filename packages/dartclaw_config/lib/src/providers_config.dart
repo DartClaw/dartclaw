@@ -14,6 +14,7 @@ class ProviderEntry {
   /// Provider-specific options for forward compatibility.
   final Map<String, dynamic> options;
 
+  /// const ProviderEntry({required this.executable, this.poolSize.
   const ProviderEntry({required this.executable, this.poolSize = 0, this.options = const {}});
 
   @override
@@ -36,8 +37,10 @@ class ProvidersConfig {
   /// Provider entries keyed by provider ID.
   final Map<String, ProviderEntry> entries;
 
+  /// const ProvidersConfig({this.entries = const {}});.
   const ProvidersConfig({this.entries = const {}});
 
+  /// Creates a [ProvidersConfig.defaults] value.
   const ProvidersConfig.defaults() : this();
 
   /// Returns the entry for [providerId], or `null` if not configured.

@@ -1,14 +1,14 @@
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_server/src/behavior/heartbeat_scheduler.dart';
 import 'package:dartclaw_server/src/concurrency/session_lock_manager.dart';
 import 'package:dartclaw_server/src/context/context_monitor.dart';
 import 'package:dartclaw_server/src/context/result_trimmer.dart';
 import 'package:dartclaw_server/src/scheduling/schedule_service.dart';
 import 'package:dartclaw_server/src/session/session_reset_service.dart';
-import 'package:dartclaw_server/src/turn_manager.dart';
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_server/src/workspace/workspace_git_sync.dart';
 import 'package:test/test.dart';
 

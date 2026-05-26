@@ -1,15 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:args/args.dart' show ArgResults;
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
-import 'package:dartclaw_core/dartclaw_core.dart' show Task;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, truncate;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteAgentExecutionRepository, SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDb, TaskDbFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRunStatus;
 
 import '../../dartclaw_api_client.dart';
+import '../cli_global_options.dart';
 import '../config_loader.dart';
 import '../serve_command.dart' show ExitFn, WriteLine;
 
@@ -77,16 +77,16 @@ class WorkflowStatusCommand extends Command<void> {
     if (_apiClient != null) {
       return _apiClient;
     }
-    final config = _config ?? loadCliConfig(configPath: _globalOptionString(globalResults, 'config'));
+    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
     return DartclawApiClient.fromConfig(
       config: config,
-      serverOverride: _serverOverride(globalResults),
-      tokenOverride: _globalOptionString(globalResults, 'token'),
+      serverOverride: serverOverride(globalResults),
+      tokenOverride: globalOptionString(globalResults, 'token'),
     );
   }
 
   Future<void> _runStandalone(String runId) async {
-    final config = _config ?? loadCliConfig(configPath: _globalOptionString(globalResults, 'config'));
+    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
     final dataDir = config.server.dataDir;
     if (!Directory(dataDir).existsSync()) {
       _writeLine('No data directory found at $dataDir');
@@ -101,6 +101,7 @@ class WorkflowStatusCommand extends Command<void> {
       try {
         run = await repository.getById(runId);
       } catch (_) {
+        // DB not initialised or schema mismatch — user-visible message is the diagnostic.
         _writeLine('No workflow data found (database may not be initialized).');
         _exitFn(1);
       }
@@ -155,7 +156,7 @@ class WorkflowStatusCommand extends Command<void> {
     for (var index = 0; index < steps.length; index++) {
       final step = Map<String, dynamic>.from(steps[index]);
       final label = '${index + 1}/${steps.length}'.padRight(6);
-      final name = _truncate(step['name']?.toString() ?? '', 30).padRight(30);
+      final name = truncate(step['name']?.toString() ?? '', 30, suffix: '...').padRight(30);
       final status = (step['status']?.toString() ?? 'pending').padRight(18);
       final taskId = step['taskId']?.toString() ?? '—';
       _writeLine('  $label  $name  $status  $taskId');
@@ -203,7 +204,7 @@ class WorkflowStatusCommand extends Command<void> {
       final stepNum = task.stepIndex != null ? '${task.stepIndex! + 1}' : '?';
       final totalStr = _totalSteps(run).toString();
       final stepLabel = '$stepNum/$totalStr'.padRight(6);
-      final name = _truncate(task.title, 30).padRight(30);
+      final name = truncate(task.title, 30, suffix: '...').padRight(30);
       final status = task.status.name.padRight(10);
       final tokens = '—'.padRight(8);
       final duration = _taskDuration(task);
@@ -232,13 +233,6 @@ class WorkflowStatusCommand extends Command<void> {
   }
 }
 
-String _truncate(String value, int width) {
-  if (value.length <= width) {
-    return value;
-  }
-  return '${value.substring(0, width - 3)}...';
-}
-
 String _formatDateTime(String? value) {
   if (value == null || value.isEmpty) {
     return '—';
@@ -261,17 +255,4 @@ String _formatNumber(int value) {
     buffer.write(raw[index]);
   }
   return buffer.toString();
-}
-
-String? _serverOverride(ArgResults? results) {
-  return _globalOptionString(results, 'server');
-}
-
-String? _globalOptionString(ArgResults? results, String name) {
-  if (results == null) return null;
-  try {
-    return results[name] as String?;
-  } on ArgumentError {
-    return null;
-  }
 }

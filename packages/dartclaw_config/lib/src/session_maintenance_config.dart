@@ -45,6 +45,7 @@ class SessionMaintenanceConfig {
   /// Cron schedule for automated maintenance runs.
   final String schedule;
 
+  /// Creates a [SessionMaintenanceConfig] value.
   const SessionMaintenanceConfig({
     this.mode = MaintenanceMode.warn,
     this.pruneAfterDays = 30,

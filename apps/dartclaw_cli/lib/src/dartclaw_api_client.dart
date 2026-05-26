@@ -357,6 +357,7 @@ class _IoApiTransport implements ApiTransport {
       client.close(force: true);
       throw DartclawApiException('TLS handshake failed for ${request.uri.origin}: $error');
     } catch (_) {
+      // Close client on any failure (network/cert/timeout) before bubbling the original error.
       client.close(force: true);
       rethrow;
     }

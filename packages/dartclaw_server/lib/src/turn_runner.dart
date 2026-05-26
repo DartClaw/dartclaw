@@ -3,7 +3,8 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' as core show TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner, TurnOutcome, TurnStatus, BusyTurnException;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
@@ -29,7 +30,7 @@ import 'turn_progress_monitor.dart';
 /// evaluation, message persistence, event streaming, cost tracking, and crash
 /// recovery. Multiple [TurnRunner] instances execute concurrently — one per
 /// harness in the [HarnessPool].
-class TurnRunner {
+class TurnRunner implements core.TurnRunner {
   static final _log = Logger('TurnRunner');
   static const _uuid = Uuid();
   static const _memoryWarnBytes = 50 * 1024;
@@ -62,9 +63,11 @@ class TurnRunner {
   final Map<String, LoopDetection> _loopDetectedTurns = {};
 
   /// Security profile this runner's harness executes in (e.g. 'workspace', 'restricted').
+  @override
   final String profileId;
 
   /// Agent provider backing this runner's harness (e.g. 'claude', 'codex').
+  @override
   final String providerId;
 
   final _progressController = StreamController<TurnProgressEvent>.broadcast();
@@ -154,6 +157,7 @@ class TurnRunner {
   // ---------------------------------------------------------------------------
 
   /// The underlying harness managed by this runner.
+  @override
   AgentHarness get harness => _worker;
 
   /// Structured progress events for the current turn.
@@ -168,14 +172,19 @@ class TurnRunner {
   /// Defaults to [Duration.zero] (no ticks).
   set statusTickInterval(Duration interval) => _statusTickInterval = interval;
 
+  @override
   Iterable<String> get activeSessionIds => _activeTurns.keys;
 
+  @override
   bool isActive(String sessionId) => _activeTurns.containsKey(sessionId);
 
+  @override
   String? activeTurnId(String sessionId) => _activeTurns[sessionId]?.turnId;
 
+  @override
   bool isActiveTurn(String sessionId, String turnId) => _activeTurns[sessionId]?.turnId == turnId;
 
+  @override
   TurnOutcome? recentOutcome(String sessionId, String turnId) {
     _evictExpiredOutcomes();
     final entry = _recentOutcomes[turnId];
@@ -187,6 +196,7 @@ class TurnRunner {
   /// Returns the new [turnId]. Throws [BusyTurnException] if global cap reached.
   /// Same-session requests queue behind the active turn.
   /// Call [executeTurn] to start async execution, or [releaseTurn] to roll back.
+  @override
   Future<String> reserveTurn(
     String sessionId, {
     String agentName = 'main',
@@ -235,6 +245,7 @@ class TurnRunner {
   }
 
   /// Launches async execution for a previously [reserveTurn]'d turn.
+  @override
   void executeTurn(
     String sessionId,
     String turnId,
@@ -247,6 +258,7 @@ class TurnRunner {
   }
 
   /// Rolls back a [reserveTurn] reservation without executing.
+  @override
   void releaseTurn(String sessionId, String turnId) {
     final turnState = _turnState;
     if (turnState != null) {
@@ -283,6 +295,7 @@ class TurnRunner {
     return turnId;
   }
 
+  @override
   Future<void> cancelTurn(String sessionId) async {
     final turnId = _activeTurns[sessionId]?.turnId;
     if (turnId == null) return;
@@ -290,6 +303,7 @@ class TurnRunner {
     await _worker.cancel();
   }
 
+  @override
   Future<void> waitForCompletion(String sessionId, {Duration timeout = const Duration(seconds: 10)}) async {
     final turnId = _activeTurns[sessionId]?.turnId;
     if (turnId == null) return;
@@ -300,6 +314,7 @@ class TurnRunner {
     await pending.future.timeout(timeout);
   }
 
+  @override
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
     final cached = recentOutcome(sessionId, turnId);
     if (cached != null) return cached;
@@ -359,6 +374,7 @@ class TurnRunner {
   /// Called by [TaskExecutor] before each task turn to activate filtering,
   /// and after the turn (with null) to restore pass-through mode.
   /// No-op when this runner has no [TaskToolFilterGuard].
+  @override
   void setTaskToolFilter(List<String>? allowedTools) {
     _taskToolFilterGuard?.allowedTools = allowedTools;
   }
@@ -367,6 +383,7 @@ class TurnRunner {
   ///
   /// When enabled, the underlying [TaskToolFilterGuard] blocks mutating shell
   /// commands and file-edit tools for the duration of the task turn.
+  @override
   void setTaskReadOnly(bool readOnly) {
     _taskToolFilterGuard?.readOnly = readOnly;
   }
@@ -462,7 +479,7 @@ class TurnRunner {
         userMessageFull = last['content'] as String?;
       }
     }
-    final userMessage = userMessageFull != null ? _truncate(userMessageFull, 100) : null;
+    final userMessage = userMessageFull != null ? truncate(userMessageFull, 100, suffix: '...') : null;
 
     final eventSub = _worker.events.listen((event) {
       if (event is DeltaEvent) {
@@ -792,12 +809,12 @@ class TurnRunner {
       final key = '${t.toolName}:${t.input.values.firstOrNull ?? ''}';
       if (seen.add(key)) {
         final arg = t.input.values.firstOrNull;
-        final argStr = arg != null ? _truncate(arg.toString(), 50) : '';
+        final argStr = arg != null ? truncate(arg.toString(), 50, suffix: '...') : '';
         toolSummaries.add('${t.toolName}($argStr)');
       }
     }
 
-    final resultSnippet = _truncate(result, 100);
+    final resultSnippet = truncate(result, 100, suffix: '...');
     final entry =
         '## $time — $title\n'
         '**User**: ${userMessage ?? '(no message)'}\n'
@@ -849,8 +866,6 @@ class TurnRunner {
       return '';
     }
   }
-
-  static String _truncate(String s, int maxLen) => s.length <= maxLen ? s : '${s.substring(0, maxLen)}...';
 
   void _handleTurnStall({required String sessionId, required String turnId, required Duration stallTimeout}) {
     final payload = {

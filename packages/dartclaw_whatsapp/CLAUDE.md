@@ -20,7 +20,7 @@
 
 ## Gotchas
 - GOWA v8 multi-device requires `X-Device-Id` on all calls. `_ensureDevice()` provisions one at startup and after `DEVICE_NOT_FOUND` (404). Never bypass `_addDeviceHeader`.
-- `getStatus()` swallows `DEVICE_ID_REQUIRED` (400) and `DEVICE_NOT_FOUND` (404) and returns not-logged-in — do not treat these as errors.
+- `status()` swallows `DEVICE_ID_REQUIRED` (400) and `DEVICE_NOT_FOUND` (404) and returns not-logged-in — do not treat these as errors.
 - The paired WhatsApp JID is captured from the `LOGIN_SUCCESS` line on stderr via `_loginSuccessRe`; format is `PHONE:DEVICE@s.whatsapp.net` and is distinct from GOWA's internal device UUID. Both are needed.
 - If GOWA is already running on the configured port, `start()` attaches to it (`_usingExternalService = true`) instead of spawning. Do not assume `_process != null`.
 - `WhatsAppChannel._checkBanSignals` latches `_disabled = true` on "banned"/"restricted"/"account at risk" — once tripped, the channel silently no-ops `connect`/`sendMessage`/`handleWebhook` until reconstructed.

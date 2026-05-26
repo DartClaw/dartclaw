@@ -33,6 +33,7 @@ String whatsappPairingTemplate({
     activeWorkflows: [],
     showChannels: true,
     tasksEnabled: false,
+    activeSessionId: null,
   ),
   List<NavItem> navItems = const [],
   bool fragmentOnly = false,

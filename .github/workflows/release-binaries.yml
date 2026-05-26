@@ -30,9 +30,14 @@ jobs:
 
       - name: Setup Dart
         uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.12.0
 
       - name: Install dependencies
         run: dart pub get
+
+      - name: Sync DartClaw version
+        run: dart run dev/tools/sync_version.dart
 
       - name: Read DartClaw version
         run: |

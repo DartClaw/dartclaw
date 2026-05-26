@@ -22,6 +22,7 @@ class AnthropicApiClassifier implements ContentClassifier {
   static const _apiVersion = '2023-06-01';
   static const _defaultModel = 'haiku';
 
+  /// System prompt sent to the Anthropic Messages API to drive classification.
   static const classificationPrompt = '''
 You are a content safety classifier. Classify the following web content into exactly one category.
 
@@ -33,6 +34,7 @@ Categories:
 
 Respond with ONLY the category name, nothing else.''';
 
+  /// Set of category labels accepted from the classifier response.
   static const validCategories = {'safe', 'prompt_injection', 'harmful_content', 'exfiltration_attempt'};
 
   /// Creates a classifier backed by the Anthropic Messages API.

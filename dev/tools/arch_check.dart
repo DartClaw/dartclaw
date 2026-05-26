@@ -6,8 +6,8 @@ import 'dart:io';
 // growth should land in `dartclaw_models` / `dartclaw_config` instead. Bump
 // only with a CHANGELOG note explaining what justified the growth — the
 // conversation forced by every breach is the point.
-const _coreLocCeiling = 13000;
-const _barrelExportCeiling = 80;
+const _coreLocCeiling = 12500; // S22 TI08: moved non-primitives to dartclaw_config
+const _barrelExportCeiling = 94; // S34: +ClaudeSettingsBuilder +normalizeDynamicMap +intValue +stringValue
 const _workspacePackageCeiling = 14;
 const _workspaceAppNames = {'dartclaw_cli'};
 const _expectedWorkspaceDependencies = <String, Set<String>>{
@@ -40,17 +40,17 @@ const _expectedWorkspaceDependencies = <String, Set<String>>{
     'dartclaw_workflow',
   },
   'dartclaw_signal': {'dartclaw_config', 'dartclaw_core'},
-  'dartclaw_storage': {'dartclaw_core'},
+  'dartclaw_storage': {'dartclaw_core', 'dartclaw_workflow'},
   'dartclaw_testing': {
+    'dartclaw_config',
     'dartclaw_core',
     'dartclaw_google_chat',
     'dartclaw_models',
     'dartclaw_security',
-    'dartclaw_server',
     'dartclaw_workflow',
   },
   'dartclaw_whatsapp': {'dartclaw_config', 'dartclaw_core'},
-  'dartclaw_workflow': {'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_security', 'dartclaw_storage'},
+  'dartclaw_workflow': {'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_security'},
 };
 
 final class _CheckResult {
@@ -142,10 +142,11 @@ Future<_CheckResult> _checkDependencyGraph(String repoRoot) async {
       }
     }
 
+    // Allow targeted show-clause re-exports (migration bridges); only flag unbounded full-barrel re-exports.
     final coreBarrel = File('$repoRoot/packages/dartclaw_core/lib/dartclaw_core.dart');
     if (coreBarrel.existsSync() &&
         RegExp(
-          r'''^\s*export\s+['"]package:dartclaw_config/dartclaw_config\.dart['"]''',
+          r'''^\s*export\s+['"]package:dartclaw_config/dartclaw_config\.dart['"]\s*;''',
           multiLine: true,
         ).hasMatch(coreBarrel.readAsStringSync())) {
       layerViolations.add('dartclaw_core: barrel must not re-export package:dartclaw_config/dartclaw_config.dart');

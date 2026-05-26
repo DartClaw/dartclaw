@@ -81,7 +81,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(2));
       expect(adapter.delivered.map((d) => d.$1), containsAll([_target0, _target1]));
@@ -89,7 +89,7 @@ void main() {
 
     test('ContainerCrashedEvent routes to all targets', () async {
       bus.fire(ContainerCrashedEvent(profileId: 'p1', containerName: 'c1', error: 'OOM', timestamp: _now));
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(2));
     });
@@ -104,7 +104,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(2));
     });
@@ -119,21 +119,21 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, isEmpty);
     });
 
     test('BudgetWarningEvent routes as budget_warning', () async {
       bus.fire(BudgetWarningEvent(taskId: 't1', consumedPercent: 0.9, consumed: 9000, limit: 10000, timestamp: _now));
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(2));
     });
 
     test('CompactionCompletedEvent routes as compaction', () async {
       bus.fire(CompactionCompletedEvent(sessionId: 's1', trigger: 'manual', preTokens: 50000, timestamp: _now));
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(2));
     });
@@ -150,7 +150,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, isEmpty);
     });
@@ -176,7 +176,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(1));
       expect(adapter.delivered.first.$1, _target0);
@@ -201,7 +201,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(2));
     });
@@ -225,7 +225,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, isEmpty);
     });
@@ -250,7 +250,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(1));
       expect(adapter.delivered.first.$1, _target0);
@@ -273,7 +273,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, isEmpty);
     });
@@ -293,7 +293,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, isEmpty);
     });
@@ -312,7 +312,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
       expect(adapter.delivered, hasLength(2));
 
       // Reconfigure to disabled
@@ -329,7 +329,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
       expect(adapter.delivered, isEmpty);
     });
 
@@ -347,7 +347,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(1));
       expect(adapter.delivered.first.$1, newTarget);
@@ -372,7 +372,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, isEmpty);
     });
@@ -394,7 +394,7 @@ void main() {
           timestamp: _now,
         ),
       );
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       final whatsappDelivery = adapter.delivered.where((d) => d.$1.channel == 'whatsapp').toList();
       expect(whatsappDelivery, hasLength(1));
@@ -412,7 +412,7 @@ void main() {
       );
 
       bus.fire(ContainerCrashedEvent(profileId: 'p1', containerName: 'my-box', error: 'OOM', timestamp: _now));
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
 
       expect(adapter.delivered, hasLength(1));
       expect(adapter.delivered.first.$2.structuredPayload, isNotNull);

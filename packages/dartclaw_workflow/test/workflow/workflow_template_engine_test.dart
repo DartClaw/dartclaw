@@ -1,4 +1,5 @@
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
 import 'package:test/test.dart';
 
 MapContext _mapCtx({required Object item, required int index, required int length}) =>
@@ -67,6 +68,28 @@ void main() {
 
     test('ignores context references', () {
       expect(engine.extractVariableReferences('{{context.key}}'), isEmpty);
+    });
+
+    test('ignores workflow system references as variables', () {
+      expect(engine.extractVariableReferences('{{workflow.runtime_artifacts_dir}} {{A}}'), {'A'});
+    });
+  });
+
+  group('WorkflowTemplateEngine.extractWorkflowSystemReferences', () {
+    test('extracts workflow system references', () {
+      expect(engine.extractWorkflowSystemReferences('{{workflow.runtime_artifacts_dir}} {{workflow.frobnozzle}}'), {
+        'workflow.runtime_artifacts_dir',
+        'workflow.frobnozzle',
+      });
+    });
+
+    test('inventory is the known-key source', () {
+      final customEngine = WorkflowTemplateEngine(
+        knownWorkflowSystemVariableKeys: {...WorkflowTemplateEngine.knownWorkflowSystemVariables, 'workflow.new_key'},
+      );
+
+      expect(customEngine.isKnownWorkflowSystemVariable('workflow.new_key'), isTrue);
+      expect(customEngine.knownWorkflowSystemVariablesDescription, contains('workflow.new_key'));
     });
   });
 

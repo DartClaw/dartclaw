@@ -11,6 +11,7 @@ enum TurnProgressAction {
   /// Ignore stalls entirely after detection.
   ignore;
 
+  /// Parses a [TurnProgressAction] from its YAML string representation.
   static TurnProgressAction? fromYaml(String value) => switch (value) {
     'warn' => TurnProgressAction.warn,
     'cancel' => TurnProgressAction.cancel,
@@ -18,6 +19,7 @@ enum TurnProgressAction {
     _ => null,
   };
 
+  /// String toYaml() => name;.
   String toYaml() => name;
 }
 
@@ -32,8 +34,10 @@ class TurnProgressConfig {
   /// Whether turn-progress monitoring is active.
   bool get enabled => stallTimeout > Duration.zero;
 
+  /// const TurnProgressConfig({this.stallTimeout = Duration.zero,.
   const TurnProgressConfig({this.stallTimeout = Duration.zero, this.stallAction = TurnProgressAction.warn});
 
+  /// Creates a [TurnProgressConfig.defaults] value.
   const TurnProgressConfig.defaults() : this();
 
   @override

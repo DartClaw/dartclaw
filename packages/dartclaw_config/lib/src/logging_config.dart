@@ -1,10 +1,18 @@
 /// Configuration for the logging subsystem.
 class LoggingConfig {
+  /// format.
   final String format;
+
+  /// file.
   final String? file;
+
+  /// level.
   final String level;
+
+  /// redactPatterns.
   final List<String> redactPatterns;
 
+  /// const LoggingConfig({this.format = 'human', this.file, this..
   const LoggingConfig({this.format = 'human', this.file, this.level = 'INFO', this.redactPatterns = const []});
 
   /// Default configuration.

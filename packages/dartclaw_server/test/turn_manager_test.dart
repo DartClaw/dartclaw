@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -300,7 +303,7 @@ void main() {
         return turnId;
       });
 
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
       expect(secondStarted, isFalse);
 
       // Complete first turn to unblock second

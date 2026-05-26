@@ -7,6 +7,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+VERSION_FILE="$REPO_ROOT/packages/dartclaw_server/lib/src/version.dart"
 
 pubspecs=(
   "$REPO_ROOT/packages/dartclaw/pubspec.yaml"
@@ -43,6 +44,17 @@ for pubspec in "${pubspecs[@]}"; do
     echo "  OK: $name @ $version"
   fi
 done
+
+runtime_version="$(sed -n "s/^const dartclawVersion = '\([^']*\)';/\1/p" "$VERSION_FILE" | head -1)"
+if [[ -z "$runtime_version" ]]; then
+  echo "MISMATCH: unable to read dartclawVersion from $VERSION_FILE"
+  errors=$((errors + 1))
+elif [[ "$runtime_version" != "$expected" ]]; then
+  echo "MISMATCH: dartclawVersion is $runtime_version (expected $expected)"
+  errors=$((errors + 1))
+else
+  echo "  OK: dartclawVersion @ $runtime_version"
+fi
 
 if [[ $errors -gt 0 ]]; then
   echo

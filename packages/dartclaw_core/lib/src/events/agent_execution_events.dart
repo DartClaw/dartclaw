@@ -10,6 +10,7 @@ sealed class AgentExecutionEvent extends DartclawEvent {
 }
 
 /// Fired when an agent execution changes lifecycle status.
+// NOT_ALERTABLE: execution lifecycle telemetry — surfaced via SSE only
 final class AgentExecutionStatusChangedEvent extends AgentExecutionEvent {
   @override
   final String agentExecutionId;

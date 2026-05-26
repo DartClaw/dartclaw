@@ -1,0 +1,5 @@
+# Allowlist for safe_process_usage_test.dart
+# Format: <relative-path-from-repo-root>  # <rationale>
+# Rationale is mandatory — explain why this file must call Process directly.
+
+packages/dartclaw_security/lib/src/safe_process.dart  # canonical SafeProcess.git wrapper; must spawn git subprocess directly

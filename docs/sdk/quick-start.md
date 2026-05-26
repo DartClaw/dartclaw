@@ -2,19 +2,19 @@
 
 **SDK Guide** | [User Guide](../guide/getting-started.md) | [API Reference](https://pub.dev/documentation/dartclaw/latest/) | [Examples](../../examples/sdk/)
 
-> **Pre-publication preview**: These docs reflect the upcoming 0.9.0 release. Until 0.9.0 is published to pub.dev, `dart pub add dartclaw` will resolve an earlier placeholder version. Use `dependency_overrides` to reference local workspace packages as shown in the [runnable example](../../examples/sdk/single_turn_cli/).
+> **Status**: DartClaw is name-squatted on pub.dev as `0.0.1-dev.1`; the real publish is deferred until the public repo opens. Until then, use a git-pinned dependency or `dependency_overrides` against a local checkout. See ADR-008 (private repo: `docs/adrs/008-sdk-publishing-strategy.md`).
 
 DartClaw is a Dart SDK for building agent runtimes around the native `claude` CLI. The reference server in this repo is one consumer of that SDK, but the same packages also let you build a one-file CLI, embed an agent in an existing Dart service, or compose your own storage, guards, and channels.
 
 ## Prerequisites
 
-- Dart SDK `>=3.11.0`
+- Dart SDK `>=3.12.0`
 - `claude` binary in your `PATH`
 - Either `ANTHROPIC_API_KEY` in your environment or an existing Claude CLI login
 
 ## Install
 
-Once 0.9.0 is published to pub.dev:
+Once the SDK packages are actually published to pub.dev (see ADR-008 for the milestone), the workspace overrides become unnecessary and you can install directly:
 
 ```bash
 dart pub add dartclaw

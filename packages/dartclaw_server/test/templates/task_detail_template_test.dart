@@ -19,6 +19,7 @@ void main() {
     activeWorkflows: <SidebarActiveWorkflow>[],
     showChannels: true,
     tasksEnabled: false,
+    activeSessionId: null,
   );
   const navItems = <NavItem>[(label: 'Tasks', href: '/tasks', active: true, navGroup: 'system', icon: 'tasks')];
 

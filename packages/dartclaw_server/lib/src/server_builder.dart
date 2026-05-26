@@ -1,5 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, HarnessPool;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner, TaskEventService, TurnTraceService;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
@@ -7,6 +7,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistry, Wo
 
 import 'api/google_chat_space_events_wiring.dart';
 import 'api/google_chat_webhook.dart';
+import 'api/event_bus_sse_bridge.dart';
 import 'api/sse_broadcast.dart';
 import 'auth/token_service.dart';
 import 'behavior/behavior_file_service.dart';
@@ -16,7 +17,7 @@ import 'canvas/canvas_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/exploration_summarizer.dart';
-import 'harness_pool.dart';
+import 'harness_pool.dart' show HarnessPool;
 import 'health/health_service.dart';
 import 'memory/memory_status_service.dart';
 import 'observability/usage_tracker.dart';
@@ -36,7 +37,7 @@ import 'task/task_file_guard.dart';
 import 'task/task_review_service.dart';
 import 'task/task_service.dart';
 import 'task/worktree_manager.dart';
-import 'turn_manager.dart';
+import 'turn_manager.dart' show TurnManager;
 import 'workspace/workspace_git_sync.dart';
 
 /// Builder for [DartclawServer].
@@ -114,6 +115,7 @@ class DartclawServerBuilder {
   TurnTraceService? traceService;
   TaskEventService? taskEventService;
   TaskEventRecorder? taskEventRecorder;
+  EventBusSseBridge? eventBusSseBridge;
 
   // Google Chat
   GoogleChatSpaceEventsWiring? spaceEventsWiring;
@@ -188,66 +190,114 @@ class DartclawServerBuilder {
     final progressTracker = (taskEventService != null && taskService != null && eventBus != null)
         ? TaskProgressTracker(eventBus: eventBus!, tasks: taskService!)
         : null;
+    final bridge =
+        eventBusSseBridge ??
+        (eventBus != null && sseBroadcast != null ? EventBusSseBridge(bus: eventBus!, broadcast: sseBroadcast!) : null);
 
-    return DartclawServer.compose(
-      sessions: s,
-      messages: m,
-      worker: w,
-      pool: pool,
-      turns: turns,
-      memoryFile: memoryFile,
-      healthService: healthService,
-      tokenService: tokenService,
-      resetService: resetService,
-      authEnabled: authEnabled,
-      staticDir: sd,
-      channelManager: channelManager,
-      whatsAppChannel: whatsAppChannel,
-      googleChatWebhookHandler: googleChatWebhookHandler,
-      signalChannel: signalChannel,
-      guardChain: guardChain,
-      webhookSecret: webhookSecret,
-      redactor: redactor,
-      gatewayToken: gatewayToken,
-      runtimeConfig: runtimeConfig,
-      heartbeat: heartbeat,
-      scheduleService: scheduleService,
-      gitSync: gitSync,
-      memoryStatusService: memoryStatusService,
-      memoryPruner: memoryPruner,
-      kvService: kv,
-      configWriter: configWriter,
+    final server = DartclawServer.fromDeps(
+      core: ServerCoreDeps(
+        sessions: s,
+        messages: m,
+        worker: w,
+        staticDir: sd,
+        authEnabled: authEnabled,
+        gatewayToken: gatewayToken,
+        runtimeConfig: runtimeConfig,
+        kvService: kv,
+        configWriter: configWriter,
+        config: config,
+        configNotifier: configNotifier,
+        restartService: restartService,
+        healthService: healthService,
+        tokenService: tokenService,
+        resetService: resetService,
+        redactor: redactor,
+        guardChain: guardChain,
+        webhookSecret: webhookSecret,
+      ),
+      turn: ServerTurnDeps(pool: pool, turns: turns),
+      channels: ServerChannelDeps(
+        channelManager: channelManager,
+        whatsAppChannel: whatsAppChannel,
+        signalChannel: signalChannel,
+        googleChatWebhookHandler: googleChatWebhookHandler,
+        spaceEventsWiring: spaceEventsWiring,
+        threadBindingStore: threadBindingStore,
+      ),
+      tasks: ServerTaskDeps(
+        projectService: projectService,
+        goalService: goalService,
+        taskService: taskService,
+        taskReviewService: taskReviewService,
+        worktreeManager: worktreeManager,
+        taskFileGuard: taskFileGuard,
+        agentObserver: agentObserver,
+        mergeExecutor: mergeExecutor,
+        mergeStrategy: mergeStrategy,
+        baseRef: baseRef,
+        traceService: traceService,
+        taskEventService: taskEventService,
+        taskEventRecorder: eventRecorder,
+        progressTracker: progressTracker,
+      ),
+      observability: ServerObservabilityDeps(
+        eventBus: eventBus,
+        sseBroadcast: sseBroadcast,
+        providerStatus: providerStatus,
+        memoryFile: memoryFile,
+        memoryStatusService: memoryStatusService,
+        memoryPruner: memoryPruner,
+        heartbeat: heartbeat,
+        scheduleService: scheduleService,
+        gitSync: gitSync,
+        eventBusSseBridge: bridge,
+      ),
+      web: ServerWebDeps(
+        canvasService: canvasService,
+        workflowService: workflowService,
+        workflowDefinitionSource: workflowDefinitionSource,
+        skillRegistry: skillRegistry,
+        contentGuardDisplay: contentGuardDisplay,
+        heartbeatDisplay: heartbeatDisplay,
+        schedulingDisplay: schedulingDisplay,
+        workspaceDisplay: workspaceDisplay,
+        appDisplay: appDisplay,
+      ),
+    );
+
+    final visibility = computeServerSidebarVisibility(
       config: config,
-      configNotifier: configNotifier,
-      restartService: restartService,
-      sseBroadcast: sseBroadcast,
+      hasChannels: whatsAppChannel != null || signalChannel != null || googleChatWebhookHandler?.channel != null,
+      guardChain: guardChain,
+      hasHealthService: healthService != null,
+      hasTaskService: taskService != null,
+      hasPubSubHealth: healthService?.pubsubHealth != null,
+      heartbeatDisplay: heartbeatDisplay,
+      schedulingDisplay: schedulingDisplay,
+      workspaceDisplay: workspaceDisplay,
+    );
+
+    registerServerSystemPages(
+      server,
+      healthService: healthService,
+      worker: w,
+      whatsAppChannel: whatsAppChannel,
+      signalChannel: signalChannel,
+      googleChatWebhookHandler: googleChatWebhookHandler,
+      guardChain: guardChain,
       providerStatus: providerStatus,
-      eventBus: eventBus,
+      configWriter: configWriter,
       canvasService: canvasService,
-      projectService: projectService,
-      goalService: goalService,
-      taskService: taskService,
-      taskReviewService: taskReviewService,
-      worktreeManager: worktreeManager,
-      taskFileGuard: taskFileGuard,
-      agentObserver: agentObserver,
-      mergeExecutor: mergeExecutor,
-      mergeStrategy: mergeStrategy,
-      baseRef: baseRef,
-      traceService: traceService,
-      taskEventService: taskEventService,
-      taskEventRecorder: eventRecorder,
-      progressTracker: progressTracker,
-      spaceEventsWiring: spaceEventsWiring,
-      threadBindingStore: threadBindingStore,
       workflowService: workflowService,
-      workflowDefinitionSource: workflowDefinitionSource,
-      skillRegistry: skillRegistry,
+      projectService: projectService,
       contentGuardDisplay: contentGuardDisplay,
       heartbeatDisplay: heartbeatDisplay,
       schedulingDisplay: schedulingDisplay,
       workspaceDisplay: workspaceDisplay,
       appDisplay: appDisplay,
+      visibility: visibility,
     );
+
+    return server;
   }
 }

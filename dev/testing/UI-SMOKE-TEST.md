@@ -1,7 +1,7 @@
 # UI Smoke Test — DartClaw Web UI
 
 Concrete test cases for the DartClaw web UI. Each test has explicit steps and pass/fail criteria.
-Run using the `andthen:visual-validation-specialist` agent with chrome-devtools MCP.
+Run using the `andthen:visual-validation` skill with chrome-devtools MCP.
 See `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for tooling conventions and screenshot/reporting format.
 
 **Scope**: smoke-only — happy path + known failure modes for every shipped page. **Not exhaustive**:

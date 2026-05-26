@@ -94,6 +94,29 @@ void main() {
       });
     });
 
+    group('worktree', () {
+      test('exposes typed worktree values while preserving worktreeJson', () {
+        final task = createTask(
+          worktreeJson: const {'branch': 'feat/x', 'path': '/tmp/wt', 'createdAt': '2026-04-30T10:00:00Z'},
+        );
+
+        expect(task.worktreeJson?['branch'], 'feat/x');
+        expect(task.worktree?.branch, 'feat/x');
+        expect(task.worktree?.path, '/tmp/wt');
+        expect(task.worktree?.createdAt, DateTime.parse('2026-04-30T10:00:00Z'));
+      });
+
+      test('returns null worktree for missing or unparseable values', () {
+        final missing = createTask();
+        final invalid = createTask(worktreeJson: const {'branch': 42, 'path': false, 'createdAt': 'not-a-date'});
+
+        expect(missing.worktree, isNull);
+        expect(invalid.worktree?.branch, isNull);
+        expect(invalid.worktree?.path, isNull);
+        expect(invalid.worktree?.createdAt, isNull);
+      });
+    });
+
     group('transition', () {
       test('draft to queued updates status', () {
         final task = createTask();

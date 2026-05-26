@@ -5,6 +5,8 @@ library;
 
 import 'dart:async';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
 import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -17,6 +19,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowRunStatus,
         WorkflowStep;
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -81,6 +84,9 @@ void main() {
       final run = h.makeRun(definition);
       await h.repository.insert(run);
 
+      final logRecords = <LogRecord>[];
+      final logSub = Logger.root.onRecord.listen(logRecords.add);
+
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
@@ -90,11 +96,19 @@ void main() {
 
       await h.executor.execute(run, definition, WorkflowContext());
       await sub.cancel();
+      await logSub.cancel();
 
       final finalRun = await h.repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
       final counterRaw = await h.kvService.get('workflow.outcome.fallback');
       expect(counterRaw, equals('1'));
+
+      final warnings = logRecords.where((r) => r.level >= Level.WARNING).toList();
+      expect(
+        warnings.any((r) => r.message.contains('Step outcome marker missing') && r.message.contains('no-outcome')),
+        isTrue,
+        reason: 'Expected a WARNING log naming the step id when <step-outcome> marker is absent',
+      );
     });
 
     test('onFailure: continueWorkflow continues execution after a failed outcome', () async {
@@ -217,7 +231,7 @@ void main() {
         name: 'bash-zero-task',
         description: 'Bash step boundary',
         steps: const [
-          WorkflowStep(id: 'bash1', name: 'Bash', type: 'bash', prompts: ['echo ok']),
+          WorkflowStep(id: 'bash1', name: 'Bash', type: WorkflowTaskType.bash, prompts: ['echo ok']),
         ],
       );
 

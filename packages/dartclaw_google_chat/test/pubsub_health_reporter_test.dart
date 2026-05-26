@@ -49,7 +49,7 @@ void main() {
     group('disabled (not configured)', () {
       test('returns disabled status when not enabled', () {
         final reporter = PubSubHealthReporter(enabled: false);
-        final status = reporter.getStatus();
+        final status = reporter.status;
         expect(status['status'], 'disabled');
         expect(status['enabled'], false);
         expect(status.containsKey('consecutive_errors'), isFalse);
@@ -58,7 +58,7 @@ void main() {
 
       test('disabled map is JSON-serializable', () {
         final reporter = PubSubHealthReporter(enabled: false);
-        expect(() => jsonEncode(reporter.getStatus()), returnsNormally);
+        expect(() => jsonEncode(reporter.status), returnsNormally);
       });
     });
 
@@ -69,7 +69,7 @@ void main() {
     group('enabled but client not started', () {
       test('returns unavailable when client is null', () {
         final reporter = PubSubHealthReporter(enabled: true, subscriptionCount: () => 2);
-        final status = reporter.getStatus();
+        final status = reporter.status;
         expect(status['status'], 'unavailable');
         expect(status['enabled'], true);
         expect(status['active_subscriptions'], 2);
@@ -77,7 +77,7 @@ void main() {
 
       test('returns zero subscription count when callback is also null', () {
         final reporter = PubSubHealthReporter(enabled: true);
-        final status = reporter.getStatus();
+        final status = reporter.status;
         expect(status['active_subscriptions'], 0);
       });
     });
@@ -108,7 +108,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         final reporter = PubSubHealthReporter(client: client, enabled: true);
-        final status = reporter.getStatus();
+        final status = reporter.status;
         expect(status['status'], 'healthy');
         expect(status['enabled'], true);
         expect(status.containsKey('last_successful_pull'), isTrue);
@@ -138,7 +138,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         final reporter = PubSubHealthReporter(client: client, enabled: true);
-        final status = reporter.getStatus();
+        final status = reporter.status;
         expect(status['status'], 'degraded');
         expect(status['consecutive_errors'], greaterThanOrEqualTo(5));
       });
@@ -156,7 +156,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         final reporter = PubSubHealthReporter(client: client, enabled: true);
-        final status = reporter.getStatus();
+        final status = reporter.status;
         // Before 5 errors, never-pulled client with errors is 'unavailable'
         expect(status['status'], 'unavailable');
         expect(status.containsKey('last_successful_pull'), isFalse);
@@ -178,7 +178,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         final reporter = PubSubHealthReporter(client: client, enabled: true);
-        final status = reporter.getStatus();
+        final status = reporter.status;
         expect(status['status'], 'healthy');
         expect(status['consecutive_errors'], 0);
         expect(status.containsKey('last_successful_pull'), isTrue);
@@ -196,7 +196,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         final reporter = PubSubHealthReporter(client: client, subscriptionCount: () => 5, enabled: true);
-        final status = reporter.getStatus();
+        final status = reporter.status;
         expect(status['active_subscriptions'], 5);
       });
 
@@ -216,7 +216,7 @@ void main() {
           subscriptionCount: () => throw StateError('manager disposed'),
           enabled: true,
         );
-        final status = reporter.getStatus();
+        final status = reporter.status;
         expect(status['active_subscriptions'], 0);
       });
     });
@@ -248,7 +248,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         final reporter = PubSubHealthReporter(client: client, enabled: true);
-        final status = reporter.getStatus();
+        final status = reporter.status;
         final lastPull = status['last_successful_pull'] as String?;
         expect(lastPull, isNotNull);
         // Should be parseable as ISO 8601 UTC
@@ -261,12 +261,12 @@ void main() {
 
       test('all values are JSON-serializable', () {
         final reporter = PubSubHealthReporter(enabled: true, subscriptionCount: () => 3);
-        expect(() => jsonEncode(reporter.getStatus()), returnsNormally);
+        expect(() => jsonEncode(reporter.status), returnsNormally);
       });
 
       test('all values are JSON-serializable when disabled', () {
         final reporter = PubSubHealthReporter(enabled: false);
-        expect(() => jsonEncode(reporter.getStatus()), returnsNormally);
+        expect(() => jsonEncode(reporter.status), returnsNormally);
       });
     });
   });

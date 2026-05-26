@@ -38,6 +38,7 @@ class ScheduledTaskDefinition {
   /// Optional token budget override for this task.
   final int? tokenBudget;
 
+  /// Creates a [ScheduledTaskDefinition] value.
   const ScheduledTaskDefinition({
     required this.id,
     required this.cronExpression,

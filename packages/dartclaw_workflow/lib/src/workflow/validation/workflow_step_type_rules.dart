@@ -1,5 +1,9 @@
 part of '../workflow_definition_validator.dart';
 
+bool _isFindingsCountPreset(String? presetName) => presetName == 'findings_count';
+
+bool _isGatingFindingsCountPreset(String? presetName) => presetName == 'gating_findings_count';
+
 extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
   /// Validates the `as:` loop variable name on map/foreach controllers.
   ///
@@ -12,13 +16,7 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
 
       // A map step cannot also be a parallel step.
       if (step.parallel) {
-        errors.add(
-          ValidationError(
-            message: 'Map step "${step.id}" cannot also be a parallel step.',
-            type: ValidationErrorType.contextInconsistency,
-            stepId: step.id,
-          ),
-        );
+        errors.add(_contextErr(step.id, 'Map step "${step.id}" cannot also be a parallel step.'));
       }
 
       // Warn when a map step has no outputs — results will be discarded.
@@ -34,16 +32,154 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
       // which is almost certainly not what the author intended.
       if (step.outputKeys.length > 1) {
         errors.add(
-          ValidationError(
-            message:
-                'Map step "${step.id}" declares ${step.outputKeys.length} outputs keys '
-                '(${step.outputKeys.join(', ')}); a map/foreach controller emits exactly one '
-                'aggregate list value, so only one key is meaningful. Keep a single key — '
-                'downstream steps can index the aggregate by iteration and child step id.',
-            type: ValidationErrorType.contextInconsistency,
-            stepId: step.id,
+          _contextErr(
+            step.id,
+            'Map step "${step.id}" declares ${step.outputKeys.length} outputs keys '
+            '(${step.outputKeys.join(', ')}); a map/foreach controller emits exactly one '
+            'aggregate list value, so only one key is meaningful. Keep a single key — '
+            'downstream steps can index the aggregate by iteration and child step id.',
           ),
         );
+      }
+    }
+  }
+
+  void _validateAggregateReviewsConstraints(WorkflowDefinition definition, List<ValidationError> errors) {
+    final requiredAggregatorOutputs = <String, (OutputFormat, bool Function(String?))>{
+      'review_findings': (OutputFormat.path, isReviewReportPathPreset),
+      'findings_count': (OutputFormat.json, _isFindingsCountPreset),
+      'gating_findings_count': (OutputFormat.json, _isGatingFindingsCountPreset),
+    };
+    final priorSteps = <String, WorkflowStep>{};
+
+    for (final step in definition.steps) {
+      if (step.taskType != WorkflowTaskType.aggregateReviews) {
+        priorSteps[step.id] = step;
+        continue;
+      }
+
+      final aggregateReviews = step.aggregateReviews;
+      if (aggregateReviews == null || aggregateReviews.isEmpty) {
+        errors.add(
+          _contextErr(
+            step.id,
+            'Aggregate-reviews step "${step.id}" must declare aggregateReviews with at least one upstream step id.',
+          ),
+        );
+      }
+
+      _validateAggregatorOutputShape(step, requiredAggregatorOutputs, errors);
+
+      // Track report-path output keys seen across the listed sources so a
+      // collision (last-writer-wins on context merge) is rejected at validation
+      // rather than silently emitting the same section twice at runtime.
+      final reportKeysBySource = <String, String>{};
+
+      for (final sourceId in aggregateReviews ?? const <String>[]) {
+        final sourceStep = priorSteps[sourceId];
+        if (sourceStep == null) {
+          final validPriorIds = priorSteps.keys.join(', ');
+          errors.add(
+            _refErr(
+              step.id,
+              'Aggregate-reviews step "${step.id}" references unknown or non-prior upstream step "$sourceId"; '
+              'valid prior step ids: ${validPriorIds.isEmpty ? '<none>' : validPriorIds}.',
+            ),
+          );
+          continue;
+        }
+
+        const scopedCountSuffixes = ['.findings_count', '.gating_findings_count'];
+        final hasCountOutput = sourceStep.outputKeys.any(
+          (key) => scopedCountSuffixes.any((suffix) => key == '$sourceId$suffix'),
+        );
+        if (!hasCountOutput) {
+          errors.add(
+            _contextErr(
+              step.id,
+              'Aggregate-reviews step "${step.id}" upstream step "$sourceId" must declare a source-scoped '
+              '"$sourceId.findings_count" or "$sourceId.gating_findings_count" output; the aggregator runner '
+              'only reads counts under the exact source id.',
+            ),
+          );
+        }
+
+        final reportOutputs = _reviewReportPathOutputs(sourceStep).toList(growable: false);
+        if (reportOutputs.length != 1) {
+          errors.add(
+            _contextErr(
+              step.id,
+              'Aggregate-reviews step "${step.id}" upstream step "$sourceId" must declare exactly one '
+              'review-report path output.',
+            ),
+          );
+        }
+
+        if (reportOutputs.length == 1) {
+          final reportKey = reportOutputs.single.key;
+          final priorSourceWithSameKey = reportKeysBySource.entries
+              .where((entry) => entry.value == reportKey)
+              .firstOrNull
+              ?.key;
+          if (priorSourceWithSameKey != null) {
+            errors.add(
+              _contextErr(
+                step.id,
+                'Aggregate-reviews step "${step.id}" sources "$priorSourceWithSameKey" and "$sourceId" both '
+                'declare report-path output "$reportKey"; report-path output keys must be unique across the '
+                'aggregated sources (otherwise the merged context drops one report).',
+              ),
+            );
+          } else {
+            reportKeysBySource[sourceId] = reportKey;
+          }
+        }
+      }
+
+      priorSteps[step.id] = step;
+    }
+  }
+
+  void _validateAggregatorOutputShape(
+    WorkflowStep step,
+    Map<String, (OutputFormat, bool Function(String?))> requiredAggregatorOutputs,
+    List<ValidationError> errors,
+  ) {
+    final outputKeys = step.outputKeys.toSet();
+    if (outputKeys.length != requiredAggregatorOutputs.length ||
+        !outputKeys.containsAll(requiredAggregatorOutputs.keys)) {
+      errors.add(
+        _contextErr(
+          step.id,
+          'Aggregate-reviews step "${step.id}" outputs must declare exactly '
+          '{review_findings, findings_count, gating_findings_count}.',
+        ),
+      );
+      return;
+    }
+
+    final outputs = step.outputs ?? const <String, OutputConfig>{};
+    for (final entry in requiredAggregatorOutputs.entries) {
+      final config = outputs[entry.key];
+      if (config == null) continue;
+      final (expectedFormat, presetCheck) = entry.value;
+      if (config.format != expectedFormat || !presetCheck(config.presetName)) {
+        errors.add(
+          _contextErr(
+            step.id,
+            'Aggregate-reviews step "${step.id}" output "${entry.key}" must be '
+            'format: ${expectedFormat.name} with the matching schema preset '
+            '(got format: ${config.format.name}, schema: ${config.presetName ?? '<none>'}).',
+          ),
+        );
+      }
+    }
+  }
+
+  Iterable<MapEntry<String, OutputConfig>> _reviewReportPathOutputs(WorkflowStep step) sync* {
+    for (final entry in step.outputs?.entries ?? const Iterable<MapEntry<String, OutputConfig>>.empty()) {
+      if (entry.value.format == OutputFormat.path && isReviewReportPathPreset(entry.value.presetName)) {
+        yield entry;
       }
     }
   }
@@ -63,17 +199,13 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
       // emits a warning and re-routes to the root provider when the resolved
       // alias differs from the root step's family, so we keep the safety net
       // without false-positiving aliased steps at validation time.
-      // TODO(0.16.7+): full alias-resolution path — thread the workflow's
-      // roles config through the validator so we can validate the resolved
-      // concrete provider rather than skipping the check.
       if (provider.startsWith('@')) continue;
       if (!continuityProviders.contains(provider)) {
         errors.add(
-          ValidationError(
-            message:
-                'Step "${step.id}" uses multi-prompt but targets provider "$provider" '
-                'which does not support session continuity.',
-            type: ValidationErrorType.unsupportedProviderCapability,
+          _err(
+            ValidationErrorType.unsupportedProviderCapability,
+            'Step "${step.id}" uses multi-prompt but targets provider "$provider" '
+            'which does not support session continuity.',
             stepId: step.id,
           ),
         );
@@ -87,8 +219,6 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
     List<ValidationError> warnings,
     Set<String>? continuityProviders,
   ) {
-    const removedAgentStepMarker = 'custom';
-
     // Build loop membership maps.
     final stepToLoop = <String, String>{}; // stepId -> loopId
     for (final loop in definition.loops) {
@@ -98,56 +228,38 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
     }
 
     for (final step in definition.steps) {
-      if (!WorkflowDefinitionValidator._knownTypes.contains(step.type)) {
-        final renameHint = step.type == removedAgentStepMarker
-            ? ' The agent-step marker has been renamed to "agent".'
-            : '';
-        errors.add(
-          ValidationError(
-            message:
-                'Step "${step.id}" uses removed step type "${step.type}". '
-                'Supported types: agent, bash, approval, foreach, loop. '
-                'Omit "type:" entirely for agent steps (the default).$renameHint',
-            type: ValidationErrorType.hybridStepConstraint,
-            stepId: step.id,
-          ),
-        );
-      }
-
       // Approval step in a loop — warning (runs fine today, requires loop exit gate to avoid infinite wait).
-      if (step.type == 'approval' && stepToLoop.containsKey(step.id)) {
+      if (step.taskType == WorkflowTaskType.approval && stepToLoop.containsKey(step.id)) {
         warnings.add(
-          ValidationError(
-            message:
-                'Approval step "${step.id}" is inside loop "${stepToLoop[step.id]}". '
-                'Approval steps in loops will pause the loop on every iteration — '
-                'ensure the loop exit gate accounts for approval outcomes.',
-            type: ValidationErrorType.hybridStepConstraint,
+          _err(
+            ValidationErrorType.hybridStepConstraint,
+            'Approval step "${step.id}" is inside loop "${stepToLoop[step.id]}". '
+            'Approval steps in loops will pause the loop on every iteration — '
+            'ensure the loop exit gate accounts for approval outcomes.',
             stepId: step.id,
           ),
         );
       }
 
       // Approval step as parallel — hard error (approval requires sequential gate behavior).
-      if (step.type == 'approval' && step.parallel) {
+      if (step.taskType == WorkflowTaskType.approval && step.parallel) {
         errors.add(
-          ValidationError(
-            message:
-                'Approval step "${step.id}" cannot be a parallel step. '
-                'Approval gates require sequential execution.',
-            type: ValidationErrorType.hybridStepConstraint,
+          _err(
+            ValidationErrorType.hybridStepConstraint,
+            'Approval step "${step.id}" cannot be a parallel step. '
+            'Approval gates require sequential execution.',
             stepId: step.id,
           ),
         );
       }
 
-      if ((step.type == 'bash' || step.type == 'approval') && step.isMultiPrompt) {
+      if ((step.taskType == WorkflowTaskType.bash || step.taskType == WorkflowTaskType.approval) &&
+          step.isMultiPrompt) {
         errors.add(
-          ValidationError(
-            message:
-                'Step "${step.id}" is a "${step.type}" step and cannot use a prompt list. '
-                'Use a single prompt string${step.type == 'approval' ? ' (or omit the prompt)' : ''}.',
-            type: ValidationErrorType.hybridStepConstraint,
+          _err(
+            ValidationErrorType.hybridStepConstraint,
+            'Step "${step.id}" is a "${step.taskType.toJson()}" step and cannot use a prompt list. '
+            'Use a single prompt string${step.taskType == WorkflowTaskType.approval ? ' (or omit the prompt)' : ''}.',
             stepId: step.id,
           ),
         );
@@ -155,11 +267,10 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
 
       if (step.parallel && step.continueSession != null) {
         errors.add(
-          ValidationError(
-            message:
-                'Step "${step.id}" cannot combine parallel execution with continueSession. '
-                'Session continuity requires deterministic step ordering.',
-            type: ValidationErrorType.hybridStepConstraint,
+          _err(
+            ValidationErrorType.hybridStepConstraint,
+            'Step "${step.id}" cannot combine parallel execution with continueSession. '
+            'Session continuity requires deterministic step ordering.',
             stepId: step.id,
           ),
         );
@@ -167,12 +278,11 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
 
       if (step.onError case final onError? when onError != 'pause' && onError != 'continue' && onError != 'fail') {
         warnings.add(
-          ValidationError(
-            message:
-                'Step "${step.id}" uses unsupported onError value "$onError". '
-                'Supported values are "pause", "continue", and legacy "fail". '
-                'Unknown values currently behave like "pause".',
-            type: ValidationErrorType.hybridStepConstraint,
+          _err(
+            ValidationErrorType.hybridStepConstraint,
+            'Step "${step.id}" uses unsupported onError value "$onError". '
+            'Supported values are "pause", "continue", and legacy "fail". '
+            'Unknown values currently behave like "pause".',
             stepId: step.id,
           ),
         );
@@ -188,11 +298,10 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
           final provider = step.provider ?? targetStep?.provider;
           if (provider != null && !provider.startsWith('@') && !continuityProviders.contains(provider)) {
             errors.add(
-              ValidationError(
-                message:
-                    'Step "${step.id}" uses continueSession but targets provider "$provider" '
-                    'which does not support session continuity.',
-                type: ValidationErrorType.unsupportedProviderCapability,
+              _err(
+                ValidationErrorType.unsupportedProviderCapability,
+                'Step "${step.id}" uses continueSession but targets provider "$provider" '
+                'which does not support session continuity.',
                 stepId: step.id,
               ),
             );
@@ -201,11 +310,10 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
 
         if (targetStepId == null) {
           errors.add(
-            ValidationError(
-              message:
-                  'Step "${step.id}" uses continueSession but has no resolvable target step. '
-                  'The first step cannot continue a prior session.',
-              type: ValidationErrorType.hybridStepConstraint,
+            _err(
+              ValidationErrorType.hybridStepConstraint,
+              'Step "${step.id}" uses continueSession but has no resolvable target step. '
+              'The first step cannot continue a prior session.',
               stepId: step.id,
             ),
           );
@@ -214,9 +322,9 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
 
         if (targetStep == null) {
           errors.add(
-            ValidationError(
-              message: 'Step "${step.id}" uses continueSession but references unknown step "$targetStepId".',
-              type: ValidationErrorType.hybridStepConstraint,
+            _err(
+              ValidationErrorType.hybridStepConstraint,
+              'Step "${step.id}" uses continueSession but references unknown step "$targetStepId".',
               stepId: step.id,
             ),
           );
@@ -224,13 +332,12 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         }
 
         // continueSession on a non-agent step — hard error (bash/approval steps have no session).
-        if (step.type == 'bash' || step.type == 'approval') {
+        if (step.taskType == WorkflowTaskType.bash || step.taskType == WorkflowTaskType.approval) {
           errors.add(
-            ValidationError(
-              message:
-                  'Step "${step.id}" uses continueSession but is a "${step.type}" step. '
-                  'Only agent steps support session continuity.',
-              type: ValidationErrorType.hybridStepConstraint,
+            _err(
+              ValidationErrorType.hybridStepConstraint,
+              'Step "${step.id}" uses continueSession but is a "${step.taskType.toJson()}" step. '
+              'Only agent steps support session continuity.',
               stepId: step.id,
             ),
           );
@@ -239,24 +346,22 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         final targetIndex = definition.steps.indexWhere((s) => s.id == targetStepId);
         if (targetIndex >= stepIndex) {
           errors.add(
-            ValidationError(
-              message:
-                  'Step "${step.id}" uses continueSession but references "$targetStepId" '
-                  'which does not precede it in the workflow.',
-              type: ValidationErrorType.hybridStepConstraint,
+            _err(
+              ValidationErrorType.hybridStepConstraint,
+              'Step "${step.id}" uses continueSession but references "$targetStepId" '
+              'which does not precede it in the workflow.',
               stepId: step.id,
             ),
           );
           continue;
         }
 
-        if (targetStep.type == 'bash' || targetStep.type == 'approval') {
+        if (targetStep.taskType == WorkflowTaskType.bash || targetStep.taskType == WorkflowTaskType.approval) {
           errors.add(
-            ValidationError(
-              message:
-                  'Step "${step.id}" uses continueSession but the referenced step "$targetStepId" '
-                  'is a "${targetStep.type}" step which has no session to continue.',
-              type: ValidationErrorType.hybridStepConstraint,
+            _err(
+              ValidationErrorType.hybridStepConstraint,
+              'Step "${step.id}" uses continueSession but the referenced step "$targetStepId" '
+              'is a "${targetStep.taskType.toJson()}" step which has no session to continue.',
               stepId: step.id,
             ),
           );
@@ -270,12 +375,11 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         ).provider;
         if (stepProvider != null && targetProvider != null && stepProvider != targetProvider) {
           errors.add(
-            ValidationError(
-              message:
-                  'continueSession: true on step "${step.id}" requires the same provider as the previous step '
-                  '"${targetStep.id}", but they resolve to "$stepProvider" and "$targetProvider" respectively. '
-                  'Either pin a matching provider explicitly or remove continueSession.',
-              type: ValidationErrorType.hybridStepConstraint,
+            _err(
+              ValidationErrorType.hybridStepConstraint,
+              'continueSession: true on step "${step.id}" requires the same provider as the previous step '
+              '"${targetStep.id}", but they resolve to "$stepProvider" and "$targetProvider" respectively. '
+              'Either pin a matching provider explicitly or remove continueSession.',
               stepId: step.id,
             ),
           );
@@ -286,13 +390,12 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         final targetLoopId = stepToLoop[targetStep.id];
         if (stepLoopId != targetLoopId) {
           errors.add(
-            ValidationError(
-              message:
-                  'Step "${step.id}" uses continueSession but crosses a loop boundary '
-                  '(step is ${stepLoopId != null ? 'in loop "$stepLoopId"' : 'outside a loop'}, '
-                  'target step "$targetStepId" is ${targetLoopId != null ? 'in loop "$targetLoopId"' : 'outside a loop'}). '
-                  'continueSession cannot span loop boundaries.',
-              type: ValidationErrorType.hybridStepConstraint,
+            _err(
+              ValidationErrorType.hybridStepConstraint,
+              'Step "${step.id}" uses continueSession but crosses a loop boundary '
+              '(step is ${stepLoopId != null ? 'in loop "$stepLoopId"' : 'outside a loop'}, '
+              'target step "$targetStepId" is ${targetLoopId != null ? 'in loop "$targetLoopId"' : 'outside a loop'}). '
+              'continueSession cannot span loop boundaries.',
               stepId: step.id,
             ),
           );
@@ -313,9 +416,9 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         if (targetStepId == null) break;
         if (!visited.add(targetStepId)) {
           errors.add(
-            ValidationError(
-              message: 'Step "${step.id}" is part of a continueSession chain that forms a cycle via "$targetStepId".',
-              type: ValidationErrorType.hybridStepConstraint,
+            _err(
+              ValidationErrorType.hybridStepConstraint,
+              'Step "${step.id}" is part of a continueSession chain that forms a cycle via "$targetStepId".',
               stepId: step.id,
             ),
           );

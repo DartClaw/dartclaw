@@ -4,6 +4,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
@@ -17,7 +19,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowDefinitionParser,
-        WorkflowGitBootstrapResult,
+        WorkflowGitCleanupStrategy,
+        WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishStrategy,
@@ -34,7 +37,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowExecutor,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
-import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowExecutionCursor;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowExecutionCursor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
@@ -148,8 +151,8 @@ void main() {
         description: 'Workflow-owned map tasks should unblock on accepted.',
         project: '{{PROJECT}}',
         gitStrategy: const WorkflowGitStrategy(
-          bootstrap: true,
-          worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+          integrationBranch: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
           promotion: 'merge',
           publish: WorkflowGitPublishStrategy(enabled: false),
         ),
@@ -190,8 +193,8 @@ void main() {
           reserveTurn: (_) => Future.value('turn-1'),
           executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
           waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
           promoteWorkflowBranch:
               ({
                 required runId,
@@ -278,13 +281,15 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'map-inline-auto',
         description: 'Map auto worktree serial resolution',
-        gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.auto),
+        ),
         steps: const [
           WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
-            type: 'coding',
+            type: WorkflowTaskType.agent,
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
             maxParallel: 1,
@@ -319,13 +324,15 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'map-per-item-auto',
         description: 'Map auto worktree parallel resolution',
-        gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.auto),
+        ),
         steps: const [
           WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
-            type: 'coding',
+            type: WorkflowTaskType.agent,
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
             maxParallel: 2,
@@ -360,13 +367,15 @@ void main() {
       final definition = WorkflowDefinition(
         name: 'map-unlimited-auto',
         description: 'Map auto worktree unlimited resolution',
-        gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.auto),
+        ),
         steps: const [
           WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
-            type: 'coding',
+            type: WorkflowTaskType.agent,
             prompts: ['Implement {{map.item}}'],
             mapOver: 'stories',
             maxParallel: 'unlimited',
@@ -760,6 +769,213 @@ void main() {
       expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('maxItems'));
       expect(updatedRun?.errorMessage, contains('decompos'));
+    });
+
+    test('failure invokes workflow git cleanup when cleanup is enabled', () async {
+      final cleanupCalls = <({String runId, String projectId, String status, bool preserveWorktrees})>[];
+      final cleanupExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((
+                  runId: runId,
+                  projectId: projectId,
+                  status: status,
+                  preserveWorktrees: preserveWorktrees,
+                ));
+              },
+        ),
+      );
+      final collection = List.generate(5, (i) => 'item$i');
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Map test',
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxItems: 3,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'alpha'});
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = collection;
+
+      await cleanupExecutor.execute(run, definition, context, startFromStepIndex: 1);
+
+      expect(cleanupCalls, hasLength(1));
+      expect(cleanupCalls.single, (runId: 'run-1', projectId: 'alpha', status: 'failed', preserveWorktrees: false));
+    });
+
+    test('failure preserves workflow git worktrees when cleanup is disabled', () async {
+      final cleanupCalls = <({bool preserveWorktrees})>[];
+      final cleanupExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((preserveWorktrees: preserveWorktrees));
+              },
+        ),
+      );
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Map test',
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false)),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxItems: 1,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'alpha'});
+      await repository.insert(run);
+      final context = WorkflowContext(variables: const {'PROJECT': 'context-project'})..['items'] = ['a', 'b'];
+
+      await cleanupExecutor.execute(run, definition, context, startFromStepIndex: 1);
+
+      expect(cleanupCalls, hasLength(1));
+      expect(cleanupCalls.single.preserveWorktrees, isTrue);
+    });
+
+    test('failure preserves worktrees when cleanup policy cannot be parsed', () async {
+      final cleanupCalls = <({bool preserveWorktrees})>[];
+      final cleanupExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((preserveWorktrees: preserveWorktrees));
+              },
+        ),
+      );
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Map test',
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxItems: 1,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(
+        definition,
+      ).copyWith(variablesJson: const {'PROJECT': 'alpha'}, definitionJson: const {'steps': 'not-a-list'});
+      await repository.insert(run);
+      final context = WorkflowContext(variables: const {'PROJECT': 'context-project'})..['items'] = ['a', 'b'];
+
+      await cleanupExecutor.execute(run, definition, context, startFromStepIndex: 1);
+
+      expect(cleanupCalls, hasLength(1));
+      expect(cleanupCalls.single.preserveWorktrees, isTrue);
+    });
+
+    test('failure cleanup resolves project from persisted context variables', () async {
+      final cleanupCalls = <({String projectId})>[];
+      final cleanupExecutor = makeExecutor(
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupCalls.add((projectId: projectId));
+              },
+        ),
+      );
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Map test',
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxItems: 1,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(
+        definition,
+      ).copyWith(contextJson: WorkflowContext(variables: const {'PROJECT': 'context-project'}).toJson());
+      await repository.insert(run);
+      final context = WorkflowContext(variables: const {'PROJECT': 'context-project'})..['items'] = ['a', 'b'];
+
+      await cleanupExecutor.execute(run, definition, context, startFromStepIndex: 1);
+
+      expect(cleanupCalls, hasLength(1));
+      expect(cleanupCalls.single.projectId, 'context-project');
+    });
+
+    test('collection above 20 succeeds when maxItems is unset', () async {
+      final collection = List.generate(30, (i) => 'item$i');
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'Map test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 5,
+            outputs: {'mapped': OutputConfig()},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = collection;
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+      expect(context['mapped'], isA<List<Object?>>());
+      expect((context['mapped'] as List).length, equals(30));
     });
 
     test('single iteration failure — others continue, result array has error object', () async {
@@ -1178,7 +1394,7 @@ void main() {
       await executeFuture;
       await sub.cancel();
 
-      expect(queuedTitles, ['map-recovery — Map (1/3)', 'map-recovery — Map (2/3)', 'map-recovery — Map (3/3)']);
+      expect(queuedTitles, ['map-recovery – Map (1/3)', 'map-recovery – Map (2/3)', 'map-recovery – Map (3/3)']);
       final finalRun = await repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
@@ -1277,12 +1493,12 @@ void main() {
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'stories',
             foreachSteps: ['child'],
             outputs: {'results': OutputConfig()},
           ),
-          WorkflowStep(id: 'child', name: 'Child', type: 'coding', prompts: ['Do {{map.item.id}}']),
+          WorkflowStep(id: 'child', name: 'Child', type: WorkflowTaskType.agent, prompts: ['Do {{map.item.id}}']),
         ],
       );
 
@@ -1326,7 +1542,7 @@ steps:
     steps:
       - id: implement
         name: Implement
-        type: coding
+        type: agent
         prompt: 'Story {{story.display_index}}/{{story.length}}: implement {{story.item.spec_path}}'
 ''';
       final definition = WorkflowDefinitionParser().parse(yaml);
@@ -1373,7 +1589,7 @@ steps:
           WorkflowStep(
             id: 'story-pipeline',
             name: 'Story Pipeline',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'stories',
             mapAlias: 'story',
             foreachSteps: ['implement'],
@@ -1383,7 +1599,7 @@ steps:
             id: 'implement',
             name: 'Implement',
             prompts: ['Story {{story.display_index}}/{{story.length}}: implement {{story.item.spec_path}}'],
-            type: 'coding',
+            type: WorkflowTaskType.agent,
           ),
         ],
       );
@@ -1468,12 +1684,17 @@ steps:
           WorkflowStep(
             id: 'story-pipeline',
             name: 'Story Pipeline',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'stories',
             foreachSteps: ['implement', 'validate'],
             outputs: {'story_results': OutputConfig()},
           ),
-          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Build {{map.item}}'], type: 'coding'),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Build {{map.item}}'],
+            type: WorkflowTaskType.agent,
+          ),
           WorkflowStep(id: 'validate', name: 'Validate', prompts: ['Validate {{map.item}}']),
         ],
       );
@@ -1515,13 +1736,18 @@ steps:
           WorkflowStep(
             id: 'story-pipeline',
             name: 'Story Pipeline',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'stories',
             foreachSteps: ['implement'],
             maxParallel: 2,
             outputs: {'story_results': OutputConfig()},
           ),
-          WorkflowStep(id: 'implement', name: 'Implement', type: 'coding', prompts: ['Build {{map.item.id}}']),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            type: WorkflowTaskType.agent,
+            prompts: ['Build {{map.item.id}}'],
+          ),
         ],
       );
 
@@ -1573,8 +1799,8 @@ steps:
         description: 'Promotion-aware dependency gating',
         project: '{{PROJECT}}',
         gitStrategy: const WorkflowGitStrategy(
-          bootstrap: true,
-          worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+          integrationBranch: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
           promotion: 'merge',
           publish: WorkflowGitPublishStrategy(enabled: false),
         ),
@@ -1582,7 +1808,7 @@ steps:
           WorkflowStep(
             id: 'story-pipeline',
             name: 'Story Pipeline',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'stories',
             foreachSteps: ['implement'],
             maxParallel: 2,
@@ -1620,8 +1846,8 @@ steps:
           reserveTurn: (_) => Future.value('turn-1'),
           executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
           waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
           promoteWorkflowBranch:
               ({
                 required runId,
@@ -1675,8 +1901,8 @@ steps:
           reserveTurn: (_) => Future.value('turn-2'),
           executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
           waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
           promoteWorkflowBranch:
               ({
                 required runId,
@@ -1738,7 +1964,7 @@ steps:
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'stories',
             foreachSteps: ['child'],
             outputs: {'results': OutputConfig()},
@@ -1768,7 +1994,7 @@ steps:
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['step-a', 'step-b'],
             outputs: {'results': OutputConfig()},
@@ -1817,7 +2043,7 @@ steps:
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['child'],
             outputs: {'results': OutputConfig()},
@@ -1859,7 +2085,7 @@ steps:
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             foreachSteps: ['child'],
             outputs: {'results': OutputConfig()},
@@ -1905,7 +2131,7 @@ steps:
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'stories',
             foreachSteps: ['child'],
             outputs: {'results': OutputConfig()},
@@ -1970,7 +2196,7 @@ steps:
           WorkflowStep(
             id: 'fe',
             name: 'FE',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             maxItems: 2,
             foreachSteps: ['child'],
@@ -1989,6 +2215,44 @@ steps:
       final updatedRun = await repository.getById('run-1');
       expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('maxItems'));
+    });
+
+    test('foreach above 20 succeeds when maxItems is unset', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-uncapped',
+        description: 'Uncapped foreach test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: WorkflowTaskType.foreach,
+            mapOver: 'items',
+            maxParallel: 5,
+            foreachSteps: ['child'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = List.generate(30, (i) => 'item$i');
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+      expect(context['results'], isA<List<Object?>>());
+      expect((context['results'] as List).length, equals(30));
     });
   });
 }

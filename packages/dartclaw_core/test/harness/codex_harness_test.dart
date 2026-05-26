@@ -7,6 +7,7 @@ import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_core/src/harness/process_types.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -723,6 +724,38 @@ void main() {
         await pumpEventLoop();
 
         expect(events.any((e) => e is CompactionStartingBridgeEvent || e is CompactionCompletedBridgeEvent), isFalse);
+      });
+    });
+
+    group('stderr logging (TD-061)', () {
+      test('logs stderr lines at WARNING level', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+
+        final records = <LogRecord>[];
+        final oldLevel = Logger.root.level;
+        Logger.root.level = Level.ALL;
+        final sub = Logger.root.onRecord.listen(records.add);
+        addTearDown(() async {
+          Logger.root.level = oldLevel;
+          await sub.cancel();
+        });
+
+        await startHarness(harness, fake);
+
+        fake.emitStderr("Error: model 'invalid-model' not recognised");
+        await pumpEventLoop();
+
+        expect(
+          records.any(
+            (r) =>
+                r.loggerName == 'CodexHarness' &&
+                r.level == Level.WARNING &&
+                r.message.contains("model 'invalid-model' not recognised"),
+          ),
+          isTrue,
+        );
       });
     });
   });

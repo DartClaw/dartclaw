@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 
 import 'git_credential_env.dart';
 
+/// Runs `git status` against a worktree and returns the resulting [ProcessResult].
 typedef GitStatusRunner =
     Future<ProcessResult> Function(List<String> args, {required String workingDirectory, bool noSystemConfig});
 
@@ -15,14 +16,17 @@ final class GitStatusSnapshot {
   const GitStatusSnapshot(this.entries);
 }
 
+/// Represents the verdict of a [TaskReadOnlyGuard] check.
 sealed class ReadOnlyEvaluation {
   const ReadOnlyEvaluation();
 }
 
+/// Indicates the worktree remained unchanged across the read-only turn.
 final class ReadOnlyClean extends ReadOnlyEvaluation {
   const ReadOnlyClean();
 }
 
+/// Reports the paths a read-only task mutated despite the guard.
 final class ReadOnlyViolation extends ReadOnlyEvaluation {
   final List<String> mutatedPaths;
 

@@ -1,11 +1,10 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show ProjectConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show ProjectAuthStatus, ProjectConfig;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, projectRoutes;
 import 'package:dartclaw_server/src/project/project_auth_support.dart' show ProjectAuthException;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, openTaskDbInMemory;
-import 'package:dartclaw_testing/dartclaw_testing.dart';
-import 'package:dartclaw_models/dartclaw_models.dart' show ProjectAuthStatus;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';

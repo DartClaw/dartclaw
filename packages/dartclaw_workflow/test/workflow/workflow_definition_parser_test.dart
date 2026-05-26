@@ -132,7 +132,7 @@ name: git-strategy-workflow
 description: Workflow with reusable git strategy
 project: "{{PROJECT}}"
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree:
     mode: shared
   promotion: merge
@@ -148,7 +148,7 @@ const _autoWorktreeYaml = '''
 name: auto-worktree-workflow
 description: Workflow with auto worktree mode
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree: auto
 steps:
   - id: stories
@@ -198,7 +198,7 @@ void main() {
       expect(def.steps.length, 2);
       final research = def.steps[0];
       expect(research.id, 'research');
-      expect(research.type, 'agent');
+      expect(research.type, WorkflowTaskType.agent);
       expect(research.provider, 'claude');
       expect(research.model, 'claude-opus');
       expect(research.timeoutSeconds, 1800); // 30m in seconds
@@ -210,7 +210,7 @@ void main() {
 
       final implement = def.steps[1];
       expect(implement.id, 'implement');
-      expect(implement.type, 'agent');
+      expect(implement.type, WorkflowTaskType.agent);
       expect(implement.parallel, true);
       expect(implement.inputs, ['research_result']);
       expect(implement.extraction!.type, ExtractionType.regex);
@@ -242,6 +242,113 @@ steps:
       final step = def.steps.single;
       expect(step.outputs?['verdict']?.outputMode, OutputMode.structured);
       expect(step.outputs?['verdict']?.presetName, 'verdict');
+    });
+
+    test('parses aggregateReviews on aggregate-reviews steps', () {
+      const yaml = '''
+name: aggregate-workflow
+description: Workflow with review aggregation
+steps:
+  - id: review-a
+    name: Review A
+    prompt: Review A
+  - id: review-b
+    name: Review B
+    prompt: Review B
+  - id: review-aggregate
+    name: Review Aggregate
+    type: aggregate-reviews
+    aggregateReviews: [review-a, review-b]
+    outputs:
+      review_findings: review_report_path
+      findings_count: findings_count
+      gating_findings_count: gating_findings_count
+''';
+      final def = parser.parse(yaml);
+      final step = def.steps.last;
+      expect(step.type, WorkflowTaskType.aggregateReviews);
+      expect(step.aggregateReviews, ['review-a', 'review-b']);
+      expect(WorkflowDefinition.fromJson(def.toJson()).steps.last.aggregateReviews, ['review-a', 'review-b']);
+    });
+
+    test('rejects empty aggregateReviews list', () {
+      const yaml = '''
+name: aggregate-workflow
+description: Workflow with review aggregation
+steps:
+  - id: review-aggregate
+    name: Review Aggregate
+    type: aggregate-reviews
+    aggregateReviews: []
+    outputs:
+      review_findings: review_report_path
+      findings_count: findings_count
+      gating_findings_count: gating_findings_count
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('review-aggregate'),
+              contains('aggregateReviews must list at least one upstream step id'),
+              contains('[]'),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('rejects non-list and non-string aggregateReviews values', () {
+      const nonList = '''
+name: aggregate-workflow
+description: Workflow with review aggregation
+steps:
+  - id: review-aggregate
+    name: Review Aggregate
+    type: aggregate-reviews
+    aggregateReviews: review-a
+    outputs:
+      review_findings: review_report_path
+      findings_count: findings_count
+      gating_findings_count: gating_findings_count
+''';
+      expect(
+        () => parser.parse(nonList),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('review-aggregate'), contains('aggregateReviews must be a list'), contains('review-a')),
+          ),
+        ),
+      );
+
+      const nonStringElement = '''
+name: aggregate-workflow
+description: Workflow with review aggregation
+steps:
+  - id: review-aggregate
+    name: Review Aggregate
+    type: aggregate-reviews
+    aggregateReviews: [review-a, 7]
+    outputs:
+      review_findings: review_report_path
+      findings_count: findings_count
+      gating_findings_count: gating_findings_count
+''';
+      expect(
+        () => parser.parse(nonStringElement),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('review-aggregate'), contains('aggregateReviews entries must be non-empty strings')),
+          ),
+        ),
+      );
     });
 
     test('malformed core sections throw FormatException with field paths', () {
@@ -277,6 +384,53 @@ steps:
     test('parses gitStrategy.worktree: auto', () {
       final def = parser.parse(_autoWorktreeYaml);
       expect(def.gitStrategy?.worktreeMode, 'auto');
+      expect(def.gitStrategy?.worktree?.mode, WorkflowGitWorktreeMode.auto);
+    });
+
+    test('parses gitStrategy.worktree string modes as enums with unchanged JSON', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  worktree: per-task
+steps:
+  - id: s
+    name: S
+    prompt: hi
+''';
+      final def = parser.parse(yaml);
+      expect(def.gitStrategy?.worktree?.mode, WorkflowGitWorktreeMode.perTask);
+      expect(def.toJson()['gitStrategy'], {'worktree': 'per-task'});
+    });
+
+    test('rejects unknown gitStrategy.worktree mode with known values', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  worktree:
+    mode: branch-per-step
+steps:
+  - id: s
+    name: S
+    prompt: hi
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('shared'),
+              contains('per-task'),
+              contains('per-map-item'),
+              contains('inline'),
+              contains('auto'),
+            ),
+          ),
+        ),
+      );
     });
 
     test('threads gitStrategy.merge_resolve from YAML through to WorkflowGitStrategy', () {
@@ -380,11 +534,56 @@ steps:
       expect(
         definition.toJson()['gitStrategy'],
         equals({
-          'bootstrap': true,
+          'integrationBranch': true,
           'worktree': 'shared',
           'promotion': 'merge',
           'publish': {'enabled': true},
         }),
+      );
+    });
+
+    test('parses deprecated gitStrategy.bootstrap as integrationBranch', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  bootstrap: true
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+
+      final definition = parser.parse(yaml);
+      expect(definition.gitStrategy?.integrationBranch, isTrue);
+      expect(definition.gitStrategy?.legacyBootstrapKey, isTrue);
+      expect(definition.toJson()['gitStrategy'], {'integrationBranch': true, 'worktree': null});
+    });
+
+    test('rejects conflicting gitStrategy.integrationBranch spellings', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  integrationBranch: true
+  integration_branch: false
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+
+      expect(
+        () => parser.parse(yaml),
+        throwsA(
+          isA<FormatException>()
+              .having(
+                (e) => e.message,
+                'message',
+                allOf(contains('gitStrategy.integrationBranch'), contains('gitStrategy.integration_branch')),
+              )
+              .having((e) => e.message, 'message', isNot(contains('gitStrategy.bootstrap'))),
+        ),
       );
     });
 
@@ -393,7 +592,7 @@ steps:
 name: wf
 description: d
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   finalReview: true
 steps:
   - id: s
@@ -411,7 +610,7 @@ steps:
 name: wf
 description: d
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   cleanup:
     enabled: false
 steps:
@@ -464,7 +663,7 @@ steps:
 name: wf
 description: d
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
 steps:
   - id: s
     name: S
@@ -682,20 +881,154 @@ steps:
       expect(roundTripped.workflowVariables, ['REQUIREMENTS']);
     });
 
-    test('parses type field correctly', () {
-      for (final type in ['research', 'analysis', 'writing', 'coding']) {
-        final yaml =
+    test('parses task type field as enum and preserves wire JSON', () {
+      final expected = {
+        'agent': WorkflowTaskType.agent,
+        'bash': WorkflowTaskType.bash,
+        'approval': WorkflowTaskType.approval,
+        'foreach': WorkflowTaskType.foreach,
+        'loop': WorkflowTaskType.loop,
+        'aggregate-reviews': WorkflowTaskType.aggregateReviews,
+      };
+      for (final entry in expected.entries) {
+        final yaml = switch (entry.value) {
+          WorkflowTaskType.agent =>
             '''
 name: n
 description: d
 steps:
   - id: s
     name: S
+    type: agent
     prompt: p
-    type: $type
-''';
-        expect(parser.parse(yaml).steps[0].type, type);
+''',
+          WorkflowTaskType.bash =>
+            '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    type: bash
+    script: echo ok
+''',
+          WorkflowTaskType.approval =>
+            '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    type: approval
+''',
+          WorkflowTaskType.foreach =>
+            '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    type: foreach
+    map_over: items
+    steps:
+      - id: child
+        name: Child
+        prompt: p
+''',
+          WorkflowTaskType.loop =>
+            '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    type: loop
+    maxIterations: 1
+    exitGate: done
+    steps:
+      - id: child
+        name: Child
+        prompt: p
+''',
+          WorkflowTaskType.aggregateReviews =>
+            '''
+name: n
+description: d
+steps:
+  - id: review-a
+    name: Review A
+    prompt: p
+  - id: s
+    name: S
+    type: aggregate-reviews
+    aggregateReviews: [review-a]
+''',
+        };
+        final definition = parser.parse(yaml);
+        if (entry.value == WorkflowTaskType.loop) {
+          expect(definition.loops.single.id, 's');
+          continue;
+        }
+        final matchingStep = definition.steps.firstWhere((candidate) => candidate.id == 's');
+        expect(matchingStep.type, entry.value);
+        if (entry.value == WorkflowTaskType.agent) {
+          expect(matchingStep.toJson().containsKey('type'), isFalse);
+        } else {
+          expect(matchingStep.toJson()['type'], entry.key);
+        }
       }
+    });
+
+    test('rejects unknown task type with known values', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    type: typo
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('typo'),
+              contains('agent'),
+              contains('bash'),
+              contains('approval'),
+              contains('foreach'),
+              contains('loop'),
+              contains('aggregate-reviews'),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('rejects legacy custom task type with rename hint', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    type: custom
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('custom'), contains('agent-step marker has been renamed'), contains('"agent"')),
+          ),
+        ),
+      );
     });
 
     test('missing name throws FormatException', () {
@@ -759,6 +1092,47 @@ steps:
       expect(() => parser.parse(yaml), throwsFormatException);
     });
 
+    test('bash step accepts script as prompt alias', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    type: bash
+    script: echo ok
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps.single.type, WorkflowTaskType.bash);
+      expect(def.steps.single.prompts, ['echo ok']);
+    });
+
+    test('bash step rejects both prompt and script', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    type: bash
+    prompt: echo ok
+    script: echo also-ok
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('agent step rejects script', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    script: echo ok
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
     group('outputs map parsing (S01)', () {
       test('parses outputs map with format and preset schema', () {
         const yaml = '''
@@ -795,6 +1169,84 @@ steps:
         final step = def.steps[0];
         expect(step.outputs!['result']!.format, OutputFormat.json);
         expect(step.outputs!['result']!.schema, isNull);
+      });
+
+      test('parses outputs shorthand preset syntax', () {
+        const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    outputs:
+      diff_summary: diff_summary
+''';
+        final def = parser.parse(yaml);
+        final output = def.steps[0].outputs!['diff_summary']!;
+        expect(output.format, OutputFormat.text);
+        expect(output.presetName, 'diff_summary');
+        expect(output.description, isNull);
+        expect(output.outputMode, OutputMode.prompt);
+      });
+
+      test('defaults json preset shorthand outputs to structured mode', () {
+        const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    outputs:
+      findings_count: findings_count
+''';
+        final def = parser.parse(yaml);
+        final output = def.steps[0].outputs!['findings_count']!;
+        expect(output.format, OutputFormat.json);
+        expect(output.presetName, 'findings_count');
+        expect(output.description, isNull);
+        expect(output.outputMode, OutputMode.structured);
+      });
+
+      test('keeps format keywords ahead of preset lookup', () {
+        const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    outputs:
+      raw: json
+''';
+        final output = parser.parse(yaml).steps[0].outputs!['raw']!;
+        expect(output.format, OutputFormat.json);
+        expect(output.schema, isNull);
+        expect(output.description, isNull);
+      });
+
+      test('throws on unknown shorthand output identifier', () {
+        const yaml = '''
+name: n
+description: d
+steps:
+  - id: parse
+    name: Parse
+    prompt: p
+    outputs:
+      thing: not_a_real_preset
+''';
+        expect(
+          () => parser.parse(yaml),
+          throwsA(
+            isA<FormatException>()
+                .having((e) => e.message, 'message', contains('Step "parse" output "thing"'))
+                .having((e) => e.message, 'message', contains('not_a_real_preset'))
+                .having((e) => e.message, 'message', contains('format keywords'))
+                .having((e) => e.message, 'message', contains('registered schema preset')),
+          ),
+        );
       });
 
       test('parses lines format', () {
@@ -890,6 +1342,63 @@ steps:
 ''';
         final def = parser.parse(yaml);
         expect(def.steps[0].outputs, isNull);
+      });
+
+      test('parses outputExamples as string list', () {
+        const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    outputExamples:
+      - |
+        <workflow-context>
+        {"prd":"docs/prd.md"}
+        </workflow-context>
+      - |
+        <workflow-context>
+        {"prd":""}
+        </workflow-context>
+''';
+        final examples = parser.parse(yaml).steps[0].outputExamples;
+        expect(examples, hasLength(2));
+        expect(examples![0], contains('{"prd":"docs/prd.md"}'));
+        expect(examples[1], contains('{"prd":""}'));
+      });
+
+      test('rejects non-list outputExamples', () {
+        const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    outputExamples: nope
+''';
+        expect(
+          () => parser.parse(yaml),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('outputExamples'))),
+        );
+      });
+
+      test('rejects non-string outputExamples entries', () {
+        const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    outputExamples:
+      - 42
+''';
+        expect(
+          () => parser.parse(yaml),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('outputExamples'))),
+        );
       });
 
       group('setValue parsing', () {
@@ -1009,7 +1518,7 @@ steps:
         format: text
       count:
         format: json
-        schema: non-negative-integer
+        schema: non_negative_integer
 ''';
           final def = WorkflowDefinitionParser().parse(yaml);
           final step = def.steps[0];
@@ -1035,7 +1544,7 @@ steps:
                 allOf(
                   contains("Step 's': contextInputs: is removed"),
                   contains('declare context-read keys under inputs:'),
-                  contains('inputs: [project_index, prd]'),
+                  contains('inputs: [prd, plan]'),
                 ),
               ),
             ),
@@ -1961,7 +2470,7 @@ steps:
       expect(def.steps[0].maxItems, 10);
     });
 
-    test('max_items absent -> defaults to 20', () {
+    test('max_items absent -> uncapped', () {
       const yaml = '''
 name: n
 description: d
@@ -1972,7 +2481,58 @@ steps:
     map_over: items
 ''';
       final def = parser.parse(yaml);
-      expect(def.steps[0].maxItems, 20);
+      expect(def.steps[0].maxItems, isNull);
+    });
+
+    test('max_items 0 throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    max_items: 0
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('positive integer'))),
+      );
+    });
+
+    test('max_items negative throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    max_items: -1
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('positive integer'))),
+      );
+    });
+
+    test('max_items explicit null throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    max_items: null
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('positive integer'))),
+      );
     });
 
     test('isMapStep true when map_over set', () {
@@ -2003,7 +2563,7 @@ steps:
       final def = parser.parse(yaml);
       final step = def.steps[0];
       expect(step.id, 'run-tests');
-      expect(step.type, 'bash');
+      expect(step.type, WorkflowTaskType.bash);
       expect(step.prompts, isNull);
       expect(step.skill, isNull);
     });
@@ -2019,7 +2579,7 @@ steps:
 ''';
       final def = parser.parse(yaml);
       final step = def.steps[0];
-      expect(step.type, 'approval');
+      expect(step.type, WorkflowTaskType.approval);
       expect(step.prompts, isNull);
       expect(step.skill, isNull);
     });
@@ -2168,14 +2728,14 @@ steps:
 ''';
       final def = parser.parse(yaml);
       final step = def.steps[0];
-      expect(step.type, 'bash');
+      expect(step.type, WorkflowTaskType.bash);
       expect(step.workdir, '{{WORKSPACE}}');
       expect(step.onError, 'retry');
       expect(step.maxRetries, 2);
       expect(step.prompts, isNull);
     });
 
-    test('legacy research/coding step values are preserved for validator errors', () {
+    test('legacy research/coding step values are rejected with valid type list', () {
       const yaml = '''
 name: n
 description: d
@@ -2189,12 +2749,16 @@ steps:
     prompt: Write code
     type: coding
 ''';
-      final def = parser.parse(yaml);
-      expect(def.steps[0].type, 'research');
-      expect(def.steps[0].continueSession, isNull);
-      expect(def.steps[0].onError, isNull);
-      expect(def.steps[0].workdir, isNull);
-      expect(def.steps[1].type, 'coding');
+      expect(
+        () => parser.parse(yaml),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('research'), contains('agent'), contains('bash'), contains('aggregate-reviews')),
+          ),
+        ),
+      );
     });
 
     test('step without skill or prompt still throws for non-hybrid types', () {
@@ -2246,7 +2810,7 @@ steps:
 
       final controller = def.steps[1];
       expect(controller.id, 'story-pipeline');
-      expect(controller.type, 'foreach');
+      expect(controller.type, WorkflowTaskType.foreach);
       expect(controller.mapOver, 'stories');
       expect(controller.isForeachController, isTrue);
       expect(controller.foreachSteps, ['implement', 'validate', 'review']);
@@ -2285,6 +2849,27 @@ steps:
       final controller = def.steps[0];
       expect(controller.maxParallel, 2);
       expect(controller.maxItems, 50);
+    });
+
+    test('foreach max_items explicit null throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: fe
+    name: FE
+    type: foreach
+    map_over: items
+    max_items: null
+    steps:
+      - id: child
+        name: Child
+        prompt: Process {{map.item}}
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('positive integer'))),
+      );
     });
 
     test('nested foreach inside foreach throws FormatException', () {
@@ -2426,7 +3011,7 @@ steps:
 name: with-artifacts
 description: artifact block
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree:
     mode: per-map-item
     externalArtifactMount:
@@ -2448,9 +3033,34 @@ steps:
       expect(artifacts.commitMessage, 'chore(workflow): artifacts for run {{runId}}');
       expect(artifacts.project, '{{DOC_PROJECT}}');
       final mount = def.gitStrategy!.externalArtifactMount!;
-      expect(mount.mode, 'per-story-copy');
+      expect(mount.mode, WorkflowExternalArtifactMountMode.perStoryCopy);
       expect(mount.fromProject, '{{DOC_PROJECT}}');
       expect(mount.source, '{{map.item.spec_path}}');
+      expect(def.toJson()['gitStrategy']['worktree']['externalArtifactMount']['mode'], 'per-story-copy');
+    });
+
+    test('parses bind-mount externalArtifactMount with unchanged JSON', () {
+      const yaml = '''
+name: with-bind-mount
+description: artifact block
+gitStrategy:
+  worktree:
+    externalArtifactMount:
+      mode: bind-mount
+      fromProject: "{{DOC_PROJECT}}"
+      source: /tmp/artifacts
+      toPath: .andthen/artifacts
+steps:
+  - id: s1
+    name: S1
+    prompt: hi
+''';
+      final def = parser.parse(yaml);
+      final mount = def.gitStrategy!.externalArtifactMount!;
+      expect(mount.mode, WorkflowExternalArtifactMountMode.bindMount);
+      expect(mount.source, '/tmp/artifacts');
+      expect(mount.toPath, '.andthen/artifacts');
+      expect(def.toJson()['gitStrategy']['worktree']['externalArtifactMount']['mode'], 'bind-mount');
     });
 
     test('rejects unknown externalArtifactMount mode', () {
@@ -2467,7 +3077,57 @@ steps:
     name: S
     prompt: hi
 ''';
-      expect(() => parser.parse(yaml), throwsA(isA<FormatException>()));
+      expect(
+        () => parser.parse(yaml, sourcePath: 'bad-mount.yaml'),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('gitStrategy.worktree.externalArtifactMount.mode'),
+              contains('symlink'),
+              contains('per-story-copy'),
+              contains('bind-mount'),
+              contains('bad-mount.yaml'),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('rejects unknown worktree mode with field context', () {
+      const yaml = '''
+name: bad-worktree
+description: invalid mode
+gitStrategy:
+  worktree:
+    mode: branch-per-step
+steps:
+  - id: s
+    name: S
+    prompt: hi
+''';
+      expect(
+        () => parser.parse(yaml, sourcePath: 'bad-worktree.yaml'),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('gitStrategy.worktree.mode'),
+              contains('branch-per-step'),
+              contains('bad-worktree.yaml'),
+              allOf(
+                contains('shared'),
+                contains('per-task'),
+                contains('per-map-item'),
+                contains('inline'),
+                contains('auto'),
+              ),
+            ),
+          ),
+        ),
+      );
     });
   });
 }

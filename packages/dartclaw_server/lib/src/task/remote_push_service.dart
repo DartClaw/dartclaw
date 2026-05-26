@@ -119,7 +119,7 @@ class RemotePushService {
       // Test path — use injectable runner directly.
       final result = await runner(
         'git',
-        _buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['push', 'origin', branch]),
+        buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['push', 'origin', branch]),
         workingDirectory: localPath,
         environment: plan.environment,
       );
@@ -127,16 +127,12 @@ class RemotePushService {
       stderr = result.stderr;
     } else {
       // Production path — run in Isolate to avoid blocking event loop.
-      final gitArgs = _buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['push', 'origin', branch]);
+      final gitArgs = buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['push', 'origin', branch]);
       final envCopy = Map<String, String>.unmodifiable(plan.environment);
       final wdCopy = localPath;
 
       final result = await Isolate.run(() async {
-        final r = await SafeProcess.git(
-          gitArgs,
-          plan: _InlineProcessEnvironmentPlan(envCopy),
-          workingDirectory: wdCopy,
-        );
+        final r = await SafeProcess.git(gitArgs, plan: InlineProcessEnvironmentPlan(envCopy), workingDirectory: wdCopy);
         return (exitCode: r.exitCode, stdout: r.stdout as String, stderr: r.stderr as String);
       });
       exitCode = result.exitCode;
@@ -169,19 +165,4 @@ class RemotePushService {
     _log.warning('Push failed for branch $branch (exit $exitCode): $stderr');
     return PushError(stderr.trim().isNotEmpty ? stderr.trim() : 'git push exited with code $exitCode');
   }
-
-  List<String> _buildRemoteOverrideArgs(String originalRemoteUrl, String resolvedRemoteUrl, List<String> gitArgs) {
-    if (originalRemoteUrl.trim().isEmpty || originalRemoteUrl == resolvedRemoteUrl) {
-      return gitArgs;
-    }
-    return ['-c', 'remote.origin.url=$resolvedRemoteUrl', ...gitArgs];
-  }
-}
-
-final class _InlineProcessEnvironmentPlan implements ProcessEnvironmentPlan {
-  @override
-  final Map<String, String> environment;
-
-  const _InlineProcessEnvironmentPlan(Map<String, String>? environment)
-    : environment = environment ?? const <String, String>{};
 }

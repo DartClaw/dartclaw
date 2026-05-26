@@ -1,4 +1,4 @@
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show parseDuration;
+import 'package:dartclaw_workflow/src/workflow/duration_parser.dart' show parseDuration;
 import 'package:test/test.dart';
 
 void main() {

@@ -26,7 +26,7 @@ class TaskEventRecorder {
     required TaskStatus newStatus,
     required String trigger,
   }) {
-    _record(taskId, const StatusChanged(), {
+    _record(taskId, TaskEventKind.statusChanged, {
       'oldStatus': oldStatus.name,
       'newStatus': newStatus.name,
       'trigger': trigger,
@@ -49,17 +49,17 @@ class TaskEventRecorder {
     if (context case final value?) {
       details['context'] = value;
     }
-    _record(taskId, const ToolCalled(), details);
+    _record(taskId, TaskEventKind.toolCalled, details);
   }
 
   /// Records an artifact being created and attached to the task.
   void recordArtifactCreated(String taskId, {required String name, required String kind}) {
-    _record(taskId, const ArtifactCreated(), {'name': name, 'kind': kind});
+    _record(taskId, TaskEventKind.artifactCreated, {'name': name, 'kind': kind});
   }
 
   /// Records that structured output was promoted directly from inline workflow context.
   void recordStructuredOutputInlineUsed(String taskId, {required String stepId, required String outputKey}) {
-    _record(taskId, const StructuredOutputInlineUsed(), {'stepId': stepId, 'outputKey': outputKey});
+    _record(taskId, TaskEventKind.structuredOutputInlineUsed, {'stepId': stepId, 'outputKey': outputKey});
   }
 
   /// Records that structured-output extraction fell back to heuristic parsing.
@@ -74,12 +74,12 @@ class TaskEventRecorder {
     if (providerSubtype case final value?) {
       details['providerSubtype'] = value;
     }
-    _record(taskId, const StructuredOutputFallbackUsed(), details);
+    _record(taskId, TaskEventKind.structuredOutputFallbackUsed, details);
   }
 
   /// Records a push-back from review with a comment.
   void recordPushBack(String taskId, {required String comment}) {
-    _record(taskId, const PushBack(), {'comment': comment});
+    _record(taskId, TaskEventKind.pushBack, {'comment': comment});
   }
 
   /// Records a token consumption update after a completed turn.
@@ -90,7 +90,7 @@ class TaskEventRecorder {
     int cacheReadTokens = 0,
     int cacheWriteTokens = 0,
   }) {
-    _record(taskId, const TokenUpdate(), {
+    _record(taskId, TaskEventKind.tokenUpdate, {
       'inputTokens': inputTokens,
       'outputTokens': outputTokens,
       if (cacheReadTokens > 0) 'cacheReadTokens': cacheReadTokens,
@@ -100,14 +100,14 @@ class TaskEventRecorder {
 
   /// Records an error that occurred during task execution.
   void recordError(String taskId, {required String message}) {
-    _record(taskId, const TaskErrorEvent(), {'message': message});
+    _record(taskId, TaskEventKind.taskError, {'message': message});
   }
 
   /// Records a context compaction that occurred during agent execution.
   void recordCompaction(String taskId, {required String trigger, required String sessionId, int? preTokens}) {
     final details = <String, dynamic>{'trigger': trigger, 'sessionId': sessionId};
     if (preTokens != null) details['preTokens'] = preTokens;
-    _record(taskId, const Compaction(), details);
+    _record(taskId, TaskEventKind.compaction, details);
   }
 
   void _record(String taskId, TaskEventKind kind, Map<String, dynamic> details) {

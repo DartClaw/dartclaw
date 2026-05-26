@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/web/pages/tasks_page.dart';
@@ -57,7 +57,7 @@ void main() {
         taskService: null,
         goalService: null,
         eventBus: null,
-        buildSidebarData: () async => _emptySidebarData,
+        sidebarData: () async => _emptySidebarData,
         restartBannerHtml: () => '',
         buildNavItems: ({required String activePage}) => [],
       );
@@ -105,7 +105,7 @@ void main() {
         taskService: taskService,
         goalService: null,
         eventBus: null,
-        buildSidebarData: () async => _emptySidebarData,
+        sidebarData: () async => _emptySidebarData,
         restartBannerHtml: () => '',
         buildNavItems: ({required String activePage}) => [],
       );
@@ -138,6 +138,7 @@ final _emptySidebarData = (
   activeWorkflows: <SidebarActiveWorkflow>[],
   showChannels: true,
   tasksEnabled: false,
+  activeSessionId: null,
 );
 
 class _StubSessionService implements SessionService {

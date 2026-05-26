@@ -56,7 +56,7 @@ class ContentGuard extends Guard {
     if (content == null || content.isEmpty) return GuardVerdict.pass();
 
     // Truncate to max bytes (UTF-8 safe)
-    final truncated = _truncateUtf8(content, maxContentBytes);
+    final truncated = truncateUtf8Bytes(content, maxContentBytes);
 
     // Skip Cloudflare challenge pages
     if (CloudflareDetector.isCloudflareChallenge(truncated)) {
@@ -83,12 +83,16 @@ class ContentGuard extends Guard {
       return GuardVerdict.block('Content classification failed (fail-closed)');
     }
   }
+}
 
-  /// Truncate string to [maxBytes] of UTF-8 without splitting multi-byte chars.
-  static String _truncateUtf8(String text, int maxBytes) {
-    final encoded = utf8.encode(text);
-    if (encoded.length <= maxBytes) return text;
-    // Decode back, allowing malformed to handle partial multi-byte at boundary
-    return utf8.decode(encoded.sublist(0, maxBytes), allowMalformed: true);
-  }
+/// Truncates [text] so its UTF-8 encoding is at most [maxBytes] bytes, never
+/// splitting a multi-byte sequence at the boundary.
+///
+/// Use this when the downstream constraint is byte-length (e.g. a classifier
+/// API with a maximum payload size). For char-count truncation, use
+/// `truncate` from `package:dartclaw_core`.
+String truncateUtf8Bytes(String text, int maxBytes) {
+  final encoded = utf8.encode(text);
+  if (encoded.length <= maxBytes) return text;
+  return utf8.decode(encoded.sublist(0, maxBytes), allowMalformed: true);
 }

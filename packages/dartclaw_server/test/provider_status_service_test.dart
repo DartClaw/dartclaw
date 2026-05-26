@@ -1,8 +1,10 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
+import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide HarnessPool, TurnRunner;
 import 'package:test/test.dart';
 
 import 'helpers/probe_helpers.dart';
@@ -48,7 +50,7 @@ void main() {
 
       await service.probe(commandProbe: probeResults({'claude': probeOk('Claude CLI 1.0.0')}));
 
-      final statuses = service.getAll();
+      final statuses = service.all;
       expect(statuses, hasLength(1));
 
       final status = statuses.single;
@@ -63,7 +65,7 @@ void main() {
       expect(status.isDefault, isTrue);
       expect(status.health, 'healthy');
       expect(status.errorMessage, isNull);
-      expect(service.getSummary(), {'configured': 1, 'healthy': 1, 'degraded': 0});
+      expect(service.summary, {'configured': 1, 'healthy': 1, 'degraded': 0});
     });
 
     test('falls back to a single legacy codex provider and uses codex pool runners', () async {
@@ -85,7 +87,7 @@ void main() {
 
       await service.probe(commandProbe: probeResults({'codex': probeOk('Codex CLI 0.9.0')}));
 
-      final statuses = service.getAll();
+      final statuses = service.all;
       expect(statuses, hasLength(1));
 
       final status = statuses.single;
@@ -100,7 +102,7 @@ void main() {
       expect(status.isDefault, isTrue);
       expect(status.health, 'healthy');
       expect(status.errorMessage, isNull);
-      expect(service.getSummary(), {'configured': 1, 'healthy': 1, 'degraded': 0});
+      expect(service.summary, {'configured': 1, 'healthy': 1, 'degraded': 0});
     });
 
     test('reports multiple configured providers with healthy, degraded, and unavailable states', () async {
@@ -136,7 +138,7 @@ void main() {
         authProbe: _authFails,
       );
 
-      final statuses = {for (final status in service.getAll()) status.id: status};
+      final statuses = {for (final status in service.all) status.id: status};
       expect(statuses.keys, containsAll(<String>['claude', 'codex', 'ghost']));
 
       final claude = statuses['claude']!;
@@ -168,7 +170,7 @@ void main() {
       expect(ghost.binaryFound, isFalse);
       expect(ghost.errorMessage, contains("Binary 'ghost' for provider 'ghost' was not found."));
       expect(ghost.errorMessage, contains('providers.ghost.executable'));
-      expect(service.getSummary(), {'configured': 3, 'healthy': 1, 'degraded': 1});
+      expect(service.summary, {'configured': 3, 'healthy': 1, 'degraded': 1});
     });
 
     test('reports OAuth-authenticated provider as healthy with oauth credential status', () async {
@@ -183,11 +185,11 @@ void main() {
         authProbe: _authSucceeds,
       );
 
-      final status = service.getAll().single;
+      final status = service.all.single;
       expect(status.health, 'healthy');
       expect(status.credentialStatus, 'oauth');
       expect(status.errorMessage, isNull);
-      expect(service.getSummary(), {'configured': 1, 'healthy': 1, 'degraded': 0});
+      expect(service.summary, {'configured': 1, 'healthy': 1, 'degraded': 0});
     });
 
     test('does not probe auth when API key is present', () async {
@@ -207,7 +209,7 @@ void main() {
       );
 
       expect(authProbeCalls, 0, reason: 'auth probe should be skipped when API key is present');
-      expect(service.getAll().single.credentialStatus, 'present');
+      expect(service.all.single.credentialStatus, 'present');
     });
 
     test('falls back to degraded when OAuth auth probe also fails', () async {
@@ -219,7 +221,7 @@ void main() {
 
       await service.probe(commandProbe: probeResults({'claude': probeOk('Claude CLI 2.0.0')}), authProbe: _authFails);
 
-      final status = service.getAll().single;
+      final status = service.all.single;
       expect(status.health, 'degraded');
       expect(status.credentialStatus, 'missing');
       expect(status.errorMessage, isNotNull);
@@ -242,9 +244,9 @@ void main() {
         },
       );
 
-      expect(service.getAll().single.version, 'Claude CLI 3.0.0');
-      expect(service.getSummary(), {'configured': 1, 'healthy': 1, 'degraded': 0});
-      expect(service.getAll().single.version, 'Claude CLI 3.0.0');
+      expect(service.all.single.version, 'Claude CLI 3.0.0');
+      expect(service.summary, {'configured': 1, 'healthy': 1, 'degraded': 0});
+      expect(service.all.single.version, 'Claude CLI 3.0.0');
       expect(probeCalls, 1);
     });
 
@@ -266,7 +268,7 @@ void main() {
 
       await service.probe(commandProbe: probeResults({'codex': probeOk('Codex CLI 3.0.0')}));
 
-      expect(service.getAll().single.activeWorkers, 1);
+      expect(service.all.single.activeWorkers, 1);
     });
 
     test('handles non-zero exits, missing binaries, and empty version output', () async {
@@ -290,7 +292,7 @@ void main() {
         }),
       );
 
-      final statuses = {for (final status in service.getAll()) status.id: status};
+      final statuses = {for (final status in service.all) status.id: status};
 
       expect(statuses['claude']!.binaryFound, isTrue);
       expect(statuses['claude']!.version, 'unknown');
@@ -320,7 +322,7 @@ void main() {
         }),
       );
 
-      expect(service.getAll().single.version, 'Codex CLI 9.9.9');
+      expect(service.all.single.version, 'Codex CLI 9.9.9');
     });
   });
 }

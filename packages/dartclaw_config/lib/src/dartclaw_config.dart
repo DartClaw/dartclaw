@@ -20,7 +20,6 @@ import 'package:yaml/yaml.dart';
 import 'agent_config.dart';
 import 'advisor_config.dart';
 import 'alerts_config.dart';
-import 'andthen_config.dart';
 import 'auth_config.dart';
 import 'canvas_config.dart';
 import 'context_config.dart';
@@ -30,6 +29,7 @@ import 'features_config.dart';
 import 'gateway_config.dart';
 import 'governance_config.dart';
 import 'history_config.dart';
+import 'identifier_preservation_mode.dart';
 import 'logging_config.dart';
 import 'memory_config.dart';
 import 'path_utils.dart';
@@ -47,6 +47,7 @@ import 'task_config.dart';
 import 'usage_config.dart';
 import 'workflow_config.dart';
 import 'workspace_config.dart';
+import 'yaml_type_safe_reader.dart';
 
 part 'config_channel_provider.dart';
 part 'config_extensions.dart';
@@ -56,32 +57,80 @@ part 'config_parser_governance.dart';
 /// Immutable configuration for DartClaw runtime.
 class DartclawConfig {
   // --- Composed section fields ---
+  /// server.
   final ServerConfig server;
+
+  /// agent.
   final AgentConfig agent;
+
+  /// advisor.
   final AdvisorConfig advisor;
+
+  /// auth.
   final AuthConfig auth;
+
+  /// canvas.
   final CanvasConfig canvas;
+
+  /// gateway.
   final GatewayConfig gateway;
+
+  /// sessions.
   final SessionConfig sessions;
+
+  /// context.
   final ContextConfig context;
+
+  /// security.
   final SecurityConfig security;
+
+  /// memory.
   final MemoryConfig memory;
+
+  /// search.
   final SearchConfig search;
+
+  /// providers.
   final ProvidersConfig providers;
+
+  /// credentials.
   final CredentialsConfig credentials;
+
+  /// tasks.
   final TaskConfig tasks;
+
+  /// scheduling.
   final SchedulingConfig scheduling;
+
+  /// workspace.
   final WorkspaceConfig workspace;
+
+  /// workflow.
   final WorkflowConfig workflow;
+
+  /// logging.
   final LoggingConfig logging;
+
+  /// usage.
   final UsageConfig usage;
+
+  /// container.
   final ContainerConfig container;
+
+  /// channels.
   final ChannelConfig channels;
+
+  /// governance.
   final GovernanceConfig governance;
+
+  /// features.
   final FeaturesConfig features;
+
+  /// projects.
   final ProjectConfig projects;
+
+  /// alerts.
   final AlertsConfig alerts;
-  final AndthenConfig andthen;
 
   /// Extension sections registered by private deployers via [registerExtensionParser].
   /// Unknown YAML keys with registered parsers produce typed entries here.
@@ -93,19 +142,38 @@ class DartclawConfig {
   /// Callers are responsible for surfacing these.
   final List<String> _warnings;
 
+  /// warnings.
   List<String> get warnings => UnmodifiableListView(_warningSink());
+
+  /// channelConfigProvider.
   ChannelConfigProvider get channelConfigProvider => _ConfigChannelConfigProvider(this);
 
   // --- Derived path getters ---
+  /// workspaceDir.
   String get workspaceDir => p.join(server.dataDir, 'workspace');
+
+  /// sessionsDir.
   String get sessionsDir => p.join(server.dataDir, 'sessions');
+
+  /// logsDir.
   String get logsDir => p.join(server.dataDir, 'logs');
+
+  /// searchDbPath.
   String get searchDbPath => p.join(server.dataDir, 'search.db');
+
+  /// tasksDbPath.
   String get tasksDbPath => p.join(server.dataDir, 'tasks.db');
+
+  /// kvPath.
   String get kvPath => p.join(server.dataDir, 'kv.json');
+
+  /// projectsJsonPath.
   String get projectsJsonPath => p.join(server.dataDir, 'projects.json');
+
+  /// projectsClonesDir.
   String get projectsClonesDir => p.join(server.dataDir, 'projects');
 
+  /// Creates a [DartclawConfig] value.
   const DartclawConfig({
     this.server = const ServerConfig.defaults(),
     this.agent = const AgentConfig.defaults(),
@@ -132,7 +200,6 @@ class DartclawConfig {
     this.features = const FeaturesConfig(),
     this.projects = const ProjectConfig.defaults(),
     this.alerts = const AlertsConfig.defaults(),
-    this.andthen = const AndthenConfig.defaults(),
     this.extensions = const {},
     List<String> warnings = const [],
   }) : _warnings = warnings;
@@ -185,6 +252,7 @@ class DartclawConfig {
     throw ArgumentError('Extension "$name" is ${ext.runtimeType}, not assignable to $T.');
   }
 
+  /// Returns the channel-specific config of type `T` for [channelType].
   T getChannelConfig<T>(ChannelType channelType) {
     final cachedConfig = _channelConfigForConfig(this, channelType);
     if (cachedConfig is! T) {
@@ -214,8 +282,16 @@ class DartclawConfig {
     final warns = <String>[];
 
     final yaml = _loadYaml(environment, reader, warns, configPath: configPath);
+    final configBaseDir = _loadedConfigBaseDir(environment, configPath: configPath);
 
-    final server = _parseTopLevel(yaml, cli, environment, const ServerConfig.defaults(), warns);
+    final server = _parseTopLevel(
+      yaml,
+      cli,
+      environment,
+      const ServerConfig.defaults(),
+      warns,
+      configBaseDir: configBaseDir,
+    );
     final logging = _parseLogging(yaml, cli, environment, const LoggingConfig.defaults(), warns);
     final agent = _parseAgent(yaml, const AgentConfig.defaults(), warns);
     final advisor = _parseAdvisor(yaml, const AdvisorConfig.defaults(), warns);
@@ -240,7 +316,7 @@ class DartclawConfig {
     final features = _parseFeatures(yaml);
     final projects = parseProjectConfig(_sectionMap('projects', yaml, warns), warns);
     final alerts = _parseAlerts(yaml, const AlertsConfig.defaults(), warns);
-    final andthen = _parseAndthen(yaml, const AndthenConfig.defaults(), warns);
+    _warnRetiredAndthenConfig(yaml, warns);
     final extensions = _parseExtensions(yaml, warns);
 
     final config = DartclawConfig(
@@ -269,7 +345,6 @@ class DartclawConfig {
       features: features,
       projects: projects,
       alerts: alerts,
-      andthen: andthen,
       extensions: extensions,
       warnings: warns,
     );

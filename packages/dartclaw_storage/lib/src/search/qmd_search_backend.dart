@@ -14,9 +14,11 @@ enum SearchDepth {
   /// Full query with reranking (5-8s)
   deep('query');
 
+  /// Wire value passed to the QMD `mode` query parameter.
   final String value;
   const SearchDepth(this.value);
 
+  /// Parses a [SearchDepth] from its config string.
   static SearchDepth fromString(String s) => switch (s) {
     'fast' => SearchDepth.fast,
     'deep' => SearchDepth.deep,
@@ -31,10 +33,16 @@ enum SearchDepth {
 class QmdSearchBackend implements SearchBackend {
   static final _log = Logger('QmdSearchBackend');
 
+  /// QMD lifecycle manager used to issue queries.
   final QmdManager manager;
+
+  /// Backend used when QMD is unreachable or fails.
   final SearchBackend fallback;
+
+  /// Default search depth applied when callers do not override it.
   final SearchDepth defaultDepth;
 
+  /// Creates a QMD-backed search backend with [fallback] as the FTS5 substitute.
   QmdSearchBackend({required this.manager, required this.fallback, this.defaultDepth = SearchDepth.standard});
 
   @override

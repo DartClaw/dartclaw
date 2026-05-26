@@ -25,7 +25,7 @@ variables:
 project: "{{PROJECT}}"
 
 gitStrategy:
-  bootstrap: false
+  integrationBranch: false
   worktree: shared
   publish:
     enabled: false
@@ -42,30 +42,16 @@ stepDefaults:
     model: "@workflow"
 
 steps:
-  # Discover the project layout and relevant Git context before the review begins.
-  - id: discover-project
-    name: Discover Project
-    skill: dartclaw-discover-project
-    # read-only: discovers project layout, no writes — narrow surface preserves
-    # step_config_policy.stepIsReadOnly inference (file_write non-membership).
-    allowedTools: [shell, file_read]
-    outputs:
-      project_index:
-        format: json
-        schema: project-index
-        description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
-
   # Run the initial code review and emit a structured verdict for the remediation loop.
   # TARGET identifies what to review; BRANCH / PR_NUMBER / BASE_BRANCH let the
   # review skill select the right diffing strategy (PR vs branch vs plain target).
   - id: review-code
     name: Review Code
-    skill: dartclaw-review
+    skill: andthen:review
     # File-backed review: the remediation skill consumes a report path, so
     # this step writes the review artifact under the workflow runtime artifacts
     # directory and emits its absolute path.
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    inputs: [project_index]
     workflowVariables: [TARGET, BRANCH, PR_NUMBER, BASE_BRANCH]
     prompt: |
       --auto --output-dir "{{workflow.runtime_artifacts_dir}}/reviews" {{TARGET}}
@@ -73,17 +59,9 @@ steps:
       pr={{PR_NUMBER}}
       base={{BASE_BRANCH}}
     outputs:
-      review_findings:
-        format: path
-        description: Absolute path to the code review report file written by dartclaw-review in the --output-dir directory.
-      review-code.findings_count:
-        format: json
-        schema: non-negative-integer
-        description: Number of findings flagged by the review; 0 means the remediation loop can exit.
-      review-code.gating_findings_count:
-        format: json
-        schema: non-negative-integer
-        description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
+      review_findings: review_report_path
+      review-code.findings_count: findings_count
+      review-code.gating_findings_count: gating_findings_count
 
   # Iterate remediation until both validation and re-review report a clean result or the loop is exhausted.
   - id: remediation-loop
@@ -98,38 +76,25 @@ steps:
       # on its edits before emitting a completed remediation result.
       - id: remediate
         name: Remediate Findings
-        skill: dartclaw-remediate-findings
-        inputs: [project_index, review_findings]
+        skill: andthen:remediate-findings
+        inputs: [review_findings]
         prompt: "--auto {{context.review_findings}}"
         outputs:
-          remediation_result:
-            format: json
-            schema: remediation-result
-            description: Structured outcome record for this remediation pass.
-          remediation_summary:
-            format: text
-            schema: remediation-summary
-          diff_summary:
-            format: text
-            schema: diff-summary
+          remediation_result: remediation_result
+          remediation_summary: remediation_summary
 
       # Re-run the code review on the remediated implementation to decide whether another pass is needed.
       - id: re-review
         name: Re-review
-        skill: dartclaw-review
+        skill: andthen:review
         # File-backed review: later remediation iterations consume this report path.
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-        inputs: [project_index, review_findings, remediation_summary, diff_summary]
-        prompt: '--mode code --auto --output-dir "{{workflow.runtime_artifacts_dir}}/reviews" {{context.remediation_summary}}'
+        inputs: [review_findings, remediation_summary]
+        prompt: >-
+          --mode code --auto
+          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          {{context.remediation_summary}}
         outputs:
-          review_findings:
-            format: path
-            description: Absolute path to the code review report file written by dartclaw-review in the --output-dir directory.
-          re-review.findings_count:
-            format: json
-            schema: non-negative-integer
-            description: Number of remaining issues after this re-review; 0 exits the remediation loop.
-          re-review.gating_findings_count:
-            format: json
-            schema: non-negative-integer
-            description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
+          review_findings: review_report_path
+          re-review.findings_count: findings_count
+          re-review.gating_findings_count: gating_findings_count

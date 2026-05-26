@@ -2,27 +2,36 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:args/args.dart' show ArgResults;
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, WorkflowRunStatus;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         EventBus,
         HarnessFactory,
+        MapIterationCompletedEvent,
+        Task,
         TaskStatus,
         TaskStatusChangedEvent,
-        WorkflowDefinition,
-        WorkflowRun,
-        WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent,
         WorkflowApprovalRequestedEvent;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkspaceService;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SearchDbFactory, TaskDbFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowRoleDefault, WorkflowRoleDefaults, WorkflowService, WorkflowStep, resolveStepConfig;
+    show
+        WorkflowDefinition,
+        WorkflowExclusion,
+        WorkflowRoleDefault,
+        WorkflowRoleDefaults,
+        WorkflowRun,
+        WorkflowService,
+        WorkflowStep,
+        WorkflowTaskType,
+        resolveStepConfig;
+import 'package:path/path.dart' as p;
 
 import '../../dartclaw_api_client.dart';
+import '../cli_global_options.dart';
 import '../config_loader.dart';
 import '../serve_command.dart' show ExitFn, WriteLine;
 import 'cli_progress_printer.dart';
@@ -81,7 +90,7 @@ class WorkflowRunCommand extends Command<void> {
         'no-skill-bootstrap',
         negatable: false,
         help:
-            'Skip AndThen skill provisioning in standalone mode. Use when AndThen has been pre-staged or '
+            'Skip DartClaw-native workflow skill provisioning in standalone mode. Use when skills are pre-staged or '
             'when running in an installed/AOT layout that cannot resolve the built-in skill source.',
       );
   }
@@ -117,7 +126,7 @@ class WorkflowRunCommand extends Command<void> {
       throw UsageException('--no-skill-bootstrap can only be used together with --standalone', usage);
     }
 
-    final config = _config ?? loadCliConfig(configPath: _globalOptionString(globalResults, 'config'));
+    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
     if (standalone) {
       await _runStandaloneWithSafety(
         config: config,
@@ -128,6 +137,7 @@ class WorkflowRunCommand extends Command<void> {
         force: force,
         jsonOutput: jsonOutput,
         runAndthenSkillsBootstrap: _runAndthenSkillsBootstrap && !skipSkillBootstrap,
+        preferSourceTreeAssets: _resolvePreferSourceTreeAssets(),
       );
       return;
     }
@@ -136,8 +146,8 @@ class WorkflowRunCommand extends Command<void> {
         _apiClient ??
         DartclawApiClient.fromConfig(
           config: config,
-          serverOverride: _serverOverride(globalResults),
-          tokenOverride: _globalOptionString(globalResults, 'token'),
+          serverOverride: serverOverride(globalResults),
+          tokenOverride: globalOptionString(globalResults, 'token'),
         );
     try {
       await _runConnected(
@@ -163,13 +173,14 @@ class WorkflowRunCommand extends Command<void> {
     required bool force,
     required bool jsonOutput,
     required bool runAndthenSkillsBootstrap,
+    required bool preferSourceTreeAssets,
   }) async {
     final apiClient =
         _apiClient ??
         DartclawApiClient.fromConfig(
           config: config,
-          serverOverride: _serverOverride(globalResults),
-          tokenOverride: _globalOptionString(globalResults, 'token'),
+          serverOverride: serverOverride(globalResults),
+          tokenOverride: globalOptionString(globalResults, 'token'),
         );
     final serverReachable = await apiClient.probeHealth();
     if (serverReachable && !force) {
@@ -193,6 +204,7 @@ class WorkflowRunCommand extends Command<void> {
       searchDbFactory: _searchDbFactory,
       taskDbFactory: _taskDbFactory,
       runAndthenSkillsBootstrap: runAndthenSkillsBootstrap,
+      preferSourceTreeAssets: preferSourceTreeAssets,
     );
     var wired = false;
     try {
@@ -208,20 +220,57 @@ class WorkflowRunCommand extends Command<void> {
     try {
       final definition = wiring.registry.getByName(workflowName);
       if (definition == null) {
-        _stderrLine('Unknown workflow: $workflowName');
+        final allExclusions = wiring.registry.exclusions;
+        // Match parse-failure entries (workflowName == null) by filename
+        // basename so "dartclaw run foo" surfaces a foo.yaml parse failure.
+        bool matchesRequested(WorkflowExclusion excl) {
+          if (excl.workflowName != null) return excl.workflowName == workflowName;
+          return p.basenameWithoutExtension(excl.sourcePath) == workflowName;
+        }
+
+        final namedExclusions = allExclusions.where(matchesRequested).toList();
+        final otherExclusions = allExclusions.where((excl) => !matchesRequested(excl)).toList();
+        if (namedExclusions.isNotEmpty) {
+          _stderrLine('Workflow "$workflowName" was excluded at load time:');
+          for (final excl in namedExclusions) {
+            _stderrLine('  ${excl.sourcePath}:');
+            for (final err in excl.errors) {
+              _stderrLine('    - $err');
+            }
+          }
+        } else {
+          _stderrLine('Unknown workflow: $workflowName');
+        }
         final available = wiring.registry.listAll().map((item) => item.name).join(', ');
         if (available.isNotEmpty) {
           _stderrLine('Available: $available');
         }
-        if (!runAndthenSkillsBootstrap) {
+        if (otherExclusions.isNotEmpty) {
+          // Surface sibling failures so partial-registry damage is visible
+          // even when the operator's requested workflow exists or doesn't.
+          _stderrLine(
+            available.isEmpty
+                ? 'No workflows are registered. Excluded at load time:'
+                : 'Other workflows excluded at load time:',
+          );
+          for (final excl in otherExclusions) {
+            final label = excl.workflowName ?? excl.sourcePath;
+            _stderrLine('  $label: ${excl.errors.join('; ')}');
+          }
+        }
+        // Suppress the --no-skill-bootstrap skill hint when an explicit
+        // exclusion reason was already surfaced — the hint tells the operator
+        // to fix skill provisioning, which is misleading if the actual cause
+        // was (e.g.) a structural validation error.
+        if (!runAndthenSkillsBootstrap && allExclusions.isEmpty) {
           // Workflows that reference unresolved skills are silently excluded
           // by WorkflowRegistry; with --no-skill-bootstrap that almost always
           // means workflow skills weren't pre-staged. Surface the hint.
           _stderrLine(
-            'Note: --no-skill-bootstrap was set. If "$workflowName" uses DartClaw workflow skills '
-            '(dartclaw-prd, dartclaw-plan, etc.), pre-stage the AndThen skill bundle under '
-            '~/.claude/skills/ and ~/.agents/skills/, '
-            'or omit --no-skill-bootstrap to provision them automatically.',
+            'Note: --no-skill-bootstrap was set. If "$workflowName" uses DartClaw-native workflow skills, '
+            'pre-stage them under the data-dir native skill roots and materialize the project workspace links, '
+            'or omit --no-skill-bootstrap to provision those native skills automatically. '
+            'AndThen skills must be installed separately for the selected provider.',
           );
         }
         _exitFn(1);
@@ -230,11 +279,11 @@ class WorkflowRunCommand extends Command<void> {
         final missing = _missingNativeSkillInstalls(definition: definition, wiring: wiring, config: config);
         if (missing.isNotEmpty) {
           _stderrLine(
-            '--no-skill-bootstrap was set but DartClaw workflow skills referenced by "$workflowName" '
+            '--no-skill-bootstrap was set but workflow skills referenced by "$workflowName" '
             'are not installed in native harness skill roots for their execution providers: '
             '${_formatMissingNativeSkillInstalls(missing)}. '
-            'Pre-stage the skill bundle under ~/.claude/skills/ and ~/.agents/skills/, '
-            'or omit --no-skill-bootstrap to provision them automatically.',
+            'Install AndThen separately for AndThen-owned skills; omit --no-skill-bootstrap only provisions '
+            'DartClaw-native skills.',
           );
           _exitFn(1);
         }
@@ -298,7 +347,7 @@ class WorkflowRunCommand extends Command<void> {
     }
 
     final completer = Completer<int>();
-    final startedSteps = <int, DateTime>{};
+    final startedSteps = <String, DateTime>{};
     var lastStatus = run.status;
     var lastError = run.errorMessage;
     var cancelRequested = false;
@@ -365,13 +414,16 @@ class WorkflowRunCommand extends Command<void> {
             }
             final step = definition.steps[stepIndex];
             final newStatus = event['newStatus']?.toString();
+            final displayScope = _eventDisplayScope(event);
+            final taskId = event['taskId']?.toString();
             if (newStatus == TaskStatus.running.name) {
-              startedSteps[stepIndex] = DateTime.now();
+              startedSteps[_progressStartKey(stepIndex: stepIndex, taskId: taskId, displayScope: displayScope)] =
+                  DateTime.now();
               if (!jsonOutput) {
-                printer.stepRunning(stepIndex, step.id, step.name, step.provider);
+                printer.stepRunning(stepIndex, step.id, step.name, step.provider, displayScope: displayScope);
               }
             } else if (newStatus == TaskStatus.review.name && !jsonOutput) {
-              printer.stepReview(stepIndex, step.id);
+              printer.stepReview(stepIndex, step.id, displayScope: displayScope);
             }
             break;
           case 'workflow_step_completed':
@@ -379,12 +431,44 @@ class WorkflowRunCommand extends Command<void> {
             final stepId = event['stepId']?.toString() ?? '';
             final success = event['success'] == true;
             final tokenCount = event['tokenCount'] as int? ?? 0;
-            final duration = startedSteps.remove(stepIndex)?.let(DateTime.now().difference) ?? Duration.zero;
+            final displayScope = _eventDisplayScope(event);
+            final taskId = event['taskId']?.toString();
+            final duration =
+                startedSteps
+                    .remove(_progressStartKey(stepIndex: stepIndex, taskId: taskId, displayScope: displayScope))
+                    ?.let(DateTime.now().difference) ??
+                Duration.zero;
             if (!jsonOutput) {
               if (success) {
-                printer.stepCompleted(stepIndex, stepId, duration, tokenCount);
+                printer.stepCompleted(stepIndex, stepId, duration, tokenCount, displayScope: displayScope);
               } else {
-                printer.stepFailed(stepIndex, stepId, null);
+                printer.stepFailed(stepIndex, stepId, null, displayScope: displayScope);
+              }
+            }
+            break;
+          case 'map_iteration_completed':
+            final stepId = event['stepId']?.toString();
+            if (stepId == null) break;
+            final stepIndex = definition.steps.indexWhere((step) => step.id == stepId);
+            final taskId = event['taskId']?.toString();
+            if (stepIndex < 0) break;
+            if (definition.steps[stepIndex].taskType == WorkflowTaskType.foreach &&
+                (taskId?.trim().isNotEmpty ?? false)) {
+              break;
+            }
+            final success = event['success'] == true;
+            final tokenCount = event['tokenCount'] as int? ?? 0;
+            final displayScope = _eventDisplayScope(event);
+            final duration =
+                startedSteps
+                    .remove(_progressStartKey(stepIndex: stepIndex, taskId: taskId, displayScope: displayScope))
+                    ?.let(DateTime.now().difference) ??
+                Duration.zero;
+            if (!jsonOutput) {
+              if (success) {
+                printer.stepCompleted(stepIndex, stepId, duration, tokenCount, displayScope: displayScope);
+              } else {
+                printer.stepFailed(stepIndex, stepId, null, displayScope: displayScope);
               }
             }
             break;
@@ -466,7 +550,7 @@ class WorkflowRunCommand extends Command<void> {
   }) async {
     final runCompleter = Completer<WorkflowRun>();
     String? activeRunId;
-    final stepStartTimes = <int, DateTime>{};
+    final stepStartTimes = <String, DateTime>{};
     WorkflowApprovalRequestedEvent? lastApprovalEvent;
 
     final runSub = eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) {
@@ -515,7 +599,9 @@ class WorkflowRunCommand extends Command<void> {
 
     final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
       if (activeRunId != null && event.runId != activeRunId) return;
-      final startTime = stepStartTimes.remove(event.stepIndex);
+      final startTime = stepStartTimes.remove(
+        _progressStartKey(stepIndex: event.stepIndex, taskId: event.taskId, displayScope: event.displayScope),
+      );
       final duration = startTime != null ? DateTime.now().difference(startTime) : Duration.zero;
       if (jsonOutput) {
         _stdoutLine(
@@ -526,6 +612,7 @@ class WorkflowRunCommand extends Command<void> {
             'stepIndex': event.stepIndex,
             'totalSteps': event.totalSteps,
             'taskId': event.taskId,
+            if (event.displayScope != null) 'displayScope': event.displayScope,
             'success': event.success,
             'tokenCount': event.tokenCount,
             'durationMs': duration.inMilliseconds,
@@ -534,9 +621,50 @@ class WorkflowRunCommand extends Command<void> {
         return;
       }
       if (event.success) {
-        printer.stepCompleted(event.stepIndex, event.stepId, duration, event.tokenCount);
+        printer.stepCompleted(
+          event.stepIndex,
+          event.stepId,
+          duration,
+          event.tokenCount,
+          displayScope: event.displayScope,
+        );
       } else {
-        printer.stepFailed(event.stepIndex, event.stepId, null);
+        printer.stepFailed(event.stepIndex, event.stepId, null, displayScope: event.displayScope);
+      }
+    });
+
+    final mapIterationSub = eventBus.on<MapIterationCompletedEvent>().listen((event) {
+      if (activeRunId != null && event.runId != activeRunId) return;
+      final stepIndex = definition.steps.indexWhere((step) => step.id == event.stepId);
+      if (stepIndex < 0) return;
+      if (definition.steps[stepIndex].taskType == WorkflowTaskType.foreach && event.taskId.trim().isNotEmpty) return;
+      final startTime = stepStartTimes.remove(
+        _progressStartKey(stepIndex: stepIndex, taskId: event.taskId, displayScope: event.itemId),
+      );
+      final duration = startTime != null ? DateTime.now().difference(startTime) : Duration.zero;
+      if (jsonOutput) {
+        _stdoutLine(
+          jsonEncode({
+            'type': 'map_iteration_completed',
+            'runId': event.runId,
+            'stepId': event.stepId,
+            'stepIndex': stepIndex,
+            'iterationIndex': event.iterationIndex,
+            'totalIterations': event.totalIterations,
+            if (event.itemId != null) 'itemId': event.itemId,
+            if (event.itemId != null) 'displayScope': event.itemId,
+            'taskId': event.taskId,
+            'success': event.success,
+            'tokenCount': event.tokenCount,
+            'durationMs': duration.inMilliseconds,
+          }),
+        );
+        return;
+      }
+      if (event.success) {
+        printer.stepCompleted(stepIndex, event.stepId, duration, event.tokenCount, displayScope: event.itemId);
+      } else {
+        printer.stepFailed(stepIndex, event.stepId, null, displayScope: event.itemId);
       }
     });
 
@@ -549,27 +677,37 @@ class WorkflowRunCommand extends Command<void> {
           final stepIndex = task.stepIndex;
           if (stepIndex == null) return;
           final stepId = definition.steps.length > stepIndex ? definition.steps[stepIndex].id : task.id;
+          final displayScope = _taskDisplayScope(task);
           if (event.newStatus == TaskStatus.running) {
-            stepStartTimes[stepIndex] = DateTime.now();
+            stepStartTimes[_progressStartKey(stepIndex: stepIndex, taskId: event.taskId, displayScope: displayScope)] =
+                DateTime.now();
           }
           if (jsonOutput) {
-            _stdoutLine(
-              jsonEncode({
-                'type': 'task_status_changed',
-                'runId': runId,
-                'taskId': event.taskId,
-                'stepIndex': stepIndex,
-                'stepId': stepId,
-                'oldStatus': event.oldStatus.name,
-                'newStatus': event.newStatus.name,
-              }),
-            );
+            final payload = {
+              'type': 'task_status_changed',
+              'runId': runId,
+              'taskId': event.taskId,
+              'stepIndex': stepIndex,
+              'stepId': stepId,
+              'oldStatus': event.oldStatus.name,
+              'newStatus': event.newStatus.name,
+            };
+            if (displayScope != null) {
+              payload['displayScope'] = displayScope;
+            }
+            _stdoutLine(jsonEncode(payload));
             return;
           }
           if (event.newStatus == TaskStatus.running) {
-            printer.stepRunning(stepIndex, stepId, task.title, task.provider ?? definition.steps[stepIndex].provider);
+            printer.stepRunning(
+              stepIndex,
+              stepId,
+              task.title,
+              task.provider ?? definition.steps[stepIndex].provider,
+              displayScope: displayScope,
+            );
           } else {
-            printer.stepReview(stepIndex, stepId);
+            printer.stepReview(stepIndex, stepId, displayScope: displayScope);
           }
         });
       }
@@ -643,6 +781,7 @@ class WorkflowRunCommand extends Command<void> {
     } finally {
       await runSub.cancel();
       await stepSub.cancel();
+      await mapIterationSub.cancel();
       await taskSub.cancel();
       await sigintSub.cancel();
       await approvalSub.cancel();
@@ -665,6 +804,21 @@ class WorkflowRunCommand extends Command<void> {
     };
   }
 
+  /// Reads the `DARTCLAW_WORKFLOWS_PREFER_SOURCE` env var.
+  ///
+  /// The maintainer profile (`dev/tools/dartclaw-workflows/run.sh`) sets this
+  /// to `1` so that live source-tree edits to skills and workflow YAMLs win
+  /// over a stale `~/.dartclaw/assets/v<version>/` install. Currently
+  /// consulted only on the `--standalone` path; a connected `dartclaw run`
+  /// dispatches to whatever the running server's wiring decided at startup,
+  /// so this env var has no effect there. The maintainer `run.sh` only
+  /// invokes standalone, which is the only path that needs the override.
+  bool _resolvePreferSourceTreeAssets() {
+    final env = _environment ?? Platform.environment;
+    final value = env['DARTCLAW_WORKFLOWS_PREFER_SOURCE']?.trim().toLowerCase();
+    return value == '1' || value == 'true' || value == 'yes';
+  }
+
   Map<String, String> _parseVariables(List<String> varArgs) {
     final variables = <String, String>{};
     for (final arg in varArgs) {
@@ -680,51 +834,81 @@ class WorkflowRunCommand extends Command<void> {
   }
 }
 
+String? _eventDisplayScope(Map<String, dynamic> event) {
+  final scope = event['displayScope'] ?? event['itemId'];
+  if (scope is! String) return null;
+  final trimmed = scope.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+String? _taskDisplayScope(Task task) {
+  final scope = task.configJson['displayScope'];
+  if (scope is! String) return null;
+  final trimmed = scope.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+String _progressStartKey({required int stepIndex, String? taskId, String? displayScope}) {
+  final normalizedTaskId = taskId?.trim();
+  if (normalizedTaskId != null && normalizedTaskId.isNotEmpty) {
+    return 'task:$normalizedTaskId';
+  }
+  final normalizedScope = displayScope?.trim();
+  if (normalizedScope != null && normalizedScope.isNotEmpty) {
+    return 'step:$stepIndex:$normalizedScope';
+  }
+  return 'step:$stepIndex';
+}
+
 extension<T> on T {
   R let<R>(R Function(T value) fn) => fn(this);
 }
 
-String? _serverOverride(ArgResults? results) {
-  return _globalOptionString(results, 'server');
-}
-
-String? _globalOptionString(ArgResults? results, String name) {
-  if (results == null) return null;
-  try {
-    return results[name] as String?;
-  } on ArgumentError {
-    return null;
-  }
-}
-
-Map<String, Set<String>> _missingNativeSkillInstalls({
+List<_MissingNativeSkillInstall> _missingNativeSkillInstalls({
   required WorkflowDefinition definition,
   required CliWorkflowWiring wiring,
   required DartclawConfig config,
 }) {
   final roleDefaults = _workflowRoleDefaults(config);
-  final missing = <String, Set<String>>{};
+  final missing = <_MissingNativeSkillInstall>[];
   for (final step in definition.steps) {
     final skillName = step.skill;
-    if (skillName == null || !skillName.startsWith('dartclaw-')) continue;
+    if (skillName == null) continue;
 
     final provider = _effectiveStepProvider(definition, step, config, roleDefaults);
-    final skill = wiring.skillRegistry.getByName(skillName);
-    if (skill == null || !skill.nativeHarnesses.contains(provider)) {
-      missing.putIfAbsent(skillName, () => <String>{}).add(provider);
+    final resolved = wiring.skillRegistry.resolveRef(skillName, provider);
+    if (resolved == null || !resolved.skill.nativeHarnesses.contains(provider)) {
+      missing.add(
+        _MissingNativeSkillInstall(
+          canonicalRef: skillName,
+          provider: provider,
+          searchedName: _providerSkillAlias(skillName, provider),
+        ),
+      );
     }
   }
   return missing;
 }
 
-String _formatMissingNativeSkillInstalls(Map<String, Set<String>> missing) {
-  final names = missing.keys.toList()..sort();
-  return names
-      .map((name) {
-        final providers = missing[name]!.toList()..sort();
-        return '$name (${providers.join(", ")})';
-      })
-      .join(', ');
+String _formatMissingNativeSkillInstalls(List<_MissingNativeSkillInstall> missing) =>
+    (missing.toList()..sort((a, b) => a.sortKey.compareTo(b.sortKey)))
+        .map((item) => '${item.canonicalRef} (provider ${item.provider}, searched ${item.searchedName})')
+        .join(', ');
+
+String _providerSkillAlias(String skillName, String provider) {
+  if (!skillName.startsWith('andthen:')) return skillName;
+  final suffix = skillName.substring('andthen:'.length);
+  return provider == 'codex' ? 'andthen-$suffix' : skillName;
+}
+
+final class _MissingNativeSkillInstall {
+  final String canonicalRef;
+  final String provider;
+  final String searchedName;
+
+  const _MissingNativeSkillInstall({required this.canonicalRef, required this.provider, required this.searchedName});
+
+  String get sortKey => '$canonicalRef\x00$provider\x00$searchedName';
 }
 
 Set<String> _requiredWorkflowProviders(WorkflowDefinition definition, DartclawConfig config) {

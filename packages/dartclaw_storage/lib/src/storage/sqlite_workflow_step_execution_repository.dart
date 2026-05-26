@@ -5,6 +5,7 @@ import 'package:sqlite3/sqlite3.dart';
 class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepository {
   final Database _db;
 
+  /// Creates the repository against [_db] and initializes its schema.
   SqliteWorkflowStepExecutionRepository(this._db) {
     _initSchema();
   }

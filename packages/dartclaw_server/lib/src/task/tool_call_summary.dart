@@ -1,5 +1,6 @@
 import '../templates/helpers.dart';
 
+/// Summarizes a tool-call's [input] map into a short display string for activity feeds.
 String? summarizeToolInput(String toolName, Map<String, dynamic> input, {int maxLength = 80}) {
   if (input.isEmpty) {
     return null;
@@ -69,6 +70,7 @@ String? summarizeToolInput(String toolName, Map<String, dynamic> input, {int max
       formatValue(input['paths']);
 }
 
+/// Formats a tool name and [context] into a present-tense activity description.
 String formatToolActivity(String toolName, {String? context, int maxLength = 100}) {
   if (toolName.isEmpty) {
     return '';
@@ -92,6 +94,7 @@ String formatToolActivity(String toolName, {String? context, int maxLength = 100
   return truncate('$verb $context', maxLength);
 }
 
+/// Formats a tool name and [context] into a compact event-feed label.
 String formatToolEventText(String toolName, {String? context, int maxLength = 80}) {
   if (toolName.isEmpty) {
     return '(tool)';

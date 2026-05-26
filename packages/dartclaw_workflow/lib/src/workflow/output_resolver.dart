@@ -98,6 +98,18 @@ String _globToRegex(String pattern) {
       buffer.write('[^/]');
       continue;
     }
+    if (char == '{') {
+      final closeIndex = pattern.indexOf('}', i + 1);
+      if (closeIndex != -1) {
+        final body = pattern.substring(i + 1, closeIndex);
+        if (body.contains(',')) {
+          final alternatives = body.split(',').map(RegExp.escape).join('|');
+          buffer.write('(?:$alternatives)');
+          i = closeIndex;
+          continue;
+        }
+      }
+    }
     if (r'.+^$(){}|[]\'.contains(char)) {
       buffer.write(r'\');
     }

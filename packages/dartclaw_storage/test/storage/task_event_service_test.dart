@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 TaskEvent _makeEvent({
   required String id,
   String taskId = 'task-1',
-  TaskEventKind kind = const StatusChanged(),
+  TaskEventKind kind = TaskEventKind.statusChanged,
   Map<String, dynamic> details = const {},
   DateTime? timestamp,
 }) {
@@ -47,7 +47,7 @@ void main() {
     final event = _makeEvent(
       id: 'evt-1',
       taskId: 'task-A',
-      kind: const StatusChanged(),
+      kind: TaskEventKind.statusChanged,
       details: {'oldStatus': 'draft', 'newStatus': 'queued', 'trigger': 'system'},
     );
     service.insert(event);
@@ -72,11 +72,11 @@ void main() {
   });
 
   test('listForTask with kind filter returns only matching events', () {
-    service.insert(_makeEvent(id: 'evt-1', taskId: 'task-C', kind: const StatusChanged()));
-    service.insert(_makeEvent(id: 'evt-2', taskId: 'task-C', kind: const ToolCalled()));
-    service.insert(_makeEvent(id: 'evt-3', taskId: 'task-C', kind: const ToolCalled()));
+    service.insert(_makeEvent(id: 'evt-1', taskId: 'task-C', kind: TaskEventKind.statusChanged));
+    service.insert(_makeEvent(id: 'evt-2', taskId: 'task-C', kind: TaskEventKind.toolCalled));
+    service.insert(_makeEvent(id: 'evt-3', taskId: 'task-C', kind: TaskEventKind.toolCalled));
 
-    final result = service.listForTask('task-C', kind: const ToolCalled());
+    final result = service.listForTask('task-C', kind: TaskEventKind.toolCalled);
     expect(result, hasLength(2));
     for (final e in result) {
       expect(e.kind.name, 'toolCalled');
@@ -97,14 +97,14 @@ void main() {
         _makeEvent(
           id: 'tool-$i',
           taskId: 'task-E',
-          kind: const ToolCalled(),
+          kind: TaskEventKind.toolCalled,
           timestamp: DateTime.utc(2026, 3, 24, i, 0, 0),
         ),
       );
     }
-    service.insert(_makeEvent(id: 'status-1', taskId: 'task-E', kind: const StatusChanged()));
+    service.insert(_makeEvent(id: 'status-1', taskId: 'task-E', kind: TaskEventKind.statusChanged));
 
-    final result = service.listForTask('task-E', kind: const ToolCalled(), limit: 2);
+    final result = service.listForTask('task-E', kind: TaskEventKind.toolCalled, limit: 2);
     expect(result, hasLength(2));
     for (final e in result) {
       expect(e.kind.name, 'toolCalled');
@@ -122,13 +122,13 @@ void main() {
   });
 
   test('countForTask with kind filter', () {
-    service.insert(_makeEvent(id: 'evt-1', taskId: 'task-I', kind: const StatusChanged()));
-    service.insert(_makeEvent(id: 'evt-2', taskId: 'task-I', kind: const ToolCalled()));
-    service.insert(_makeEvent(id: 'evt-3', taskId: 'task-I', kind: const ToolCalled()));
+    service.insert(_makeEvent(id: 'evt-1', taskId: 'task-I', kind: TaskEventKind.statusChanged));
+    service.insert(_makeEvent(id: 'evt-2', taskId: 'task-I', kind: TaskEventKind.toolCalled));
+    service.insert(_makeEvent(id: 'evt-3', taskId: 'task-I', kind: TaskEventKind.toolCalled));
 
-    expect(service.countForTask('task-I', kind: const ToolCalled()), 2);
-    expect(service.countForTask('task-I', kind: const StatusChanged()), 1);
-    expect(service.countForTask('task-I', kind: const TaskErrorEvent()), 0);
+    expect(service.countForTask('task-I', kind: TaskEventKind.toolCalled), 2);
+    expect(service.countForTask('task-I', kind: TaskEventKind.statusChanged), 1);
+    expect(service.countForTask('task-I', kind: TaskEventKind.taskError), 0);
   });
 
   test('insert with empty details map, details round-trips correctly', () {
@@ -150,12 +150,12 @@ void main() {
 
   test('each of the 6 kinds round-trips through insert + list', () {
     final kinds = [
-      const StatusChanged(),
-      const ToolCalled(),
-      const ArtifactCreated(),
-      const PushBack(),
-      const TokenUpdate(),
-      const TaskErrorEvent(),
+      TaskEventKind.statusChanged,
+      TaskEventKind.toolCalled,
+      TaskEventKind.artifactCreated,
+      TaskEventKind.pushBack,
+      TaskEventKind.tokenUpdate,
+      TaskEventKind.taskError,
     ];
     for (var i = 0; i < kinds.length; i++) {
       service.insert(
@@ -171,7 +171,7 @@ void main() {
 
   test('details with complex values round-trips correctly', () {
     final details = {'name': 'bash', 'success': true, 'durationMs': 250, 'errorType': 'tool_error'};
-    service.insert(_makeEvent(id: 'evt-complex', taskId: 'task-N', kind: const ToolCalled(), details: details));
+    service.insert(_makeEvent(id: 'evt-complex', taskId: 'task-N', kind: TaskEventKind.toolCalled, details: details));
 
     final result = service.listForTask('task-N');
     expect(result[0].details['name'], 'bash');

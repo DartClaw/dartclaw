@@ -1,8 +1,8 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
 import 'package:dartclaw_server/src/container/container_manager.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -330,7 +330,7 @@ void main() {
         start: (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
           capturedArgs = [executable, ...arguments];
           capturedIncludeParentEnvironment = includeParentEnvironment;
-          return _FakeProcess();
+          return FakeProcess();
         },
       );
 
@@ -361,7 +361,7 @@ void main() {
         run: (executable, arguments) async => ProcessResult(1, 0, '', ''),
         start: (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
           capturedArgs = [executable, ...arguments];
-          return _FakeProcess();
+          return FakeProcess();
         },
       );
 
@@ -413,27 +413,5 @@ Future<Process> _defaultStart(
   Map<String, String>? environment,
   bool includeParentEnvironment = true,
 }) async {
-  return _FakeProcess();
-}
-
-class _FakeProcess implements Process {
-  final _stdinController = StreamController<List<int>>();
-
-  @override
-  Future<int> get exitCode async => 0;
-
-  @override
-  int get pid => 1;
-
-  @override
-  IOSink get stdin => IOSink(_stdinController.sink);
-
-  @override
-  Stream<List<int>> get stderr => const Stream<List<int>>.empty();
-
-  @override
-  Stream<List<int>> get stdout => const Stream<List<int>>.empty();
-
-  @override
-  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
+  return FakeProcess();
 }

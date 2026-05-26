@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -269,6 +269,261 @@ void main() {
       expect(decoded['permissions'], {
         'allow': ['Bash(git *)'],
       });
+    });
+
+    test('builds Claude one-shot task policy from read-only allowed tools', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'permissions': {
+                'allow': ['WebFetch(*)'],
+                'deny': ['Read(./.env)'],
+              },
+            },
+          ),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = jsonEncode({'session_id': 'claude-session-policy', 'result': 'ok'}).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Discover this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+        allowedTools: const ['shell', 'file_read'],
+        readOnly: true,
+      );
+
+      expect(arguments, containsAll(['--permission-mode', 'dontAsk']));
+      expect(arguments, isNot(contains('--dangerously-skip-permissions')));
+      final settingsIndex = arguments.indexOf('--settings');
+      expect(settingsIndex, isNonNegative);
+      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      expect(decoded['sandbox'], {'enabled': true});
+      expect(decoded['permissions'], {
+        'allow': [
+          'Bash(git ls-files)',
+          'Bash(git rev-parse --abbrev-ref HEAD)',
+          'Bash(git rev-parse --show-toplevel)',
+          'Bash(git status --porcelain)',
+          'Bash(git status --short)',
+          'Bash(git status)',
+          'Bash(pwd)',
+          'Glob(*)',
+          'Grep(*)',
+          'LS(*)',
+          'Read(*)',
+        ],
+        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Read(./.env)', 'Write(*)'],
+      });
+    });
+
+    test('read-only Claude task policy keeps file reads when requested tools include only shell', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'permissions': {
+                'allow': ['Bash(*)'],
+                'defaultMode': 'plan',
+              },
+            },
+          ),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = jsonEncode({
+            'session_id': 'claude-session-empty-policy',
+            'result': 'ok',
+          }).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Discover this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+        allowedTools: const ['shell'],
+        readOnly: true,
+      );
+
+      final settingsIndex = arguments.indexOf('--settings');
+      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      expect(decoded['permissions'], {
+        'allow': [
+          'Bash(git ls-files)',
+          'Bash(git rev-parse --abbrev-ref HEAD)',
+          'Bash(git rev-parse --show-toplevel)',
+          'Bash(git status --porcelain)',
+          'Bash(git status --short)',
+          'Bash(git status)',
+          'Bash(pwd)',
+          'Glob(*)',
+          'Grep(*)',
+          'LS(*)',
+          'Read(*)',
+        ],
+        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'],
+      });
+      expect((decoded['permissions'] as Map<String, dynamic>).containsKey('defaultMode'), isFalse);
+    });
+
+    test('read-only Claude task policy does not add file reads for unrelated explicit tools', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = jsonEncode({
+            'session_id': 'claude-session-web-policy',
+            'result': 'ok',
+          }).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Fetch this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+        allowedTools: const ['web_fetch'],
+        readOnly: true,
+      );
+
+      final settingsIndex = arguments.indexOf('--settings');
+      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      expect(decoded['permissions'], {
+        'allow': ['WebFetch(*)', 'WebSearch(*)'],
+        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'],
+      });
+    });
+
+    test('read-only Claude task policy scrubs permissions inherited from structured settings', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'settings': {
+                'permissions': {
+                  'allow': ['Bash(*)'],
+                  'deny': ['Read(./secret)'],
+                  'defaultMode': 'plan',
+                },
+                'theme': 'dark',
+              },
+            },
+          ),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = jsonEncode({
+            'session_id': 'claude-session-settings-policy',
+            'result': 'ok',
+          }).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Discover this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+        allowedTools: const ['shell'],
+        readOnly: true,
+      );
+
+      final settingsIndex = arguments.indexOf('--settings');
+      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      expect(decoded['theme'], 'dark');
+      expect(decoded['permissions'], {
+        'allow': [
+          'Bash(git ls-files)',
+          'Bash(git rev-parse --abbrev-ref HEAD)',
+          'Bash(git rev-parse --show-toplevel)',
+          'Bash(git status --porcelain)',
+          'Bash(git status --short)',
+          'Bash(git status)',
+          'Bash(pwd)',
+          'Glob(*)',
+          'Grep(*)',
+          'LS(*)',
+          'Read(*)',
+        ],
+        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Read(./secret)', 'Write(*)'],
+      });
+    });
+
+    test('rejects malformed Claude settings JSON when task policy must be enforced', () async {
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'settings': '{settings.json'}),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          throw StateError('process should not start');
+        },
+      );
+
+      await expectLater(
+        runner.executeTurn(
+          provider: 'claude',
+          prompt: 'Discover this',
+          workingDirectory: Directory.systemTemp.path,
+          profileId: 'workspace',
+          allowedTools: const ['file_read'],
+          readOnly: true,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('cannot be enforced with malformed JSON settings'),
+          ),
+        ),
+      );
+    });
+
+    test('rejects path-shaped Claude settings when task policy must be enforced', () async {
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'settings': '/tmp/settings.json'}),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          throw StateError('process should not start');
+        },
+      );
+
+      await expectLater(
+        runner.executeTurn(
+          provider: 'claude',
+          prompt: 'Discover this',
+          workingDirectory: Directory.systemTemp.path,
+          profileId: 'workspace',
+          allowedTools: const ['file_read'],
+          readOnly: true,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('cannot be enforced with path-based settings'),
+          ),
+        ),
+      );
     });
 
     test('preserves path-based Claude settings when structured overlays are also configured', () async {
@@ -1039,7 +1294,7 @@ void main() {
     test('one-shot runner default starter does not leak parent env into child', () async {
       // Regression guard for S38/E2 that exercises the REAL default process
       // starter (no processStarter injection). The test configures a fake
-      // provider binary — a shell script that dumps its env — and a minimal
+      // provider binary – a shell script that dumps its env – and a minimal
       // provider env. If `_defaultProcessStarter` ever regresses to a policy
       // that re-inherits `Platform.environment` (e.g. `includeParentEnvironment:
       // true` or a sanitize fallback), the child would see parent-only keys
@@ -1065,7 +1320,7 @@ void main() {
             environment: {'PROVIDER_OK': 'provider-value', 'PATH': Platform.environment['PATH'] ?? '/usr/bin:/bin'},
           ),
         },
-        // No processStarter override — the production `_defaultProcessStarter`
+        // No processStarter override – the production `_defaultProcessStarter`
         // must isolate the child env from Platform.environment.
       );
 
@@ -1088,7 +1343,7 @@ void main() {
         expect(
           lines,
           isNot(contains('HOME=$parentHome')),
-          reason: 'parent HOME must not leak into child — default starter may have regressed to inherit parent env',
+          reason: 'parent HOME must not leak into child – default starter may have regressed to inherit parent env',
         );
       }
       final parentUser = Platform.environment['USER'];
@@ -1096,7 +1351,61 @@ void main() {
         expect(lines, isNot(contains('USER=$parentUser')), reason: 'parent USER must not leak into child');
       }
     });
+
+    group('provider routing', () {
+      test('custom providerImpls: FakeCliProvider is routed for registered provider name', () async {
+        var runCalled = false;
+        final runner = WorkflowCliRunner(
+          providers: const {'fake': WorkflowCliProviderConfig(executable: 'fake-exe')},
+          providerImpls: {'fake': _FakeCliProvider(() => runCalled = true)},
+        );
+
+        final result = await runner.executeTurn(
+          provider: 'fake',
+          prompt: 'hello',
+          workingDirectory: Directory.systemTemp.path,
+          profileId: 'workspace',
+        );
+
+        expect(runCalled, isTrue);
+        expect(result.responseText, 'fake-response');
+      });
+
+      test('throws UnsupportedError for provider with config but no impl', () async {
+        final runner = WorkflowCliRunner(
+          providers: const {'custom': WorkflowCliProviderConfig(executable: 'custom-exe')},
+          providerImpls: const {},
+        );
+
+        await expectLater(
+          () => runner.executeTurn(
+            provider: 'custom',
+            prompt: 'hello',
+            workingDirectory: Directory.systemTemp.path,
+            profileId: 'workspace',
+          ),
+          throwsA(
+            isA<UnsupportedError>().having(
+              (e) => e.message,
+              'message',
+              contains('Workflow one-shot CLI is not implemented for provider "custom"'),
+            ),
+          ),
+        );
+      });
+    });
   });
+}
+
+class _FakeCliProvider implements CliProvider {
+  final void Function() onRun;
+  const _FakeCliProvider(this.onRun);
+
+  @override
+  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
+    onRun();
+    return WorkflowCliTurnResult(providerSessionId: 'fake-session', responseText: 'fake-response', newInputTokens: 0);
+  }
 }
 
 class _FakeContainerExecutor implements ContainerExecutor {

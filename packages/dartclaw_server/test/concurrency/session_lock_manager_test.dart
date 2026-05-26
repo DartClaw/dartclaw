@@ -23,7 +23,7 @@ void main() {
       });
 
       // Second acquire should be waiting
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
       expect(secondAcquired, isFalse);
 
       mgr.release('s1');
@@ -97,7 +97,7 @@ void main() {
         mgr.release('s1');
       });
 
-      await Future.delayed(Duration.zero);
+      await pumpEventQueue();
       expect(order, isEmpty);
 
       mgr.release('s1'); // unblocks f2

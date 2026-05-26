@@ -8,26 +8,26 @@ library;
 import 'dart:convert';
 
 /// Tag name used to delimit the workflow-context JSON payload.
-const String kWorkflowContextTag = 'workflow-context';
+const String workflowContextTag = 'workflow-context';
 
-const String kWorkflowContextOpen = '<$kWorkflowContextTag>';
+const String workflowContextOpen = '<$workflowContextTag>';
 
-const String kWorkflowContextClose = '</$kWorkflowContextTag>';
+const String workflowContextClose = '</$workflowContextTag>';
 
 /// Matches the `<workflow-context>...</workflow-context>` block and captures
 /// its inner JSON payload in group 1.
-final RegExp workflowContextRegExp = RegExp('$kWorkflowContextOpen\\s*([\\s\\S]*?)\\s*$kWorkflowContextClose');
+final RegExp workflowContextRegExp = RegExp('$workflowContextOpen\\s*([\\s\\S]*?)\\s*$workflowContextClose');
 
 /// Tag name used to delimit step outcome metadata in the final assistant message.
-const String kStepOutcomeTag = 'step-outcome';
+const String stepOutcomeTag = 'step-outcome';
 
-const String kStepOutcomeOpen = '<$kStepOutcomeTag>';
+const String stepOutcomeOpen = '<$stepOutcomeTag>';
 
-const String kStepOutcomeClose = '</$kStepOutcomeTag>';
+const String stepOutcomeClose = '</$stepOutcomeTag>';
 
 /// Matches the `<step-outcome>...</step-outcome>` block and captures its inner
 /// JSON payload in group 1.
-final RegExp stepOutcomeRegExp = RegExp('$kStepOutcomeOpen\\s*([\\s\\S]*?)\\s*$kStepOutcomeClose');
+final RegExp stepOutcomeRegExp = RegExp('$stepOutcomeOpen\\s*([\\s\\S]*?)\\s*$stepOutcomeClose');
 
 class StepOutcomePayload {
   final String outcome;
@@ -55,7 +55,7 @@ StepOutcomePayload? parseStepOutcomePayload(String message) {
       final reason = decoded['reason']?.toString() ?? '';
       return StepOutcomePayload(outcome: outcome!, reason: reason);
     } catch (_) {
-      continue;
+      continue; // Malformed step-outcome JSON line — skip and try the next candidate.
     }
   }
   return null;

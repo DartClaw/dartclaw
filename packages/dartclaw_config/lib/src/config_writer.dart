@@ -17,10 +17,12 @@ class _WriteOp {
 /// Preserves comments, blank lines, key ordering, and unknown keys.
 /// Thread-safe via internal write queue (serialized operations).
 class ConfigWriter {
+  /// configPath.
   final String configPath;
   final _queue = StreamController<_WriteOp>();
   late final StreamSubscription<void> _queueSub;
 
+  /// ConfigWriter({required this.configPath}) {.
   ConfigWriter({required this.configPath}) {
     _queueSub = _queue.stream
         .asyncMap((op) async {
@@ -34,6 +36,7 @@ class ConfigWriter {
         .listen((_) {});
   }
 
+  /// backupPath.
   String get backupPath => '$configPath.bak';
 
   /// Updates config fields and writes to disk.

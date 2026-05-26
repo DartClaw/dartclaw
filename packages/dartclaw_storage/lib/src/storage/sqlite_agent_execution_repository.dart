@@ -7,6 +7,7 @@ class SqliteAgentExecutionRepository implements AgentExecutionRepository {
   final Database _db;
   final EventBus? _eventBus;
 
+  /// Creates the repository against [_db] and initializes its schema.
   SqliteAgentExecutionRepository(this._db, {EventBus? eventBus}) : _eventBus = eventBus {
     _initSchema();
   }

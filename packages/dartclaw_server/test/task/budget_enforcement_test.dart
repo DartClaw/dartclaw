@@ -9,68 +9,41 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import 'task_executor_test_support.dart';
+
 void main() {
-  late Directory tempDir;
-  late String sessionsDir;
-  late String workspaceDir;
-  late SessionService sessions;
-  late MessageService messages;
-  late TaskService tasks;
-  late GoalService goals;
   late _FakeBudgetWorker worker;
-  late TurnManager turns;
-  late ArtifactCollector collector;
+  late TaskExecutorTestHarness h;
+  late GoalService goals;
   late KvService kvService;
 
   setUp(() async {
-    tempDir = Directory.systemTemp.createTempSync('dartclaw_budget_test_');
-    sessionsDir = p.join(tempDir.path, 'sessions');
-    workspaceDir = Directory.systemTemp.createTempSync('dartclaw_budget_ws_').path;
-    Directory(sessionsDir).createSync(recursive: true);
-
-    sessions = SessionService(baseDir: sessionsDir);
-    messages = MessageService(baseDir: sessionsDir);
-    tasks = TaskService(SqliteTaskRepository(sqlite3.openInMemory()));
-    goals = GoalService(SqliteGoalRepository(sqlite3.openInMemory()));
     worker = _FakeBudgetWorker();
-    turns = TurnManager(
-      messages: messages,
-      worker: worker,
-      behavior: BehaviorFileService(workspaceDir: workspaceDir),
-      sessions: sessions,
-    );
-    collector = ArtifactCollector(
-      tasks: tasks,
-      messages: messages,
-      sessionsDir: sessionsDir,
-      dataDir: tempDir.path,
-      workspaceDir: workspaceDir,
-    );
-    kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
+    h = TaskExecutorTestHarness(worker);
+    await h.setUp(tempPrefix: 'dartclaw_budget_test_');
+    goals = GoalService(SqliteGoalRepository(sqlite3.openInMemory()));
+    kvService = KvService(filePath: p.join(h.tempDir.path, 'kv.json'));
   });
 
   tearDown(() async {
-    await tasks.dispose();
-    await messages.dispose();
-    await worker.dispose();
     await kvService.dispose();
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-    final wsDir = Directory(workspaceDir);
-    if (wsDir.existsSync()) wsDir.deleteSync(recursive: true);
+    await h.tearDown(workerDispose: worker.dispose);
   });
 
   TaskExecutor buildExecutor({TaskBudgetConfig? budgetConfig, EventBus? eventBus}) {
     return TaskExecutor(
-      tasks: tasks,
-      goals: goals,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      kvService: kvService,
-      budgetConfig: budgetConfig,
-      eventBus: eventBus,
-      dataDir: tempDir.path,
+      services: TaskExecutorServices(
+        tasks: h.tasks,
+        goals: goals,
+        sessions: h.sessions,
+        messages: h.messages,
+        artifactCollector: h.collector,
+        kvService: kvService,
+        eventBus: eventBus,
+      ),
+      runners: TaskExecutorRunners(turns: h.turns),
+      limits: TaskExecutorLimits(budgetConfig: budgetConfig),
+      dataDir: h.tempDir.path,
       pollInterval: const Duration(milliseconds: 10),
     );
   }
@@ -94,7 +67,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      await tasks.create(
+      await h.tasks.create(
         id: 'task-no-budget',
         title: 'Unlimited task',
         description: 'No budget set.',
@@ -104,7 +77,7 @@ void main() {
 
       await executor.pollOnce();
 
-      expect((await tasks.get('task-no-budget'))!.status, TaskStatus.review);
+      expect((await h.tasks.get('task-no-budget'))!.status, TaskStatus.review);
     });
 
     test('task with budget stops when cumulative tokens exceed limit', () async {
@@ -112,7 +85,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-exceeded',
         title: 'Over-budget task',
         description: 'This task exceeded the budget.',
@@ -122,12 +95,15 @@ void main() {
       );
 
       // Seed session cost data exceeding the budget.
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       await seedSessionCost(session.id, totalTokens: 1500);
 
       await executor.pollOnce();
 
-      final result = await tasks.get('task-exceeded');
+      final result = await h.tasks.get('task-exceeded');
       expect(result!.status, TaskStatus.failed);
       expect(result.configJson['errorSummary'], contains('Budget exceeded'));
     });
@@ -137,7 +113,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-artifact',
         title: 'Artifact test task',
         description: 'Creates budget artifact.',
@@ -146,12 +122,15 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       await seedSessionCost(session.id, totalTokens: 1000, turnCount: 3);
 
       await executor.pollOnce();
 
-      final artifacts = await tasks.listArtifacts('task-artifact');
+      final artifacts = await h.tasks.listArtifacts('task-artifact');
       expect(artifacts, hasLength(1));
       expect(artifacts[0].name, 'budget-exceeded');
       expect(artifacts[0].kind, ArtifactKind.data);
@@ -174,7 +153,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-warning',
         title: 'Warning task',
         description: 'Should fire budget warning.',
@@ -183,14 +162,17 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       // 85% — above default 80% threshold.
       await seedSessionCost(session.id, totalTokens: 850);
 
       await executor.pollOnce();
 
       // Task should still proceed (warning, not failure).
-      expect((await tasks.get('task-warning'))!.status, TaskStatus.review);
+      expect((await h.tasks.get('task-warning'))!.status, TaskStatus.review);
       expect(warningEvents, hasLength(1));
       expect(warningEvents[0].taskId, 'task-warning');
       expect(warningEvents[0].consumed, 850);
@@ -208,7 +190,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-dedup',
         title: 'Dedup warning task',
         description: 'Warning fires once.',
@@ -217,13 +199,16 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       await seedSessionCost(session.id, totalTokens: 850);
 
       // Poll twice — warning should only fire once.
       await executor.pollOnce();
       // Re-queue the task for second poll.
-      await tasks.transition('task-dedup', TaskStatus.queued, trigger: 'test');
+      await h.tasks.transition('task-dedup', TaskStatus.queued, trigger: 'test');
       await executor.pollOnce();
 
       expect(warningEvents, hasLength(1));
@@ -235,19 +220,21 @@ void main() {
       addTearDown(badKv.dispose);
 
       final executor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: turns,
-        artifactCollector: collector,
-        kvService: badKv,
-        budgetConfig: const TaskBudgetConfig(defaultMaxTokens: 1000),
+        services: TaskExecutorServices(
+          tasks: h.tasks,
+          sessions: h.sessions,
+          messages: h.messages,
+          artifactCollector: h.collector,
+          kvService: badKv,
+        ),
+        runners: TaskExecutorRunners(turns: h.turns),
+        limits: const TaskExecutorLimits(budgetConfig: TaskBudgetConfig(defaultMaxTokens: 1000)),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      await tasks.create(
+      await h.tasks.create(
         id: 'task-failsafe',
         title: 'Fail-safe task',
         description: 'Budget check failure should not block.',
@@ -259,7 +246,7 @@ void main() {
       await executor.pollOnce();
 
       // Task proceeds normally despite KV read failure.
-      expect((await tasks.get('task-failsafe'))!.status, TaskStatus.review);
+      expect((await h.tasks.get('task-failsafe'))!.status, TaskStatus.review);
     });
 
     test('task maxTokens overrides global config default', () async {
@@ -267,7 +254,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-override',
         title: 'Override task',
         description: 'Task maxTokens overrides config default.',
@@ -276,13 +263,16 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       // 700 tokens: exceeds task budget (500) but not config default (5000).
       await seedSessionCost(session.id, totalTokens: 700);
 
       await executor.pollOnce();
 
-      expect((await tasks.get('task-override'))!.status, TaskStatus.failed);
+      expect((await h.tasks.get('task-override'))!.status, TaskStatus.failed);
     });
 
     test('goal maxTokens used when task has no budget', () async {
@@ -298,7 +288,7 @@ void main() {
       // Goal with budget set.
       await goals.create(id: 'goal-budget', title: 'Budget goal', mission: 'Test', maxTokens: 750);
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-goal-budget',
         title: 'Goal budget task',
         description: 'Inherits budget from goal.',
@@ -307,7 +297,10 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       // 640 tokens = ~85% of 750 — above 80% threshold.
       await seedSessionCost(session.id, totalTokens: 640);
 
@@ -322,7 +315,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-config-default',
         title: 'Config default task',
         description: 'Uses global default budget.',
@@ -330,12 +323,15 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       await seedSessionCost(session.id, totalTokens: 1500);
 
       await executor.pollOnce();
 
-      expect((await tasks.get('task-config-default'))!.status, TaskStatus.failed);
+      expect((await h.tasks.get('task-config-default'))!.status, TaskStatus.failed);
     });
 
     test('warns at threshold against global config default when no task or goal budget', () async {
@@ -351,7 +347,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-default-warn',
         title: 'Default warn task',
         description: 'Triggers warn path using tasks.budget.default_max_tokens.',
@@ -359,13 +355,16 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       // 85% of 1000 — above default 80% threshold, still under the cap.
       await seedSessionCost(session.id, totalTokens: 850);
 
       await executor.pollOnce();
 
-      expect((await tasks.get('task-default-warn'))!.status, TaskStatus.review);
+      expect((await h.tasks.get('task-default-warn'))!.status, TaskStatus.review);
       expect(warningEvents, hasLength(1));
       expect(warningEvents[0].taskId, 'task-default-warn');
       expect(warningEvents[0].consumed, 850);
@@ -374,7 +373,7 @@ void main() {
 
       // Prove the warning system message was injected into the session so the
       // agent sees it on the same turn that was about to blow the default cap.
-      final msgs = await messages.getMessagesTail(session.id, count: 20);
+      final msgs = await h.messages.getMessagesTail(session.id, count: 20);
       final systemMessages = msgs.where((m) => m.role == 'system').toList();
       expect(systemMessages, isNotEmpty);
       expect(
@@ -389,7 +388,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-legacy',
         title: 'Legacy budget task',
         description: 'Uses configJson tokenBudget.',
@@ -398,12 +397,15 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       await seedSessionCost(session.id, totalTokens: 1500);
 
       await executor.pollOnce();
 
-      expect((await tasks.get('task-legacy'))!.status, TaskStatus.failed);
+      expect((await h.tasks.get('task-legacy'))!.status, TaskStatus.failed);
     });
 
     test('task with no session cost data proceeds (first turn)', () async {
@@ -411,7 +413,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      await tasks.create(
+      await h.tasks.create(
         id: 'task-first-turn',
         title: 'First turn task',
         description: 'No prior session cost.',
@@ -423,7 +425,7 @@ void main() {
       await executor.pollOnce();
 
       // No cost data = no enforcement = task proceeds.
-      expect((await tasks.get('task-first-turn'))!.status, TaskStatus.review);
+      expect((await h.tasks.get('task-first-turn'))!.status, TaskStatus.review);
     });
 
     test('budget at exactly 100% is treated as exceeded', () async {
@@ -431,7 +433,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-exact-100',
         title: 'Exact 100% task',
         description: 'Exactly at budget.',
@@ -440,12 +442,15 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       await seedSessionCost(session.id, totalTokens: 1000);
 
       await executor.pollOnce();
 
-      expect((await tasks.get('task-exact-100'))!.status, TaskStatus.failed);
+      expect((await h.tasks.get('task-exact-100'))!.status, TaskStatus.failed);
     });
 
     test('zero or negative maxTokens is treated as no budget', () async {
@@ -453,7 +458,7 @@ void main() {
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
-      final task = await tasks.create(
+      final task = await h.tasks.create(
         id: 'task-zero-budget',
         title: 'Zero budget task',
         description: 'maxTokens=0 treated as no limit.',
@@ -462,13 +467,16 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
+      final session = await h.sessions.getOrCreateByKey(
+        SessionKey.taskSession(taskId: task.id),
+        type: SessionType.task,
+      );
       await seedSessionCost(session.id, totalTokens: 999999);
 
       await executor.pollOnce();
 
       // Zero maxTokens = no budget = runs normally.
-      expect((await tasks.get('task-zero-budget'))!.status, TaskStatus.review);
+      expect((await h.tasks.get('task-zero-budget'))!.status, TaskStatus.review);
     });
   });
 }

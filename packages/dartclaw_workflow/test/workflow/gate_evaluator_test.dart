@@ -167,7 +167,7 @@ void main() {
     });
 
     test('empty expression evaluates as true (no conditions)', () {
-      // Split by && on empty string gives [''] — one empty condition.
+      // Split by && on empty string gives [''] – one empty condition.
       // An empty condition doesn't match the regex → false.
       expect(evaluator.evaluate('', context), isFalse);
     });
@@ -178,6 +178,25 @@ void main() {
       expect(evaluator.evaluate('context.step1.status == accepted', context), isTrue);
       expect(evaluator.evaluate('context.step2.tokenCount < 10000', context), isTrue);
       expect(evaluator.evaluate('context.step1.status == accepted && step2.tokenCount < 10000', context), isTrue);
+    });
+
+    test('unary empty checks handle strings, lists, maps, and missing values', () {
+      final ctx = WorkflowContext(
+        data: {
+          'empty_string': '',
+          'empty_list': <String>[],
+          'items': ['S01'],
+          'empty_map': <String, dynamic>{},
+          'object': {'id': 'S01'},
+        },
+      );
+
+      expect(evaluator.evaluate('empty_string isEmpty', ctx), isTrue);
+      expect(evaluator.evaluate('empty_list isEmpty', ctx), isTrue);
+      expect(evaluator.evaluate('items isNotEmpty', ctx), isTrue);
+      expect(evaluator.evaluate('empty_map isEmpty', ctx), isTrue);
+      expect(evaluator.evaluate('object isNotEmpty', ctx), isTrue);
+      expect(evaluator.evaluate('missing isEmpty', ctx), isTrue);
     });
 
     group('null-literal equality', () {

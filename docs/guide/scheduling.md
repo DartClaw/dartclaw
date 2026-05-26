@@ -39,17 +39,25 @@ The agent processes the entire checklist in a single turn. Results are logged bu
 
 Schedule recurring tasks with cron expressions, intervals, or one-time triggers.
 
+The canonical job form uses `id:` and a structured `schedule:` block. The parser also
+accepts `name:` as a compatibility alias for `id:`, and a bare cron string (e.g.
+`schedule: "0 18 * * *"`) as a compatibility alias for `{type: cron, expression: ...}`.
+Prefer the canonical form for new configs.
+
 ```yaml
 scheduling:
   jobs:
-    - name: daily-summary
-      schedule: "0 18 * * *"     # 6 PM daily
+    - id: daily-summary              # canonical key; name: is an accepted compatibility alias
+      schedule:                      # structured form is canonical; bare string is an alias
+        type: cron
+        expression: "0 18 * * *"    # 6 PM daily
       prompt: "Summarize today's activity from the daily log"
-      delivery: announce         # announce | webhook | none
+      delivery: announce             # announce | webhook | none
 
-    - name: health-check
+    - id: health-check
       schedule:
-        every: 5m               # interval shorthand
+        type: interval
+        minutes: 5
       prompt: "Check system health"
       delivery: none
 ```
@@ -69,8 +77,10 @@ Individual jobs can override the global `agent.model` and `agent.effort` setting
 ```yaml
 scheduling:
   jobs:
-    - name: daily-summary
-      schedule: "0 18 * * *"
+    - id: daily-summary
+      schedule:
+        type: cron
+        expression: "0 18 * * *"
       prompt: "Summarize today's activity"
       delivery: announce
       model: claude-haiku-3   # override model for cost savings

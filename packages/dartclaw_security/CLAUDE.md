@@ -8,7 +8,7 @@
 - **Classifiers** — pluggable content scanners. `ContentClassifier` (interface), `AnthropicApiClassifier`, `ClaudeBinaryClassifier`, `CloudflareDetector`. Throws are the caller's contract — `ContentGuard` decides fail-open vs fail-closed.
 - **Redaction** — `MessageRedactor` (proportional redaction at the agent boundary; preserves shape for audit).
 - **Audit trail** — `GuardAuditLogger` (NDJSON appender; fire-and-forget) + `AuditEntry` (record schema).
-- **Process safety** — `SafeProcess` (the only sanctioned subprocess spawner), `EnvPolicy.sanitize()` (env allowlist + sensitive-name strip), `kDefaultBashStepEnvAllowlist` / `kDefaultGitEnvAllowlist` / `kDefaultSensitivePatterns` (defaults).
+- **Process safety** — `SafeProcess` (the only sanctioned subprocess spawner), `EnvPolicy.sanitize()` (env allowlist + sensitive-name strip), `defaultBashStepEnvAllowlist` / `defaultGitEnvAllowlist` / `defaultSensitivePatterns` (defaults).
 
 ## Boundaries
 - Allowed deps: `dartclaw_models`, plus `logging`, `path`. **No** dependency on `dartclaw_core`, `dartclaw_storage`, `dartclaw_config`, or any workspace package above models. Keep this leaf.
@@ -20,7 +20,7 @@
 - Guards must **not throw** from `evaluate`. Catch internally and return `GuardBlock`. The chain's 5s `.timeout()` + fail-closed default exists as a backstop, not the primary error path.
 - New classifier: implement `ContentClassifier`. Throws are the caller's contract (`ContentGuard` decides fail-open vs fail-closed) — do not swallow inside the classifier.
 - Pattern lists in `CommandGuard` / `InputSanitizer` are extended via config-driven extras (`extra_patterns`, `extra_rules`); don't hardcode policy that an operator should be able to adjust.
-- Subprocess env: route everything through `SafeProcess` with an explicit `EnvPolicy.sanitize(...)`. Use `kDefaultBashStepEnvAllowlist` / `kDefaultGitEnvAllowlist` as starting points — `kDefaultSensitivePatterns` strips `*_API_KEY`/`*_SECRET`/`*_TOKEN`/`*_CREDENTIAL`/`*_PASSWORD`. SSH-agent vars are intentionally allowlisted for git only.
+- Subprocess env: route everything through `SafeProcess` with an explicit `EnvPolicy.sanitize(...)`. Use `defaultBashStepEnvAllowlist` / `defaultGitEnvAllowlist` as starting points — `defaultSensitivePatterns` strips `*_API_KEY`/`*_SECRET`/`*_TOKEN`/`*_CREDENTIAL`/`*_PASSWORD`. SSH-agent vars are intentionally allowlisted for git only.
 
 ## Gotchas
 - Guards evaluate the **canonical** tool name (`shell`, `file_write`, etc.); the provider-native string is preserved on `GuardContext.rawProviderToolName` for audit only. Don't write policy against raw names.

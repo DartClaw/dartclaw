@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowRunStatus;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunStatus;
 import 'package:dartclaw_server/dartclaw_server.dart' show LogService;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -152,14 +152,14 @@ void main() {
   group('step assertions', () {
     test('strict order rejects unexpected interleaving', () {
       expectStepOrderStrict(
-        ['discover-project', 'spec', 'implement', 'integrated-review'],
-        ['discover-project', 'spec', 'implement', 'integrated-review'],
+        ['discover-plan-state', 'spec', 'implement', 'integrated-review'],
+        ['discover-plan-state', 'spec', 'implement', 'integrated-review'],
       );
 
       expect(
         () => expectStepOrderStrict(
-          ['discover-project', 'unexpected-step', 'spec', 'implement'],
-          ['discover-project', 'spec', 'implement'],
+          ['discover-plan-state', 'unexpected-step', 'spec', 'implement'],
+          ['discover-plan-state', 'spec', 'implement'],
         ),
         throwsA(isA<TestFailure>()),
       );
@@ -206,7 +206,7 @@ void main() {
     test('token mirroring fails when one agent artifact is all zero', () {
       final dir = Directory.systemTemp.createTempSync('workflow_e2e_tokens_');
       addTearDown(() => dir.deleteSync(recursive: true));
-      _writeArtifact(dir, 'discover-project', {'_workflowInputTokensNew': 10});
+      _writeArtifact(dir, 'discover-plan-state', {'_workflowInputTokensNew': 10});
       _writeArtifact(dir, 'spec', {
         '_workflowInputTokensNew': 0,
         '_workflowCacheReadTokens': 0,
@@ -214,7 +214,7 @@ void main() {
       });
 
       expect(
-        () => expectPreservedArtifactsHaveNonZeroTokenKeys(dir, agentSteps: const ['discover-project', 'spec']),
+        () => expectPreservedArtifactsHaveNonZeroTokenKeys(dir, agentSteps: const ['discover-plan-state', 'spec']),
         throwsA(isA<TestFailure>()),
       );
     });
@@ -222,10 +222,10 @@ void main() {
     test('token mirroring passes when every agent artifact has a non-zero key', () {
       final dir = Directory.systemTemp.createTempSync('workflow_e2e_tokens_');
       addTearDown(() => dir.deleteSync(recursive: true));
-      _writeArtifact(dir, 'discover-project', {'_workflowInputTokensNew': 10});
+      _writeArtifact(dir, 'discover-plan-state', {'_workflowInputTokensNew': 10});
       _writeArtifact(dir, 'spec', {'_workflowOutputTokens': 1});
 
-      expectPreservedArtifactsHaveNonZeroTokenKeys(dir, agentSteps: const ['discover-project', 'spec']);
+      expectPreservedArtifactsHaveNonZeroTokenKeys(dir, agentSteps: const ['discover-plan-state', 'spec']);
     });
   });
 

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart';
 
 typedef FakeReserveTurnCallback =
     Future<String> Function(
@@ -198,8 +198,6 @@ class FakeTurnManager implements TurnManager {
     String? effort,
     int? maxTurns,
     bool isHumanInput = false,
-    BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
   }) async {
     reserveTurnCallCount += 1;
     reservedTurns.add((
@@ -360,6 +358,18 @@ class FakeTurnManager implements TurnManager {
   }
 
   @override
+  Future<List<String>> detectAndCleanOrphanedTurns() async => [];
+
+  @override
+  bool consumeRecoveryNotice(String sessionId) => false;
+
+  @override
+  void setTaskToolFilter(List<String>? allowedTools) {}
+
+  @override
+  void setTaskReadOnly(bool readOnly) {}
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => null;
 
   List<Map<String, dynamic>> _cloneMessages(List<Map<String, dynamic>> messages) {
@@ -430,6 +440,15 @@ class _FakeHarnessPool implements HarnessPool {
   bool hasTaskRunnerForProvider(String providerId) => false;
 
   @override
+  Set<String> get taskProfiles => {};
+
+  @override
+  Set<String> get taskProviders => {};
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
@@ -443,6 +462,9 @@ class _FakeTurnRunner implements TurnRunner {
 
   @override
   final String providerId;
+
+  @override
+  AgentHarness get harness => throw UnsupportedError('_FakeTurnRunner has no harness');
 
   FakeTurnManager get _manager {
     final current = manager;
@@ -476,6 +498,12 @@ class _FakeTurnRunner implements TurnRunner {
 
   @override
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) => _manager.waitForOutcome(sessionId, turnId);
+
+  @override
+  void setTaskToolFilter(List<String>? allowedTools) {}
+
+  @override
+  void setTaskReadOnly(bool readOnly) {}
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;

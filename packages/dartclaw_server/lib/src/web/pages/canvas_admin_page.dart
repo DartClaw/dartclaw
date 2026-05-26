@@ -5,6 +5,7 @@ import '../../templates/canvas_admin_panel.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
 
+/// Renders the canvas administration dashboard page.
 class CanvasAdminPage extends DashboardPage {
   CanvasAdminPage();
 
@@ -22,7 +23,7 @@ class CanvasAdminPage extends DashboardPage {
 
   @override
   Future<Response> handler(Request request, PageContext context) async {
-    final sidebarData = await context.buildSidebarData();
+    final sidebarData = await context.sidebar.build();
     final sessionKey = SessionKey.webSession();
     final embedUrl = '/api/sessions/${Uri.encodeComponent(sessionKey)}/canvas/embed';
     final page = canvasAdminPageTemplate(

@@ -1,5 +1,6 @@
 import 'package:shelf/shelf.dart';
 
+/// Default HTTP response headers for HTML fragment and page bodies.
 const htmlHeaders = {'content-type': 'text/html; charset=utf-8'};
 
 /// Whether the request is an HTMX SPA navigation that expects a fragment

@@ -5,6 +5,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
 import 'package:dartclaw_core/dartclaw_core.dart' show RepoLock;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -92,11 +94,16 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  WorkflowDefinition makeDefinition({List<WorkflowStep>? steps, Map<String, WorkflowVariable> variables = const {}}) {
+  WorkflowDefinition makeDefinition({
+    List<WorkflowStep>? steps,
+    Map<String, WorkflowVariable> variables = const {},
+    WorkflowGitStrategy? gitStrategy,
+  }) {
     return WorkflowDefinition(
       name: 'test-workflow',
       description: 'Test workflow',
       variables: variables,
+      gitStrategy: gitStrategy,
       steps:
           steps ??
           [
@@ -244,7 +251,7 @@ void main() {
     final definition = makeDefinition(
       variables: const {'PROJECT': WorkflowVariable(required: false), 'BRANCH': WorkflowVariable(required: false)},
       steps: const [
-        WorkflowStep(id: 'coding-step', name: 'Coding', type: 'coding', prompts: ['Implement']),
+        WorkflowStep(id: 'coding-step', name: 'Coding', type: WorkflowTaskType.agent, prompts: ['Implement']),
       ],
     );
 
@@ -340,8 +347,8 @@ void main() {
       eventBus: eventBus,
       kvService: kvService,
       dataDir: tempDir.path,
-      hydrateWorkflowWorktreeBinding: (binding, {required workflowRunId}) {
-        expect(workflowRunId, 'run-hydrate');
+      hydrateWorkflowWorktreeBinding: (binding) {
+        expect(binding.workflowRunId, 'run-hydrate');
         hydrated.add(binding);
       },
     );
@@ -381,8 +388,8 @@ void main() {
       eventBus: eventBus,
       kvService: kvService,
       dataDir: tempDir.path,
-      hydrateWorkflowWorktreeBinding: (binding, {required workflowRunId}) {
-        expect(workflowRunId, 'run-hydrate-many');
+      hydrateWorkflowWorktreeBinding: (binding) {
+        expect(binding.workflowRunId, 'run-hydrate-many');
         hydrated.add(binding);
       },
     );
@@ -851,10 +858,13 @@ void main() {
       String stepId = 'gate',
       int nextStepIndex = 1,
       DateTime? timeoutDeadline,
+      Map<String, String> variables = const {},
+      WorkflowGitStrategy? gitStrategy,
     }) async {
       final definition = makeDefinition(
+        gitStrategy: gitStrategy,
         steps: [
-          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
           const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
         ],
       );
@@ -867,6 +877,7 @@ void main() {
         updatedAt: now,
         currentStepIndex: nextStepIndex,
         definitionJson: definition.toJson(),
+        variablesJson: variables,
         contextJson: {
           'data': <String, dynamic>{
             '$stepId.status': 'pending',
@@ -876,7 +887,7 @@ void main() {
             '$stepId.tokenCount': 0,
             if (timeoutDeadline != null) '$stepId.approval.timeout_deadline': timeoutDeadline.toIso8601String(),
           },
-          'variables': <String, dynamic>{},
+          'variables': Map<String, dynamic>.from(variables),
           '$stepId.status': 'pending',
           '$stepId.approval.status': 'pending',
           '$stepId.approval.message': 'Approve?',
@@ -989,6 +1000,49 @@ void main() {
       expect(updated?.status, equals(WorkflowRunStatus.cancelled));
       expect(updated?.contextJson['gate.approval.status'], equals('timed_out'));
       expect(updated?.contextJson['gate.approval.cancel_reason'], equals('timeout'));
+    });
+
+    test('recoverIncompleteRuns() cleans workflow git after expired approval deadline', () async {
+      final cleanupStatuses = <({String runId, String projectId, String status, bool preserveWorktrees})>[];
+      workflowService = WorkflowService(
+        repository: repository,
+        taskService: taskService,
+        messageService: messageService,
+        eventBus: eventBus,
+        kvService: kvService,
+        dataDir: tempDir.path,
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) async => 'turn-id',
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          cleanupWorkflowGit:
+              ({required runId, required projectId, required status, required preserveWorktrees}) async {
+                cleanupStatuses.add((
+                  runId: runId,
+                  projectId: projectId,
+                  status: status,
+                  preserveWorktrees: preserveWorktrees,
+                ));
+              },
+        ),
+      );
+      await insertApprovalPausedRun(
+        runId: 'run-expired-cleanup',
+        timeoutDeadline: DateTime.now().subtract(const Duration(seconds: 1)),
+        variables: const {'PROJECT': 'my-app'},
+        gitStrategy: const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+      );
+
+      await workflowService.recoverIncompleteRuns();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(cleanupStatuses, hasLength(1));
+      expect(cleanupStatuses.single, (
+        runId: 'run-expired-cleanup',
+        projectId: 'my-app',
+        status: 'cancelled',
+        preserveWorktrees: false,
+      ));
     });
 
     test('cancel() on non-approval run ignores feedback and does not fire WorkflowApprovalResolvedEvent', () async {
@@ -1109,7 +1163,7 @@ void main() {
       // Resume is the documented action; retry is not valid from approval-hold state.
       final definition = makeDefinition(
         steps: [
-          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
           const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
         ],
       );
@@ -1144,7 +1198,7 @@ void main() {
       // "no replay" of prior steps is proven by the retry() cursor test below.
       final definition = makeDefinition(
         steps: [
-          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
           const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
         ],
       );
@@ -1449,13 +1503,13 @@ void main() {
         eventBus: eventBus,
         kvService: kvService,
         dataDir: tempDir.path,
-        hydrateWorkflowWorktreeBinding: (binding, {required workflowRunId}) {
+        hydrateWorkflowWorktreeBinding: (binding) {
           hydrated.add(binding);
         },
       );
       final definition = makeDefinition(
         steps: [
-          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
           const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
         ],
       );
@@ -1501,7 +1555,7 @@ void main() {
       final definition = makeDefinition(
         steps: [
           const WorkflowStep(id: 'impl', name: 'Impl', prompts: ['Implement']),
-          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
           const WorkflowStep(id: 'publish', name: 'Publish', prompts: ['Publish']),
         ],
       );

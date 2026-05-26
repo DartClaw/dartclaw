@@ -12,6 +12,7 @@ import 'github_webhook_config.dart';
 
 final _log = Logger('GitHubWebhookHandler');
 
+/// Handles signed GitHub webhook deliveries and routes them to workflows.
 class GitHubWebhookHandler {
   final GitHubWebhookConfig config;
   final WorkflowService workflows;

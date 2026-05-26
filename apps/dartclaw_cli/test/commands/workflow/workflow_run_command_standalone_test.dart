@@ -45,8 +45,7 @@ void main() {
         server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
 
-      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))
-        ..createSync(recursive: true);
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'ci-demo.yaml')).writeAsStringSync('''
 name: ci-demo
 description: Demo standalone workflow
@@ -134,14 +133,14 @@ steps:
     });
 
     test('no-skill-bootstrap rejects source-only skill metadata', () async {
-      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'));
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
       File(p.join(workflowsDir.path, 'source-only-skill.yaml')).writeAsStringSync('''
 name: source-only-skill
 description: Workflow that references a built-in skill without native install
 steps:
   - id: discover
     name: Discover
-    skill: dartclaw-discover-project
+    skill: dartclaw-discover-andthen-spec
 ''');
 
       final output = <String>[];
@@ -162,11 +161,11 @@ steps:
       );
 
       expect(output, [
-        '--no-skill-bootstrap was set but DartClaw workflow skills referenced by "source-only-skill" '
+        '--no-skill-bootstrap was set but workflow skills referenced by "source-only-skill" '
             'are not installed in native harness skill roots for their execution providers: '
-            'dartclaw-discover-project (claude). '
-            'Pre-stage the skill bundle under ~/.claude/skills/ and ~/.agents/skills/, '
-            'or omit --no-skill-bootstrap to provision them automatically.',
+            'dartclaw-discover-andthen-spec (provider claude, searched dartclaw-discover-andthen-spec). '
+            'Install AndThen separately for AndThen-owned skills; omit --no-skill-bootstrap only provisions '
+            'DartClaw-native skills.',
       ]);
     });
 
@@ -177,16 +176,15 @@ steps:
         server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
       final fakeHome = p.join(tempDir.path, 'claude-only-home');
-      _writeSkill(p.join(fakeHome, '.claude', 'skills'), 'dartclaw-discover-project');
-      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))
-        ..createSync(recursive: true);
+      _writeSkill(p.join(fakeHome, '.claude', 'skills'), 'dartclaw-discover-andthen-spec');
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'provider-mismatch.yaml')).writeAsStringSync('''
 name: provider-mismatch
 description: Workflow whose default provider cannot load the referenced skill
 steps:
   - id: discover
     name: Discover
-    skill: dartclaw-discover-project
+    skill: dartclaw-discover-andthen-spec
 ''');
 
       final output = <String>[];
@@ -207,12 +205,156 @@ steps:
       );
 
       expect(output, [
-        '--no-skill-bootstrap was set but DartClaw workflow skills referenced by "provider-mismatch" '
+        '--no-skill-bootstrap was set but workflow skills referenced by "provider-mismatch" '
             'are not installed in native harness skill roots for their execution providers: '
-            'dartclaw-discover-project (codex). '
-            'Pre-stage the skill bundle under ~/.claude/skills/ and ~/.agents/skills/, '
-            'or omit --no-skill-bootstrap to provision them automatically.',
+            'dartclaw-discover-andthen-spec (provider codex, searched dartclaw-discover-andthen-spec). '
+            'Install AndThen separately for AndThen-owned skills; omit --no-skill-bootstrap only provisions '
+            'DartClaw-native skills.',
       ]);
+    });
+
+    test('suppresses --no-skill-bootstrap hint when a different reason was already surfaced', () async {
+      // ci-demo fails validation (parallel approval) – not a skill issue.
+      // The --no-skill-bootstrap hint would mislead by telling the operator
+      // to fix skill provisioning, so it must not print when an exclusion
+      // reason has already been shown.
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
+      File(p.join(workflowsDir.path, 'ci-demo.yaml')).writeAsStringSync('''
+name: ci-demo
+description: Excluded by validation, not by skills.
+steps:
+  - id: gate
+    name: Gate
+    type: approval
+    parallel: true
+''');
+
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        environment: {'HOME': p.join(tempDir.path, 'empty-home')},
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stderrLine: output.add,
+        exitFn: _fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'ci-demo', '--standalone', '--no-skill-bootstrap']),
+        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+
+      expect(output.any((line) => line.contains('was excluded at load time')), isTrue);
+      expect(
+        output.every((line) => !line.contains('--no-skill-bootstrap was set')),
+        isTrue,
+        reason: 'Skill-bootstrap hint must not appear when an exclusion reason is already surfaced',
+      );
+    });
+
+    test('matches a parse-failure exclusion to the requested name by filename basename', () async {
+      // YAML fails to parse → exclusion has workflowName == null. The
+      // operator types `mybroken` (matching the filename basename); the CLI
+      // should surface the parse error rather than printing "Unknown workflow:".
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
+      File(p.join(workflowsDir.path, 'mybroken.yaml')).writeAsStringSync('name: : broken syntax {{{');
+
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stderrLine: output.add,
+        exitFn: _fakeExit,
+        runAndthenSkillsBootstrap: false,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'mybroken', '--standalone']),
+        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+
+      expect(output.any((line) => line.contains('"mybroken" was excluded at load time')), isTrue);
+      expect(output.any((line) => line.contains('mybroken.yaml')), isTrue);
+      expect(output.every((line) => !line.startsWith('Unknown workflow:')), isTrue);
+    });
+
+    test('surfaces other-name exclusions even when some workflows did load', () async {
+      // ci-demo loads cleanly. A sibling YAML fails validation – when the
+      // operator types a different unknown name, the CLI should still mention
+      // the failed sibling so the operator can see partial registry damage.
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
+      File(p.join(workflowsDir.path, 'broken-sibling.yaml')).writeAsStringSync('''
+name: broken-sibling
+description: Excluded by validation.
+steps:
+  - id: gate
+    name: Gate
+    type: approval
+    parallel: true
+''');
+
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stderrLine: output.add,
+        exitFn: _fakeExit,
+        runAndthenSkillsBootstrap: false,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'definitely-unknown', '--standalone']),
+        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+
+      expect(output.any((line) => line.startsWith('Unknown workflow:')), isTrue);
+      expect(output.any((line) => line.contains('Available: ci-demo')), isTrue);
+      expect(output.any((line) => line.contains('Other workflows excluded')), isTrue);
+      expect(output.any((line) => line.contains('broken-sibling')), isTrue);
+    });
+
+    test('surfaces validation errors when a requested workflow was excluded at load time', () async {
+      // Replace the default ci-demo with one that fails validation (approval
+      // step marked parallel – caught by validation, not parsing).
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
+      File(p.join(workflowsDir.path, 'ci-demo.yaml')).writeAsStringSync('''
+name: ci-demo
+description: Excluded by validation.
+steps:
+  - id: gate
+    name: Gate
+    type: approval
+    parallel: true
+''');
+
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stderrLine: output.add,
+        exitFn: _fakeExit,
+        runAndthenSkillsBootstrap: false,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'ci-demo', '--standalone']),
+        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+
+      expect(output.any((line) => line.contains('was excluded at load time')), isTrue);
+      expect(output.any((line) => line.contains('ci-demo.yaml')), isTrue);
+      expect(output.every((line) => !line.startsWith('Unknown workflow:')), isTrue);
     });
 
     test('standalone run provisions explicit provider runners and CLI configs before starting the workflow', () async {
@@ -221,8 +363,7 @@ steps:
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 0)}),
         server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
-      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))
-        ..createSync(recursive: true);
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'agent-demo.yaml')).writeAsStringSync('''
 name: agent-demo
 description: Demo standalone agent workflow

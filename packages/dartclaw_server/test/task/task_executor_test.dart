@@ -2,23 +2,37 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        ContextExtractor,
+        OutputConfig,
+        OutputFormat,
+        WorkflowRun,
+        WorkflowRunStatus,
+        WorkflowStep,
+        WorkflowWorktreeBinding;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import 'task_executor_test_support.dart';
+
 void main() {
-  late Directory tempDir;
-  late String sessionsDir;
+  late _FakeTaskWorker worker;
+  late TaskExecutorTestHarness h;
+  // Aliases into h for use by the 300+ bare-field call sites in the test body.
   late String workspaceDir;
   late SessionService sessions;
   late MessageService messages;
   late TaskService tasks;
-  late _FakeTaskWorker worker;
   late TurnManager turns;
   late ArtifactCollector collector;
   late KvService kvService;
@@ -30,61 +44,50 @@ void main() {
   late TaskExecutor executor;
 
   setUp(() async {
-    tempDir = Directory.systemTemp.createTempSync('dartclaw_task_executor_test_');
-    sessionsDir = p.join(tempDir.path, 'sessions');
-    // Workspace must NOT be inside dataDir — ArtifactCollector excludes
-    // files within dataDir to prevent collecting internal metadata.
-    workspaceDir = Directory.systemTemp.createTempSync('dartclaw_task_ws_').path;
-    Directory(sessionsDir).createSync(recursive: true);
-
-    sessions = SessionService(baseDir: sessionsDir);
-    messages = MessageService(baseDir: sessionsDir);
+    worker = _FakeTaskWorker();
+    h = TaskExecutorTestHarness(worker);
+    await h.setUp(tempPrefix: 'dartclaw_task_executor_test_');
     taskDb = sqlite3.openInMemory();
     agentExecutions = SqliteAgentExecutionRepository(taskDb);
     workflowRuns = SqliteWorkflowRunRepository(taskDb);
     workflowStepExecutions = SqliteWorkflowStepExecutionRepository(taskDb);
     executionTransactor = SqliteExecutionRepositoryTransactor(taskDb);
-    tasks = TaskService(
+    // Replace the harness's simple TaskService with one backed by the shared DB
+    // (needed for workflow repo joins). tasksDispose in tearDown handles lifecycle.
+    tasks = h.tasks = TaskService(
       SqliteTaskRepository(taskDb),
       agentExecutionRepository: agentExecutions,
       executionTransactor: executionTransactor,
     );
-    worker = _FakeTaskWorker();
-    turns = TurnManager(
-      messages: messages,
-      worker: worker,
-      behavior: BehaviorFileService(workspaceDir: workspaceDir),
-      sessions: sessions,
-    );
-    kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
-    collector = ArtifactCollector(
+    kvService = KvService(filePath: p.join(h.tempDir.path, 'kv.json'));
+    collector = h.collector = ArtifactCollector(
       tasks: tasks,
-      messages: messages,
-      sessionsDir: sessionsDir,
-      dataDir: tempDir.path,
-      workspaceDir: workspaceDir,
+      messages: h.messages,
+      sessionsDir: h.sessionsDir,
+      dataDir: h.tempDir.path,
+      workspaceDir: h.workspaceDir,
     );
+    workspaceDir = h.workspaceDir;
+    sessions = h.sessions;
+    messages = h.messages;
+    turns = h.turns;
     executor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowRunRepository: workflowRuns,
-      workflowStepExecutionRepository: workflowStepExecutions,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowRunRepository: workflowRuns,
+        workflowStepExecutionRepository: workflowStepExecutions,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
   });
 
   tearDown(() async {
-    await executor.stop();
-    await tasks.dispose();
-    await messages.dispose();
     await kvService.dispose();
-    await worker.dispose();
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-    final wsDir = Directory(workspaceDir);
-    if (wsDir.existsSync()) wsDir.deleteSync(recursive: true);
+    await h.tearDown(executor: executor, workerDispose: worker.dispose, tasksDispose: tasks.dispose);
   });
 
   TaskExecutor buildExecutor({
@@ -94,30 +97,22 @@ void main() {
     TaskEventRecorder? eventRecorder,
     Duration pollInterval = const Duration(milliseconds: 10),
   }) {
-    final namedArgs = <Symbol, dynamic>{
-      #tasks: tasks,
-      #sessions: sessions,
-      #messages: messages,
-      #turns: turns,
-      #artifactCollector: collector,
-      #workflowRunRepository: workflowRuns,
-      #workflowStepExecutionRepository: workflowStepExecutions,
-      #kvService: kvService,
-      #pollInterval: pollInterval,
-    };
-    if (onAutoAccept != null) {
-      namedArgs[#onAutoAccept] = onAutoAccept;
-    }
-    if (projectService != null) {
-      namedArgs[#projectService] = projectService;
-    }
-    if (workflowCliRunner != null) {
-      namedArgs[#workflowCliRunner] = workflowCliRunner;
-    }
-    if (eventRecorder != null) {
-      namedArgs[#eventRecorder] = eventRecorder;
-    }
-    return Function.apply(TaskExecutor.new, const [], namedArgs) as TaskExecutor;
+    return TaskExecutor(
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowRunRepository: workflowRuns,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        kvService: kvService,
+        projectService: projectService,
+        eventRecorder: eventRecorder,
+      ),
+      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: workflowCliRunner),
+      onAutoAccept: onAutoAccept,
+      pollInterval: pollInterval,
+    );
   }
 
   Future<void> seedWorkflowExecution(
@@ -361,6 +356,64 @@ void main() {
       'outputTokens': 500,
     });
     expect((await workflowStepExecutions.getByTaskId('task-oneshot'))?.structuredOutput, isA<Map<Object?, Object?>>());
+  });
+
+  test('workflow oneshot passes read-only allowedTools to CLI policy', () async {
+    late List<String> arguments;
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        arguments = List<String>.from(args);
+        final payload = jsonEncode({'session_id': 'cli-session-policy', 'result': 'Done.'}).replaceAll("'", "'\\''");
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '$payload'"]);
+      },
+    );
+    final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-oneshot-policy',
+      title: 'One-shot workflow policy',
+      description: 'Run read-only discovery.',
+      type: TaskType.research,
+      autoStart: true,
+      agentExecutionId: 'ae-task-oneshot-policy',
+      workflowRunId: 'wf-policy',
+      provider: 'claude',
+      configJson: const {
+        'allowedTools': ['shell', 'file_read'],
+        'readOnly': true,
+      },
+    );
+    await seedWorkflowExecution(
+      'task-oneshot-policy',
+      agentExecutionId: 'ae-task-oneshot-policy',
+      workflowRunId: 'wf-policy',
+    );
+
+    await oneShotExecutor.pollOnce();
+
+    expect(arguments, containsAll(['--permission-mode', 'dontAsk']));
+    expect(arguments, isNot(contains('--dangerously-skip-permissions')));
+    final settingsIndex = arguments.indexOf('--settings');
+    expect(settingsIndex, isNonNegative);
+    final settings = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+    expect(settings['permissions'], {
+      'allow': [
+        'Bash(git ls-files)',
+        'Bash(git rev-parse --abbrev-ref HEAD)',
+        'Bash(git rev-parse --show-toplevel)',
+        'Bash(git status --porcelain)',
+        'Bash(git status --short)',
+        'Bash(git status)',
+        'Bash(pwd)',
+        'Glob(*)',
+        'Grep(*)',
+        'LS(*)',
+        'Read(*)',
+      ],
+      'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'],
+    });
   });
 
   test('workflow oneshot token mirroring preserves config updates made while the task is running', () async {
@@ -1409,14 +1462,15 @@ void main() {
       defaultProjectId: 'my-app',
     );
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowStepExecutionRepository: workflowStepExecutions,
-
-      projectService: projectService,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -1462,14 +1516,15 @@ void main() {
       defaultProjectId: 'my-app',
     );
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowStepExecutionRepository: workflowStepExecutions,
-
-      projectService: projectService,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -1511,14 +1566,16 @@ void main() {
     );
     final worktreeManager = _CapturingWorktreeManager();
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      worktreeManager: worktreeManager,
-      projectService: projectService,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -1588,14 +1645,16 @@ void main() {
     );
     final worktreeManager = _CapturingWorktreeManager();
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      worktreeManager: worktreeManager,
-      projectService: projectService,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -1644,14 +1703,16 @@ void main() {
     );
     final worktreeManager = _CapturingWorktreeManager();
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      worktreeManager: worktreeManager,
-      projectService: projectService,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -1710,14 +1771,16 @@ void main() {
     worker.responseText = 'Done.';
     final worktreeManager = _CapturingWorktreeManager();
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowRunRepository: workflowRuns,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      worktreeManager: worktreeManager,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowRunRepository: workflowRuns,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -1745,7 +1808,7 @@ void main() {
     final binding = await workflowRuns.getWorktreeBinding(workflowRunId);
     expect(binding, isNotNull);
     expect(binding?.key, workflowRunId);
-    expect(binding?.path, '/tmp/worktrees/wf-$workflowRunId');
+    expect(binding?.path, '/tmp/worktrees/wf-6032d6adb94f37fe');
     expect(binding?.branch, 'dartclaw/workflow/runbinding/integration');
     expect(binding?.workflowRunId, workflowRunId);
   });
@@ -1754,14 +1817,16 @@ void main() {
     worker.responseText = 'Done.';
     final worktreeManager = _CapturingWorktreeManager();
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowRunRepository: workflowRuns,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      worktreeManager: worktreeManager,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowRunRepository: workflowRuns,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -1785,7 +1850,7 @@ void main() {
       ),
     );
     await workflowRuns.setWorktreeBinding(workflowRunId, binding);
-    projectExecutor.hydrateWorkflowSharedWorktreeBinding(binding, workflowRunId: workflowRunId);
+    projectExecutor.hydrateWorkflowSharedWorktreeBinding(binding);
 
     await tasks.create(
       id: 'task-shared-hydrated',
@@ -1855,14 +1920,16 @@ void main() {
     );
     final worktreeManager = _CapturingWorktreeManager();
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      worktreeManager: worktreeManager,
-      projectService: projectService,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -1895,8 +1962,123 @@ void main() {
       'HEAD',
     ], workingDirectory: localRepo.path);
     expect(worktreeManager.createCallCount, 0);
-    expect(task?.worktreeJson, isNull);
+    expect(task?.worktreeJson?['path'], localRepo.path);
+    expect(task?.worktreeJson?['branch'], integrationBranch);
     expect((head.stdout as String).trim(), integrationBranch);
+  });
+
+  test('inline workflow path outputs resolve against project checkout', () async {
+    final localRepo = Directory.systemTemp.createTempSync('task_executor_inline_path_repo_');
+    addTearDown(() {
+      if (localRepo.existsSync()) localRepo.deleteSync(recursive: true);
+    });
+    await Process.run('git', ['init'], workingDirectory: localRepo.path);
+    await Process.run('git', ['checkout', '-b', 'main'], workingDirectory: localRepo.path);
+    File(p.join(localRepo.path, 'README.md')).writeAsStringSync('inline');
+    File(p.join(localRepo.path, 'docs/prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# PRD\n');
+    await Process.run('git', ['add', '.'], workingDirectory: localRepo.path);
+    await Process.run(
+      'git',
+      ['commit', '-m', 'init', '--no-gpg-sign'],
+      workingDirectory: localRepo.path,
+      environment: {
+        'GIT_AUTHOR_NAME': 'Test',
+        'GIT_AUTHOR_EMAIL': 'test@test.com',
+        'GIT_COMMITTER_NAME': 'Test',
+        'GIT_COMMITTER_EMAIL': 'test@test.com',
+      },
+    );
+    const integrationBranch = 'dartclaw/workflow/runinline-path';
+    await Process.run('git', ['checkout', '-b', integrationBranch], workingDirectory: localRepo.path);
+    await Process.run('git', ['checkout', 'main'], workingDirectory: localRepo.path);
+
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: '',
+          localPath: localRepo.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+    final worktreeManager = _CapturingWorktreeManager();
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        final payload = jsonEncode({
+          'session_id': 'cli-session-inline-path',
+          'result': '<workflow-context>{"prd":"docs/prd.md"}</workflow-context>',
+        }).replaceAll("'", "'\\''");
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '$payload'"]);
+      },
+    );
+    final projectExecutor = TaskExecutor(
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: cliRunner),
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-inline-path',
+      title: 'Inline workflow path step',
+      description: 'Emit a path output from the project checkout.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-inline-path',
+      projectId: 'my-app',
+      workflowRunId: 'run-inline-path',
+      configJson: const {
+        '_baseRef': integrationBranch,
+        '_workflowNeedsWorktree': true,
+        'allowedTools': ['shell', 'file_read'],
+        'readOnly': true,
+      },
+    );
+    await seedWorkflowExecution(
+      'task-inline-path',
+      agentExecutionId: 'ae-task-inline-path',
+      workflowRunId: 'run-inline-path',
+      git: const {'worktree': 'inline'},
+    );
+
+    await projectExecutor.pollOnce();
+
+    final task = (await tasks.get('task-inline-path'))!;
+    final extractor = ContextExtractor(
+      taskService: tasks,
+      messageService: messages,
+      dataDir: h.tempDir.path,
+      workflowStepExecutionRepository: workflowStepExecutions,
+    );
+    final outputs = await extractor.extract(
+      const WorkflowStep(
+        id: 'discover-plan-state',
+        name: 'Discover Plan State',
+        outputs: {'prd': OutputConfig(format: OutputFormat.path)},
+      ),
+      task,
+    );
+
+    expect(worktreeManager.createCallCount, 0);
+    expect(task.worktreeJson?['path'], localRepo.path);
+    expect(outputs['prd'], 'docs/prd.md');
   });
 
   test('per-map-item post-map coding step attaches to integration branch, map iteration does not', () async {
@@ -1918,14 +2100,16 @@ void main() {
     );
     final worktreeManager = _CapturingWorktreeManager();
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      worktreeManager: worktreeManager,
-      projectService: projectService,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -1994,15 +2178,16 @@ void main() {
     );
     final worktreeManager = _CapturingWorktreeManager();
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      worktreeManager: worktreeManager,
-      projectService: projectService,
-      workflowCliRunner: _successWorkflowCliRunner(),
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: _successWorkflowCliRunner()),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -2079,15 +2264,16 @@ void main() {
     );
     final worktreeManager = _CapturingWorktreeManager();
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      worktreeManager: worktreeManager,
-      projectService: projectService,
-      workflowCliRunner: _successWorkflowCliRunner(),
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: _successWorkflowCliRunner()),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -2162,14 +2348,15 @@ void main() {
       defaultProjectId: 'my-app',
     );
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      projectService: projectService,
-      workflowCliRunner: _successWorkflowCliRunner(),
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: _successWorkflowCliRunner()),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -2217,12 +2404,13 @@ void main() {
     final pool = HarnessPool(runners: [primaryRunner, taskRunner]);
     final poolTurns = TurnManager.fromPool(pool: pool);
     final poolExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: poolTurns,
-      artifactCollector: collector,
-
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+      ),
+      runners: TaskExecutorRunners(turns: poolTurns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(poolExecutor.stop);
@@ -2271,12 +2459,13 @@ void main() {
     final pool = HarnessPool(runners: [primaryRunner, taskRunner1, taskRunner2]);
     final poolTurns = TurnManager.fromPool(pool: pool);
     final poolExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: poolTurns,
-      artifactCollector: collector,
-
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+      ),
+      runners: TaskExecutorRunners(turns: poolTurns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(poolExecutor.stop);
@@ -2330,14 +2519,16 @@ void main() {
     final pool = HarnessPool(runners: [primaryRunner, taskRunner1, taskRunner2]);
     final poolTurns = TurnManager.fromPool(pool: pool);
     final poolExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: poolTurns,
-      artifactCollector: collector,
-      workflowRunRepository: workflowRuns,
-      workflowStepExecutionRepository: workflowStepExecutions,
-      worktreeManager: worktreeManager,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowRunRepository: workflowRuns,
+        workflowStepExecutionRepository: workflowStepExecutions,
+        worktreeManager: worktreeManager,
+      ),
+      runners: TaskExecutorRunners(turns: poolTurns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(poolExecutor.stop);
@@ -2405,12 +2596,13 @@ void main() {
   test('waits for shared-harness contention instead of failing the task', () async {
     final contentionTurns = _BusyOnceTurnManager(messages, worker);
     final contentionExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: contentionTurns,
-      artifactCollector: collector,
-
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+      ),
+      runners: TaskExecutorRunners(turns: contentionTurns),
       pollInterval: const Duration(milliseconds: 1),
     );
     addTearDown(contentionExecutor.stop);
@@ -2440,13 +2632,14 @@ void main() {
     worker.inputTokens = 100;
     worker.outputTokens = 50;
     final traceExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-
-      traceService: traceService,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        traceService: traceService,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(traceExecutor.stop);
@@ -2473,7 +2666,7 @@ void main() {
   });
 
   test('does not crash when traceService is null (graceful degradation)', () async {
-    // executor in setUp has no traceService — verify normal operation.
+    // executor in setUp has no traceService – verify normal operation.
     worker.responseText = 'Done.';
     await tasks.create(
       id: 'task-no-trace',
@@ -2497,12 +2690,14 @@ void main() {
     setUp(() {
       capturing = _CapturingTurnManager(messages, worker);
       scopeExecutor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: capturing,
-        artifactCollector: collector,
-        workflowStepExecutionRepository: workflowStepExecutions,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+          workflowStepExecutionRepository: workflowStepExecutions,
+        ),
+        runners: TaskExecutorRunners(turns: capturing),
         pollInterval: const Duration(milliseconds: 10),
       );
     });
@@ -2586,13 +2781,15 @@ void main() {
         defaultProjectId: 'my-app',
       );
       final projectExecutor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: capturing,
-        artifactCollector: collector,
-        workflowStepExecutionRepository: workflowStepExecutions,
-        projectService: projectService,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+          workflowStepExecutionRepository: workflowStepExecutions,
+          projectService: projectService,
+        ),
+        runners: TaskExecutorRunners(turns: capturing),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(projectExecutor.stop);
@@ -2674,12 +2871,14 @@ void main() {
       defaultProjectId: 'my-app',
     );
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      projectService: projectService,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        projectService: projectService,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -2745,15 +2944,16 @@ void main() {
       defaultProjectId: 'my-app',
     );
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      projectService: projectService,
-      workflowCliRunner: _successWorkflowCliRunner(),
-      worktreeManager: _StaticPathWorktreeManager(worktreeDir.path),
-      workflowStepExecutionRepository: workflowStepExecutions,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        projectService: projectService,
+        worktreeManager: _StaticPathWorktreeManager(worktreeDir.path),
+        workflowStepExecutionRepository: workflowStepExecutions,
+      ),
+      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: _successWorkflowCliRunner()),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -2801,15 +3001,16 @@ void main() {
       },
     );
     final projectExecutor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
-      workflowCliRunner: runner,
-      worktreeManager: _StaticPathWorktreeManager(worktreeDir.path),
-      workflowRunRepository: workflowRuns,
-      workflowStepExecutionRepository: workflowStepExecutions,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        worktreeManager: _StaticPathWorktreeManager(worktreeDir.path),
+        workflowRunRepository: workflowRuns,
+        workflowStepExecutionRepository: workflowStepExecutions,
+      ),
+      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: runner),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);

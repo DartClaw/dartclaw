@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 class _FakeGoogleChatConfig {
@@ -196,7 +199,7 @@ void main() {
           env: {'HOME': '/home/user'},
         );
         expect(config.auth.cookieSecure, isFalse);
-        expect(config.warnings, anyElement(contains('Invalid type for auth.cookie_secure')));
+        expect(config.warnings, anyElement(contains('Invalid type for cookie_secure')));
       });
 
       test('auth.trusted_proxies invalid type collects warning and uses default', () {
@@ -208,7 +211,7 @@ void main() {
           env: {'HOME': '/home/user'},
         );
         expect(config.auth.trustedProxies, isEmpty);
-        expect(config.warnings, anyElement(contains('Invalid type for auth.trusted_proxies')));
+        expect(config.warnings, anyElement(contains('Invalid type for trusted_proxies')));
       });
 
       test('gateway.hsts invalid type collects warning and uses default', () {
@@ -220,7 +223,7 @@ void main() {
           env: {'HOME': '/home/user'},
         );
         expect(config.gateway.hsts, isFalse);
-        expect(config.warnings, anyElement(contains('Invalid type for gateway.hsts')));
+        expect(config.warnings, anyElement(contains('Invalid type for hsts')));
       });
 
       test('guard_audit.max_retention_days defaults to 30 when unset', () {
@@ -335,7 +338,7 @@ void main() {
           env: {'HOME': '/home/user'},
         );
         expect(_taskCompletionAction(config.tasks), 'review');
-        expect(config.warnings, anyElement(contains('Invalid type for tasks.completion_action')));
+        expect(config.warnings, anyElement(contains('Invalid type for completion_action')));
       });
 
       test('tasks.completion_action invalid values warn and fall back to review', () {
@@ -584,6 +587,137 @@ projects:
           env: {'HOME': '/home/user'},
         );
         expect(config.server.dataDir, '/home/user/my-data');
+      });
+
+      test('relative data_dir resolves absolute against config directory', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'data_dir: .dartclaw-dev\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.server.dataDir, '/home/user/.dartclaw/.dartclaw-dev');
+        expect(p.isAbsolute(config.server.dataDir), isTrue);
+      });
+
+      test('relative data_dir remains absolute without home environment variables', () {
+        final originalCwd = Directory.current;
+        final cwd = Directory.systemTemp.createTempSync('dartclaw_config_no_home_');
+        addTearDown(() {
+          Directory.current = originalCwd;
+          if (cwd.existsSync()) cwd.deleteSync(recursive: true);
+        });
+
+        Directory.current = cwd;
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (p.normalize(path) == p.normalize(p.join('.', '.dartclaw', 'dartclaw.yaml'))) {
+              return 'data_dir: relative-data\n';
+            }
+            return null;
+          },
+          env: {},
+        );
+
+        expect(config.server.dataDir, p.normalize(p.absolute(p.join('.', '.dartclaw', 'relative-data'))));
+        expect(p.isAbsolute(config.server.dataDir), isTrue);
+      });
+
+      test('example dev config resolves storage to the repository root default', () {
+        final config = DartclawConfig.load(
+          configPath: '/repo/examples/dev.yaml',
+          fileReader: (path) => path == '/repo/examples/dev.yaml' ? 'data_dir: ../.dartclaw-dev\n' : null,
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.server.dataDir, '/repo/.dartclaw-dev');
+      });
+
+      test('tilde expansion remains absolute', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'data_dir: ~/my-data\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.server.dataDir, '/home/user/my-data');
+        expect(p.isAbsolute(config.server.dataDir), isTrue);
+      });
+
+      test('parsed data_dir stays stable across cwd changes', () {
+        final originalCwd = Directory.current;
+        final initialCwd = Directory.systemTemp.createTempSync('dartclaw_config_initial_');
+        final laterCwd = Directory.systemTemp.createTempSync('dartclaw_config_later_');
+        addTearDown(() {
+          Directory.current = originalCwd;
+          if (initialCwd.existsSync()) initialCwd.deleteSync(recursive: true);
+          if (laterCwd.existsSync()) laterCwd.deleteSync(recursive: true);
+        });
+
+        Directory.current = initialCwd;
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'data_dir: relative-data\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        final parsedDataDir = config.server.dataDir;
+        const expectedDataDir = '/home/user/.dartclaw/relative-data';
+
+        Directory.current = laterCwd;
+        expect(parsedDataDir, expectedDataDir);
+      });
+
+      test('explicit config path keeps relative data_dir stable across launch directories', () {
+        final originalCwd = Directory.current;
+        final firstCwd = Directory.systemTemp.createTempSync('dartclaw_config_first_');
+        final secondCwd = Directory.systemTemp.createTempSync('dartclaw_config_second_');
+        addTearDown(() {
+          Directory.current = originalCwd;
+          if (firstCwd.existsSync()) firstCwd.deleteSync(recursive: true);
+          if (secondCwd.existsSync()) secondCwd.deleteSync(recursive: true);
+        });
+
+        String? reader(String path) => path == '/configs/dartclaw.yaml' ? 'data_dir: relative-data\n' : null;
+
+        Directory.current = firstCwd;
+        final firstConfig = DartclawConfig.load(
+          configPath: '/configs/dartclaw.yaml',
+          fileReader: reader,
+          env: {'HOME': '/home/user'},
+        );
+
+        Directory.current = secondCwd;
+        final secondConfig = DartclawConfig.load(
+          configPath: '/configs/dartclaw.yaml',
+          fileReader: reader,
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(firstConfig.server.dataDir, '/configs/relative-data');
+        expect(secondConfig.server.dataDir, firstConfig.server.dataDir);
+      });
+
+      test('relative DARTCLAW_HOME remains launch-directory relative when data_dir is absent', () {
+        final originalCwd = Directory.current;
+        final cwd = Directory.systemTemp.createTempSync('dartclaw_config_home_');
+        addTearDown(() {
+          Directory.current = originalCwd;
+          if (cwd.existsSync()) cwd.deleteSync(recursive: true);
+        });
+
+        Directory.current = cwd;
+        final config = DartclawConfig.load(
+          fileReader: (path) => path == p.join('instance', 'dartclaw.yaml') ? 'port: 4444\n' : null,
+          env: {'HOME': '/home/user', 'DARTCLAW_HOME': 'instance'},
+        );
+
+        expect(config.server.dataDir, p.normalize(p.absolute('instance')));
       });
 
       test('~ expansion in logging.file', () {
@@ -901,7 +1035,7 @@ projects:
         );
 
         expect(config.agent.provider, 'claude');
-        expect(config.warnings, anyElement(contains('Invalid type for agent.provider')));
+        expect(config.warnings, anyElement(contains('Invalid type for provider')));
       });
     });
 
@@ -1005,7 +1139,7 @@ projects:
           env: {'HOME': '/home/user'},
         );
         expect(config.sessions.scopeConfig.dmScope, DmScope.perChannelContact);
-        expect(config.warnings, anyElement(contains('Invalid type for sessions.dm_scope')));
+        expect(config.warnings, anyElement(contains('Invalid type for dm_scope')));
       });
 
       test('unknown channel name in sessions.channels is parsed without error', () {
@@ -1030,7 +1164,7 @@ projects:
           env: {'HOME': '/home/user'},
         );
         expect(config.sessions.scopeConfig.model, isNull);
-        expect(config.warnings, anyElement(contains('Invalid type for sessions.model')));
+        expect(config.warnings, anyElement(contains('Invalid type for model')));
       });
     });
 
@@ -1116,8 +1250,8 @@ projects:
           env: {'HOME': '/home/user'},
         );
 
-        expect(config.security.bashStep.envAllowlist, kDefaultBashStepEnvAllowlist);
-        expect(config.warnings, anyElement(contains('Invalid type for security.bash_step.env_allowlist')));
+        expect(config.security.bashStep.envAllowlist, defaultBashStepEnvAllowlist);
+        expect(config.warnings, anyElement(contains('Invalid type for env_allowlist')));
       });
 
       test('security.bash_step.extra_strip_patterns parses as additive list', () {
@@ -1232,7 +1366,7 @@ projects:
           env: {'HOME': '/home/user'},
         );
         expect(config.search.providers, isEmpty);
-        expect(config.warnings, anyElement(contains('Invalid type for search.providers')));
+        expect(config.warnings, anyElement(contains('Invalid type for providers')));
       });
 
       test('no search section returns empty providers', () {
@@ -1314,7 +1448,7 @@ projects:
           env: {'HOME': '/home/user'},
         );
         expect(config.sessions.scopeConfig.dmScope, DmScope.perChannelContact);
-        expect(config.warnings, anyElement(contains('Invalid type for sessions.dm_scope')));
+        expect(config.warnings, anyElement(contains('Invalid type for dm_scope')));
       });
 
       test('unknown channel name in overrides produces warning', () {
@@ -1545,7 +1679,7 @@ automation:
           env: {'HOME': '/home/user'},
         );
         expect(config.sessions.maintenanceConfig.pruneAfterDays, 30);
-        expect(config.warnings, anyElement(contains('Invalid type for sessions.maintenance.prune_after_days')));
+        expect(config.warnings, anyElement(contains('Invalid type for prune_after_days')));
       });
 
       test('invalid type for sessions.maintenance warns and uses defaults', () {
@@ -1559,7 +1693,7 @@ automation:
           env: {'HOME': '/home/user'},
         );
         expect(config.sessions.maintenanceConfig, const SessionMaintenanceConfig.defaults());
-        expect(config.warnings, anyElement(contains('Invalid type for sessions.maintenance')));
+        expect(config.warnings, anyElement(contains('Invalid type for maintenance')));
       });
     });
 
@@ -1854,7 +1988,7 @@ automation:
           env: {'HOME': '/home/user'},
         );
         expect(config.governance.crowdCoding.model, isNull);
-        expect(config.warnings, anyElement(contains('Invalid type for governance.crowd_coding.model')));
+        expect(config.warnings, anyElement(contains('Invalid type for model')));
       });
     });
   });

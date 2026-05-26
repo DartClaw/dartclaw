@@ -935,7 +935,7 @@ Map<String, dynamic> _currentConfigValues(DartclawConfig config) {
   try {
     githubConfig = config.extension<GitHubWebhookConfig>('github');
   } catch (_) {
-    githubConfig = null;
+    githubConfig = null; // Extension absent or malformed — omit GitHub fields from config view.
   }
   return {
     'channels.google_chat.enabled': googleChatConfig.enabled,

@@ -160,7 +160,7 @@ class CanvasService {
       try {
         controller.add(bytes);
       } catch (_) {
-        stale.add(controller);
+        stale.add(controller); // Controller closed or errored — mark stale for removal.
       }
     }
     for (final controller in stale) {

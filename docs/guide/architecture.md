@@ -96,7 +96,7 @@ The protocol supports:
 
 ## Package Structure
 
-DartClaw is organized as a Dart pub workspace with eleven packages plus a CLI app. Each package has a focused role:
+DartClaw is organized as a Dart pub workspace with twelve packages plus a CLI app. Each package has a focused role:
 
 ```
 packages/
@@ -122,6 +122,9 @@ packages/
 
   dartclaw_storage/      SQLite3. Search index, tasks, goals, related storage
                          services, and transient turn recovery state.
+
+  dartclaw_workflow/     Unified workflow parsing, validation, registry, and
+                         execution support for DartClaw.
 
   dartclaw_server/       Shelf HTTP. API routes, web UI templates, turn
                          orchestration, MCP server, scheduling, task execution,

@@ -3,8 +3,10 @@ import 'package:shelf/shelf.dart';
 import 'canvas_service.dart';
 import 'canvas_state.dart';
 
+/// Shelf request-context key under which the validated [CanvasShareToken] is stored.
 const canvasShareTokenContextKey = 'dartclaw.canvas.shareToken';
 
+/// Returns shelf middleware that validates a canvas share token and attaches it to the request context.
 Middleware canvasShareMiddleware(CanvasService canvasService) {
   return (Handler inner) => (Request request) async {
     final token = _extractTokenFromPath(request.url.pathSegments);
@@ -22,6 +24,7 @@ Middleware canvasShareMiddleware(CanvasService canvasService) {
   };
 }
 
+/// Reads the validated [CanvasShareToken] previously attached by [canvasShareMiddleware].
 CanvasShareToken? getShareToken(Request request) {
   return request.context[canvasShareTokenContextKey] as CanvasShareToken?;
 }

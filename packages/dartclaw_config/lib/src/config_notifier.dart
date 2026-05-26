@@ -16,18 +16,12 @@ final _log = Logger('ConfigNotifier');
 /// the error is logged and remaining services continue to be notified.
 class ConfigNotifier {
   /// Field keys that cannot be reloaded at runtime without a server restart.
-  static const Set<String> nonReloadableKeys = {
-    'server.port',
-    'server.host',
-    'server.data_dir',
-    'andthen.git_url',
-    'andthen.ref',
-    'andthen.network',
-  };
+  static const Set<String> nonReloadableKeys = {'server.port', 'server.host', 'server.data_dir'};
 
   DartclawConfig _current;
   final List<Reconfigurable> _services = [];
 
+  /// ConfigNotifier(DartclawConfig initial) : _current = initial;.
   ConfigNotifier(DartclawConfig initial) : _current = initial;
 
   /// The current configuration.
@@ -84,13 +78,6 @@ class ConfigNotifier {
     _detectChangedSimple('governance', old.governance, newConfig.governance, changedKeys);
     _detectChangedSimple('features', old.features, newConfig.features, changedKeys);
     _detectChangedSimple('projects', old.projects, newConfig.projects, changedKeys);
-    if (old.andthen != newConfig.andthen) {
-      _log.warning(
-        'ConfigNotifier: reload contains non-reloadable andthen.* changes — '
-        'restart `dartclaw serve` to pick up new clone/install settings.',
-      );
-    }
-
     if (changedKeys.isEmpty) return null;
 
     _current = newConfig;

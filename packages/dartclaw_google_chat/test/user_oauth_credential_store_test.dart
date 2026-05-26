@@ -111,8 +111,8 @@ void main() {
     test('file has restricted permissions on non-Windows', () {
       store.save(sampleCredentials());
       if (!Platform.isWindows) {
-        final result = Process.runSync('stat', ['-f', '%Lp', store.filePath]);
-        expect(result.stdout.toString().trim(), '600');
+        final mode = File(store.filePath).statSync().mode & 0x1ff;
+        expect(mode.toRadixString(8), '600');
       }
     });
 

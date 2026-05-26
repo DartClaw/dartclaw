@@ -38,19 +38,22 @@ Future<({int exitCode, String stderr, String stdout})> _isolateGitRunner(
   return Isolate.run(() async {
     final result = await SafeProcess.git(
       argsCopy,
-      plan: _InlineProcessEnvironmentPlan(envCopy),
+      plan: InlineProcessEnvironmentPlan(envCopy),
       workingDirectory: wdCopy,
     );
     return (exitCode: result.exitCode, stderr: result.stderr as String, stdout: result.stdout as String);
   });
 }
 
-final class _InlineProcessEnvironmentPlan implements ProcessEnvironmentPlan {
-  @override
-  final Map<String, String> environment;
+/// Thrown when a `git fetch` operation exits with a non-zero status.
+class GitFetchException implements Exception {
+  final String message;
+  final Object? cause;
 
-  const _InlineProcessEnvironmentPlan(Map<String, String>? environment)
-    : environment = environment ?? const <String, String>{};
+  GitFetchException(this.message, {this.cause});
+
+  @override
+  String toString() => cause != null ? 'GitFetchException: $message (cause: $cause)' : 'GitFetchException: $message';
 }
 
 /// Implementation of [ProjectService] for the DartClaw server.
@@ -70,7 +73,7 @@ class ProjectServiceImpl implements ProjectService {
   final Logger _log;
 
   /// In-memory project registry keyed by id.
-  /// Does NOT include `_local` (accessed via [getLocalProject]).
+  /// Does NOT include `_local` (accessed via [localProject]).
   final Map<String, Project> _projects = {};
 
   /// In-flight fetch/validation completers, keyed by project+ref+strictness.
@@ -140,10 +143,10 @@ class ProjectServiceImpl implements ProjectService {
   }
 
   @override
-  Project getLocalProject() => _localProject;
+  Project get localProject => _localProject;
 
   @override
-  Future<Project> getDefaultProject() async {
+  Future<Project> get defaultProject async {
     // 1. Check for explicitly marked default in config.
     for (final project in _projects.values) {
       if (project.configDefined) {
@@ -338,18 +341,18 @@ class ProjectServiceImpl implements ProjectService {
   Future<String> resolveWorkflowBaseRef(Project project, {String? requestedBranch}) async {
     final requested = requestedBranch?.trim();
     if (requested != null && requested.isNotEmpty) {
-      return requested;
+      return normalizeGitRefOperand(requested, label: 'workflow requested branch');
     }
 
     final configured = project.defaultBranch.trim();
     if (configured.isNotEmpty) {
-      return configured;
+      return normalizeGitRefOperand(configured, label: 'project default branch');
     }
 
     if (project.remoteUrl.isEmpty) {
       final observed = await _resolveSymbolicHeadBranch(project.localPath);
       if (observed != null && observed.isNotEmpty) {
-        return observed;
+        return normalizeGitRefOperand(observed, label: 'project HEAD branch');
       }
     }
 
@@ -361,7 +364,7 @@ class ProjectServiceImpl implements ProjectService {
     final targetRef = _normalizeExternalRef(ref, defaultBranch: project.defaultBranch);
     final plan = _resolveGitPlan(project.remoteUrl, project.credentialsRef);
     final result = await _gitRunner(
-      _buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', 'origin', targetRef]),
+      buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', 'origin', targetRef]),
       environment: plan.environment,
       workingDirectory: project.localPath,
     );
@@ -383,12 +386,15 @@ class ProjectServiceImpl implements ProjectService {
   }
 
   String _normalizeExternalRef(String? ref, {required String defaultBranch}) {
-    if (ref == null || ref.isEmpty) return defaultBranch;
-    if (ref.startsWith('origin/')) {
-      final trimmed = ref.substring('origin/'.length).trim();
-      return trimmed.isEmpty ? defaultBranch : trimmed;
+    if (ref == null || ref.isEmpty) {
+      return normalizeGitRefOperand(defaultBranch, label: 'project default branch');
     }
-    return ref;
+    final trimmedRef = ref.trim();
+    if (trimmedRef.startsWith('origin/')) {
+      final trimmed = trimmedRef.substring('origin/'.length).trim();
+      return normalizeGitRefOperand(trimmed.isEmpty ? defaultBranch : trimmed, label: 'fetch ref');
+    }
+    return normalizeGitRefOperand(trimmedRef, label: 'fetch ref');
   }
 
   String _fetchInFlightKey(String projectId, String? ref, bool strict) {
@@ -433,7 +439,7 @@ class ProjectServiceImpl implements ProjectService {
     for (final path in _tempFiles) {
       try {
         File(path).deleteSync();
-      } catch (_) {}
+      } catch (_) {} // Best-effort temp-file cleanup on dispose.
     }
     _tempFiles.clear();
   }
@@ -620,7 +626,7 @@ class ProjectServiceImpl implements ProjectService {
 
     final prepared = await _requireCompatibleAuth(project, persistFailure: true);
     final plan = _resolveGitPlan(project.remoteUrl, project.credentialsRef);
-    final args = _buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', '--prune', 'origin']);
+    final args = buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', '--prune', 'origin']);
 
     final result = await _gitRunner(args, environment: plan.environment, workingDirectory: project.localPath);
 
@@ -636,16 +642,17 @@ class ProjectServiceImpl implements ProjectService {
       }
       return updated;
     } else {
-      throw Exception('git fetch failed: ${result.stderr}');
+      throw GitFetchException('git fetch failed: ${result.stderr}');
     }
   }
 
   List<String> _buildCloneArgs(Project project, String remoteUrl) {
+    final defaultBranch = normalizeGitRefOperand(project.defaultBranch, label: 'project default branch');
     return [
       'clone',
       if (project.cloneStrategy == CloneStrategy.shallow) '--depth=1',
       '--branch',
-      project.defaultBranch,
+      defaultBranch,
       remoteUrl,
       project.localPath,
     ];
@@ -653,13 +660,6 @@ class ProjectServiceImpl implements ProjectService {
 
   GitCredentialPlan _resolveGitPlan(String remoteUrl, String? credentialsRef) {
     return resolveGitCredentialPlan(remoteUrl, credentialsRef, _credentials, dataDir: _dataDir, tempFiles: _tempFiles);
-  }
-
-  List<String> _buildRemoteOverrideArgs(String originalRemoteUrl, String resolvedRemoteUrl, List<String> gitArgs) {
-    if (originalRemoteUrl.trim().isEmpty || originalRemoteUrl == resolvedRemoteUrl) {
-      return gitArgs;
-    }
-    return ['-c', 'remote.origin.url=$resolvedRemoteUrl', ...gitArgs];
   }
 
   Future<Project> _requireCompatibleAuth(Project project, {bool persistFailure = false}) async {

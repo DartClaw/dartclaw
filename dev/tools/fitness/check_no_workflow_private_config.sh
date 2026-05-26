@@ -14,24 +14,22 @@ cd "$ROOT_DIR"
 #
 # Adding a new consumer outside this list re-opens the storage boundary closed
 # by 0.16.4 S33-S35 (AgentExecution decomposition) and should instead go behind
-# a typed accessor (TD-103 tracks moving the two server-side reads —
-# workflow_one_shot_runner.dart and task_config_view.dart — behind a typed
-# view, slated for 0.16.5 S34).
+# a typed accessor on WorkflowTaskConfig.
+#
+# TD-103 resolved by 0.16.5 S34 — both server-side reads now route through
+# WorkflowTaskConfig (workflowNeedsWorktree constant and readMergeResolveEnv).
 ALLOWED_FILES=(
   # Source of truth: builds and strips the workflow task-config map.
   'packages/dartclaw_workflow/lib/src/workflow/workflow_task_factory.dart'
   'packages/dartclaw_workflow/lib/src/workflow/workflow_task_config.dart'
   # Workflow execution sites that legitimately read/write workflow keys.
   'packages/dartclaw_workflow/lib/src/workflow/workflow_executor_helpers.dart'
+  'packages/dartclaw_workflow/lib/src/workflow/workflow_executor_node_helpers.dart'
   'packages/dartclaw_workflow/lib/src/workflow/workflow_git_lifecycle.dart'
   'packages/dartclaw_workflow/lib/src/workflow/step_dispatcher.dart'
   'packages/dartclaw_workflow/lib/src/workflow/map_iteration_runner.dart'
   'packages/dartclaw_workflow/lib/src/workflow/map_iteration_dispatcher.dart'
   'packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart'
-  # Server-side persisted-key consumers — pending TD-103 follow-up to wrap
-  # behind a typed accessor on TaskConfigView (0.16.5 S34).
-  'packages/dartclaw_server/lib/src/task/workflow_one_shot_runner.dart'
-  'packages/dartclaw_server/lib/src/task/task_config_view.dart'
 )
 
 matches="$(rg -n "['\"]_workflow" packages/*/lib 2>/dev/null || true)"

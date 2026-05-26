@@ -6,6 +6,7 @@ import '../../templates/memory_dashboard.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
 
+/// Renders the agent-memory dashboard page.
 class MemoryPage extends DashboardPage {
   MemoryPage({this.memoryStatusServiceGetter, this.workspaceDisplay = const WorkspaceDisplayParams()});
 
@@ -34,7 +35,7 @@ class MemoryPage extends DashboardPage {
       );
     }
 
-    final sidebarData = await context.buildSidebarData();
+    final sidebarData = await context.sidebar.build();
     final status = await memService.getStatus();
     final page = memoryDashboardTemplate(
       status: status,

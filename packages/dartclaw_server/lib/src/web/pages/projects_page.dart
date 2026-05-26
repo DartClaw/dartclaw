@@ -29,8 +29,8 @@ class ProjectsPage extends DashboardPage {
     }
 
     final projects = await projectService.getAll();
-    final defaultProject = await projectService.getDefaultProject();
-    final sidebarData = await context.buildSidebarData();
+    final defaultProject = await projectService.defaultProject;
+    final sidebarData = await context.sidebar.build();
 
     final page = projectsPageTemplate(
       sidebarData: sidebarData,

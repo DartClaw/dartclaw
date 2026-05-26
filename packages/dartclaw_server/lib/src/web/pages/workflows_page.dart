@@ -1,6 +1,17 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show Project;
+import 'package:dartclaw_core/dartclaw_core.dart' show ArtifactKind, Task;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show buildLoopInfo, formatContextForDisplay, stepStatusFromTask, workflowStatusBadgeClass, workflowStatusLabel;
+    show
+        WorkflowDefinition,
+        WorkflowRun,
+        WorkflowRunStatus,
+        WorkflowStep,
+        WorkflowTaskType,
+        buildLoopInfo,
+        formatContextForDisplay,
+        stepStatusFromTask,
+        workflowStatusBadgeClass,
+        workflowStatusLabel;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
@@ -20,7 +31,7 @@ final _log = Logger('WorkflowsPage');
 /// The workflow run list page is S12's responsibility.
 class WorkflowsPage extends DashboardPage {
   static String _stepStatusForRunDetail(WorkflowRun run, int index, WorkflowStep step, Task? task) {
-    if (step.type == 'approval') {
+    if (step.taskType == WorkflowTaskType.approval) {
       final approvalStatus = run.contextJson['${step.id}.approval.status'] as String?;
       return switch (approvalStatus) {
         'pending' => 'awaiting_approval',
@@ -95,7 +106,7 @@ class WorkflowsPage extends DashboardPage {
       WorkflowDefinition? definition;
       try {
         definition = WorkflowDefinition.fromJson(run.definitionJson);
-      } catch (_) {}
+      } catch (_) {} // Malformed stored definition — render with null definition (no step progress).
       final totalSteps = definition?.steps.length ?? 0;
       final tasksByStepIndex = <int, Task>{
         for (final task in allTasks.where((t) => t.workflowRunId == run.id))
@@ -166,7 +177,7 @@ class WorkflowsPage extends DashboardPage {
       'definitionOptions': definitionSummaries.map((s) => s.name).toList(),
     };
 
-    final sidebarData = await context.buildSidebarData();
+    final sidebarData = await context.sidebar.build();
     final navItems = context.navItems(activePage: title);
     final bannerHtml = context.restartBannerHtml();
 
@@ -190,7 +201,7 @@ class WorkflowsPage extends DashboardPage {
     try {
       return formatRelativeTime(dt);
     } catch (_) {
-      return dt.toIso8601String();
+      return dt.toIso8601String(); // Formatting failed — fall back to ISO-8601 string.
     }
   }
 
@@ -232,14 +243,14 @@ class WorkflowsPage extends DashboardPage {
     for (var i = 0; i < definition.steps.length; i++) {
       final step = definition.steps[i];
       final task = tasksByStepIndex[i];
-      final isApproval = step.type == 'approval';
+      final isApproval = step.taskType == WorkflowTaskType.approval;
       final approvalStatus = isApproval ? run.contextJson['${step.id}.approval.status'] as String? : null;
       final stepStatus = _stepStatusForRunDetail(run, i, step, task);
       final stepEntry = <String, dynamic>{
         'index': i,
         'id': step.id,
         'name': step.name,
-        'type': step.type,
+        'type': step.taskType.toJson(),
         'parallel': step.parallel,
         'status': stepStatus,
         'taskId': task?.id,
@@ -268,7 +279,7 @@ class WorkflowsPage extends DashboardPage {
     // Format context for display.
     final contextEntries = formatContextForDisplay(run.contextJson);
 
-    final sidebarData = await context.buildSidebarData();
+    final sidebarData = await context.sidebar.build();
     final html = workflowDetailPageTemplate(
       sidebarData: sidebarData,
       navItems: context.navItems(activePage: title),
@@ -359,7 +370,7 @@ class WorkflowsPage extends DashboardPage {
     WorkflowDefinition? definition;
     try {
       definition = WorkflowDefinition.fromJson(run.definitionJson);
-    } catch (_) {}
+    } catch (_) {} // Malformed stored definition — render step detail without input/output context.
 
     final inputs = <Map<String, dynamic>>[];
     final outputKeys = <Map<String, dynamic>>[];

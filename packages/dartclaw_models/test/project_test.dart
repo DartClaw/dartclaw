@@ -1,4 +1,5 @@
-import 'package:dartclaw_models/dartclaw_models.dart';
+import 'package:dartclaw_config/dartclaw_config.dart'
+    show CloneStrategy, PrConfig, PrStrategy, Project, ProjectAuthStatus, ProjectStatus;
 import 'package:test/test.dart';
 
 void main() {

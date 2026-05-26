@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
@@ -25,7 +25,7 @@ class _FakeGowaManager extends GowaManager {
   String? get pairedJid => pairedJidValue;
 
   @override
-  Future<GowaStatus> getStatus() async => (isConnected: loggedIn, isLoggedIn: loggedIn, deviceId: pairedJidValue);
+  Future<GowaStatus> status() async => (isConnected: loggedIn, isLoggedIn: loggedIn, deviceId: pairedJidValue);
 }
 
 class _FakeSignalCliManager extends SignalCliManager {

@@ -20,7 +20,7 @@ void main() {
       messageService: harness.messages,
       dataDir: harness.tempDir.path,
     );
-    final session = await harness.sessions.getOrCreateMain();
+    final session = await harness.sessions.getOrCreateMainSession();
     await harness.messages.insertMessage(
       sessionId: session.id,
       role: 'assistant',
@@ -54,7 +54,7 @@ void main() {
       messageService: harness.messages,
       dataDir: harness.tempDir.path,
     );
-    final session = await harness.sessions.getOrCreateMain();
+    final session = await harness.sessions.getOrCreateMainSession();
     await harness.messages.insertMessage(
       sessionId: session.id,
       role: 'assistant',

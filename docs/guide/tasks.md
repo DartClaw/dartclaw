@@ -86,7 +86,7 @@ When creating a task (via API or web UI), you can set per-task overrides in `con
 | Key | Type | Default | Purpose |
 |-----|------|---------|---------|
 | `model` | `string` | global `agent.model` | Model override for this specific task |
-| `tokenBudget` | `int` | unlimited | Maximum total token spend; task auto-fails if exceeded (`budget` is a deprecated alias) |
+| `tokenBudget` | `int` | unlimited | Maximum total token spend; task auto-fails if exceeded (`budget` is a deprecated alias). Per-task budgets are independent of the server-wide [daily token budget](governance.md#daily-token-budget) |
 
 ```http
 POST /api/tasks

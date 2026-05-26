@@ -2,14 +2,23 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_server/src/api/github_webhook.dart';
 import 'package:dartclaw_server/src/api/github_webhook_config.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show InMemoryDefinitionSource, WorkflowDefinitionSource, WorkflowService;
+    show
+        InMemoryDefinitionSource,
+        WorkflowDefinition,
+        WorkflowDefinitionSource,
+        WorkflowRun,
+        WorkflowRunStatus,
+        WorkflowService,
+        WorkflowStep,
+        WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -466,10 +475,10 @@ class _StaticProjectService implements ProjectService {
   Future<void> delete(String id) => throw UnimplementedError();
 
   @override
-  Future<Project> getDefaultProject() => throw UnimplementedError();
+  Future<Project> get defaultProject => throw UnimplementedError();
 
   @override
-  Project getLocalProject() => throw UnimplementedError();
+  Project get localProject => throw UnimplementedError();
 
   @override
   Future<void> initialize() async {}

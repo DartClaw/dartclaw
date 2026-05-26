@@ -34,7 +34,8 @@ guards:
     enabled: true
     model: haiku
 
-memory_max_bytes: 65536
+memory:
+  max_bytes: 65536
 
 sessions:
   idle_timeout_minutes: 480           # long timeout for research sessions
@@ -130,7 +131,7 @@ scheduling:
 
 - **Search agent tool budget**: Each search agent turn has a limited number of tool calls. Complex queries may require follow-up questions to cover all angles
 - **Content-guard filtering**: Some web content may be partially filtered by the content-guard. The agent will note when results seem incomplete
-- **No permanent document storage**: Research is stored as text in MEMORY.md, not as separate files or PDFs. For large research projects, consider increasing `memory_max_bytes`
+- **No permanent document storage**: Research is stored as text in MEMORY.md, not as separate files or PDFs. For large research projects, consider increasing `memory.max_bytes`
 - **Web content is ephemeral**: URLs found during research may become unavailable later. The agent saves summaries, not cached copies of web pages
 - **Search model matters**: The default Haiku model for the search agent is fast and cheap but less capable at complex synthesis. Upgrade to Sonnet for research requiring nuanced understanding
 - **Memory consolidation may restructure entries**: Heartbeat consolidation merges duplicate entries. Research findings saved across multiple sessions may be consolidated into a single entry

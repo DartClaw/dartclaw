@@ -1,8 +1,10 @@
 import 'dart:async' show Timer;
 
+import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show EventBus, WorkflowApprovalRequestedEvent, WorkflowRunStatus, WorkflowRunStatusChangedEvent;
-import 'package:dartclaw_models/dartclaw_models.dart' show ActionNode, WorkflowRun, WorkflowStep;
+    show EventBus, WorkflowApprovalRequestedEvent, WorkflowRunStatusChangedEvent;
+import 'workflow_definition.dart' show ActionNode, WorkflowStep, WorkflowTaskType;
+import 'workflow_run.dart' show WorkflowRun;
 
 import 'workflow_context.dart';
 import 'workflow_runner_types.dart';
@@ -66,7 +68,7 @@ Future<void> executeApprovalStep({
   required WorkflowTemplateEngine templateEngine,
   required ApprovalStepDependencies dependencies,
 }) async {
-  assert(step.type == 'approval', 'approval runner received non-approval step ${step.id}');
+  assert(step.taskType == WorkflowTaskType.approval, 'approval runner received non-approval step ${step.id}');
   final message = templateEngine.resolve(step.prompts?.firstOrNull ?? '', context);
   final requestedAt = DateTime.now().toIso8601String();
 
@@ -97,12 +99,7 @@ Future<void> executeApprovalStep({
     currentStepIndex: stepIndex + 1,
     status: WorkflowRunStatus.awaitingApproval,
     errorMessage: 'approval required: ${step.id}',
-    contextJson: {
-      for (final e in run.contextJson.entries)
-        if (e.key.startsWith('_')) e.key: e.value,
-      ...context.toJson(),
-      ...approvalMeta,
-    },
+    contextJson: {...privateContextEntries(run.contextJson), ...context.toJson(), ...approvalMeta},
     updatedAt: DateTime.now(),
   );
   await dependencies.persistContext(run.id, context);

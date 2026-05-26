@@ -1,10 +1,19 @@
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowStep;
 import 'package:path/path.dart' as p;
 
 import 'output_resolver.dart';
+import 'path_safety_policy.dart';
 import 'schema_presets.dart';
+import 'workflow_definition.dart' show WorkflowStep;
+
+/// Closed status enum from the AndThen `ops` skill's `update-plan` form.
+///
+/// Mirrored from `dartclaw-discover-andthen-plan/SKILL.md` rule 6 so a code-side
+/// pass can enforce the same vocabulary the LLM is asked to honor. Keep these
+/// two sites in sync.
+const _storyStatusEnum = <String>{'pending', 'spec-ready', 'in-progress', 'done', 'skipped', 'blocked'};
+const _closedStoryStatuses = <String>{'done', 'skipped'};
 
 /// Required artifacts discovered from workflow step outputs.
 final class ProducedArtifacts {
@@ -108,10 +117,19 @@ StorySpecPathResolution resolveStorySpecPaths(
       final Map<dynamic, dynamic> dynamicMap => dynamicMap.map((key, value) => MapEntry('$key', value)),
       _ => <String, dynamic>{},
     };
+    final status = _normalizeStoryStatus(itemMap);
+    if (_closedStoryStatuses.contains(status)) continue;
+
     final rawSpecPath = (itemMap['spec_path'] as String?)?.trim();
     if (rawSpecPath != null && rawSpecPath.isNotEmpty) {
+      _validateStorySpecPathInput(rawSpecPath);
       final normalizedSpecPath = resolveStorySpecPathAgainstPlanDir(path: rawSpecPath, planDir: planDir);
-      final safeSpecPath = _safeProjectRelativePath(normalizedSpecPath, projectRoot);
+      _validateStorySpecPathInput(normalizedSpecPath);
+      final safeSpecPath = safeProjectRelativePath(
+        normalizedSpecPath,
+        projectRoot,
+        fieldName: 'story_specs.items[].spec_path',
+      );
       itemMap['spec_path'] = safeSpecPath;
       paths.add(safeSpecPath);
     }
@@ -185,7 +203,7 @@ List<String> _sortedNormalized(Iterable<String> paths, {String? projectRoot, Str
     final value = path.trim();
     if (value.isEmpty || value == 'null') continue;
     if (_isRuntimeArtifactPath(value, runtimeArtifactsRoot)) continue;
-    normalized.add(_safeProjectRelativePath(value, projectRoot));
+    normalized.add(safeProjectRelativePath(value, projectRoot, fieldName: 'Produced artifact path', rejectRoot: true));
   }
   return normalized.toList()..sort();
 }
@@ -209,77 +227,7 @@ bool _isRuntimeArtifactPath(String path, String? runtimeArtifactsRoot) {
     final resolvedRoot = p.normalize(Directory(rootAbs).resolveSymbolicLinksSync());
     return pathAbs == resolvedRoot || p.isWithin(resolvedRoot, pathAbs);
   } catch (_) {
-    return false;
-  }
-}
-
-String _safeProjectRelativePath(String path, String? projectRoot) {
-  final value = path.trim();
-  if (value.isEmpty || value == 'null') return p.normalize(value);
-  if (projectRoot == null || projectRoot.trim().isEmpty) return p.normalize(value);
-
-  final rootAbs = p.normalize(p.absolute(projectRoot));
-  final candidateAbs = p.isAbsolute(value) ? p.normalize(value) : p.normalize(p.join(rootAbs, value));
-  if (candidateAbs == rootAbs) {
-    throw FormatException('Produced artifact path targets the project root: $path');
-  }
-  if (candidateAbs != rootAbs && !p.isWithin(rootAbs, candidateAbs)) {
-    throw FormatException('Produced artifact path escapes project root: $path');
-  }
-
-  // Realpath escape check only runs when the project root itself exists.
-  // Otherwise `_resolveNearestExistingPath` walks up to a parent ancestor
-  // that is — by definition — outside the (still-empty) project root, and
-  // every legitimate subpath would be flagged. The lexical containment
-  // check above already guards against `..` traversal in this case; symlink
-  // tricks are not possible until the project tree exists.
-  final rootReal = _resolveExistingPath(rootAbs);
-  if (rootReal != null) {
-    final candidateRealAnchor = _resolveNearestExistingPath(candidateAbs);
-    if (candidateRealAnchor != null && candidateRealAnchor != rootReal && !p.isWithin(rootReal, candidateRealAnchor)) {
-      throw FormatException('Produced artifact path resolves outside project root: $path');
-    }
-  }
-
-  return p.normalize(p.relative(candidateAbs, from: rootAbs));
-}
-
-String? _resolveNearestExistingPath(String path) {
-  var current = p.normalize(path);
-  while (true) {
-    final resolved = _resolveExistingPath(current);
-    if (resolved != null) return resolved;
-    final parent = p.dirname(current);
-    if (parent == current) return null;
-    current = parent;
-  }
-}
-
-String? _resolveExistingPath(String path) {
-  final type = FileSystemEntity.typeSync(path, followLinks: false);
-  if (type == FileSystemEntityType.notFound) return null;
-  try {
-    final followedType = FileSystemEntity.typeSync(path);
-    if (followedType == FileSystemEntityType.directory) {
-      return p.normalize(Directory(path).resolveSymbolicLinksSync());
-    }
-    return p.normalize(File(path).resolveSymbolicLinksSync());
-  } on FileSystemException {
-    // Broken / dangling symlink: resolveSymbolicLinksSync throws because the
-    // target does not exist. Fall back to the link's textual target so the
-    // caller can still bounds-check it against the project root — without
-    // this fallback, `_resolveNearestExistingPath` walks up to a real
-    // directory and the escape goes undetected.
-    if (type == FileSystemEntityType.link) {
-      try {
-        final target = Link(path).targetSync();
-        final resolvedTarget = p.isAbsolute(target) ? target : p.join(p.dirname(path), target);
-        return p.normalize(p.absolute(resolvedTarget));
-      } on FileSystemException {
-        return null;
-      }
-    }
-    return null;
+    return false; // Symlink resolution failed (dangling link or permission) – deny containment.
   }
 }
 
@@ -289,4 +237,30 @@ bool _isAlreadyPlanRooted(String specPath, String planDir) {
       ? normalizedPlanDir
       : '$normalizedPlanDir${p.separator}';
   return specPath == normalizedPlanDir || specPath.startsWith(planDirPrefix);
+}
+
+/// Coerces an out-of-enum or missing `status` value on a story-spec item to
+/// `pending` per the resume-filter contract in `dartclaw-discover-andthen-plan`.
+///
+/// Defence-in-depth for the LLM-side rule – a typo like `"spec_ready"` would
+/// otherwise propagate untouched and silently skip downstream `entryGate`
+/// expressions that compare on the canonical dash form.
+String _normalizeStoryStatus(Map<String, dynamic> itemMap) {
+  final raw = itemMap['status'];
+  if (raw is String && _storyStatusEnum.contains(raw)) return raw;
+  itemMap['status'] = 'pending';
+  return 'pending';
+}
+
+void _validateStorySpecPathInput(String path) {
+  if (p.isAbsolute(path)) {
+    throw FormatException('story_specs.items[].spec_path must be workspace-relative: $path');
+  }
+  validateArgumentSafePath(path, fieldName: 'story_specs.items[].spec_path', rawPath: path);
+  if (p.extension(path).toLowerCase() != '.md') {
+    throw FormatException('story_specs.items[].spec_path must be a markdown FIS path: $path');
+  }
+  if (!isFisMarkdownPath(path)) {
+    throw FormatException('story_specs.items[].spec_path must use an sNN-style markdown FIS basename: $path');
+  }
 }

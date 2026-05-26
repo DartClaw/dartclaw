@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show Project;
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
@@ -12,8 +13,8 @@ import '../task/task_file_guard.dart';
 import '../task/task_project_ref.dart';
 import '../task/task_review_service.dart';
 import '../task/task_service.dart';
+import '../task/worktree_cleanup.dart';
 import '../task/worktree_manager.dart';
-import '../turn_manager.dart';
 import 'api_helpers.dart';
 
 final _log = Logger('TaskRoutes');
@@ -21,8 +22,6 @@ final _log = Logger('TaskRoutes');
 /// Creates a [Router] exposing task CRUD and lifecycle API endpoints.
 Router taskRoutes(
   TaskService tasks, {
-  // eventBus is accepted for API compatibility but events are now fired by TaskService.
-  @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.') EventBus? eventBus,
   TurnManager? turns,
   TaskReviewService? reviewService,
   WorktreeManager? worktreeManager,
@@ -223,7 +222,7 @@ Router taskRoutes(
     // Cleanup worktree on cancel
     if (response.statusCode == 200 && task?.worktreeJson != null) {
       final cleanupProject = await _cleanupProjectForTask(task, projectService);
-      await _cleanupWorktree(id, worktreeManager, taskFileGuard, project: cleanupProject);
+      await cleanupWorktree(worktreeManager, taskFileGuard, id, project: cleanupProject);
     }
     if (response.statusCode == 200 && task?.sessionId != null && task?.status == TaskStatus.running) {
       await turns?.cancelTurn(task!.sessionId!);
@@ -541,20 +540,6 @@ String _sanitizeReviewFailureMessage(String message) {
     return 'Review action failed. Please try again or use the web UI.';
   }
   return trimmed;
-}
-
-Future<void> _cleanupWorktree(
-  String taskId,
-  WorktreeManager? worktreeManager,
-  TaskFileGuard? taskFileGuard, {
-  Project? project,
-}) async {
-  try {
-    await worktreeManager?.cleanup(taskId, project: project);
-  } catch (e) {
-    _log.warning('Failed to cleanup worktree for task $taskId: $e');
-  }
-  taskFileGuard?.deregister(taskId);
 }
 
 Future<Project?> _cleanupProjectForTask(Task? task, ProjectService? projectService) async {

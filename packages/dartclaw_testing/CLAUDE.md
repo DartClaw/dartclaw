@@ -4,8 +4,9 @@
 
 ## Boundaries
 - **Consumers MUST list this package only under `dev_dependencies`, never `dependencies`.** Verified across the workspace (`dartclaw_core`, `dartclaw_security`, `dartclaw_server`, `dartclaw_workflow`, `dartclaw_signal`, `dartclaw_whatsapp`, `dartclaw_google_chat`, `dartclaw_cli` all do this). A production dep on this package would ship test doubles into shipped binaries — fail review.
-- This package's own `dependencies:` block intentionally pulls in `dartclaw_server`, `dartclaw_workflow`, `dartclaw_google_chat`, etc. — that is correct, the fakes implement those packages' interfaces. Don't try to invert it.
-- Allowed prod deps (arch_check L1): `dartclaw_core`, `dartclaw_google_chat`, `dartclaw_models`, `dartclaw_security`, `dartclaw_server`, `dartclaw_workflow`. Adding `dartclaw_storage` (currently a dev_dependency) requires updating the arch_check contract.
+- This package's own `dependencies:` block intentionally pulls in `dartclaw_workflow`, `dartclaw_google_chat`, etc. — that is correct, the fakes implement those packages' interfaces. Don't try to invert it.
+- `dartclaw_server` is a `dev_dependency` only (used by `test/fake_git_gateway_parity_test.dart`); no production lib code may import it.
+- Allowed prod deps (arch_check L1): `dartclaw_core`, `dartclaw_google_chat`, `dartclaw_models`, `dartclaw_security`, `dartclaw_workflow`. Adding `dartclaw_storage` (currently a dev_dependency) requires updating the arch_check contract.
 - Do **not** add fakes for purely internal collaborators. Per `dev/guidelines/TESTING-STRATEGY.md` Behavioral Boundary Rule, fakes replace external boundaries only — harness binaries, channel networks, third-party REST APIs, subprocesses, persistence ports. Internal classes participate as themselves.
 
 ## Conventions
@@ -16,7 +17,7 @@
 - Helpers that are utility-only (no fake state) live alongside the fake they support — e.g. `channel_test_helpers.dart`, `codex_harness_test_helpers.dart`, `flush_async.dart`, `null_io_sink.dart`. Don't create a `utils.dart` grab bag.
 
 ## Gotchas
-- The `lib/dartclaw_testing.dart` barrel re-exports selected types from `dartclaw_core`, `dartclaw_server`, `dartclaw_security`, `dartclaw_models`, and `dartclaw_google_chat` so test files only import this one package. Adding a new symbol here is a public-API change for every test suite — keep the `show` lists tight.
+- The `lib/dartclaw_testing.dart` barrel re-exports selected types from `dartclaw_core`, `dartclaw_security`, `dartclaw_models`, and `dartclaw_google_chat` so test files only import this one package. Adding a new symbol here is a public-API change for every test suite — keep the `show` lists tight.
 - `FakeGitGateway` has a parity test (`fake_git_gateway_parity_test.dart`) that pins its behavior against the real gateway shape — update both when the gateway interface changes.
 - `flushAsync` and `pumpEventLoop` exist for microtask drainage; production loops still need `Duration.zero` yields per the `feedback_dart_async_test_loops` rule. Don't paper over real bugs with helper sleeps.
 - `FakeCodexProcess` ships v118 helpers (`startHarnessV118`, `respondToLatestThreadStartV118`) for the GPT-5 Codex protocol — pick the right variant; mixing them silently breaks framing.

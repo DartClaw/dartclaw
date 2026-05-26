@@ -24,7 +24,16 @@ enum FileAccessLevel {
 }
 
 /// What a command/tool does to a file path.
-enum FileOperation { read, write, delete }
+enum FileOperation {
+  /// Reads the file contents without modifying them.
+  read,
+
+  /// Writes new contents to the file (create or replace).
+  write,
+
+  /// Removes the file from the filesystem.
+  delete,
+}
 
 // ---------------------------------------------------------------------------
 // FileGuardRule

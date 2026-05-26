@@ -200,7 +200,7 @@ void main() {
     });
 
     test('effort inherited from stepDefaults', () {
-      final step = makeStep(id: 'discover-project');
+      final step = makeStep(id: 'discover-plan-state');
       final defaults = [const StepConfigDefault(match: 'discover*', effort: 'low')];
       final resolved = resolveStepConfig(step, defaults);
       expect(resolved.effort, 'low');

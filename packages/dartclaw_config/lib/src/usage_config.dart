@@ -1,8 +1,12 @@
 /// Configuration for the usage tracking subsystem.
 class UsageConfig {
+  /// budgetWarningTokens.
   final int? budgetWarningTokens;
+
+  /// maxFileSizeBytes.
   final int maxFileSizeBytes;
 
+  /// const UsageConfig({this.budgetWarningTokens, this.maxFileSiz.
   const UsageConfig({this.budgetWarningTokens, this.maxFileSizeBytes = 10 * 1024 * 1024});
 
   /// Default configuration.

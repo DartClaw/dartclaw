@@ -47,13 +47,32 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
       }
     });
 
+    Future<void> persistProgress() =>
+        _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+
+    Future<void> failAndReturn(String message, String? tid, {int iterTokens = 0}) => recordIterationFailureAndDecrement(
+      _eventBus,
+      mapCtx: mapCtx,
+      iterIndex: iterIndex,
+      failureMessage: message,
+      taskId: tid,
+      run: run,
+      step: step,
+      iterTokens: iterTokens,
+      persistProgress: persistProgress,
+    );
+
     try {
+      final displayScope = mapCtx.itemId(iterIndex);
       final mapTaskConfig = {
         ...taskConfig,
         '_mapStepId': step.id,
         '_mapIterationIndex': iterIndex,
         '_mapIterationTotal': mapCtx.collection.length,
       };
+      if (displayScope != null) {
+        mapTaskConfig['displayScope'] = displayScope;
+      }
       await _createWorkflowTaskTriple(
         taskId: taskId,
         run: run,
@@ -76,22 +95,7 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
         e,
         st,
       );
-      mapCtx.recordFailure(iterIndex, 'Failed to create task: $e', null);
-      mapCtx.inFlightCount--;
-      _eventBus.fire(
-        MapIterationCompletedEvent(
-          runId: run.id,
-          stepId: step.id,
-          iterationIndex: iterIndex,
-          totalIterations: mapCtx.collection.length,
-          itemId: mapCtx.itemId(iterIndex),
-          taskId: taskId,
-          success: false,
-          tokenCount: 0,
-          timestamp: DateTime.now(),
-        ),
-      );
-      await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+      await failAndReturn('Failed to create task: $e', null);
       return;
     }
 
@@ -103,22 +107,7 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
         "Workflow '${run.id}': map step '${step.id}' iteration $iterIndex "
         'timed out after ${step.timeoutSeconds}s',
       );
-      mapCtx.recordFailure(iterIndex, 'Timed out after ${step.timeoutSeconds}s', taskId);
-      mapCtx.inFlightCount--;
-      _eventBus.fire(
-        MapIterationCompletedEvent(
-          runId: run.id,
-          stepId: step.id,
-          iterationIndex: iterIndex,
-          totalIterations: mapCtx.collection.length,
-          itemId: mapCtx.itemId(iterIndex),
-          taskId: taskId,
-          success: false,
-          tokenCount: 0,
-          timestamp: DateTime.now(),
-        ),
-      );
-      await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+      await failAndReturn('Timed out after ${step.timeoutSeconds}s', taskId);
       return;
     } catch (e, st) {
       WorkflowExecutor._log.severe(
@@ -127,22 +116,7 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
         e,
         st,
       );
-      mapCtx.recordFailure(iterIndex, 'Unexpected error: $e', taskId);
-      mapCtx.inFlightCount--;
-      _eventBus.fire(
-        MapIterationCompletedEvent(
-          runId: run.id,
-          stepId: step.id,
-          iterationIndex: iterIndex,
-          totalIterations: mapCtx.collection.length,
-          itemId: mapCtx.itemId(iterIndex),
-          taskId: taskId,
-          success: false,
-          tokenCount: 0,
-          timestamp: DateTime.now(),
-        ),
-      );
-      await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+      await failAndReturn('Unexpected error: $e', taskId);
       return;
     }
 
@@ -159,25 +133,14 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
         context['${step.id}[$iterIndex].tokenCount'] = tokenCount;
       }
 
-      void emitIterationFailure() {
-        _eventBus.fire(
-          MapIterationCompletedEvent(
-            runId: run.id,
-            stepId: step.id,
-            iterationIndex: iterIndex,
-            totalIterations: mapCtx.collection.length,
-            itemId: mapCtx.itemId(iterIndex),
-            taskId: taskId,
-            success: false,
-            tokenCount: tokenCount,
-            timestamp: DateTime.now(),
-          ),
-        );
-      }
-
       StepValidationFailure? extractionFailure;
       try {
-        outputs = await _contextExtractor.extract(step, finalTask, effectiveOutputs: _effectiveOutputsFor(step));
+        final resolvedSkill = _resolvedSkillFor(step, resolved.provider);
+        outputs = await _contextExtractor.extract(
+          step,
+          finalTask,
+          effectiveOutputs: _effectiveOutputsFor(step, resolvedSkill: resolvedSkill),
+        );
       } on MissingArtifactFailure catch (e, st) {
         extractionFailure = StepValidationFailure(reason: e.toString(), missingArtifacts: e.missingPaths);
         WorkflowExecutor._log.warning(
@@ -204,10 +167,7 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
       }
       if (extractionFailure != null) {
         persistIterationOutputs();
-        mapCtx.recordFailure(iterIndex, extractionFailure.reason, taskId);
-        await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-        mapCtx.inFlightCount--;
-        emitIterationFailure();
+        await failAndReturn(extractionFailure.reason, taskId, iterTokens: tokenCount);
         return;
       }
 
@@ -224,83 +184,85 @@ extension WorkflowExecutorMapIterationDispatcher on WorkflowExecutor {
       if (promotionAware) {
         final storyBranch = (finalTask.worktreeJson?['branch'] as String?)?.trim();
         final promote = _turnAdapter?.promoteWorkflowBranch;
-        final branch = storyBranch;
         final promotionProjectId = projectId?.trim();
         final storyId = mapCtx.itemId(iterIndex);
         if (promote == null) {
           persistIterationOutputs();
-          mapCtx.recordFailure(iterIndex, 'promotion failed: host promotion callback is not configured', taskId);
-          await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-          mapCtx.inFlightCount--;
-          emitIterationFailure();
+          await failAndReturn(
+            'promotion failed: host promotion callback is not configured',
+            taskId,
+            iterTokens: tokenCount,
+          );
           return;
         }
         if (promotionProjectId == null || promotionProjectId.isEmpty) {
           persistIterationOutputs();
-          mapCtx.recordFailure(iterIndex, 'promotion failed: map iteration has no project binding', taskId);
-          await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-          mapCtx.inFlightCount--;
-          emitIterationFailure();
+          await failAndReturn('promotion failed: map iteration has no project binding', taskId, iterTokens: tokenCount);
           return;
         }
-        if (branch == null || branch.isEmpty) {
+        if (storyBranch == null || storyBranch.isEmpty) {
           persistIterationOutputs();
-          mapCtx.recordFailure(iterIndex, 'promotion failed: task worktree branch is unavailable', taskId);
-          await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-          mapCtx.inFlightCount--;
-          emitIterationFailure();
+          await failAndReturn('promotion failed: task worktree branch is unavailable', taskId, iterTokens: tokenCount);
           return;
         }
         if (integrationBranch == null || integrationBranch.isEmpty) {
           persistIterationOutputs();
-          mapCtx.recordFailure(iterIndex, 'promotion failed: integration branch is not initialized', taskId);
-          await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-          mapCtx.inFlightCount--;
-          emitIterationFailure();
+          await failAndReturn(
+            'promotion failed: integration branch is not initialized',
+            taskId,
+            iterTokens: tokenCount,
+          );
           return;
         }
 
-        final promotionResult = await promote(
+        final promotionResult = await callPromote(
+          promote: promote,
           runId: run.id,
           projectId: promotionProjectId,
-          branch: branch,
+          branch: storyBranch,
           integrationBranch: integrationBranch,
           strategy: promotionStrategy,
           storyId: storyId,
+          conflictingFiles: const [],
+          conflictDetails: '',
+          mergeResolveEnabled: false,
         );
         switch (promotionResult) {
-          case WorkflowGitPromotionSuccess(:final commitSha):
+          case PromotionSuccess(:final commitSha):
             if (storyId != null && storyId.isNotEmpty) {
               promotedIds.add(storyId);
             }
             context['${step.id}[$iterIndex].promotion'] = 'success';
             context['${step.id}[$iterIndex].promotion_sha'] = commitSha;
-          case WorkflowGitPromotionConflict(:final conflictingFiles, :final details):
-            final conflictMessage =
-                'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}';
+          case PromotionConflict(:final conflictingFiles, :final details):
             context['${step.id}[$iterIndex].promotion'] = 'conflict';
             context['${step.id}[$iterIndex].promotion_details'] = details;
             persistIterationOutputs();
-            mapCtx.recordFailure(iterIndex, conflictMessage, taskId);
-            await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-            mapCtx.inFlightCount--;
-            emitIterationFailure();
+            await failAndReturn(
+              'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}',
+              taskId,
+              iterTokens: tokenCount,
+            );
             return;
-          case WorkflowGitPromotionError(:final message):
+          case PromotionError(:final failureMessage):
             context['${step.id}[$iterIndex].promotion'] = 'failed';
             persistIterationOutputs();
-            mapCtx.recordFailure(iterIndex, 'promotion failed: $message', taskId);
-            await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-            mapCtx.inFlightCount--;
-            emitIterationFailure();
+            await failAndReturn(failureMessage, taskId, iterTokens: tokenCount);
             return;
-          case WorkflowGitPromotionSerializeRemaining():
+          case PromotionSerializeRemaining():
             // This dispatcher does not participate in serialize-remaining; treat as error.
-            mapCtx.recordFailure(iterIndex, 'promotion failed: unexpected serialize-remaining sentinel', taskId);
-            await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-            mapCtx.inFlightCount--;
-            emitIterationFailure();
+            await failAndReturn(
+              'promotion failed: unexpected serialize-remaining sentinel',
+              taskId,
+              iterTokens: tokenCount,
+            );
             return;
+          case PromotionNotConfigured():
+          case PromotionNoProjectBinding():
+          case PromotionNoBranch():
+          case PromotionNoIntegrationBranch():
+            // These are handled above via explicit guard checks before callPromote.
+            break;
         }
       }
 

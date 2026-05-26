@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/web/pages/settings_page.dart';
@@ -78,7 +78,7 @@ Future<String> _renderHtml(SettingsPage page, SessionService sessions) async {
     PageContext(
       sessions: sessions,
       appDisplay: const AppDisplayParams(),
-      buildSidebarData: () async => _emptySidebarData,
+      sidebarData: () async => _emptySidebarData,
       restartBannerHtml: () => '',
       buildNavItems: ({required String activePage}) => const [],
     ),
@@ -149,4 +149,5 @@ final _emptySidebarData = (
   activeWorkflows: <SidebarActiveWorkflow>[],
   showChannels: true,
   tasksEnabled: false,
+  activeSessionId: null,
 );

@@ -5,10 +5,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
+
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show ProviderValidator;
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, WorkflowStepCompletedEvent;
-import 'package:dartclaw_models/dartclaw_models.dart'
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         MergeResolveConfig,
         OutputConfig,
@@ -34,6 +36,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../fixtures/e2e_fixture.dart';
+import '_support/workflow_test_paths.dart';
 
 /// Real-harness merge-resolve proof for the two-story STATE.md conflict.
 ///
@@ -63,15 +66,6 @@ const _storyOneMarker = '- S01: e2e marker';
 const _storyTwoMarker = '- S02: e2e marker';
 const _testTimeout = Duration(minutes: 25);
 
-Future<bool> _codexAvailable() async {
-  try {
-    final result = await Process.run('codex', ['--version']);
-    return result.exitCode == 0;
-  } catch (_) {
-    return false;
-  }
-}
-
 bool _hasEnv(String name) => Platform.environment[name]?.trim().isNotEmpty == true;
 
 Future<bool> _codexAuthAvailable() async {
@@ -82,7 +76,7 @@ Future<bool> _codexAuthAvailable() async {
 }
 
 Future<String?> _codexGateSkipReason() async {
-  final hasBinary = await _codexAvailable();
+  final hasBinary = await codexAvailable();
   if (!hasBinary) {
     return 'S65 merge-resolve integration skipped: codex binary is not on PATH.';
   }
@@ -104,8 +98,8 @@ WorkflowDefinition _mergeResolveIntegrationDefinition() {
     },
     project: '{{PROJECT}}',
     gitStrategy: const WorkflowGitStrategy(
-      bootstrap: true,
-      worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+      integrationBranch: true,
+      worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
       promotion: 'merge',
       publish: WorkflowGitPublishStrategy(enabled: false),
       mergeResolve: MergeResolveConfig(enabled: true, maxAttempts: 2, tokenCeiling: 100000),
@@ -114,14 +108,14 @@ WorkflowDefinition _mergeResolveIntegrationDefinition() {
       WorkflowStep(
         id: 'seed-stories',
         name: 'Seed stories',
-        type: 'bash',
+        type: WorkflowTaskType.bash,
         prompts: ['printf \'%s\\n\' \'[{"id":"S01"},{"id":"S02"}]\''],
         outputs: {'stories': OutputConfig(format: OutputFormat.json)},
       ),
       WorkflowStep(
         id: 'story-foreach',
         name: 'Story foreach',
-        type: 'foreach',
+        type: WorkflowTaskType.foreach,
         mapOver: 'stories',
         mapAlias: 'story',
         maxParallel: 2,

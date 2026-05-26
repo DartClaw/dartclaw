@@ -7,10 +7,10 @@ import 'dart:typed_data';
 import 'package:dartclaw_core/dartclaw_core.dart' show DelayFactory, HealthProbe, ProcessFactory;
 import 'package:logging/logging.dart';
 
-/// Status record returned by [GowaManager.getStatus].
+/// Status record returned by [GowaManager.status].
 typedef GowaStatus = ({bool isConnected, bool isLoggedIn, String? deviceId});
 
-/// QR login data returned by [GowaManager.getLoginQr].
+/// QR login data returned by [GowaManager.loginQr].
 typedef GowaLoginQr = ({String? url, int durationSeconds});
 
 /// Manages the GOWA (Go WhatsApp) sidecar binary as a subprocess.
@@ -33,7 +33,7 @@ class GowaManager {
   final DelayFactory _delay;
   final HealthProbe? _healthProbe;
 
-  /// Timeout for standard API calls (sendText, getStatus, getLoginQr, requestPairingCode).
+  /// Timeout for standard API calls (sendText, status, loginQr, requestPairingCode).
   static const _apiTimeout = Duration(seconds: 10);
 
   /// Timeout for media uploads (sendMedia / multipart).
@@ -229,7 +229,7 @@ class GowaManager {
   /// Returns [GowaLoginQr] with the QR image URL and expiry duration in seconds.
   /// URL is null when no QR is available. Duration defaults to 60s if not
   /// provided by GOWA.
-  Future<GowaLoginQr> getLoginQr() async {
+  Future<GowaLoginQr> loginQr() async {
     final results = await _get('/app/login');
     return (url: results['qr_link'] as String?, durationSeconds: (results['qr_duration'] as num?)?.toInt() ?? 60);
   }
@@ -241,7 +241,7 @@ class GowaManager {
   /// When the stored device ID is stale (e.g. GOWA restarted with in-memory
   /// storage), GOWA returns 404 with `DEVICE_NOT_FOUND` — re-provision and
   /// return not-connected so the pairing flow can proceed.
-  Future<GowaStatus> getStatus() async {
+  Future<GowaStatus> status() async {
     try {
       final results = await _get('/app/status');
       final loggedIn = results['is_logged_in'] as bool? ?? false;
@@ -319,8 +319,8 @@ class GowaManager {
   /// Check if GOWA is connected to WhatsApp (not just reachable).
   Future<bool> healthCheck() async {
     try {
-      final status = await getStatus();
-      return status.isConnected;
+      final currentStatus = await status();
+      return currentStatus.isConnected;
     } catch (e) {
       _log.fine('GOWA health check failed: $e');
       return false;
@@ -362,7 +362,7 @@ class GowaManager {
 
   /// Fetches the WhatsApp JID from the `/devices` list.
   ///
-  /// Called lazily from [getStatus] when `_pairedJid` is still null after
+  /// Called lazily from [status] when `_pairedJid` is still null after
   /// login is confirmed. This handles the race where GOWA wasn't fully
   /// logged in yet during [_ensureDevice] at startup.
   Future<void> _resolveJidFromDevices() async {

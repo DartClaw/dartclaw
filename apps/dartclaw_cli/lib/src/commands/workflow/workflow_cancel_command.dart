@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:args/args.dart' show ArgResults;
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 
 import '../../dartclaw_api_client.dart';
+import '../cli_global_options.dart';
 import '../config_loader.dart';
 import '../serve_command.dart' show ExitFn, WriteLine;
 
@@ -70,24 +70,11 @@ class WorkflowCancelCommand extends Command<void> {
     if (_apiClient != null) {
       return _apiClient;
     }
-    final config = _config ?? loadCliConfig(configPath: _globalOptionString(globalResults, 'config'));
+    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
     return DartclawApiClient.fromConfig(
       config: config,
-      serverOverride: _serverOverride(globalResults),
-      tokenOverride: _globalOptionString(globalResults, 'token'),
+      serverOverride: serverOverride(globalResults),
+      tokenOverride: globalOptionString(globalResults, 'token'),
     );
-  }
-}
-
-String? _serverOverride(ArgResults? results) {
-  return _globalOptionString(results, 'server');
-}
-
-String? _globalOptionString(ArgResults? results, String name) {
-  if (results == null) return null;
-  try {
-    return results[name] as String?;
-  } on ArgumentError {
-    return null;
   }
 }

@@ -34,7 +34,7 @@ void main() {
       final service = InMemorySessionService(eventBus: events);
 
       final userSession = await service.createSession();
-      final mainSession = await service.getOrCreateMain();
+      final mainSession = await service.getOrCreateMainSession();
 
       expect(events.eventsOfType<SessionCreatedEvent>(), hasLength(2));
 

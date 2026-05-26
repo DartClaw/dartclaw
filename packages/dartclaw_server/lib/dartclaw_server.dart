@@ -10,10 +10,15 @@
 library;
 
 export 'package:dartclaw_config/dartclaw_config.dart';
-export 'package:dartclaw_core/dartclaw_core.dart' show PromptScope;
+export 'package:dartclaw_core/dartclaw_core.dart' show BusyTurnException, PromptScope, TurnOutcome, TurnStatus;
+export 'src/harness_pool.dart' show HarnessPool;
+export 'src/security/google_jwt_verifier.dart' show GoogleJwtVerifier;
+export 'src/turn_manager.dart' show TurnManager;
+export 'src/turn_runner.dart' show TurnRunner;
 
 export 'src/api/api_exports.dart';
 export 'src/alerts/alerts_exports.dart';
+export 'src/advisor/advisor_exports.dart';
 export 'src/audit/audit_exports.dart';
 export 'src/auth/auth_exports.dart';
 export 'src/behavior/behavior_exports.dart';

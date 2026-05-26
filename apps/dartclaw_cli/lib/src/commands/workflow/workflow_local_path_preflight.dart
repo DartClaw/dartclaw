@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show Project;
+import 'package:dartclaw_config/dartclaw_config.dart' show Project;
 import 'package:dartclaw_server/dartclaw_server.dart' show GitCredentialPlan;
 import 'package:dartclaw_security/dartclaw_security.dart' show SafeProcess;
 import 'package:logging/logging.dart';

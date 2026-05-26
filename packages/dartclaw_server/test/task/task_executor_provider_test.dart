@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
+import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
+import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -71,11 +74,13 @@ void main() {
     final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner, taskCodexRunner]);
     final turns = TurnManager.fromPool(pool: pool);
     executor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(executor.stop);
@@ -118,11 +123,13 @@ void main() {
     final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner]);
     final turns = TurnManager.fromPool(pool: pool);
     executor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(executor.stop);
@@ -165,11 +172,13 @@ void main() {
       final pool = HarnessPool(runners: [primaryRunner, taskCodexWorkspaceRunner]);
       final turns = TurnManager.fromPool(pool: pool);
       executor = TaskExecutor(
-        tasks: tasks,
-        sessions: sessions,
-        messages: messages,
-        turns: turns,
-        artifactCollector: collector,
+        services: TaskExecutorServices(
+          tasks: tasks,
+          sessions: sessions,
+          messages: messages,
+          artifactCollector: collector,
+        ),
+        runners: TaskExecutorRunners(turns: turns),
         pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);
@@ -213,11 +222,13 @@ void main() {
     final pool = HarnessPool(runners: [primaryRunner, taskCodexRestrictedRunner]);
     final turns = TurnManager.fromPool(pool: pool);
     executor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(executor.stop);
@@ -258,11 +269,13 @@ void main() {
     final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner]);
     final turns = TurnManager.fromPool(pool: pool);
     executor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(executor.stop);
@@ -311,11 +324,13 @@ void main() {
     final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner, taskCodexRunner]);
     final turns = TurnManager.fromPool(pool: pool);
     executor = TaskExecutor(
-      tasks: tasks,
-      sessions: sessions,
-      messages: messages,
-      turns: turns,
-      artifactCollector: collector,
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(executor.stop);

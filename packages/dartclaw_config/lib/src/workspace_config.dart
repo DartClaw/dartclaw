@@ -1,8 +1,12 @@
 /// Configuration for the workspace subsystem.
 class WorkspaceConfig {
+  /// gitSyncEnabled.
   final bool gitSyncEnabled;
+
+  /// gitSyncPushEnabled.
   final bool gitSyncPushEnabled;
 
+  /// const WorkspaceConfig({this.gitSyncEnabled = true, this.gitS.
   const WorkspaceConfig({this.gitSyncEnabled = true, this.gitSyncPushEnabled = true});
 
   /// Default configuration.

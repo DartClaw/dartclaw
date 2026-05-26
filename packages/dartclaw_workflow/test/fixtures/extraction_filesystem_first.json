@@ -1,6 +1,7 @@
 {
   "workflow": "plan-and-implement",
   "profile": "workflows-dartclaw",
+  "fixture_note": "Legacy extraction-turn baseline captured before the discover-project split; not an active workflow contract.",
   "total_outputs": 17,
   "baseline_extraction_turns": 12,
   "post_extraction_turns": 3,

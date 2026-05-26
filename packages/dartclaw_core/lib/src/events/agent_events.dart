@@ -11,6 +11,7 @@ sealed class AgentLifecycleEvent extends DartclawEvent {
 }
 
 /// Fired when a runner transitions between states (idle/busy/stopped/crashed).
+// NOT_ALERTABLE: worker lifecycle telemetry — surfaced via SSE only
 final class AgentStateChangedEvent extends AgentLifecycleEvent {
   @override
   /// Runner identifier whose state changed.

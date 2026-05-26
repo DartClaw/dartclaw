@@ -32,8 +32,6 @@ class SlashCommandHandler {
   SlashCommandHandler({
     TaskService? taskService,
     SessionService? sessionService,
-    // eventBus is accepted for API compatibility but events are now fired by TaskService.
-    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.') EventBus? eventBus,
     ChannelManager? channelManager,
     BudgetEnforcer? budgetEnforcer,
     PauseController? pauseController,

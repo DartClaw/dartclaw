@@ -48,6 +48,17 @@ class WorkflowListCommand extends Command<void> {
     }
   }
 
+  void _printExclusions(WorkflowRegistry registry) {
+    final exclusions = registry.exclusions;
+    if (exclusions.isEmpty) return;
+    _writeLine('');
+    _writeLine('Excluded at load time (${exclusions.length}):');
+    for (final excl in exclusions) {
+      final label = excl.workflowName ?? excl.sourcePath;
+      _writeLine('  $label: ${excl.errors.join('; ')}');
+    }
+  }
+
   void _printJson(List<WorkflowDefinition> definitions, WorkflowRegistry registry) {
     final list = definitions.map((d) {
       final source = registry.sourceOf(d.name);
@@ -72,6 +83,7 @@ class WorkflowListCommand extends Command<void> {
   void _printTable(List<WorkflowDefinition> definitions, WorkflowRegistry registry) {
     if (definitions.isEmpty) {
       _writeLine('No workflows available.');
+      _printExclusions(registry);
       return;
     }
 
@@ -105,6 +117,7 @@ class WorkflowListCommand extends Command<void> {
       parts.add('(${breakdown.join(', ')})');
     }
     _writeLine('Total: ${parts.join(' ')}');
+    _printExclusions(registry);
   }
 }
 
@@ -118,9 +131,10 @@ Future<WorkflowRegistry> buildWorkflowRegistry(DartclawConfig config, {AssetReso
   final registry = WorkflowRegistry(parser: WorkflowDefinitionParser(), validator: WorkflowDefinitionValidator());
   await WorkflowMaterializer.materialize(dataDir: config.server.dataDir, assetResolver: assetResolver);
   await registry.loadFromDirectory(
-    WorkflowMaterializer.definitionsDir(config.server.dataDir),
+    WorkflowMaterializer.builtInDir(config.server.dataDir),
     source: WorkflowSource.materialized,
   );
+  await registry.loadFromDirectory(WorkflowMaterializer.customDir(config.server.dataDir));
   for (final projectDef in config.projects.definitions.values) {
     await registry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
   }

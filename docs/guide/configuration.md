@@ -191,6 +191,10 @@ memory:
     schedule: "0 3 * * *"
 
 # --- Scheduling ---
+# Canonical job form: id: + structured schedule: {type:, expression:/minutes:/at:}.
+# Compatibility aliases (accepted but non-canonical): name: is equivalent to id:;
+# a bare cron string (e.g. schedule: "0 18 * * *") is equivalent to {type: cron, expression: ...}.
+# Use the canonical form for new configs. See also: docs/guide/scheduling.md.
 scheduling:
   heartbeat:
     enabled: true
@@ -277,12 +281,38 @@ channels:
       value: https://assistant.example.com/integrations/googlechat
     webhook_path: /integrations/googlechat
     bot_user: ''                  # optional Google Chat user id for self-filtering
-    typing_indicator: true
+    typing_indicator: true        # true | false | emoji
     dm_access: pairing            # pairing | allowlist | open | disabled
     dm_allowlist: []
     group_access: disabled        # disabled | open | allowlist
     group_allowlist: []
     require_mention: true
+    quote_reply: false            # false | sender (text attribution) | native (quoted bubble, requires user auth)
+    reactions_auth: disabled      # disabled | user (requires chat.messages.reactions OAuth scope)
+    oauth_credentials: ''         # path to OAuth client credentials JSON (required for user-auth features)
+    pubsub:                       # Cloud Pub/Sub pull — used with space_events or standalone polling
+      project_id: ''              # GCP project ID
+      subscription: ''            # Pub/Sub subscription name
+      poll_interval_seconds: 2    # poll interval (min 1)
+      max_messages_per_pull: 100  # max messages per request (1–100)
+    space_events:                 # Workspace Events API subscriptions
+      enabled: false
+      pubsub_topic: ''            # target Pub/Sub topic for event notifications
+      event_types:                # shorthand event types; fully-qualified Google Workspace Chat names also accepted
+        - message.created
+      include_resource: true      # include full resource in event payloads
+      auth_mode: user             # user (GA) | app (Developer Preview; requires Workspace admin approval)
+
+# --- GitHub Webhook --- maps inbound GitHub events to workflow runs
+github:
+  enabled: false                       # master switch for the webhook handler
+  webhook_secret: ${GITHUB_WEBHOOK_SECRET}  # HMAC-SHA256 signing key; required when enabled
+  webhook_path: /webhook/github        # default endpoint mounted on the server
+  triggers:
+    - event: pull_request              # currently only pull_request is processed
+      actions: [opened, synchronize]   # which event actions launch the workflow
+      labels: []                       # optional label filter (empty = no filter)
+      workflow: code-review            # workflow definition name to launch
 
 # --- Tasks ---
 tasks:
@@ -464,11 +494,15 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 **Note on `agent.provider`:** When set, the default provider applies to all sessions and tasks unless overridden. Per-task provider overrides are supported via `configJson.provider` at task creation time. See [Agents § Providers](agents.md#providers) for setup details and routing behavior.
 
-**Note on `providers` section:** When omitted, DartClaw creates a single Claude provider using `agent.claude_executable` (or the `claude` binary on `$PATH`). The explicit `providers:` section is only needed for multi-provider deployments or to customize pool sizes, executables, or provider-specific options. `pool_size: 0` means "use the default pool allocation".
+**Note on `providers` section:** When omitted, DartClaw creates a single Claude provider using `providers.claude.executable` (or the `claude` binary on `$PATH`). The explicit `providers:` section is only needed for multi-provider deployments or to customize pool sizes, executables, or provider-specific options. `pool_size: 0` means "use the default pool allocation".
 
 **Note on `governance.budget.timezone`:** Only UTC-offset formats are supported: `UTC`, `GMT`, `UTC+N`, `UTC-N` (e.g., `UTC+1`, `UTC-5`). IANA timezone names like `Europe/Stockholm` or `America/New_York` are **not** supported and will fall back to UTC with a warning. This means budget reset times do not automatically adjust for DST. If your timezone observes DST, you may need to update the offset seasonally or accept the one-hour drift during DST transitions.
 
 **Note on `governance` defaults:** All governance features default to disabled/unlimited for backward compatibility. Rate limits, budgets, and loop detection only activate when explicitly configured. Admin senders are exempt from rate limits but not from token budgets.
+
+**Note on `github.webhook_secret`:** Accepts a literal string or a `${ENV_VAR}` reference resolved at startup. Required when `github.enabled: true` — startup logs a warning if the secret is missing. The webhook handler verifies `x-hub-signature-256: sha256=<digest>` against this secret and rejects unsigned or malformed requests with HTTP 403. See [Workflow Triggers](workflows.md#workflow-triggers) for the end-to-end setup.
+
+**Note on `github.triggers`:** Each trigger entry matches an inbound `(event, action, label)` tuple and dispatches the first match to `workflow`. Currently only `pull_request` events are processed; other event types are rejected at the webhook boundary. An empty `labels:` list means "no label filter"; a non-empty list requires the PR to carry at least one matching label.
 
 ### Local-path Projects
 
@@ -518,7 +552,6 @@ projects:
 | `DARTCLAW_HOME` | `~/.dartclaw` | Instance directory (points to directory, not config file) |
 | `DARTCLAW_CONFIG` | -- | Explicit config file path (overrides `DARTCLAW_HOME`) |
 | `DARTCLAW_TOKEN` | auto-generated | Gateway auth token |
-| `DARTCLAW_DB_PATH` | `~/.dartclaw/dartclaw.db` | SQLite database location |
 
 ## CLI Flags
 

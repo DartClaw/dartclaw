@@ -1,7 +1,7 @@
 name: dartclaw_cli
 description: Reference DartClaw CLI application for serve, deploy, status, and maintenance workflows.
 publish_to: none
-version: 0.16.4
+version: 0.16.5
 repository: https://github.com/DartClaw/dartclaw/tree/main/apps/dartclaw_cli
 homepage: https://github.com/DartClaw/dartclaw
 issue_tracker: https://github.com/DartClaw/dartclaw/issues
@@ -11,7 +11,7 @@ topics:
   - agents
 
 environment:
-  sdk: ^3.11.0
+  sdk: ^3.12.0
 
 resolution: workspace
 
@@ -44,7 +44,7 @@ dependencies:
   path: ^1.9.1
   shelf: ^1.4.2
   sqlite3: ^3.1.6
-  yaml: ^3.1.2
+  yaml: ^3.1.3
   yaml_edit: ^2.2.2
 
 dev_dependencies:

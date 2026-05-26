@@ -1,13 +1,23 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/web/pages/workflows_page.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show InMemoryDefinitionSource, WorkflowDefinitionSource, WorkflowService;
+    show
+        InMemoryDefinitionSource,
+        WorkflowDefinition,
+        WorkflowDefinitionSource,
+        WorkflowRun,
+        WorkflowRunStatus,
+        WorkflowService,
+        WorkflowStep,
+        WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -41,6 +51,7 @@ final _emptySidebarData = (
   activeWorkflows: <SidebarActiveWorkflow>[],
   showChannels: false,
   tasksEnabled: false,
+  activeSessionId: null,
 );
 
 class _StubSessionService implements SessionService {
@@ -59,7 +70,7 @@ PageContext _makeContext({
     taskService: taskService,
     workflowService: workflowService,
     definitionSource: definitionSource,
-    buildSidebarData: () async => _emptySidebarData,
+    sidebarData: () async => _emptySidebarData,
     restartBannerHtml: () => '',
     buildNavItems: ({required String activePage}) => [],
   );
@@ -284,7 +295,7 @@ void main() {
         name: 'approval-wf',
         description: 'With approval gate.',
         steps: const [
-          WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
           WorkflowStep(id: 'next', name: 'Next', prompts: ['Continue']),
         ],
       );

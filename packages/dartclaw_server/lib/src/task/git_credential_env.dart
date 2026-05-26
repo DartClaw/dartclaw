@@ -20,6 +20,18 @@ final class GitCredentialPlan implements ProcessEnvironmentPlan {
   const GitCredentialPlan.none() : remoteUrl = '', environment = const <String, String>{};
 }
 
+/// Prepends a `-c remote.origin.url=$resolvedRemoteUrl` override to [gitArgs]
+/// when the resolved URL differs from [originalRemoteUrl] (e.g. a credential
+/// plan rewrote the transport to a token-bearing HTTPS form). Returns
+/// [gitArgs] unchanged when [originalRemoteUrl] is empty/whitespace or when
+/// the two URLs match — leaves the working tree's recorded remote alone.
+List<String> buildRemoteOverrideArgs(String originalRemoteUrl, String resolvedRemoteUrl, List<String> gitArgs) {
+  if (originalRemoteUrl.trim().isEmpty || originalRemoteUrl == resolvedRemoteUrl) {
+    return gitArgs;
+  }
+  return ['-c', 'remote.origin.url=$resolvedRemoteUrl', ...gitArgs];
+}
+
 /// Resolves git transport and environment variables for credential injection.
 GitCredentialPlan resolveGitCredentialPlan(
   String remoteUrl,
@@ -82,29 +94,6 @@ GitCredentialPlan resolveGitCredentialPlan(
       ..._buildLegacyAskPassEnv(credentialsRef, entry.apiKey, dataDir: dataDir, tempFiles: tempFiles),
     },
   );
-}
-
-/// Resolves git environment variables for credential injection.
-///
-/// For SSH remotes: sets [GIT_SSH_COMMAND] with the credential's key path.
-/// For HTTPS remotes: creates a temporary askpass script and sets [GIT_ASKPASS].
-/// Returns an empty map if no credential found (fallback to default git auth).
-///
-/// Shared between [ProjectServiceImpl] and [RemotePushService].
-Map<String, String> resolveGitCredentialEnv(
-  String remoteUrl,
-  String? credentialsRef,
-  CredentialsConfig credentials, {
-  required String dataDir,
-  required List<String> tempFiles,
-}) {
-  return resolveGitCredentialPlan(
-    remoteUrl,
-    credentialsRef,
-    credentials,
-    dataDir: dataDir,
-    tempFiles: tempFiles,
-  ).environment;
 }
 
 Map<String, String> _buildLegacyAskPassEnv(

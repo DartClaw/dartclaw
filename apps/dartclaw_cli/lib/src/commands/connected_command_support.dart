@@ -4,19 +4,11 @@ import 'package:args/args.dart' show ArgResults;
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 
 import '../dartclaw_api_client.dart';
+import 'cli_global_options.dart';
 import 'config_loader.dart';
 import 'serve_command.dart' show WriteLine;
 
-String? globalOptionString(ArgResults? results, String name) {
-  if (results == null) {
-    return null;
-  }
-  try {
-    return results[name] as String?;
-  } on ArgumentError {
-    return null;
-  }
-}
+export 'cli_global_options.dart' show globalOptionString;
 
 DartclawApiClient resolveCliApiClient({
   required ArgResults? globalResults,
@@ -29,7 +21,7 @@ DartclawApiClient resolveCliApiClient({
   final effectiveConfig = config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
   return DartclawApiClient.fromConfig(
     config: effectiveConfig,
-    serverOverride: globalOptionString(globalResults, 'server'),
+    serverOverride: serverOverride(globalResults),
     tokenOverride: globalOptionString(globalResults, 'token'),
   );
 }

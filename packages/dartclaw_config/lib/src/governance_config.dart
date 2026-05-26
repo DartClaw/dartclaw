@@ -33,6 +33,7 @@ class GovernanceConfig {
   /// Progress-aware turn stall detection config.
   final TurnProgressConfig turnProgress;
 
+  /// Creates a [GovernanceConfig] value.
   const GovernanceConfig({
     this.adminSenders = const [],
     this.rateLimits = const RateLimitsConfig.defaults(),

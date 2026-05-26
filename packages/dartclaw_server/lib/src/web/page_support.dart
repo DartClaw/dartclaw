@@ -7,6 +7,7 @@ import '../health/health_service.dart';
 import '../templates/restart_banner.dart';
 import 'channel_status.dart';
 
+/// Returns a status payload describing health, worker state, and session count.
 Future<Map<String, dynamic>> getStatus(
   HealthService? healthService,
   WorkerState? Function()? workerStateGetter,
@@ -24,6 +25,7 @@ Future<Map<String, dynamic>> getStatus(
   };
 }
 
+/// Resolves the [ChannelStatus] for the WhatsApp gowa sidecar.
 Future<ChannelStatus> whatsAppChannelStatus(WhatsAppChannel? channel) async {
   if (channel == null) return ChannelStatus.disabled;
   final gowa = channel.gowa;
@@ -32,13 +34,14 @@ Future<ChannelStatus> whatsAppChannelStatus(WhatsAppChannel? channel) async {
     return gowa.wasPaired ? ChannelStatus.connectionError : ChannelStatus.notRunning;
   }
   try {
-    final status = await gowa.getStatus();
+    final status = await gowa.status();
     return status.isLoggedIn ? ChannelStatus.connected : ChannelStatus.pairingNeeded;
   } catch (e) {
     return ChannelStatus.pairingNeeded;
   }
 }
 
+/// Resolves the [ChannelStatus] for the Signal sidecar.
 Future<ChannelStatus> signalChannelStatus(SignalChannel? channel) async {
   if (channel == null) return ChannelStatus.disabled;
   final sidecar = channel.sidecar;
@@ -54,6 +57,7 @@ Future<ChannelStatus> signalChannelStatus(SignalChannel? channel) async {
   }
 }
 
+/// Renders pending DM pairing entries as JSON-ready maps for the dashboard.
 List<Map<String, dynamic>> pendingPairingsData(DmAccessController controller) {
   final now = DateTime.now();
   return controller.pendingPairings.map((p) {
@@ -67,6 +71,7 @@ List<Map<String, dynamic>> pendingPairingsData(DmAccessController controller) {
   }).toList();
 }
 
+/// Renders the restart-pending banner HTML, or an empty string when no restart is queued.
 String restartBannerHtml(String? dataDir) {
   if (dataDir == null) return '';
   final pending = readRestartPending(dataDir);

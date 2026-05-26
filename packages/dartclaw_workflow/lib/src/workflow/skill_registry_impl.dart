@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show OutputConfig, SkillInfo, SkillSource;
+import '../skills/skill_info.dart' show SkillInfo, SkillSource;
+import 'workflow_definition.dart' show OutputConfig;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
@@ -37,7 +38,7 @@ class SkillRegistryImpl implements SkillRegistry {
   /// P1-P2 resolution).
   /// [projectDirs] — project directories to scan in priority order for P1-P2.
   /// [workspaceDir] — DartClaw workspace directory (for P3).
-  /// [dataDir] — DartClaw data directory (for P6).
+  /// [dataDir] — DartClaw data directory (for native roots and legacy P6).
   /// [pluginDirs] — additional plugin skill directories (for P8).
   void discover({
     String? projectDir,
@@ -47,6 +48,8 @@ class SkillRegistryImpl implements SkillRegistry {
     List<String> pluginDirs = const [],
     String? userClaudeSkillsDir,
     String? userAgentsSkillsDir,
+    String? dataDirClaudeSkillsDir,
+    String? dataDirAgentsSkillsDir,
     String? builtInSkillsDir,
   }) {
     final stopwatch = Stopwatch()..start();
@@ -71,15 +74,18 @@ class SkillRegistryImpl implements SkillRegistry {
       ],
       // P3: <workspace>/skills/ -> nativeHarnesses: {} (DartClaw-managed)
       (p.join(workspaceDir, 'skills'), SkillSource.workspace, <String>{}),
-      // P4: ~/.claude/skills/ -> nativeHarnesses: {claude}
+      // P4: <dataDir>/.claude/skills/ and <dataDir>/.agents/skills/ -> native harness roots.
+      (dataDirClaudeSkillsDir ?? p.join(dataDir, '.claude', 'skills'), SkillSource.dataDirNative, <String>{'claude'}),
+      (dataDirAgentsSkillsDir ?? p.join(dataDir, '.agents', 'skills'), SkillSource.dataDirNative, <String>{'codex'}),
+      // P5: ~/.claude/skills/ -> nativeHarnesses: {claude}
       (userClaudeSkillsDir ?? _userClaudeSkillsDir, SkillSource.userClaude, <String>{'claude'}),
-      // P5: ~/.agents/skills/ -> nativeHarnesses: {codex}
+      // P6: ~/.agents/skills/ -> nativeHarnesses: {codex}
       (userAgentsSkillsDir ?? _userAgentsSkillsDir, SkillSource.userAgents, <String>{'codex'}),
-      // P6: <dataDir>/skills/ -> nativeHarnesses: {} (DartClaw-managed)
+      // P7: <dataDir>/skills/ -> nativeHarnesses: {} (DartClaw-managed)
       (p.join(dataDir, 'skills'), SkillSource.userDartclaw, <String>{}),
-      // P7: <repo>/packages/dartclaw_workflow/skills/ -> repo-managed built-ins.
+      // P8: <repo>/packages/dartclaw_workflow/skills/ -> repo-managed built-ins.
       if (builtInSkillsDir != null) (builtInSkillsDir, SkillSource.dartclaw, <String>{}),
-      // P8: Plugin directories -> nativeHarnesses: {} (plugin-dependent)
+      // P9: Plugin directories -> nativeHarnesses: {} (plugin-dependent)
       for (final dir in pluginDirs) (dir, SkillSource.plugin, <String>{}),
     ];
 
@@ -183,7 +189,11 @@ class SkillRegistryImpl implements SkillRegistry {
   }
 
   bool _skipsManagedCopies(SkillSource source) => switch (source) {
-    SkillSource.projectClaude || SkillSource.projectAgents || SkillSource.userClaude || SkillSource.userAgents => true,
+    SkillSource.projectClaude ||
+    SkillSource.projectAgents ||
+    SkillSource.userClaude ||
+    SkillSource.userAgents ||
+    SkillSource.dataDirNative => true,
     _ => false,
   };
 
@@ -341,32 +351,55 @@ class SkillRegistryImpl implements SkillRegistry {
   @override
   SkillInfo? getByName(String name) => _skills[name];
 
-  // Recovery hint appended when a DartClaw-managed AndThen-derived skill ref is missing.
-  // Operators land here after `SkillProvisioner` failed to populate the destination
-  // (network unreachable, partial install, marker drift).
-  // Point them at the runtime-provisioning surface they actually own, not at a
-  // manual `install-skills.sh` invocation that would produce `andthen-*` skills
-  // DartClaw will not resolve.
-  static const _andthenInstallHint =
-      'AndThen-derived `dartclaw-*` skills are provisioned at `dartclaw serve` startup '
-      'and before standalone workflow runs. '
-      'If they are missing, check the SkillProvisioner logs and your '
-      '`andthen.network` / `andthen.git_url` / `andthen.ref` config, then restart `dartclaw serve` '
-      'or rerun the standalone workflow. '
-      'See dartclaw-public/docs/guide/andthen-skills.md.';
+  @override
+  ResolvedSkillRef? resolveRef(String skillRef, String provider) {
+    final invocationName = _invocationNameFor(skillRef, provider);
+    final skill = _skills[invocationName];
+    if (skill == null) return null;
+    return ResolvedSkillRef(canonicalRef: skillRef, provider: provider, invocationName: invocationName, skill: skill);
+  }
+
+  static String _invocationNameFor(String skillRef, String provider) {
+    if (!skillRef.startsWith('andthen:')) return skillRef;
+    final suffix = skillRef.substring('andthen:'.length);
+    return switch (provider) {
+      'codex' => 'andthen-$suffix',
+      'claude' => skillRef,
+      _ => skillRef,
+    };
+  }
 
   @override
-  String? validateRef(String skillRef) {
-    if (_skills.containsKey(skillRef)) return null;
+  String? validateRef(String skillRef, {String? provider}) {
+    if (provider != null) {
+      final resolved = resolveRef(skillRef, provider);
+      if (resolved != null) return null;
+      if (skillRef.startsWith('andthen:')) {
+        final searched = _invocationNameFor(skillRef, provider);
+        return 'Skill "$skillRef" not found for provider "$provider"; searched "$searched". '
+            'Install AndThen for $provider so the provider exposes "$searched".';
+      }
+      return _missingExact(skillRef);
+    }
 
+    if (_skills.containsKey(skillRef)) return null;
+    if (skillRef.startsWith('andthen:')) {
+      final codexAlias = _invocationNameFor(skillRef, 'codex');
+      final claudeAlias = _invocationNameFor(skillRef, 'claude');
+      if (_skills.containsKey(codexAlias) || _skills.containsKey(claudeAlias)) return null;
+      return 'Skill "$skillRef" not found. Searched provider aliases "$codexAlias" (codex) '
+          'and "$claudeAlias" (claude). Install AndThen for the provider used by this workflow.';
+    }
+
+    return _missingExact(skillRef);
+  }
+
+  String _missingExact(String skillRef) {
     // Build suggestion list from available skills.
     final available = _skills.keys.toList()..sort();
 
-    final isDartclawAndthenRef = skillRef.startsWith('dartclaw-');
-    final installSuffix = isDartclawAndthenRef ? ' $_andthenInstallHint' : '';
-
     if (available.isEmpty) {
-      return 'Skill "$skillRef" not found. No skills discovered.$installSuffix';
+      return 'Skill "$skillRef" not found. No skills discovered.';
     }
 
     // Simple prefix/substring match for suggestions.
@@ -375,17 +408,16 @@ class SkillRegistryImpl implements SkillRegistry {
     if (suggestions.isNotEmpty) {
       return 'Skill "$skillRef" not found. '
           'Did you mean: ${suggestions.join(', ')}? '
-          'Available: ${available.join(', ')}$installSuffix';
+          'Available: ${available.join(', ')}';
     }
 
-    return 'Skill "$skillRef" not found. '
-        'Available skills: ${available.join(', ')}$installSuffix';
+    return 'Skill "$skillRef" not found. Available skills: ${available.join(', ')}';
   }
 
   @override
   bool isNativeFor(String skillName, String harnessType) {
-    final skill = _skills[skillName];
-    if (skill == null) return false;
-    return skill.nativeHarnesses.contains(harnessType);
+    final resolved = resolveRef(skillName, harnessType);
+    if (resolved == null) return false;
+    return resolved.skill.nativeHarnesses.contains(harnessType);
   }
 }

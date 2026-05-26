@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' as core show GoogleJwtVerifier;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:http/http.dart' as http;
 import 'package:pointycastle/pointycastle.dart' as pc;
 import 'package:logging/logging.dart';
 
-class GoogleJwtVerifier {
+/// Verifies Google-issued JWTs against Google's published certificate sets.
+class GoogleJwtVerifier implements core.GoogleJwtVerifier {
   static final Uri googleCertsUrl = Uri.parse('https://www.googleapis.com/oauth2/v1/certs');
   static final Uri googleOidcCertsUrl = Uri.parse('https://www.googleapis.com/oauth2/v3/certs');
   static final Uri chatServiceAccountCertsUrl = Uri.parse(
@@ -38,6 +40,7 @@ class GoogleJwtVerifier {
        _now = now ?? DateTime.now,
        _certsUrlOverride = certsUrl;
 
+  @override
   Future<bool> verify(String? authHeader) async {
     if (authHeader == null || !authHeader.startsWith('Bearer ')) {
       _log.warning('JWT verification failed: missing or invalid Authorization header');
@@ -192,6 +195,7 @@ class GoogleJwtVerifier {
     return result;
   }
 
+  @override
   void invalidateCache() {
     _certCaches.clear();
   }

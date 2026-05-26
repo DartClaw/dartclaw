@@ -44,7 +44,7 @@ class SessionService {
   }
 
   /// Ensures exactly one main session exists. Returns it.
-  Future<Session> getOrCreateMain() async {
+  Future<Session> getOrCreateMainSession() async {
     return getOrCreateByKey('main', type: SessionType.main);
   }
 

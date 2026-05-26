@@ -5,6 +5,7 @@ import 'package:sqlite3/sqlite3.dart';
 class MemoryService {
   final Database _db;
 
+  /// Creates a [MemoryService] backed by [_db] and initializes the FTS5 schema.
   MemoryService(this._db) {
     _initSchema();
   }
@@ -60,6 +61,7 @@ class MemoryService {
     }
   }
 
+  /// Inserts a new memory chunk and returns its row id.
   int insertChunk({required String text, required String source, String? category, String userId = 'owner'}) {
     if (text.trim().isEmpty) {
       throw ArgumentError('text must not be empty or blank');
@@ -110,11 +112,13 @@ class MemoryService {
   /// Stub for future vector search. Returns empty list.
   List<MemorySearchResult> searchVector(List<double> embedding, {int limit = 20}) => const [];
 
+  /// Deletes all chunks with [source] for [userId] and returns the row count.
   int deleteBySource(String source, {String userId = 'owner'}) {
     _db.execute('DELETE FROM memory_chunks WHERE source = ? AND user_id = ?', [source, userId]);
     return _db.updatedRows;
   }
 
+  /// Replaces all chunks for [userId] with [chunks].
   void rebuildIndex(List<({String text, String source, String? category})> chunks, {String userId = 'owner'}) {
     _db.execute('DELETE FROM memory_chunks WHERE user_id = ?', [userId]);
     final stmt = _db.prepare('INSERT INTO memory_chunks (text, source, category, user_id) VALUES (?, ?, ?, ?)');
@@ -127,5 +131,6 @@ class MemoryService {
     }
   }
 
+  /// Closes the underlying database connection.
   void close() => _db.close();
 }

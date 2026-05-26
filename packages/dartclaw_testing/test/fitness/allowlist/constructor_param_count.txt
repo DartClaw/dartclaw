@@ -1,0 +1,4 @@
+# Allowlist for constructor_param_count_test.dart
+# Format: <ClassName>.<ctorName>  # <param-count>; <remediation>
+# For the default constructor use: <ClassName>  # ...
+# Rationale and remediation story are mandatory.

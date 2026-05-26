@@ -30,6 +30,7 @@ String _tasksListHref({String? status, String? type, required bool includeWorkfl
   return query.isEmpty ? '/tasks' : '/tasks?$query';
 }
 
+/// Renders the tasks dashboard page.
 class TasksPage extends DashboardPage {
   @override
   String get route => '/tasks';
@@ -77,7 +78,7 @@ class TasksPage extends DashboardPage {
     List<Map<String, String>> projectOptions = [];
     if (projectService != null) {
       final allProjects = await projectService.getAll();
-      final defaultProject = await projectService.getDefaultProject();
+      final defaultProject = await projectService.defaultProject;
       final externalProjects = allProjects.where((p) => p.id != '_local').toList();
       showProjectColumn = externalProjects.isNotEmpty;
       projectNames = {for (final p in allProjects) p.id: p.name};
@@ -130,7 +131,7 @@ class TasksPage extends DashboardPage {
       };
     }
 
-    final sidebarData = await context.buildSidebarData();
+    final sidebarData = await context.sidebar.build();
     final page = tasksPageTemplate(
       sidebarData: sidebarData,
       navItems: context.navItems(activePage: title),
@@ -268,11 +269,11 @@ class TasksPage extends DashboardPage {
           for (final e in events) {
             final details = Map<String, dynamic>.from(e.details);
             seedMaps.add({'kind': e.kind.name, 'details': details});
-            if (e.kind is TokenUpdate) {
+            if (e.kind == TaskEventKind.tokenUpdate) {
               initialTokensUsed +=
                   ((details['inputTokens'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30) +
                   ((details['outputTokens'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30);
-            } else if (e.kind is ToolCalled) {
+            } else if (e.kind == TaskEventKind.toolCalled) {
               initialActivity = TaskProgressTracker.formatActivity(details['name']?.toString() ?? '', details);
             }
           }
@@ -282,7 +283,7 @@ class TasksPage extends DashboardPage {
       }
     }
 
-    final sidebarData = await context.buildSidebarData();
+    final sidebarData = await context.sidebar.build();
     final goal = context.goalService != null && task.goalId != null
         ? await context.goalService!.get(task.goalId!)
         : null;

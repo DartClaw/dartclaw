@@ -55,3 +55,14 @@ class WorkflowContext {
     variables: (json['variables'] as Map?)?.cast<String, String>(),
   );
 }
+
+/// Returns only the entries whose keys start with `_` (private context keys).
+///
+/// Used when persisting context snapshots — private keys track executor
+/// state and must survive step boundaries intact. Pass [exclude] to drop
+/// a specific prefix from the result (e.g. `_map.current` during map
+/// step in-progress persistence).
+Map<String, dynamic> privateContextEntries(Map<String, dynamic> contextJson, {String? exclude}) => {
+  for (final e in contextJson.entries)
+    if (e.key.startsWith('_') && (exclude == null || !e.key.startsWith(exclude))) e.key: e.value,
+};

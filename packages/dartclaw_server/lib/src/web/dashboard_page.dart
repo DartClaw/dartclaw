@@ -10,6 +10,7 @@ import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../templates/sidebar.dart';
+import 'sidebar_data_builder.dart';
 
 /// Base class for pages rendered in the dashboard shell.
 abstract class DashboardPage {
@@ -34,7 +35,7 @@ abstract class DashboardPage {
 
 /// Shared services made available to registered dashboard pages.
 class PageContext {
-  const PageContext({
+  PageContext({
     required this.sessions,
     required this.appDisplay,
     this.dataDir,
@@ -51,12 +52,19 @@ class PageContext {
     this.threadBindingStore,
     this.workflowService,
     this.definitionSource,
-    required Future<SidebarData> Function() buildSidebarData,
+    SidebarDataBuilder? sidebar,
+    Future<SidebarData> Function()? sidebarData,
     required String Function() restartBannerHtml,
     required List<NavItem> Function({required String activePage}) buildNavItems,
-  }) : _buildSidebarData = buildSidebarData,
+  }) : sidebar = _resolveSidebar(sidebar, sidebarData),
        _restartBannerHtml = restartBannerHtml,
        _buildNavItems = buildNavItems;
+
+  static SidebarDataBuilder _resolveSidebar(SidebarDataBuilder? sidebar, Future<SidebarData> Function()? sidebarData) {
+    if (sidebar != null) return sidebar;
+    if (sidebarData != null) return SidebarDataBuilder.fromCallback(sidebarData);
+    throw ArgumentError('PageContext requires either `sidebar` or `sidebarData`.');
+  }
 
   final SessionService sessions;
   final AppDisplayParams appDisplay;
@@ -74,11 +82,9 @@ class PageContext {
   final ThreadBindingStore? threadBindingStore;
   final WorkflowService? workflowService;
   final WorkflowDefinitionSource? definitionSource;
-  final Future<SidebarData> Function() _buildSidebarData;
+  final SidebarDataBuilder sidebar;
   final String Function() _restartBannerHtml;
   final List<NavItem> Function({required String activePage}) _buildNavItems;
-
-  Future<SidebarData> buildSidebarData() => _buildSidebarData();
 
   String restartBannerHtml() => _restartBannerHtml();
 

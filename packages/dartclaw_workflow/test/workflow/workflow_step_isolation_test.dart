@@ -21,63 +21,15 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowContext,
-        WorkflowStep,
-        WorkflowTemplateEngine;
+        WorkflowStep;
+import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-String _fixturesRoot() {
-  var current = Directory.current;
-  while (true) {
-    final candidates = [
-      p.join(current.path, 'test', 'fixtures'),
-      p.join(current.path, 'packages', 'dartclaw_workflow', 'test', 'fixtures'),
-    ];
-    for (final candidate in candidates) {
-      if (Directory(candidate).existsSync()) {
-        return Directory(candidate).resolveSymbolicLinksSync();
-      }
-    }
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate workflow test fixtures');
-    }
-    current = parent;
-  }
-}
+import '_support/workflow_test_paths.dart';
 
 String _stepIsolationFixtureTemplateDir(String fixturesRoot) => p.join(fixturesRoot, 'workflow-step-isolation');
-
-String _definitionsDir() {
-  var current = Directory.current;
-  while (true) {
-    final candidates = [
-      p.join(current.path, 'lib', 'src', 'workflow', 'definitions'),
-      p.join(current.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions'),
-    ];
-    for (final candidate in candidates) {
-      if (Directory(candidate).existsSync()) {
-        return candidate;
-      }
-    }
-
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate workflow definitions dir');
-    }
-    current = parent;
-  }
-}
-
-Future<bool> _codexAvailable() async {
-  try {
-    final result = await Process.run('codex', ['--version']);
-    return result.exitCode == 0;
-  } catch (_) {
-    return false;
-  }
-}
 
 WorkflowStep _stepById(WorkflowDefinition definition, String stepId) =>
     definition.steps.firstWhere((step) => step.id == stepId);
@@ -91,7 +43,7 @@ List<dynamic> _normalizeStoryList(Object? raw) {
 }
 
 void expectStorySpecShape(Object? raw) {
-  // Matches the `story-specs` preset schema: items require id, title,
+  // Matches the `story_specs` preset schema: items require id, title,
   // spec_path, dependencies. (FIS body content lives on disk at spec_path
   // rather than being carried inline.)
   expect(raw, isA<Map<Object?, Object?>>());
@@ -112,11 +64,6 @@ void _writeMarkdownNote(String rootDir, String relativePath, String heading, Str
 }
 
 String _sanitizeFileComponent(String value) => value.replaceAll(RegExp(r'[^a-zA-Z0-9._-]+'), '_');
-
-String _asTrimmedString(Object? value) => value is String ? value.trim() : '';
-
-const _workflowTestTodoAppRepository = 'https://github.com/DartClaw/workflow-test-todo-app.git';
-const _workflowTestTodoAppRevision = '5cc022878c28af49d723f55ca70343f0b979ec0d';
 
 String _canonicalExistingDirectoryPath(String path) {
   try {
@@ -234,153 +181,6 @@ void _expectGatingCountNotGreaterThanTotal(_StepExecutionResult result, String t
   expect(gatingCount, lessThanOrEqualTo(totalCount), reason: 'Artifact: ${result.artifactPath}');
 }
 
-Map<Object?, Object?> _expectProjectIndexShape(Object? raw, {required String artifactPath}) {
-  expect(raw, isA<Map<Object?, Object?>>(), reason: 'Artifact: $artifactPath');
-  final projectIndex = raw! as Map<Object?, Object?>;
-  expect(projectIndex['framework'], isA<String>(), reason: 'Artifact: $artifactPath');
-  expect((projectIndex['framework'] as String).trim(), isNotEmpty, reason: 'Artifact: $artifactPath');
-  expect(projectIndex['project_root'], isA<String>(), reason: 'Artifact: $artifactPath');
-  expect((projectIndex['project_root'] as String).trim(), isNotEmpty, reason: 'Artifact: $artifactPath');
-
-  final documentLocations = projectIndex['document_locations'];
-  expect(documentLocations, isA<Map<Object?, Object?>>(), reason: 'Artifact: $artifactPath');
-  expect(
-    (documentLocations! as Map<Object?, Object?>).keys.map((key) => '$key').toSet(),
-    containsAll(const {
-      'product',
-      'backlog',
-      'roadmap',
-      'prd',
-      'plan',
-      'spec',
-      'state',
-      'readme',
-      'agent_rules',
-      'architecture',
-      'guide',
-    }),
-    reason: 'Artifact: $artifactPath',
-  );
-
-  final stateProtocol = projectIndex['state_protocol'];
-  expect(stateProtocol, isA<Map<Object?, Object?>>(), reason: 'Artifact: $artifactPath');
-  expect(
-    (stateProtocol! as Map<Object?, Object?>).keys.map((key) => '$key').toSet(),
-    containsAll(const {'type', 'state_file', 'format'}),
-    reason: 'Artifact: $artifactPath',
-  );
-  return projectIndex;
-}
-
-void _expectProjectRootResolvesTo(
-  Map<Object?, Object?> projectIndex,
-  String expectedRoot, {
-  required String artifactPath,
-}) {
-  final rawRoot = _asTrimmedString(projectIndex['project_root']);
-  final resolvedRoot = p.isAbsolute(rawRoot) ? p.normalize(rawRoot) : p.normalize(p.join(expectedRoot, rawRoot));
-  expect(
-    _canonicalExistingDirectoryPath(resolvedRoot),
-    _canonicalExistingDirectoryPath(expectedRoot),
-    reason: 'Artifact: $artifactPath',
-  );
-}
-
-void _expectDocumentLocation(
-  Map<Object?, Object?> projectIndex,
-  String key,
-  String expectedPath, {
-  required String artifactPath,
-}) {
-  final documentLocations = projectIndex['document_locations'] as Map<Object?, Object?>;
-  expect(documentLocations[key], expectedPath, reason: 'document_locations.$key mismatch. Artifact: $artifactPath');
-}
-
-void _expectDocumentLocationFileExists(
-  Map<Object?, Object?> projectIndex,
-  String key,
-  String rootDir, {
-  required String artifactPath,
-}) {
-  final documentLocations = projectIndex['document_locations'] as Map<Object?, Object?>;
-  final relativePath = _asTrimmedString(documentLocations[key]);
-  expect(relativePath, isNotEmpty, reason: 'document_locations.$key is empty. Artifact: $artifactPath');
-  expect(
-    p.isAbsolute(relativePath),
-    isFalse,
-    reason: 'document_locations.$key must be relative. Artifact: $artifactPath',
-  );
-  expect(
-    File(p.join(rootDir, relativePath)).existsSync(),
-    isTrue,
-    reason: 'document_locations.$key does not exist at $relativePath. Artifact: $artifactPath',
-  );
-}
-
-void _expectStateProtocolPath(Map<Object?, Object?> projectIndex, String expectedPath, {required String artifactPath}) {
-  final stateProtocol = projectIndex['state_protocol'] as Map<Object?, Object?>;
-  expect(
-    stateProtocol['state_file'],
-    expectedPath,
-    reason: 'state_protocol.state_file mismatch. Artifact: $artifactPath',
-  );
-}
-
-void _expectProjectIndexPathsStayInside(
-  Map<Object?, Object?> projectIndex,
-  String rootDir, {
-  required String artifactPath,
-}) {
-  for (final path in _projectIndexPathFields(projectIndex)) {
-    final value = _asTrimmedString(path.value);
-    if (value.isEmpty || value == 'null' || value == 'not found') continue;
-    expect(p.isAbsolute(value), isFalse, reason: '${path.label} must be workspace-relative. Artifact: $artifactPath');
-    expect(
-      p.split(value),
-      isNot(contains('..')),
-      reason: '${path.label} must not contain parent traversal. Artifact: $artifactPath',
-    );
-    final resolved = p.normalize(p.join(rootDir, value));
-    expect(
-      resolved == p.normalize(rootDir) || p.isWithin(p.normalize(rootDir), resolved),
-      isTrue,
-      reason: '${path.label} escapes project root: $value. Artifact: $artifactPath',
-    );
-  }
-}
-
-List<({String label, Object? value})> _projectIndexPathFields(Map<Object?, Object?> projectIndex) {
-  final paths = <({String label, Object? value})>[];
-  void collectMap(String prefix, Object? raw) {
-    if (raw is! Map) return;
-    for (final entry in raw.entries) {
-      paths.add((label: '$prefix.${entry.key}', value: entry.value));
-    }
-  }
-
-  collectMap('document_locations', projectIndex['document_locations']);
-  collectMap('artifact_locations', projectIndex['artifact_locations']);
-  final stateProtocol = projectIndex['state_protocol'];
-  if (stateProtocol is Map) {
-    paths.add((label: 'state_protocol.state_file', value: stateProtocol['state_file']));
-  }
-  paths.add((label: 'active_prd', value: projectIndex['active_prd']));
-  paths.add((label: 'active_plan', value: projectIndex['active_plan']));
-
-  final activeStorySpecs = projectIndex['active_story_specs'];
-  final items = activeStorySpecs is Map ? activeStorySpecs['items'] : null;
-  if (items is Iterable) {
-    var index = 0;
-    for (final item in items) {
-      if (item is Map) {
-        paths.add((label: 'active_story_specs.items[$index].spec_path', value: item['spec_path']));
-      }
-      index++;
-    }
-  }
-  return paths;
-}
-
 class _StepExecutionResult {
   final String stepId;
   final String stepName;
@@ -422,14 +222,14 @@ void main() {
   var artifactCounter = 0;
 
   setUpAll(() async {
-    if (!await _codexAvailable()) {
-      markTestSkipped('codex binary not available — run with Codex CLI installed');
+    if (!await codexAvailable()) {
+      markTestSkipped('codex binary not available – run with Codex CLI installed');
     }
-    fixturesRoot = _fixturesRoot();
+    fixturesRoot = workflowFixturesRoot();
     fixtureTemplateDir = _stepIsolationFixtureTemplateDir(fixturesRoot);
     final parser = WorkflowDefinitionParser();
-    planDefinition = await parser.parseFile(p.join(_definitionsDir(), 'plan-and-implement.yaml'));
-    specDefinition = await parser.parseFile(p.join(_definitionsDir(), 'spec-and-implement.yaml'));
+    planDefinition = await parser.parseFile(p.join(workflowDefinitionsDir(), 'plan-and-implement.yaml'));
+    specDefinition = await parser.parseFile(p.join(workflowDefinitionsDir(), 'spec-and-implement.yaml'));
 
     // `SafeProcess.start` runs with `includeParentEnvironment: false`, so the
     // spawned `codex` binary only sees whatever environment the provider
@@ -595,170 +395,83 @@ void main() {
     );
   }
 
-  Future<void> replaceFixtureWithWorkflowTestTodoApp() async {
-    if (Directory(fixtureDir).existsSync()) {
-      Directory(fixtureDir).deleteSync(recursive: true);
-    }
-    Directory(fixtureDir).createSync(recursive: true);
-    final initResult = await Process.run('git', ['init', '-q'], workingDirectory: fixtureDir);
-    if (initResult.exitCode != 0) {
-      throw StateError('Failed to initialize workflow-test-todo-app fixture repo: ${initResult.stderr}');
-    }
-    final remoteResult = await Process.run('git', [
-      'remote',
-      'add',
-      'origin',
-      _workflowTestTodoAppRepository,
-    ], workingDirectory: fixtureDir);
-    if (remoteResult.exitCode != 0) {
-      throw StateError('Failed to add workflow-test-todo-app origin: ${remoteResult.stderr}');
-    }
-    final fetchResult = await Process.run(
-      'git',
-      ['fetch', '--depth', '1', 'origin', _workflowTestTodoAppRevision],
-      workingDirectory: fixtureDir,
-      environment: const {'GIT_TERMINAL_PROMPT': '0'},
-    );
-    if (fetchResult.exitCode != 0) {
-      throw StateError('Failed to fetch workflow-test-todo-app fixture revision: ${fetchResult.stderr}');
-    }
-    final checkoutResult = await Process.run('git', [
-      'checkout',
-      '--detach',
-      '-q',
-      'FETCH_HEAD',
-    ], workingDirectory: fixtureDir);
-    if (checkoutResult.exitCode != 0) {
-      throw StateError('Failed to check out workflow-test-todo-app fixture revision: ${checkoutResult.stderr}');
-    }
-    Process.runSync('git', ['config', 'user.name', 'Workflow Test'], workingDirectory: fixtureDir);
-    Process.runSync('git', ['config', 'user.email', 'workflow-tests@example.com'], workingDirectory: fixtureDir);
-
-    final backlog = File(p.join(fixtureDir, 'docs', 'PRODUCT-BACKLOG.md'));
-    if (!backlog.existsSync()) {
-      throw StateError('workflow-test-todo-app fixture is missing docs/PRODUCT-BACKLOG.md');
-    }
-    final backlogText = backlog.readAsStringSync();
-    for (final bugId in const ['BUG-001', 'BUG-002', 'BUG-003']) {
-      expect(backlogText, contains(bugId), reason: 'workflow-test-todo-app fixture is missing $bugId');
-    }
-  }
-
   // Deliberately not re-introduced: the previous `expectStoryPlanShape` helper
-  // asserted on a richer story-plan preset (acceptance_criteria, type,
-  // key_files, effort) that the current workflow does not declare — the plan
-  // step only emits the `story-specs` shape. Use `expectStorySpecShape` for
+  // asserted on a richer story_plan preset (acceptance_criteria, type,
+  // key_files, effort) that the current workflow does not declare – the plan
+  // step only emits the `story_specs` shape. Use `expectStorySpecShape` for
   // every per-story assertion.
 
   test(
-    'discover-project returns a confined minimal-project index for the spec workflow',
+    'discover-plan-state returns required PRD and empty optional plan handoffs',
     () async {
+      const prdPath = 'docs/specs/workflow-testing/prd.md';
+      File(p.join(fixtureDir, prdPath))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('# PRD\n\nMinimal plan workflow discovery fixture.\n');
+
       final result = await executeStep(
-        step: _stepById(specDefinition, 'discover-project'),
+        step: _stepById(planDefinition, 'discover-plan-state'),
         context: WorkflowContext(
-          variables: const {
-            'FEATURE': 'No-op feature for discovery contract validation.',
-            'PROJECT': 'workflow-testing',
-            'BRANCH': 'main',
-          },
+          variables: const {'FEATURE': prdPath, 'PROJECT': 'workflow-testing', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
         ),
       );
 
-      final projectIndex = _expectProjectIndexShape(result.outputs['project_index'], artifactPath: result.artifactPath);
-      _expectProjectRootResolvesTo(projectIndex, fixtureDir, artifactPath: result.artifactPath);
-      _expectProjectIndexPathsStayInside(projectIndex, fixtureDir, artifactPath: result.artifactPath);
-      expect(_asTrimmedString(projectIndex['framework']).toLowerCase(), 'none', reason: result.artifactPath);
-      _expectDocumentLocation(projectIndex, 'readme', 'README.md', artifactPath: result.artifactPath);
-      expect(result.outputs['spec_path'], '', reason: result.artifactPath);
-      expect(result.outputs['spec_source'], 'synthesized', reason: result.artifactPath);
-    },
-    timeout: const Timeout(Duration(minutes: 5)),
-  );
-
-  test(
-    'discover-project returns empty active plan handoffs for the minimal plan workflow',
-    () async {
-      final result = await executeStep(
-        step: _stepById(planDefinition, 'discover-project'),
-        context: WorkflowContext(
-          variables: const {
-            'REQUIREMENTS': 'No-op requirements for discovery contract validation.',
-            'PROJECT': 'workflow-testing',
-            'BRANCH': 'main',
-            'MAX_PARALLEL': '1',
-          },
-        ),
-      );
-
-      final projectIndex = _expectProjectIndexShape(result.outputs['project_index'], artifactPath: result.artifactPath);
-      _expectProjectRootResolvesTo(projectIndex, fixtureDir, artifactPath: result.artifactPath);
-      _expectProjectIndexPathsStayInside(projectIndex, fixtureDir, artifactPath: result.artifactPath);
-      expect(_asTrimmedString(projectIndex['framework']).toLowerCase(), 'none', reason: result.artifactPath);
-      expect(result.outputs['prd'], '', reason: result.artifactPath);
+      expect(result.outputs['prd'], prdPath, reason: result.artifactPath);
       expect(result.outputs['plan'], '', reason: result.artifactPath);
       expect(_normalizeStoryList(result.outputs['story_specs']), isEmpty, reason: result.artifactPath);
     },
     timeout: const Timeout(Duration(minutes: 5)),
   );
 
-  test(
-    'discover-project indexes workflow-test-todo-app for both built-in workflows',
-    () async {
-      await replaceFixtureWithWorkflowTestTodoApp();
-
-      final specResult = await executeStep(
-        step: _stepById(specDefinition, 'discover-project'),
-        context: WorkflowContext(
-          variables: const {
-            'FEATURE':
-                'Fix BUG-001 from docs/PRODUCT-BACKLOG.md: the sidebar incomplete-count is stale after deletion.',
-            'PROJECT': 'workflow-test-todo-app',
-            'BRANCH': 'main',
-          },
-        ),
-        artifactLabel: 'discover-project-todo-app-spec-workflow',
-      );
-      final planResult = await executeStep(
-        step: _stepById(planDefinition, 'discover-project'),
-        context: WorkflowContext(
-          variables: const {
-            'REQUIREMENTS': 'Fix BUG-002 and BUG-003 from docs/PRODUCT-BACKLOG.md as two independent stories.',
-            'PROJECT': 'workflow-test-todo-app',
-            'BRANCH': 'main',
-            'MAX_PARALLEL': '2',
-          },
-        ),
-        artifactLabel: 'discover-project-todo-app-plan-workflow',
+  test('discover-plan-state indexes an existing plan for the plan workflow', () async {
+    const prdPath = 'docs/specs/workflow-testing/prd.md';
+    const planPath = 'docs/specs/workflow-testing/plan.json';
+    const fisPath = 'docs/specs/workflow-testing/fis/s01-existing-story.md';
+    File(p.join(fixtureDir, prdPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# PRD\n\nExisting plan discovery fixture.\n');
+    File(p.join(fixtureDir, fisPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Existing Story FIS\n\nImplement the existing story.\n');
+    File(p.join(fixtureDir, planPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        jsonEncode({
+          'stories': [
+            {
+              'id': 'S01',
+              'title': 'Existing Story',
+              'fis': 'fis/s01-existing-story.md',
+              'dependsOn': <String>[],
+              'status': 'spec-ready',
+            },
+          ],
+        }),
       );
 
-      _expectProjectIndexShape(specResult.outputs['project_index'], artifactPath: specResult.artifactPath);
-      _expectProjectIndexShape(planResult.outputs['project_index'], artifactPath: planResult.artifactPath);
-      for (final result in [specResult, planResult]) {
-        final projectIndex = result.outputs['project_index'] as Map<Object?, Object?>;
-        _expectProjectRootResolvesTo(projectIndex, fixtureDir, artifactPath: result.artifactPath);
-        _expectProjectIndexPathsStayInside(projectIndex, fixtureDir, artifactPath: result.artifactPath);
-        expect(_asTrimmedString(projectIndex['framework']).toLowerCase(), 'andthen', reason: result.artifactPath);
-        _expectDocumentLocation(projectIndex, 'backlog', 'docs/PRODUCT-BACKLOG.md', artifactPath: result.artifactPath);
-        _expectDocumentLocation(projectIndex, 'roadmap', 'docs/ROADMAP.md', artifactPath: result.artifactPath);
-        _expectDocumentLocation(projectIndex, 'state', 'docs/STATE.md', artifactPath: result.artifactPath);
-        _expectDocumentLocation(projectIndex, 'readme', 'README.md', artifactPath: result.artifactPath);
-        _expectDocumentLocationFileExists(projectIndex, 'agent_rules', fixtureDir, artifactPath: result.artifactPath);
-        _expectStateProtocolPath(projectIndex, 'docs/STATE.md', artifactPath: result.artifactPath);
-        expect(projectIndex['active_prd'], isNull, reason: result.artifactPath);
-        expect(projectIndex['active_plan'], isNull, reason: result.artifactPath);
-        expect(projectIndex['active_story_specs'], isNull, reason: result.artifactPath);
-      }
-      expect(specResult.outputs['spec_path'], '', reason: specResult.artifactPath);
-      expect(specResult.outputs['spec_source'], 'synthesized', reason: specResult.artifactPath);
-      expect(planResult.outputs['prd'], '', reason: planResult.artifactPath);
-      expect(planResult.outputs['plan'], '', reason: planResult.artifactPath);
-      expect(_normalizeStoryList(planResult.outputs['story_specs']), isEmpty, reason: planResult.artifactPath);
-    },
-    timeout: const Timeout(Duration(minutes: 10)),
-  );
+    final planResult = await executeStep(
+      step: _stepById(planDefinition, 'discover-plan-state'),
+      context: WorkflowContext(
+        variables: const {
+          'FEATURE': prdPath,
+          'PROJECT': 'workflow-test-todo-app',
+          'BRANCH': 'main',
+          'MAX_PARALLEL': '2',
+        },
+      ),
+      artifactLabel: 'discover-plan-state-existing-plan',
+    );
+
+    expect(planResult.outputs['prd'], prdPath, reason: planResult.artifactPath);
+    expect(planResult.outputs['plan'], planPath, reason: planResult.artifactPath);
+    final storySpecs = _normalizeStoryList(planResult.outputs['story_specs']);
+    expect(storySpecs, hasLength(1), reason: planResult.artifactPath);
+    expectStorySpecShape(storySpecs.single);
+    expect((storySpecs.single as Map<Object?, Object?>)['spec_path'], fisPath, reason: planResult.artifactPath);
+  }, timeout: const Timeout(Duration(minutes: 10)));
 
   test(
-    'plan emits story-plan stories and story-specs in a single pass from the reviewed PRD',
+    'plan emits story_plan stories and story_specs in a single pass from the reviewed PRD',
     () async {
       const prdPath = 'docs/specs/workflow-testing/prd.md';
       File(p.join(fixtureDir, prdPath))
@@ -776,7 +489,7 @@ void main() {
         step: _stepById(planDefinition, 'plan'),
         context: WorkflowContext(
           variables: const {
-            'REQUIREMENTS':
+            'FEATURE':
                 'Create a tiny note-taking improvement: add one markdown note file and a follow-up validation step.',
             'PROJECT': 'workflow-testing',
             'BRANCH': 'main',
@@ -794,7 +507,7 @@ void main() {
         ),
       );
 
-      // The plan step declares `story_specs` (story-specs schema) and `plan`
+      // The plan step declares `story_specs` (story_specs schema) and `plan`
       // (format=path). The richer `stories` output was removed when the plan
       // bundle was collapsed onto the one-story-per-FIS invariant; assert on
       // `story_specs` + `plan` instead.
@@ -867,7 +580,7 @@ void main() {
       // `integrated-review.findings_count` (so the remediation loop gate
       // `integrated-review.findings_count > 0` disambiguates it from
       // re-review.findings_count). ContextExtractor stores results under the
-      // literal declared key — assert on that key directly.
+      // literal declared key – assert on that key directly.
       _expectReviewReportPathOrCleanCounts(
         result,
         'review_findings',
@@ -884,12 +597,16 @@ void main() {
     timeout: const Timeout(Duration(minutes: 5)),
   );
 
-  test('quick-review returns a summary and numeric findings count', () async {
+  test('quick-review runs against the provider and writes an artifact', () async {
+    // quick-review declares no outputs – its --fix invocation absorbs any
+    // findings into the working tree via continueSession. This smoke test
+    // verifies the step executes end-to-end against a real provider and
+    // emits a non-empty agent response with a durable artifact path.
     final result = await executeStep(
       step: _stepById(planDefinition, 'quick-review'),
       context: WorkflowContext(
         variables: const {
-          'REQUIREMENTS': 'Add exactly one markdown note file with one heading and one bullet.',
+          'FEATURE': 'Add exactly one markdown note file with one heading and one bullet.',
           'PROJECT': 'workflow-testing',
           'BRANCH': 'main',
           'MAX_PARALLEL': '1',
@@ -923,9 +640,8 @@ void main() {
       artifactLabel: 'quick-review-single-story-clean',
     );
 
-    expect(result.outputs['quick_review_summary'], isA<String>());
-    expect((result.outputs['quick_review_summary'] as String).trim(), isNotEmpty);
-    expect(result.outputs['quick_review_findings_count'], isA<int>());
+    expect(result.assistantContent.trim(), isNotEmpty, reason: 'Artifact: ${result.artifactPath}');
+    expect(result.outputs, isEmpty, reason: 'quick-review declares no outputs in plan-and-implement.yaml');
   }, timeout: const Timeout(Duration(minutes: 5)));
 
   test('plan-review returns zero findings for a trivially clean two-story batch', () async {
@@ -960,20 +676,14 @@ void main() {
         'spec': 'Create notes/beta.md with heading "Beta Note" and bullet "Validated".',
       },
     ];
+    // quick-review declares no outputs in plan-and-implement.yaml, so each
+    // per-story aggregate carries only the implement step's payload.
     final storyResults = [
       {
         'implement': {'story_result': 'Created notes/alpha.md with heading "Alpha Note" and bullet "Validated".'},
-        'quick-review': {
-          'quick_review_summary': 'Story S01 matches its spec and acceptance criteria. No findings.',
-          'quick_review_findings_count': 0,
-        },
       },
       {
         'implement': {'story_result': 'Created notes/beta.md with heading "Beta Note" and bullet "Validated".'},
-        'quick-review': {
-          'quick_review_summary': 'Story S02 matches its spec and acceptance criteria. No findings.',
-          'quick_review_findings_count': 0,
-        },
       },
     ];
 
@@ -981,7 +691,7 @@ void main() {
       step: _stepById(planDefinition, 'plan-review'),
       context: WorkflowContext(
         variables: const {
-          'REQUIREMENTS': 'Create two small markdown notes exactly as specified.',
+          'FEATURE': 'Create two small markdown notes exactly as specified.',
           'PROJECT': 'workflow-testing',
           'BRANCH': 'main',
           'MAX_PARALLEL': '1',
@@ -1001,7 +711,7 @@ void main() {
     );
 
     // plan-review only declares `review_findings` and the scoped
-    // `plan-review.findings_count` output. Assert on those — the batch-level
+    // `plan-review.findings_count` output. Assert on those – the batch-level
     // `implementation_summary` key used by e2e overrides is not a real
     // extractor output.
     expect(
@@ -1060,20 +770,14 @@ void main() {
         'spec': 'Create notes/beta.md with heading "Beta Note" and bullet "Validated".',
       },
     ];
+    // quick-review declares no outputs in plan-and-implement.yaml, so each
+    // per-story aggregate carries only the implement step's payload.
     final storyResults = [
       {
         'implement': {'story_result': 'Created notes/alpha.md with heading "Alpha Note" and bullet "Validated".'},
-        'quick-review': {
-          'quick_review_summary': 'Story S01 matches its spec and acceptance criteria. No findings.',
-          'quick_review_findings_count': 0,
-        },
       },
       {
         'implement': {'story_result': 'Created notes/beta.md with heading "Beta Note" and bullet "Validated".'},
-        'quick-review': {
-          'quick_review_summary': 'Story S02 matches its spec and acceptance criteria. No findings.',
-          'quick_review_findings_count': 0,
-        },
       },
     ];
 
@@ -1081,7 +785,7 @@ void main() {
       step: _stepById(planDefinition, 'architecture-review'),
       context: WorkflowContext(
         variables: const {
-          'REQUIREMENTS': 'Create two small markdown notes exactly as specified.',
+          'FEATURE': 'Create two small markdown notes exactly as specified.',
           'PROJECT': 'workflow-testing',
           'BRANCH': 'main',
           'MAX_PARALLEL': '1',
@@ -1154,7 +858,7 @@ void main() {
         step: _stepById(planDefinition, 're-review'),
         context: WorkflowContext(
           variables: const {
-            'REQUIREMENTS': 'Create two small markdown notes exactly as specified.',
+            'FEATURE': 'Create two small markdown notes exactly as specified.',
             'PROJECT': 'workflow-testing',
             'BRANCH': 'main',
             'MAX_PARALLEL': '1',

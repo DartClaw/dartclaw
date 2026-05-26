@@ -14,12 +14,14 @@ jobs:
 
       - name: Setup Dart
         uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.12.0
 
       - name: Install dependencies
         run: dart pub get
 
       - name: Format check
-        run: dart format --output=none --set-exit-if-changed .
+        run: dart format --line-length=120 --output=none --set-exit-if-changed .
 
       - name: Analyze
         run: dart analyze --fatal-infos

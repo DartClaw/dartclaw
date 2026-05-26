@@ -1,7 +1,12 @@
 part of 'workflow_executor.dart';
 
-/// Public node-dispatch contract consumed by scenario tests.
-Future<StepHandoff> dispatchStep(WorkflowNode node, StepExecutionContext ctx) async {
+/// Public node-dispatch contract for scenario tests.
+///
+/// Named to flag that this path exercises a scenario-only subset of
+/// production behavior – `WorkflowExecutor.execute()` runs additional
+/// production-only side effects (`_parallel.*` persistence,
+/// `_maybeCommitArtifacts`, `step.onError == 'continue'`, promotion pass).
+Future<StepHandoff> dispatchStepForScenario(WorkflowNode node, StepExecutionContext ctx) async {
   final dispatcher = _PublicStepDispatcher.fromContext(ctx);
   try {
     return await dispatcher.dispatch(node);
@@ -10,19 +15,8 @@ Future<StepHandoff> dispatchStep(WorkflowNode node, StepExecutionContext ctx) as
   }
 }
 
-bool _shouldForceDiscoverProjectSuccess(
-  WorkflowStep step,
-  Map<String, dynamic> outputs,
-  StepValidationFailure? validationFailure,
-  String? outcome,
-) {
-  if (step.id != 'discover-project' && step.skill != 'dartclaw-discover-project') return false;
-  if (validationFailure != null || outcome == null || outcome == 'succeeded') return false;
-  final projectIndex = outputs['project_index'];
-  if (projectIndex is Map<String, dynamic>) return projectIndex.isNotEmpty;
-  if (projectIndex is Map<Object?, Object?>) return projectIndex.isNotEmpty;
-  return false;
-}
+/// Alias for [dispatchStepForScenario]; kept for test backward-compatibility.
+Future<StepHandoff> dispatchStep(WorkflowNode node, StepExecutionContext ctx) => dispatchStepForScenario(node, ctx);
 
 extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
   /// Executes a single step: resolves template, creates task, waits for terminal state.
@@ -36,20 +30,24 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     int? loopIteration,
     MapContext? mapCtx,
     int? enclosingMaxParallel,
+    required String? activeWorkspaceRoot,
     bool promoteAfterSuccess = false,
     Map<String, dynamic>? extraTaskConfig,
   }) async {
-    if (step.type == 'bash') {
+    if (step.taskType == WorkflowTaskType.bash) {
       return _executeBashStep(run, step, context);
     }
 
-    if (step.type == 'approval') {
+    if (step.taskType == WorkflowTaskType.approval) {
       await _executeApprovalStep(run, step, context, stepIndex: stepIndex);
       return null;
     }
 
+    if (step.taskType == WorkflowTaskType.aggregateReviews) {
+      return _executeAggregateStep(run, definition, step, context, activeWorkspaceRoot: activeWorkspaceRoot);
+    }
+
     final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: _roleDefaults);
-    final effectiveOutputs = _effectiveOutputsFor(step);
     final resolvedFirstPrompt = step.prompts != null
         ? _templateEngine.resolveWithMap(step.prompts!.first, context, mapCtx)
         : null;
@@ -58,7 +56,6 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             for (final key in step.inputs) key: context[key] ?? '',
           }, outputConfigs: _inputConfigsFor(definition, step.inputs))
         : null;
-    final skillDefaultPrompt = _skillDefaultPromptFor(step);
     final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
     final variableNames = _autoFrameVariableNames(step);
     final resolvedWorktreeMode = _resolvedWorktreeModeForScope(
@@ -69,6 +66,14 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       enclosingMapScope: mapCtx != null,
     );
     final effectivePromotion = _effectivePromotion(definition.gitStrategy, resolvedWorktreeMode: resolvedWorktreeMode);
+    final continuedRootStep = step.continueSession != null ? _resolveContinueSessionRootStep(definition, step) : null;
+    final effectiveProvider = continuedRootStep != null
+        ? _resolveContinueSessionProvider(definition, step, continuedRootStep, resolved)
+        : resolved.provider;
+    final resolvedSkill = _resolvedSkillFor(step, effectiveProvider);
+    final effectiveOutputs = _effectiveOutputsFor(step, resolvedSkill: resolvedSkill);
+    final effectiveOutputKeys = _effectiveOutputKeysFor(step, effectiveOutputs);
+    final skillDefaultPrompt = _skillDefaultPromptFor(step, resolvedSkill);
     var taskConfig = _buildStepConfig(
       run,
       definition,
@@ -77,18 +82,31 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       context,
       resolvedWorktreeMode: resolvedWorktreeMode,
       effectivePromotion: effectivePromotion,
+      effectiveOutputs: effectiveOutputs,
     );
-
-    final continuedRootStep = step.continueSession != null ? _resolveContinueSessionRootStep(definition, step) : null;
-    final effectiveProvider = continuedRootStep != null
-        ? _resolveContinueSessionProvider(definition, step, continuedRootStep, resolved)
-        : resolved.provider;
     final effectiveProjectId = mapCtx != null
-        ? _resolveProjectIdWithMap(definition, continuedRootStep ?? step, context, mapCtx, resolved: resolved)
-        : _resolveProjectId(definition, continuedRootStep ?? step, context, resolved: resolved);
+        ? _resolveProjectIdWithMap(
+            definition,
+            continuedRootStep ?? step,
+            context,
+            mapCtx,
+            resolved: resolved,
+            effectiveOutputs: effectiveOutputs,
+          )
+        : _resolveProjectId(
+            definition,
+            continuedRootStep ?? step,
+            context,
+            resolved: resolved,
+            effectiveOutputs: effectiveOutputs,
+          );
 
     if (mapCtx != null) {
+      final displayScope = _mapItemDisplayScope(mapCtx);
       taskConfig = {...taskConfig, '_mapIterationIndex': mapCtx.index, '_mapIterationTotal': mapCtx.length};
+      if (displayScope != null) {
+        taskConfig = {...taskConfig, 'displayScope': displayScope};
+      }
       final requiredInputPath = _mapItemSpecPath(mapCtx);
       if (requiredInputPath != null) {
         taskConfig = {...taskConfig, 'requiredInputPath': requiredInputPath};
@@ -102,7 +120,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         if (fromProjectId.isNotEmpty) {
           final fromProjectDir = p.join(_dataDir, 'projects', fromProjectId);
           final mountJson = <String, Object?>{
-            'mode': mount.mode,
+            'mode': mount.mode.toJson(),
             'fromProjectDir': fromProjectDir,
             if (resolvedSource != null && resolvedSource.isNotEmpty) 'source': resolvedSource,
             if (mount.fromPath != null) 'fromPath': mount.fromPath,
@@ -131,16 +149,18 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       }
     }
     final title = loopId != null
-        ? '${definition.name} — ${step.name} ($loopId iter $loopIteration)'
-        : '${definition.name} — ${step.name}';
+        ? '${definition.name} – ${step.name} ($loopId iter $loopIteration)'
+        : '${definition.name} – ${step.name}';
 
     final emitOutcomeProtocol = !step.emitsOwnOutcome;
     final firstTaskPrompt = step.isMultiPrompt
         ? _skillPromptBuilder.build(
-            skill: step.skill,
+            skill: resolvedSkill?.invocationName ?? step.skill,
             resolvedPrompt: resolvedFirstPrompt,
             contextSummary: contextSummary,
-            outputKeys: step.outputKeys,
+            outputs: effectiveOutputs,
+            outputKeys: effectiveOutputKeys,
+            outputExamples: step.outputExamples,
             skillDefaultPrompt: skillDefaultPrompt,
             autoFrameContext: step.autoFrameContext,
             inputs: step.inputs,
@@ -150,11 +170,12 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             provider: effectiveProvider,
           )
         : _skillPromptBuilder.build(
-            skill: step.skill,
+            skill: resolvedSkill?.invocationName ?? step.skill,
             resolvedPrompt: resolvedFirstPrompt,
             contextSummary: contextSummary,
             outputs: effectiveOutputs,
-            outputKeys: step.outputKeys,
+            outputKeys: effectiveOutputKeys,
+            outputExamples: step.outputExamples,
             emitStepOutcomeProtocol: emitOutcomeProtocol,
             skillDefaultPrompt: skillDefaultPrompt,
             autoFrameContext: step.autoFrameContext,
@@ -168,11 +189,11 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       step,
       context,
       effectiveOutputs,
-      outputKeys: step.outputKeys,
+      outputKeys: effectiveOutputKeys,
       mapCtx: mapCtx,
     );
     final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);
-    taskConfig = {...taskConfig, if (extraTaskConfig != null) ...extraTaskConfig};
+    taskConfig = {...taskConfig, ...?extraTaskConfig};
     if (followUpPrompts.isNotEmpty) {
       taskConfig['_workflowFollowUpPrompts'] = followUpPrompts;
     }
@@ -190,11 +211,11 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         if (event.newStatus == TaskStatus.failed && event.trigger == 'retry-in-progress') {
           // Transient failed state before a task-level retry re-queues. The
           // matching queued(trigger:'retry') event will follow synchronously;
-          // no DB read or delay needed — just ignore this transition.
+          // no DB read or delay needed – just ignore this transition.
           return;
         }
         if (event.newStatus == TaskStatus.queued || event.newStatus == TaskStatus.running) {
-          // Task re-queued for retry or still active — not terminal.
+          // Task re-queued for retry or still active – not terminal.
           return;
         }
         if (event.newStatus.terminal && !completer.isCompleted) {
@@ -271,16 +292,27 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       outputs['${step.id}.worktree_path'] = (wj?['path'] as String?) ?? '';
       if (wj == null &&
           resolvedWorktreeMode != 'inline' &&
-          _stepNeedsWorktree(definition, step, resolved, resolvedWorktreeMode: resolvedWorktreeMode)) {
+          _stepNeedsWorktree(
+            definition,
+            step,
+            resolved,
+            resolvedWorktreeMode: resolvedWorktreeMode,
+            effectiveOutputs: effectiveOutputs,
+          )) {
         WorkflowExecutor._log.warning(
-          "Workflow '${run.id}': step '${step.id}' requires a worktree but has no worktree metadata — "
+          "Workflow '${run.id}': step '${step.id}' requires a worktree but has no worktree metadata – "
           'branch/worktree_path context values will be empty',
         );
       }
-      outputs = _canonicalizeReusableArtifactPaths(step, outputs, context);
-      final normalizedOutputs = _validateStorySpecOutputs(run, step, outputs, context);
+      final detectSpecInputFailure = _validateDiscoverAndthenSpecOutputs(step, outputs, context, activeWorkspaceRoot);
+      final discoverPlanStateFailure = _validateDiscoverAndthenPlanOutputs(step, outputs, activeWorkspaceRoot);
+      final normalizedOutputs = _validateStorySpecOutputs(run, step, outputs, activeWorkspaceRoot);
       outputs = normalizedOutputs.outputs;
-      final validationFailure = extractionFailure ?? normalizedOutputs.validationFailure;
+      final validationFailure =
+          detectSpecInputFailure ??
+          discoverPlanStateFailure ??
+          normalizedOutputs.validationFailure ??
+          extractionFailure;
       final providerSessionId = _workflowStepExecutionRepository == null
           ? null
           : await WorkflowTaskConfig.readProviderSessionId(finalTask, _workflowStepExecutionRepository);
@@ -293,20 +325,13 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         outputs = await _outputTransformer(run, definition, step, finalTask, outputs);
       }
 
-      var (outcome, outcomeReason) = await _resolveStepOutcome(step, finalTask);
-      if (_shouldForceDiscoverProjectSuccess(step, outputs, validationFailure, outcome)) {
-        final reasonSuffix = outcomeReason == null || outcomeReason.isEmpty ? '' : ' Reason: $outcomeReason';
-        WorkflowExecutor._log.warning(
-          "Workflow '${run.id}': step '${step.id}' reported outcome '$outcome' after producing a valid "
-          'project index; treating discovery as succeeded.$reasonSuffix',
-        );
-        outcome = 'succeeded';
-        outcomeReason = 'valid project index extracted';
-      }
+      final (outcome, outcomeReason) = await _resolveStepOutcome(step, finalTask, runId: run.id);
       final effectiveOutcome = validationFailure != null && outcome != 'needsInput' ? 'failed' : outcome;
-      final effectiveReason = (outcomeReason != null && outcomeReason.isNotEmpty)
-          ? outcomeReason
-          : validationFailure?.reason ?? (finalTask.configJson['failReason'] as String?) ?? finalTask.status.name;
+      final effectiveReason =
+          validationFailure?.reason ??
+          ((outcomeReason != null && outcomeReason.isNotEmpty)
+              ? outcomeReason
+              : (finalTask.configJson['failReason'] as String?) ?? finalTask.status.name);
       if (validationFailure != null && outcome != effectiveOutcome) {
         WorkflowExecutor._log.warning(
           "Workflow '${run.id}': step '${step.id}' outcome overridden from "
@@ -452,5 +477,20 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       cancelRun: _cancelRun,
       approvalTimers: _approvalTimers,
     ),
+  );
+
+  Future<StepOutcome> _executeAggregateStep(
+    WorkflowRun run,
+    WorkflowDefinition definition,
+    WorkflowStep step,
+    WorkflowContext context, {
+    required String? activeWorkspaceRoot,
+  }) => aggregate_step_runner.executeAggregateStep(
+    run: run,
+    definition: definition,
+    step: step,
+    context: context,
+    dataDir: _dataDir,
+    activeWorkspaceRoot: activeWorkspaceRoot,
   );
 }

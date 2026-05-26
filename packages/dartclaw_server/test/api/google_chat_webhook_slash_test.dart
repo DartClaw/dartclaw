@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -281,7 +281,6 @@ GoogleChatWebhookHandler _buildHandler({
         ? SlashCommandHandler(
             taskService: taskService,
             sessionService: sessionService,
-            eventBus: eventBus,
             channelManager: channelManager,
             onEmergencyStop: (stoppedBy) async => const EmergencyStopResult(turnsCancelled: 1, tasksCancelled: 2),
           )

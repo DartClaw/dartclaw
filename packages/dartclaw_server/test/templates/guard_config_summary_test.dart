@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' show ContentGuardDisplayParams;
 import 'package:dartclaw_server/src/templates/guard_config_summary.dart';
 import 'package:test/test.dart';

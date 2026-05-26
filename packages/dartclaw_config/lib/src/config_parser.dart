@@ -161,32 +161,40 @@ Map<String, dynamic> _loadYaml(
   return result;
 }
 
-Map<String, dynamic>? _sectionMap(String key, Map<String, dynamic> yaml, List<String> warns) {
-  final raw = yaml[key];
-  if (raw is Map) return Map<String, dynamic>.from(raw);
-  if (raw != null) {
-    warns.add('Invalid type for $key: "${raw.runtimeType}" — using defaults');
+String _loadedConfigBaseDir(Map<String, String> env, {String? configPath}) {
+  if (configPath != null) {
+    return p.dirname(p.normalize(p.absolute(expandHome(configPath, env: env))));
   }
-  return null;
+  final envPath = env['DARTCLAW_CONFIG'];
+  if (envPath != null) {
+    return p.dirname(p.normalize(p.absolute(expandHome(envPath, env: env))));
+  }
+  final homeEnv = env['DARTCLAW_HOME'];
+  if (homeEnv != null) {
+    return p.normalize(p.absolute(expandHome(homeEnv, env: env)));
+  }
+  return p.normalize(p.absolute(p.join(env['HOME'] ?? env['USERPROFILE'] ?? '.', '.dartclaw')));
 }
+
+Map<String, dynamic>? _sectionMap(String key, Map<String, dynamic> yaml, List<String> warns) =>
+    readMap(key, yaml, warns);
 
 ServerConfig _parseTopLevel(
   Map<String, dynamic> yaml,
   Map<String, String> cli,
   Map<String, String> env,
   ServerConfig defaults,
-  List<String> warns,
-) {
+  List<String> warns, {
+  required String configBaseDir,
+}) {
   final port = _parseInt('port', cli['port'], yaml['port'], defaults.port, warns);
   final host = _parseString('host', cli['host'], yaml['host'], defaults.host, env, warns);
   final name = _parseString('name', cli['name'], yaml['name'], defaults.name, env, warns);
   String? baseUrl = defaults.baseUrl;
-  final rawBaseUrl = yaml['base_url'];
-  if (rawBaseUrl is String) {
+  final rawBaseUrl = readString('base_url', yaml, warns);
+  if (rawBaseUrl != null) {
     final normalized = envSubstitute(rawBaseUrl, env: env).trim();
     baseUrl = normalized.isEmpty ? null : normalized;
-  } else if (rawBaseUrl != null) {
-    warns.add('Invalid type for base_url: "${rawBaseUrl.runtimeType}" — using default');
   }
   final workerTimeout = _parseInt(
     'worker_timeout',
@@ -197,8 +205,17 @@ ServerConfig _parseTopLevel(
   );
 
   final defaultDataDir = env['DARTCLAW_HOME'] ?? defaults.dataDir;
-  final rawDataDir = cli['data_dir'] ?? _yamlString('data_dir', yaml['data_dir'], defaultDataDir, env, warns);
-  final dataDir = expandHome(rawDataDir, env: env);
+  final rawCliDataDir = cli['data_dir'];
+  final hasYamlDataDir = yaml.containsKey('data_dir') && yaml['data_dir'] != null;
+  final rawDataDir = rawCliDataDir ?? _yamlString('data_dir', yaml['data_dir'], defaultDataDir, env, warns);
+  final expandedDataDir = expandHome(rawDataDir, env: env);
+  final dataDir = p.normalize(
+    p.isAbsolute(expandedDataDir)
+        ? expandedDataDir
+        : rawCliDataDir != null || !hasYamlDataDir
+        ? p.absolute(expandedDataDir)
+        : p.absolute(p.join(configBaseDir, expandedDataDir)),
+  );
   final claudeExecutable = expandHome(cli['claude_executable'] ?? defaults.claudeExecutable, env: env);
   final rawSourceDir = cli['source_dir'] ?? _yamlStringOrNull('source_dir', yaml['source_dir'], env, warns);
   final sourceDir = rawSourceDir != null ? expandHome(rawSourceDir, env: env) : null;
@@ -214,13 +231,10 @@ ServerConfig _parseTopLevel(
   );
 
   final devMode = yaml['dev_mode'] == true || cli['dev_mode'] == 'true';
-  final maxParallelTurns = _parseInt(
-    'concurrency.max_parallel_turns',
-    null,
-    (yaml['concurrency'] is Map) ? (yaml['concurrency'] as Map)['max_parallel_turns'] : null,
-    defaults.maxParallelTurns,
-    warns,
-  );
+  final concurrencyMap = readMap('concurrency', yaml, warns);
+  final maxParallelTurns =
+      readInt('max_parallel_turns', concurrencyMap ?? {}, warns, defaultValue: defaults.maxParallelTurns) ??
+      defaults.maxParallelTurns;
 
   return ServerConfig(
     port: port,
@@ -249,26 +263,14 @@ LoggingConfig _parseLogging(
   var level = cli['log_level'] ?? defaults.level;
   var redactPatterns = defaults.redactPatterns;
 
-  final loggingRaw = yaml['logging'];
-  if (loggingRaw != null) {
-    if (loggingRaw is Map) {
-      final logMap = Map<String, dynamic>.from(loggingRaw);
-      if (cli['log_format'] == null && logMap['format'] is String) {
-        format = logMap['format'] as String;
-      }
-      if (cli['log_file'] == null && logMap['file'] is String) {
-        file = expandHome(envSubstitute(logMap['file'] as String, env: env), env: env);
-      }
-      if (cli['log_level'] == null && logMap['level'] is String) {
-        level = logMap['level'] as String;
-      }
-      final patternsRaw = logMap['redact_patterns'];
-      if (patternsRaw is List) {
-        redactPatterns = patternsRaw.whereType<String>().toList();
-      }
-    } else {
-      warns.add('Invalid type for logging: "${loggingRaw.runtimeType}" — using defaults');
+  final logMap = readMap('logging', yaml, warns);
+  if (logMap != null) {
+    if (cli['log_format'] == null && logMap['format'] is String) format = logMap['format'] as String;
+    if (cli['log_file'] == null && logMap['file'] is String) {
+      file = expandHome(envSubstitute(logMap['file'] as String, env: env), env: env);
     }
+    if (cli['log_level'] == null && logMap['level'] is String) level = logMap['level'] as String;
+    redactPatterns = readStringList('redact_patterns', logMap, warns, defaultValue: redactPatterns) ?? redactPatterns;
   }
 
   return LoggingConfig(format: format, file: file, level: level, redactPatterns: redactPatterns);
@@ -283,24 +285,13 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
 
   final agentMap = _sectionMap('agent', yaml, warns);
   if (agentMap != null) {
-    final disallowed = agentMap['disallowed_tools'];
-    if (disallowed is List) {
-      disallowedTools = disallowed.whereType<String>().toList();
-    }
-    final providerVal = agentMap['provider'];
-    if (providerVal is String) {
-      provider = providerVal;
-    } else if (providerVal != null) {
-      warns.add('Invalid type for agent.provider: "${providerVal.runtimeType}" — ignoring');
-    }
-    final mt = agentMap['max_turns'];
-    if (mt is int) {
-      maxTurns = mt;
-    } else if (mt != null) {
-      warns.add('Invalid type for agent.max_turns: "${mt.runtimeType}" — ignoring');
-    }
-    final modelVal = agentMap['model'];
-    if (modelVal is String) {
+    disallowedTools =
+        readStringList('disallowed_tools', agentMap, warns, defaultValue: disallowedTools) ?? disallowedTools;
+    final providerVal = readString('provider', agentMap, warns);
+    if (providerVal != null) provider = providerVal;
+    maxTurns = readInt('max_turns', agentMap, warns, defaultValue: maxTurns);
+    final modelVal = readString('model', agentMap, warns);
+    if (modelVal != null) {
       final shorthand = ProviderIdentity.parseProviderModelShorthand(modelVal);
       if (shorthand != null) {
         model = shorthand.model;
@@ -315,15 +306,9 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
       } else {
         model = modelVal;
       }
-    } else if (modelVal != null) {
-      warns.add('Invalid type for agent.model: "${modelVal.runtimeType}" — ignoring');
     }
-    final effortVal = agentMap['effort'];
-    if (effortVal is String) {
-      effort = effortVal;
-    } else if (effortVal != null) {
-      warns.add('Invalid type for agent.effort: "${effortVal.runtimeType}" — ignoring');
-    }
+    final effortVal = readString('effort', agentMap, warns);
+    if (effortVal != null) effort = effortVal;
   }
 
   final definitions = <AgentDefinition>[];
@@ -339,23 +324,27 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
   }
 
   var historyConfig = const HistoryConfig.defaults();
-  final historyMap = agentMap?['history'];
-  if (historyMap is Map) {
+  final historyMap = agentMap != null ? readMap('history', agentMap, warns) : null;
+  if (historyMap != null) {
     var maxMessageChars = historyConfig.maxMessageChars;
     var maxTotalChars = historyConfig.maxTotalChars;
 
-    final mmc = historyMap['max_message_chars'];
-    if (mmc is int && mmc >= 500) {
-      maxMessageChars = mmc;
-    } else if (mmc != null) {
-      warns.add('Invalid agent.history.max_message_chars: $mmc (must be int >= 500) — using default');
+    final mmcRead = readInt('max_message_chars', historyMap, warns);
+    if (mmcRead != null) {
+      if (mmcRead >= 500) {
+        maxMessageChars = mmcRead;
+      } else {
+        warns.add('Invalid agent.history.max_message_chars: $mmcRead (must be int >= 500) — using default');
+      }
     }
 
-    final mtc = historyMap['max_total_chars'];
-    if (mtc is int && mtc >= 5000) {
-      maxTotalChars = mtc;
-    } else if (mtc != null) {
-      warns.add('Invalid agent.history.max_total_chars: $mtc (must be int >= 5000) — using default');
+    final mtcRead = readInt('max_total_chars', historyMap, warns);
+    if (mtcRead != null) {
+      if (mtcRead >= 5000) {
+        maxTotalChars = mtcRead;
+      } else {
+        warns.add('Invalid agent.history.max_total_chars: $mtcRead (must be int >= 5000) — using default');
+      }
     }
 
     if (maxTotalChars < maxMessageChars) {
@@ -392,38 +381,28 @@ AdvisorConfig _parseAdvisor(Map<String, dynamic> yaml, AdvisorConfig defaults, L
   final advisorMap = _sectionMap('advisor', yaml, warns);
   if (advisorMap == null) return defaults;
 
-  var enabled = defaults.enabled;
-  final enabledRaw = advisorMap['enabled'];
-  if (enabledRaw is bool) {
-    enabled = enabledRaw;
-  } else if (enabledRaw != null) {
-    warns.add('Invalid type for advisor.enabled: "${enabledRaw.runtimeType}" — using default');
-  }
+  var enabled = readBool('enabled', advisorMap, warns, defaultValue: defaults.enabled) ?? defaults.enabled;
 
   String? model = defaults.model;
-  final modelRaw = advisorMap['model'];
-  if (modelRaw is String) {
+  final modelRaw = readString('model', advisorMap, warns);
+  if (modelRaw != null) {
     final trimmed = modelRaw.trim();
     model = trimmed.isEmpty ? null : trimmed;
     _warnIfUnrecognizedModel(warns, 'advisor.model', model);
-  } else if (modelRaw != null) {
-    warns.add('Invalid type for advisor.model: "${modelRaw.runtimeType}" — using default');
   }
 
   String? effort = defaults.effort;
-  final effortRaw = advisorMap['effort'];
-  if (effortRaw is String) {
+  final effortRaw = readString('effort', advisorMap, warns);
+  if (effortRaw != null) {
     final trimmed = effortRaw.trim();
     effort = trimmed.isEmpty ? null : trimmed;
-  } else if (effortRaw != null) {
-    warns.add('Invalid type for advisor.effort: "${effortRaw.runtimeType}" — using default');
   }
 
   var triggers = defaults.triggers;
-  final triggersRaw = advisorMap['triggers'];
-  if (triggersRaw is List) {
+  final triggersList = readField<List<dynamic>>('triggers', advisorMap, warns);
+  if (triggersList != null) {
     final parsed = <String>[];
-    for (final value in triggersRaw) {
+    for (final value in triggersList) {
       if (value is! String) {
         warns.add('Invalid advisor trigger type: "${value.runtimeType}" — skipping');
         continue;
@@ -437,31 +416,16 @@ AdvisorConfig _parseAdvisor(Map<String, dynamic> yaml, AdvisorConfig defaults, L
       parsed.add(trigger);
     }
     triggers = parsed;
-  } else if (triggersRaw != null) {
-    warns.add('Invalid type for advisor.triggers: "${triggersRaw.runtimeType}" — using default');
   }
 
-  final periodicIntervalMinutes = _parseInt(
-    'advisor.periodic_interval_minutes',
-    null,
-    advisorMap['periodic_interval_minutes'],
-    defaults.periodicIntervalMinutes,
-    warns,
-  );
-  final maxWindowTurns = _parseInt(
-    'advisor.max_window_turns',
-    null,
-    advisorMap['max_window_turns'],
-    defaults.maxWindowTurns,
-    warns,
-  );
-  final maxPriorReflections = _parseInt(
-    'advisor.max_prior_reflections',
-    null,
-    advisorMap['max_prior_reflections'],
-    defaults.maxPriorReflections,
-    warns,
-  );
+  final periodicIntervalMinutes =
+      readInt('periodic_interval_minutes', advisorMap, warns, defaultValue: defaults.periodicIntervalMinutes) ??
+      defaults.periodicIntervalMinutes;
+  final maxWindowTurns =
+      readInt('max_window_turns', advisorMap, warns, defaultValue: defaults.maxWindowTurns) ?? defaults.maxWindowTurns;
+  final maxPriorReflections =
+      readInt('max_prior_reflections', advisorMap, warns, defaultValue: defaults.maxPriorReflections) ??
+      defaults.maxPriorReflections;
 
   return AdvisorConfig(
     enabled: enabled,
@@ -480,19 +444,8 @@ AuthConfig _parseAuth(Map<String, dynamic> yaml, AuthConfig defaults, List<Strin
 
   final authMap = _sectionMap('auth', yaml, warns);
   if (authMap != null) {
-    final value = authMap['cookie_secure'];
-    if (value is bool) {
-      cookieSecure = value;
-    } else if (value != null) {
-      warns.add('Invalid type for auth.cookie_secure: "${value.runtimeType}" — using default');
-    }
-
-    final trustedProxyValue = authMap['trusted_proxies'];
-    if (trustedProxyValue is List) {
-      trustedProxies = trustedProxyValue.whereType<String>().toList(growable: false);
-    } else if (trustedProxyValue != null) {
-      warns.add('Invalid type for auth.trusted_proxies: "${trustedProxyValue.runtimeType}" — using default');
-    }
+    cookieSecure = readBool('cookie_secure', authMap, warns, defaultValue: cookieSecure) ?? cookieSecure;
+    trustedProxies = readStringList('trusted_proxies', authMap, warns, defaultValue: trustedProxies) ?? trustedProxies;
   }
 
   return AuthConfig(cookieSecure: cookieSecure, trustedProxies: trustedProxies);
@@ -510,28 +463,19 @@ GatewayConfig _parseGateway(
 
   final gMap = _sectionMap('gateway', yaml, warns);
   if (gMap != null) {
-    final mode = gMap['auth_mode'];
-    if (mode is String) {
+    final mode = readString('auth_mode', gMap, warns);
+    if (mode != null) {
       if (mode == 'token' || mode == 'none') {
         authMode = mode;
       } else {
         warns.add('Invalid gateway.auth_mode: "$mode" — using default');
       }
-    } else if (mode != null) {
-      warns.add('Invalid type for gateway.auth_mode: "${mode.runtimeType}" — using default');
     }
-    final tokenVal = gMap['token'];
-    if (tokenVal is String && tokenVal.isNotEmpty) {
+    final tokenVal = readString('token', gMap, warns);
+    if (tokenVal != null && tokenVal.isNotEmpty) {
       token = envSubstitute(tokenVal, env: env);
-    } else if (tokenVal != null && tokenVal is! String) {
-      warns.add('Invalid type for gateway.token: "${tokenVal.runtimeType}" — ignoring');
     }
-    final hstsVal = gMap['hsts'];
-    if (hstsVal is bool) {
-      hsts = hstsVal;
-    } else if (hstsVal != null) {
-      warns.add('Invalid type for gateway.hsts: "${hstsVal.runtimeType}" — using default');
-    }
+    hsts = readBool('hsts', gMap, warns, defaultValue: hsts) ?? hsts;
   }
 
   final reload = _parseReloadConfig(gMap, defaults.reload, warns);
@@ -540,37 +484,28 @@ GatewayConfig _parseGateway(
 
 ReloadConfig _parseReloadConfig(Map<dynamic, dynamic>? gMap, ReloadConfig defaults, List<String> warns) {
   if (gMap == null) return defaults;
-  final reloadRaw = gMap['reload'];
-  if (reloadRaw == null) return defaults;
-  if (reloadRaw is! Map) {
-    warns.add('Invalid type for gateway.reload: "${reloadRaw.runtimeType}" — using default');
-    return defaults;
-  }
-  final rMap = Map<String, dynamic>.from(reloadRaw);
+  final rMap = readMap('reload', gMap, warns);
+  if (rMap == null) return defaults;
 
   var mode = defaults.mode;
   var debounceMs = defaults.debounceMs;
 
-  final modeVal = rMap['mode'];
-  if (modeVal is String) {
+  final modeVal = readString('mode', rMap, warns);
+  if (modeVal != null) {
     if (modeVal == 'off' || modeVal == 'signal' || modeVal == 'auto') {
       mode = modeVal;
     } else {
       warns.add('Invalid gateway.reload.mode: "$modeVal" — using default "${defaults.mode}"');
     }
-  } else if (modeVal != null) {
-    warns.add('Invalid type for gateway.reload.mode: "${modeVal.runtimeType}" — using default');
   }
 
-  final debounceVal = rMap['debounce_ms'];
-  if (debounceVal is int) {
+  final debounceVal = readInt('debounce_ms', rMap, warns);
+  if (debounceVal != null) {
     if (debounceVal >= 100) {
       debounceMs = debounceVal;
     } else {
       warns.add('gateway.reload.debounce_ms must be >= 100, got $debounceVal — using default ${defaults.debounceMs}');
     }
-  } else if (debounceVal != null) {
-    warns.add('Invalid type for gateway.reload.debounce_ms: "${debounceVal.runtimeType}" — using default');
   }
 
   return ReloadConfig(mode: mode, debounceMs: debounceMs);
@@ -584,14 +519,10 @@ SessionConfig _parseSessions(Map<String, dynamic> yaml, SessionConfig defaults, 
 
   final sessionsMap = _sectionMap('sessions', yaml, warns);
   if (sessionsMap != null) {
-    resetHour = _parseInt('sessions.reset_hour', null, sessionsMap['reset_hour'], defaults.resetHour, warns);
-    idleTimeoutMinutes = _parseInt(
-      'sessions.idle_timeout_minutes',
-      null,
-      sessionsMap['idle_timeout_minutes'],
-      defaults.idleTimeoutMinutes,
-      warns,
-    );
+    resetHour = readInt('reset_hour', sessionsMap, warns, defaultValue: defaults.resetHour) ?? defaults.resetHour;
+    idleTimeoutMinutes =
+        readInt('idle_timeout_minutes', sessionsMap, warns, defaultValue: defaults.idleTimeoutMinutes) ??
+        defaults.idleTimeoutMinutes;
     scopeConfig = _parseSessionScope(sessionsMap, defaults.scopeConfig, warns);
     maintenanceConfig = _parseSessionMaintenance(sessionsMap, defaults.maintenanceConfig, warns);
   }
@@ -610,97 +541,63 @@ SessionScopeConfig _parseSessionScope(
   List<String> warns,
 ) {
   var dmScope = defaultScope.dmScope;
-  final dmScopeRaw = sessionsRaw['dm_scope'];
-  if (dmScopeRaw is String) {
+  final dmScopeRaw = readString('dm_scope', sessionsRaw, warns);
+  if (dmScopeRaw != null) {
     final parsed = DmScope.fromYaml(dmScopeRaw);
     if (parsed != null) {
       dmScope = parsed;
     } else {
       warns.add('Invalid value for sessions.dm_scope: "$dmScopeRaw" — using default');
     }
-  } else if (dmScopeRaw != null) {
-    warns.add('Invalid type for sessions.dm_scope: "${dmScopeRaw.runtimeType}" — using default');
   }
 
   var groupScope = defaultScope.groupScope;
-  final groupScopeRaw = sessionsRaw['group_scope'];
-  if (groupScopeRaw is String) {
+  final groupScopeRaw = readString('group_scope', sessionsRaw, warns);
+  if (groupScopeRaw != null) {
     final parsed = GroupScope.fromYaml(groupScopeRaw);
     if (parsed != null) {
       groupScope = parsed;
     } else {
       warns.add('Invalid value for sessions.group_scope: "$groupScopeRaw" — using default');
     }
-  } else if (groupScopeRaw != null) {
-    warns.add('Invalid type for sessions.group_scope: "${groupScopeRaw.runtimeType}" — using default');
   }
 
   var model = defaultScope.model;
-  final modelRaw = sessionsRaw['model'];
-  if (modelRaw is String) {
+  final modelRaw = readString('model', sessionsRaw, warns);
+  if (modelRaw != null) {
     model = modelRaw;
     _warnIfUnrecognizedModel(warns, 'sessions.model', model);
-  } else if (modelRaw != null) {
-    warns.add('Invalid type for sessions.model: "${modelRaw.runtimeType}" — using default');
   }
 
   var effort = defaultScope.effort;
-  final effortRaw = sessionsRaw['effort'];
-  if (effortRaw is String) {
-    effort = effortRaw;
-  } else if (effortRaw != null) {
-    warns.add('Invalid type for sessions.effort: "${effortRaw.runtimeType}" — using default');
-  }
+  final effortVal2 = readString('effort', sessionsRaw, warns);
+  if (effortVal2 != null) effort = effortVal2;
 
   final channelOverrides = <String, ChannelScopeConfig>{};
-  final channelsRaw = sessionsRaw['channels'];
-  if (channelsRaw is Map) {
-    for (final entry in channelsRaw.entries) {
-      final channelName = entry.key;
-      if (channelName is! String) continue;
-      final channelMap = entry.value;
-      if (channelMap is! Map) {
-        warns.add('Invalid type for sessions.channels.$channelName: "${channelMap.runtimeType}" — skipping');
+  final channelsMap = readMap('channels', sessionsRaw, warns);
+  if (channelsMap != null) {
+    for (final MapEntry(:key, :value) in channelsMap.entries) {
+      if (value is! Map) {
+        // reason: dynamic key interpolation — per-channel warn can't use readX helpers
+        warns.add('Invalid type for sessions.channels.$key: "${value.runtimeType}" — skipping');
         continue;
       }
-
-      DmScope? chDmScope;
-      final chDmRaw = channelMap['dm_scope'];
-      if (chDmRaw is String) {
-        chDmScope = DmScope.fromYaml(chDmRaw);
-        if (chDmScope == null) {
-          warns.add('Invalid value for sessions.channels.$channelName.dm_scope: "$chDmRaw" — ignoring');
-        }
+      final chMap = Map<String, dynamic>.from(value);
+      final chDmRaw = chMap['dm_scope'];
+      final chDmScope = chDmRaw is String ? DmScope.fromYaml(chDmRaw) : null;
+      if (chDmRaw is String && chDmScope == null) {
+        warns.add('Invalid value for sessions.channels.$key.dm_scope: "$chDmRaw" — ignoring');
       }
-
-      GroupScope? chGroupScope;
-      final chGroupRaw = channelMap['group_scope'];
-      if (chGroupRaw is String) {
-        chGroupScope = GroupScope.fromYaml(chGroupRaw);
-        if (chGroupScope == null) {
-          warns.add('Invalid value for sessions.channels.$channelName.group_scope: "$chGroupRaw" — ignoring');
-        }
+      final chGroupRaw = chMap['group_scope'];
+      final chGroupScope = chGroupRaw is String ? GroupScope.fromYaml(chGroupRaw) : null;
+      if (chGroupRaw is String && chGroupScope == null) {
+        warns.add('Invalid value for sessions.channels.$key.group_scope: "$chGroupRaw" — ignoring');
       }
-
-      String? chModel;
-      final chModelRaw = channelMap['model'];
-      if (chModelRaw is String) {
-        chModel = chModelRaw;
-        _warnIfUnrecognizedModel(warns, 'sessions.channels.$channelName.model', chModel);
-      } else if (chModelRaw != null) {
-        warns.add('Invalid type for sessions.channels.$channelName.model: "${chModelRaw.runtimeType}" — ignoring');
-      }
-
-      String? chEffort;
-      final chEffortRaw = channelMap['effort'];
-      if (chEffortRaw is String) {
-        chEffort = chEffortRaw;
-      } else if (chEffortRaw != null) {
-        warns.add('Invalid type for sessions.channels.$channelName.effort: "${chEffortRaw.runtimeType}" — ignoring');
-      }
-
+      final chModel = chMap['model'] is String ? chMap['model'] as String : null;
+      if (chModel != null) _warnIfUnrecognizedModel(warns, 'sessions.channels.$key.model', chModel);
+      final chEffort = chMap['effort'] is String ? chMap['effort'] as String : null;
       if (chDmScope != null || chGroupScope != null || chModel != null || chEffort != null) {
-        channelOverrides[channelName] = ChannelScopeConfig(
+        channelOverrides[key] = ChannelScopeConfig(
           dmScope: chDmScope,
           groupScope: chGroupScope,
           model: chModel,
@@ -708,8 +605,6 @@ SessionScopeConfig _parseSessionScope(
         );
       }
     }
-  } else if (channelsRaw != null) {
-    warns.add('Invalid type for sessions.channels: "${channelsRaw.runtimeType}" — skipping overrides');
   }
 
   return SessionScopeConfig(
@@ -726,63 +621,34 @@ SessionMaintenanceConfig _parseSessionMaintenance(
   SessionMaintenanceConfig defaultMaint,
   List<String> warns,
 ) {
-  final maintRaw = sessionsRaw['maintenance'];
-  if (maintRaw is! Map) {
-    if (maintRaw != null) {
-      warns.add('Invalid type for sessions.maintenance: "${maintRaw.runtimeType}" — using defaults');
-    }
-    return defaultMaint;
-  }
+  final maintMap = readMap('maintenance', sessionsRaw, warns);
+  if (maintMap == null) return defaultMaint;
 
   var mode = defaultMaint.mode;
-  final modeRaw = maintRaw['mode'];
-  if (modeRaw is String) {
+  final modeRaw = readString('mode', maintMap, warns);
+  if (modeRaw != null) {
     final parsed = MaintenanceMode.fromYaml(modeRaw);
     if (parsed != null) {
       mode = parsed;
     } else {
       warns.add('Invalid value for sessions.maintenance.mode: "$modeRaw" — using default');
     }
-  } else if (modeRaw != null) {
-    warns.add('Invalid type for sessions.maintenance.mode: "${modeRaw.runtimeType}" — using default');
   }
 
-  final pruneAfterDays = _parseInt(
-    'sessions.maintenance.prune_after_days',
-    null,
-    maintRaw['prune_after_days'],
-    defaultMaint.pruneAfterDays,
-    warns,
-  );
-  final maxSessions = _parseInt(
-    'sessions.maintenance.max_sessions',
-    null,
-    maintRaw['max_sessions'],
-    defaultMaint.maxSessions,
-    warns,
-  );
-  final maxDiskMb = _parseInt(
-    'sessions.maintenance.max_disk_mb',
-    null,
-    maintRaw['max_disk_mb'],
-    defaultMaint.maxDiskMb,
-    warns,
-  );
-  final cronRetentionHours = _parseInt(
-    'sessions.maintenance.cron_retention_hours',
-    null,
-    maintRaw['cron_retention_hours'],
-    defaultMaint.cronRetentionHours,
-    warns,
-  );
+  final pruneAfterDays =
+      readInt('prune_after_days', maintMap, warns, defaultValue: defaultMaint.pruneAfterDays) ??
+      defaultMaint.pruneAfterDays;
+  final maxSessions =
+      readInt('max_sessions', maintMap, warns, defaultValue: defaultMaint.maxSessions) ?? defaultMaint.maxSessions;
+  final maxDiskMb =
+      readInt('max_disk_mb', maintMap, warns, defaultValue: defaultMaint.maxDiskMb) ?? defaultMaint.maxDiskMb;
+  final cronRetentionHours =
+      readInt('cron_retention_hours', maintMap, warns, defaultValue: defaultMaint.cronRetentionHours) ??
+      defaultMaint.cronRetentionHours;
 
   var schedule = defaultMaint.schedule;
-  final schedRaw = maintRaw['schedule'];
-  if (schedRaw is String && schedRaw.isNotEmpty) {
-    schedule = schedRaw;
-  } else if (schedRaw != null && schedRaw is! String) {
-    warns.add('Invalid type for sessions.maintenance.schedule: "${schedRaw.runtimeType}" — using default');
-  }
+  final schedRaw = readString('schedule', maintMap, warns);
+  if (schedRaw != null && schedRaw.isNotEmpty) schedule = schedRaw;
 
   return SessionMaintenanceConfig(
     mode: mode,
@@ -805,71 +671,41 @@ ContextConfig _parseContext(Map<String, dynamic> yaml, ContextConfig defaults, L
 
   final contextMap = _sectionMap('context', yaml, warns);
   if (contextMap != null) {
-    reserveTokens = _parseInt(
-      'context.reserve_tokens',
-      null,
-      contextMap['reserve_tokens'],
-      defaults.reserveTokens,
-      warns,
-    );
-    maxResultBytes = _parseInt(
-      'context.max_result_bytes',
-      null,
-      contextMap['max_result_bytes'],
-      defaults.maxResultBytes,
-      warns,
-    );
-    warningThreshold = _parseInt(
-      'context.warning_threshold',
-      null,
-      contextMap['warning_threshold'],
-      defaults.warningThreshold,
-      warns,
-    ).clamp(50, 99);
-    explorationSummaryThreshold = _parseInt(
-      'context.exploration_summary_threshold',
-      null,
-      contextMap['exploration_summary_threshold'],
-      defaults.explorationSummaryThreshold,
-      warns,
-    ).clamp(1000, 1000000);
-    final ciRaw = contextMap['compact_instructions'];
-    if (ciRaw is String && ciRaw.trim().isNotEmpty) {
-      compactInstructions = ciRaw;
-    } else if (ciRaw != null && ciRaw is! String) {
-      warns.add(
-        'Invalid type for context.compact_instructions: '
-        '"${ciRaw.runtimeType}" — using default',
-      );
-    }
+    reserveTokens =
+        readInt('reserve_tokens', contextMap, warns, defaultValue: defaults.reserveTokens) ?? defaults.reserveTokens;
+    maxResultBytes =
+        readInt('max_result_bytes', contextMap, warns, defaultValue: defaults.maxResultBytes) ??
+        defaults.maxResultBytes;
+    warningThreshold =
+        (readInt('warning_threshold', contextMap, warns, defaultValue: defaults.warningThreshold) ??
+                defaults.warningThreshold)
+            .clamp(50, 99);
+    explorationSummaryThreshold =
+        (readInt(
+                  'exploration_summary_threshold',
+                  contextMap,
+                  warns,
+                  defaultValue: defaults.explorationSummaryThreshold,
+                ) ??
+                defaults.explorationSummaryThreshold)
+            .clamp(1000, 1000000);
+    final ciRaw = readString('compact_instructions', contextMap, warns);
+    if (ciRaw != null && ciRaw.trim().isNotEmpty) compactInstructions = ciRaw;
 
-    final ipRaw = contextMap['identifier_preservation'];
-    if (ipRaw is String) {
-      const validValues = {'strict', 'off', 'custom'};
-      if (validValues.contains(ipRaw)) {
-        identifierPreservation = ipRaw;
-      } else {
+    final ipRaw = readString('identifier_preservation', contextMap, warns);
+    if (ipRaw != null) {
+      try {
+        identifierPreservation = IdentifierPreservationMode.fromJsonString(ipRaw);
+      } on FormatException {
         warns.add(
           'Invalid value for context.identifier_preservation: "$ipRaw" — '
-          'expected one of ${validValues.join(', ')}; using default "strict"',
+          'expected one of strict, off, custom; using default "strict"',
         );
       }
-    } else if (ipRaw != null) {
-      warns.add(
-        'Invalid type for context.identifier_preservation: '
-        '"${ipRaw.runtimeType}" — using default "strict"',
-      );
     }
 
-    final iiRaw = contextMap['identifier_instructions'];
-    if (iiRaw is String && iiRaw.trim().isNotEmpty) {
-      identifierInstructions = iiRaw;
-    } else if (iiRaw != null && iiRaw is! String) {
-      warns.add(
-        'Invalid type for context.identifier_instructions: '
-        '"${iiRaw.runtimeType}" — ignoring',
-      );
-    }
+    final iiRaw = readString('identifier_instructions', contextMap, warns);
+    if (iiRaw != null && iiRaw.trim().isNotEmpty) identifierInstructions = iiRaw;
   }
 
   return ContextConfig(
@@ -889,12 +725,11 @@ WorkspaceConfig _parseWorkspace(Map<String, dynamic> yaml, WorkspaceConfig defau
 
   final workspaceMap = _sectionMap('workspace', yaml, warns);
   if (workspaceMap != null) {
-    final gsRaw = workspaceMap['git_sync'];
-    if (gsRaw is Map) {
-      final en = gsRaw['enabled'];
-      if (en is bool) gitSyncEnabled = en;
-      final pe = gsRaw['push_enabled'];
-      if (pe is bool) gitSyncPushEnabled = pe;
+    final gsMap = readMap('git_sync', workspaceMap, warns);
+    if (gsMap != null) {
+      gitSyncEnabled = readBool('enabled', gsMap, warns, defaultValue: gitSyncEnabled) ?? gitSyncEnabled;
+      gitSyncPushEnabled =
+          readBool('push_enabled', gsMap, warns, defaultValue: gitSyncPushEnabled) ?? gitSyncPushEnabled;
     }
   }
 
@@ -908,30 +743,23 @@ SchedulingConfig _parseScheduling(Map<String, dynamic> yaml, SchedulingConfig de
 
   final schedulingMap = _sectionMap('scheduling', yaml, warns);
   if (schedulingMap != null) {
-    final jobsRaw = schedulingMap['jobs'];
-    if (jobsRaw is List) {
-      for (final entry in jobsRaw) {
+    final jobsList = readField<List<dynamic>>('jobs', schedulingMap, warns);
+    if (jobsList != null) {
+      for (final entry in jobsList) {
         if (entry is Map) {
           jobs.add(Map<String, dynamic>.from(entry));
         } else {
           warns.add('Invalid scheduling job entry: "${entry.runtimeType}" — skipping');
         }
       }
-    } else if (jobsRaw != null) {
-      warns.add('Invalid type for scheduling.jobs: "${jobsRaw.runtimeType}" — expected list');
     }
 
-    final hbRaw = schedulingMap['heartbeat'];
-    if (hbRaw is Map) {
-      final en = hbRaw['enabled'];
-      if (en is bool) heartbeatEnabled = en;
-      heartbeatIntervalMinutes = _parseInt(
-        'scheduling.heartbeat.interval_minutes',
-        null,
-        hbRaw['interval_minutes'],
-        defaults.heartbeatIntervalMinutes,
-        warns,
-      );
+    final hbMap = readMap('heartbeat', schedulingMap, warns);
+    if (hbMap != null) {
+      heartbeatEnabled = readBool('enabled', hbMap, warns, defaultValue: heartbeatEnabled) ?? heartbeatEnabled;
+      heartbeatIntervalMinutes =
+          readInt('interval_minutes', hbMap, warns, defaultValue: defaults.heartbeatIntervalMinutes) ??
+          defaults.heartbeatIntervalMinutes;
     }
   }
 
@@ -995,27 +823,29 @@ SearchConfig _parseSearch(
 
   final searchMap = _sectionMap('search', yaml, warns);
   if (searchMap != null) {
-    final backendVal = searchMap['backend'];
-    if (backendVal is String && (backendVal == 'fts5' || backendVal == 'qmd')) {
-      backend = backendVal;
-    } else if (backendVal != null) {
-      warns.add('Invalid search.backend: "$backendVal" — using default');
+    final backendVal = readString('backend', searchMap, warns);
+    if (backendVal != null) {
+      if (backendVal == 'fts5' || backendVal == 'qmd') {
+        backend = backendVal;
+      } else {
+        warns.add('Invalid search.backend: "$backendVal" — using default');
+      }
     }
-    final qmdRaw = searchMap['qmd'];
-    if (qmdRaw is Map) {
-      final h = qmdRaw['host'];
-      if (h is String) qmdHost = h;
-      qmdPort = _parseInt('search.qmd.port', null, qmdRaw['port'], defaults.qmdPort, warns);
+    final qmdMap = readMap('qmd', searchMap, warns);
+    if (qmdMap != null) {
+      qmdHost = readString('host', qmdMap, warns, defaultValue: qmdHost) ?? qmdHost;
+      qmdPort = readInt('port', qmdMap, warns, defaultValue: defaults.qmdPort) ?? defaults.qmdPort;
     }
-    final depth = searchMap['default_depth'];
-    if (depth is String) defaultDepth = depth;
+    final depth = readString('default_depth', searchMap, warns);
+    if (depth != null) defaultDepth = depth;
 
-    final providersRaw = searchMap['providers'];
-    if (providersRaw is Map) {
-      for (final entry in providersRaw.entries) {
+    final providersMap = readMap('providers', searchMap, warns);
+    if (providersMap != null) {
+      for (final entry in providersMap.entries) {
         final name = entry.key.toString();
         final value = entry.value;
         if (value is! Map) {
+          // reason: dynamic key interpolation — per-provider name can't use readX helpers
           warns.add('Invalid type for search.providers.$name: "${value.runtimeType}" — skipping');
           continue;
         }
@@ -1032,8 +862,6 @@ SearchConfig _parseSearch(
         final apiKey = envSubstitute(rawKey, env: env);
         providers[name] = SearchProviderEntry(enabled: enabled, apiKey: apiKey);
       }
-    } else if (providersRaw != null) {
-      warns.add('Invalid type for search.providers: "${providersRaw.runtimeType}" — skipping');
     }
   }
 
@@ -1052,20 +880,15 @@ ProvidersConfig _parseProviders(
   ProvidersConfig defaults,
   List<String> warns,
 ) {
-  final providersRaw = yaml['providers'];
-  if (providersRaw == null) {
-    return defaults;
-  }
-  if (providersRaw is! Map) {
-    warns.add('Invalid type for providers: "${providersRaw.runtimeType}" — using defaults');
-    return defaults;
-  }
+  final providersRaw = readMap('providers', yaml, warns);
+  if (providersRaw == null) return defaults;
 
   final entries = <String, ProviderEntry>{};
   for (final entry in providersRaw.entries) {
     final providerId = entry.key.toString();
     final value = entry.value;
     if (value is! Map) {
+      // reason: dynamic key interpolation — per-provider id can't use readX helpers
       warns.add('Invalid type for providers.$providerId: "${value.runtimeType}" — skipping');
       continue;
     }
@@ -1077,13 +900,12 @@ ProvidersConfig _parseProviders(
       continue;
     }
 
-    var poolSize = 0;
     final poolSizeRaw = providerMap['pool_size'];
-    if (poolSizeRaw is int) {
-      poolSize = poolSizeRaw;
-    } else if (poolSizeRaw != null) {
+    // reason: dynamic key interpolation — per-provider pool_size can't use readX helpers
+    if (poolSizeRaw != null && poolSizeRaw is! int) {
       warns.add('Invalid type for providers.$providerId.pool_size: "${poolSizeRaw.runtimeType}" — using default');
     }
+    final poolSize = poolSizeRaw is int ? poolSizeRaw : 0;
 
     final options = Map<String, dynamic>.from(providerMap)
       ..remove('executable')
@@ -1105,20 +927,15 @@ CredentialsConfig _parseCredentials(
   CredentialsConfig defaults,
   List<String> warns,
 ) {
-  final credentialsRaw = yaml['credentials'];
-  if (credentialsRaw == null) {
-    return defaults;
-  }
-  if (credentialsRaw is! Map) {
-    warns.add('Invalid type for credentials: "${credentialsRaw.runtimeType}" — using defaults');
-    return defaults;
-  }
+  final credentialsRaw = readMap('credentials', yaml, warns);
+  if (credentialsRaw == null) return defaults;
 
   final entries = <String, CredentialEntry>{};
   for (final entry in credentialsRaw.entries) {
     final credentialName = entry.key.toString();
     final value = entry.value;
     if (value is! Map) {
+      // reason: dynamic key interpolation — per-credential name can't use readX helpers
       warns.add('Invalid type for credentials.$credentialName: "${value.runtimeType}" — skipping');
       continue;
     }
@@ -1169,122 +986,90 @@ CredentialsConfig _parseCredentials(
 }
 
 SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults, List<String> warns) {
-  final guardsRaw = yaml['guards'];
-  final guardsYaml = guardsRaw is Map ? Map<String, dynamic>.from(guardsRaw) : <String, dynamic>{};
-  final securityRaw = yaml['security'];
-  GuardConfig guards;
-  if (guardsRaw is Map) {
-    try {
-      guards = GuardConfig.fromYaml(guardsYaml, warns);
-    } catch (e) {
-      warns.add('Error parsing guards config: $e — using defaults');
-      guards = const GuardConfig.defaults();
-    }
-  } else {
-    if (guardsRaw != null) {
-      warns.add('Invalid type for guards: "${guardsRaw.runtimeType}" — using defaults');
-    }
-    guards = const GuardConfig.defaults();
-  }
+  final guardsMap = readMap('guards', yaml, warns);
+  final guardsYaml = guardsMap ?? <String, dynamic>{};
+  final guards = guardsMap == null
+      ? const GuardConfig.defaults()
+      : () {
+          try {
+            return GuardConfig.fromYaml(guardsYaml, warns);
+          } catch (e) {
+            warns.add('Error parsing guards config: $e — using defaults');
+            return const GuardConfig.defaults();
+          }
+        }();
 
   var contentGuardEnabled = defaults.contentGuardEnabled;
   var contentGuardClassifier = defaults.contentGuardClassifier;
   var contentGuardModel = defaults.contentGuardModel;
   var contentGuardMaxBytes = defaults.contentGuardMaxBytes;
-  if (guardsRaw is Map) {
-    final contentRaw = guardsRaw['content'];
-    if (contentRaw is Map) {
-      final en = contentRaw['enabled'];
-      if (en is bool) contentGuardEnabled = en;
-      final classifierVal = contentRaw['classifier'];
-      if (classifierVal is String) {
-        if (classifierVal == 'claude_binary' || classifierVal == 'anthropic_api') {
-          contentGuardClassifier = classifierVal;
-        } else {
-          warns.add('Invalid guards.content.classifier: "$classifierVal" — using default');
-        }
+  final contentMap = guardsMap != null ? readMap('content', guardsMap, warns) : null;
+  if (contentMap != null) {
+    contentGuardEnabled =
+        readBool('enabled', contentMap, warns, defaultValue: contentGuardEnabled) ?? contentGuardEnabled;
+    final classifierVal = readString('classifier', contentMap, warns);
+    if (classifierVal != null) {
+      if (classifierVal == 'claude_binary' || classifierVal == 'anthropic_api') {
+        contentGuardClassifier = classifierVal;
+      } else {
+        warns.add('Invalid guards.content.classifier: "$classifierVal" — using default');
       }
-      final modelVal = contentRaw['model'];
-      if (modelVal is String) contentGuardModel = modelVal;
-      contentGuardMaxBytes = _parseInt(
-        'guards.content.max_bytes',
-        null,
-        contentRaw['max_bytes'],
-        defaults.contentGuardMaxBytes,
-        warns,
-      );
     }
+    final modelVal = readString('model', contentMap, warns);
+    if (modelVal != null) contentGuardModel = modelVal;
+    contentGuardMaxBytes =
+        readInt('max_bytes', contentMap, warns, defaultValue: defaults.contentGuardMaxBytes) ??
+        defaults.contentGuardMaxBytes;
   }
 
   var inputSanitizerEnabled = defaults.inputSanitizerEnabled;
   var inputSanitizerChannelsOnly = defaults.inputSanitizerChannelsOnly;
-  if (guardsRaw is Map) {
-    final isRaw = guardsRaw['input_sanitizer'];
-    if (isRaw is Map) {
-      final en = isRaw['enabled'];
-      if (en is bool) inputSanitizerEnabled = en;
-      final co = isRaw['channels_only'];
-      if (co is bool) inputSanitizerChannelsOnly = co;
-    }
+  final isMap = guardsMap != null ? readMap('input_sanitizer', guardsMap, warns) : null;
+  if (isMap != null) {
+    inputSanitizerEnabled =
+        readBool('enabled', isMap, warns, defaultValue: inputSanitizerEnabled) ?? inputSanitizerEnabled;
+    inputSanitizerChannelsOnly =
+        readBool('channels_only', isMap, warns, defaultValue: inputSanitizerChannelsOnly) ?? inputSanitizerChannelsOnly;
   }
 
   var bashStepEnvAllowlist = List<String>.from(defaults.bashStep.envAllowlist);
   var bashStepExtraStripPatterns = List<String>.from(defaults.bashStep.extraStripPatterns);
-  if (securityRaw is Map) {
-    final bashStepRaw = securityRaw['bash_step'];
-    if (bashStepRaw is Map) {
-      final allowlistRaw = bashStepRaw['env_allowlist'];
-      if (allowlistRaw is List) {
-        final extensions = <String>[];
-        for (final entry in allowlistRaw) {
-          if (entry is! String || entry.trim().isEmpty) {
-            warns.add('Invalid value for security.bash_step.env_allowlist entry: "$entry" — ignoring');
-            continue;
-          }
-          extensions.add(entry.trim());
-        }
-        bashStepEnvAllowlist = {...defaults.bashStep.envAllowlist, ...extensions}.toList()..sort();
-      } else if (allowlistRaw != null) {
-        warns.add('Invalid type for security.bash_step.env_allowlist: "${allowlistRaw.runtimeType}" — using defaults');
+  final securityMap = readMap('security', yaml, warns);
+  final bashStepMap = securityMap != null ? readMap('bash_step', securityMap, warns) : null;
+  if (bashStepMap != null) {
+    final allowlistList = readField<List<dynamic>>('env_allowlist', bashStepMap, warns);
+    if (allowlistList != null) {
+      final extensions = allowlistList.whereType<String>().map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      for (final e in allowlistList.where((e) => e is! String || e.trim().isEmpty)) {
+        warns.add('Invalid value for security.bash_step.env_allowlist entry: "$e" — ignoring');
       }
-
-      final extraStripRaw = bashStepRaw['extra_strip_patterns'];
-      if (extraStripRaw is List) {
-        final patterns = <String>[];
-        for (final entry in extraStripRaw) {
-          if (entry is! String || entry.trim().isEmpty) {
-            warns.add('Invalid value for security.bash_step.extra_strip_patterns entry: "$entry" — ignoring');
-            continue;
-          }
-          patterns.add(entry.trim());
-        }
-        bashStepExtraStripPatterns = patterns;
-      } else if (extraStripRaw != null) {
-        warns.add(
-          'Invalid type for security.bash_step.extra_strip_patterns: "${extraStripRaw.runtimeType}" — using defaults',
-        );
-      }
-    } else if (bashStepRaw != null) {
-      warns.add('Invalid type for security.bash_step: "${bashStepRaw.runtimeType}" — using defaults');
+      bashStepEnvAllowlist = {...defaults.bashStep.envAllowlist, ...extensions}.toList()..sort();
     }
-  } else if (securityRaw != null) {
-    warns.add('Invalid type for security: "${securityRaw.runtimeType}" — using defaults');
+
+    final extraStripList = readField<List<dynamic>>('extra_strip_patterns', bashStepMap, warns);
+    if (extraStripList != null) {
+      for (final e in extraStripList.where((e) => e is! String || e.trim().isEmpty)) {
+        warns.add('Invalid value for security.bash_step.extra_strip_patterns entry: "$e" — ignoring');
+      }
+      bashStepExtraStripPatterns = extraStripList
+          .whereType<String>()
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
   }
 
-  final guardAuditRaw = yaml['guard_audit'];
-  if (guardAuditRaw is Map && guardAuditRaw.containsKey('max_entries')) {
+  final guardAuditMap = readMap('guard_audit', yaml, warns);
+  if (guardAuditMap != null && guardAuditMap.containsKey('max_entries')) {
     warns.add(
       'guard_audit.max_entries is deprecated and ignored — '
       'use guard_audit.max_retention_days for audit retention',
     );
   }
-  final guardAuditMaxRetentionDays = _parseInt(
-    'guard_audit.max_retention_days',
-    null,
-    (guardAuditRaw is Map) ? guardAuditRaw['max_retention_days'] : null,
-    defaults.guardAuditMaxRetentionDays,
-    warns,
-  ).clamp(0, 365);
+  final guardAuditMaxRetentionDays =
+      ((readInt('max_retention_days', guardAuditMap ?? {}, warns, defaultValue: defaults.guardAuditMaxRetentionDays) ??
+              defaults.guardAuditMaxRetentionDays))
+          .clamp(0, 365);
 
   return SecurityConfig(
     guards: guards,
@@ -1309,19 +1094,10 @@ UsageConfig _parseUsage(Map<String, dynamic> yaml, UsageConfig defaults, List<St
 
   final usageMap = _sectionMap('usage', yaml, warns);
   if (usageMap != null) {
-    final bwt = usageMap['budget_warning_tokens'];
-    if (bwt is int) {
-      budgetWarningTokens = bwt;
-    } else if (bwt != null) {
-      warns.add('Invalid type for usage.budget_warning_tokens: "${bwt.runtimeType}" — ignoring');
-    }
-    maxFileSizeBytes = _parseInt(
-      'usage.max_file_size_bytes',
-      null,
-      usageMap['max_file_size_bytes'],
-      defaults.maxFileSizeBytes,
-      warns,
-    );
+    budgetWarningTokens = readInt('budget_warning_tokens', usageMap, warns, defaultValue: budgetWarningTokens);
+    maxFileSizeBytes =
+        readInt('max_file_size_bytes', usageMap, warns, defaultValue: defaults.maxFileSizeBytes) ??
+        defaults.maxFileSizeBytes;
   }
 
   return UsageConfig(budgetWarningTokens: budgetWarningTokens, maxFileSizeBytes: maxFileSizeBytes);
@@ -1353,39 +1129,25 @@ MemoryConfig _parseMemory(
     maxBytes = _parseInt('memory_max_bytes', cli['memory_max_bytes'], legacyTopLevelMaxBytes, defaults.maxBytes, warns);
   }
 
-  if (pruningRaw is Map) {
-    pruningEnabled = _parseBool(
-      'memory.pruning.enabled',
-      cli['memory_pruning_enabled'],
-      pruningRaw['enabled'],
-      pruningEnabled,
-      warns,
-    );
-    archiveAfterDays = _parseInt(
-      'memory.pruning.archive_after_days',
-      cli['memory_pruning_archive_after_days'],
-      pruningRaw['archive_after_days'],
-      defaults.archiveAfterDays,
-      warns,
-    );
-    final sched = pruningRaw['schedule'];
-    if (cli['memory_pruning_schedule'] case final cliSchedule?) {
-      pruningSchedule = cliSchedule;
-    } else if (sched is String) {
-      pruningSchedule = sched;
-    }
-  } else {
-    pruningEnabled = _parseBool('memory.pruning.enabled', cli['memory_pruning_enabled'], null, pruningEnabled, warns);
-    archiveAfterDays = _parseInt(
-      'memory.pruning.archive_after_days',
-      cli['memory_pruning_archive_after_days'],
-      null,
-      defaults.archiveAfterDays,
-      warns,
-    );
-    if (cli['memory_pruning_schedule'] case final cliSchedule?) {
-      pruningSchedule = cliSchedule;
-    }
+  final pruningMap = pruningRaw is Map ? pruningRaw : null;
+  pruningEnabled = _parseBool(
+    'memory.pruning.enabled',
+    cli['memory_pruning_enabled'],
+    pruningMap?['enabled'],
+    pruningEnabled,
+    warns,
+  );
+  archiveAfterDays = _parseInt(
+    'memory.pruning.archive_after_days',
+    cli['memory_pruning_archive_after_days'],
+    pruningMap?['archive_after_days'],
+    defaults.archiveAfterDays,
+    warns,
+  );
+  if (cli['memory_pruning_schedule'] case final cliSchedule?) {
+    pruningSchedule = cliSchedule;
+  } else if (pruningMap?['schedule'] is String) {
+    pruningSchedule = pruningMap!['schedule'] as String;
   }
 
   return MemoryConfig(
@@ -1397,25 +1159,13 @@ MemoryConfig _parseMemory(
 }
 
 ContainerConfig _parseContainer(Map<String, dynamic> yaml, List<String> warns) {
-  final containerRaw = yaml['container'];
-  final config = containerRaw is Map
-      ? ContainerConfig.fromYaml(Map<String, dynamic>.from(containerRaw), warns)
-      : const ContainerConfig.disabled();
-  if (containerRaw != null && containerRaw is! Map) {
-    warns.add('Invalid type for container: "${containerRaw.runtimeType}" — using defaults');
-  }
-  return config;
+  final containerMap = readMap('container', yaml, warns);
+  return containerMap != null ? ContainerConfig.fromYaml(containerMap, warns) : const ContainerConfig.disabled();
 }
 
 ChannelConfig _parseChannels(Map<String, dynamic> yaml, List<String> warns) {
-  final channelsRaw = yaml['channels'];
-  final config = channelsRaw is Map
-      ? ChannelConfig.fromYaml(Map<String, dynamic>.from(channelsRaw), warns)
-      : const ChannelConfig.defaults();
-  if (channelsRaw != null && channelsRaw is! Map) {
-    warns.add('Invalid type for channels: "${channelsRaw.runtimeType}" — using defaults');
-  }
-  return config;
+  final channelsMap = readMap('channels', yaml, warns);
+  return channelsMap != null ? ChannelConfig.fromYaml(channelsMap, warns) : const ChannelConfig.defaults();
 }
 
 TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<String> warns) {
@@ -1428,22 +1178,15 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
 
   final tasksMap = _sectionMap('tasks', yaml, warns);
   if (tasksMap != null) {
-    maxConcurrent = _parseInt(
-      'tasks.max_concurrent',
-      null,
-      tasksMap['max_concurrent'],
-      defaults.maxConcurrent,
-      warns,
-    ).clamp(1, 10);
-    artifactRetentionDays = _parseInt(
-      'tasks.artifact_retention_days',
-      null,
-      tasksMap['artifact_retention_days'],
-      defaults.artifactRetentionDays,
-      warns,
-    ).clamp(0, 3650);
-    final completionActionRaw = tasksMap['completion_action'];
-    if (completionActionRaw is String) {
+    maxConcurrent =
+        (readInt('max_concurrent', tasksMap, warns, defaultValue: defaults.maxConcurrent) ?? defaults.maxConcurrent)
+            .clamp(1, 10);
+    artifactRetentionDays =
+        (readInt('artifact_retention_days', tasksMap, warns, defaultValue: defaults.artifactRetentionDays) ??
+                defaults.artifactRetentionDays)
+            .clamp(0, 3650);
+    final completionActionRaw = readString('completion_action', tasksMap, warns);
+    if (completionActionRaw != null) {
       final trimmedCompletionAction = completionActionRaw.trim();
       if (trimmedCompletionAction == 'review' || trimmedCompletionAction == 'accept') {
         completionAction = trimmedCompletionAction;
@@ -1453,22 +1196,17 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
           '"${defaults.completionAction}"',
         );
       }
-    } else if (completionActionRaw != null) {
-      warns.add('Invalid type for tasks.completion_action: "${completionActionRaw.runtimeType}" — using default');
     }
 
-    final worktreeRaw = tasksMap['worktree'];
-    if (worktreeRaw is Map) {
-      final br = worktreeRaw['base_ref'];
+    final worktreeMap = readMap('worktree', tasksMap, warns);
+    if (worktreeMap != null) {
+      final br = worktreeMap['base_ref'];
       if (br is String && br.isNotEmpty) worktreeBaseRef = br;
-      worktreeStaleTimeoutHours = _parseInt(
-        'tasks.worktree.stale_timeout_hours',
-        null,
-        worktreeRaw['stale_timeout_hours'],
-        defaults.worktreeStaleTimeoutHours,
-        warns,
-      ).clamp(1, 168);
-      final ms = worktreeRaw['merge_strategy'];
+      worktreeStaleTimeoutHours =
+          (readInt('stale_timeout_hours', worktreeMap, warns, defaultValue: defaults.worktreeStaleTimeoutHours) ??
+                  defaults.worktreeStaleTimeoutHours)
+              .clamp(1, 168);
+      final ms = worktreeMap['merge_strategy'];
       if (ms is String) {
         if (ms == 'squash' || ms == 'merge') {
           worktreeMergeStrategy = ms;
@@ -1476,22 +1214,14 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
           warns.add('Invalid value for tasks.worktree.merge_strategy: "$ms" — using default "squash"');
         }
       }
-    } else if (worktreeRaw != null) {
-      warns.add('Invalid type for tasks.worktree: "${worktreeRaw.runtimeType}" — using defaults');
     }
   }
 
   var budget = defaults.budget;
-  final budgetRaw = tasksMap?['budget'];
-  if (budgetRaw is Map) {
-    final defaultMaxTokens = _parseInt(
-      'tasks.budget.default_max_tokens',
-      null,
-      budgetRaw['default_max_tokens'],
-      -1,
-      warns,
-    );
-    final warningThresholdRaw = budgetRaw['warning_threshold'];
+  final budgetMap = tasksMap != null ? readMap('budget', tasksMap, warns) : null;
+  if (budgetMap != null) {
+    final defaultMaxTokens = readInt('default_max_tokens', budgetMap, warns, defaultValue: -1) ?? -1;
+    final warningThresholdRaw = budgetMap['warning_threshold'];
     var warningThreshold = defaults.budget.warningThreshold;
     if (warningThresholdRaw != null) {
       final parsed = switch (warningThresholdRaw) {
@@ -1513,8 +1243,6 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
       defaultMaxTokens: defaultMaxTokens > 0 ? defaultMaxTokens : null,
       warningThreshold: warningThreshold,
     );
-  } else if (budgetRaw != null) {
-    warns.add('Invalid type for tasks.budget: "${budgetRaw.runtimeType}" — using defaults');
   }
 
   return TaskConfig(
@@ -1536,109 +1264,11 @@ FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {
   return const FeaturesConfig();
 }
 
-const _knownAndthenKeys = {'git_url', 'ref', 'network'};
-
-AndthenConfig _parseAndthen(Map<String, dynamic> yaml, AndthenConfig defaults, List<String> warns) {
-  var gitUrl = defaults.gitUrl;
-  var ref = defaults.ref;
-  var network = defaults.network;
-
+void _warnRetiredAndthenConfig(Map<String, dynamic> yaml, List<String> warns) {
   final atMap = _sectionMap('andthen', yaml, warns);
-  if (atMap == null) return defaults;
+  if (atMap == null) return;
 
   for (final key in atMap.keys) {
-    if (key == 'install_scope') {
-      warns.add(
-        'andthen.install_scope is no longer supported (skills always install user-tier); '
-        'remove it from your config to silence this warning',
-      );
-      continue;
-    }
-    if (!_knownAndthenKeys.contains(key)) {
-      warns.add('Unknown andthen config key: "$key" — ignoring');
-    }
+    warns.add('Ignoring retired andthen.$key config; DartClaw no longer provisions AndThen skills.');
   }
-
-  final gitUrlVal = atMap['git_url'];
-  if (gitUrlVal is String && gitUrlVal.isNotEmpty) {
-    gitUrl = gitUrlVal;
-  } else if (gitUrlVal != null) {
-    warns.add('Invalid type for andthen.git_url: "${gitUrlVal.runtimeType}" — using default');
-  }
-
-  final refVal = atMap['ref'];
-  if (refVal is String && refVal.isNotEmpty) {
-    ref = refVal;
-  } else if (refVal != null) {
-    warns.add('Invalid type for andthen.ref: "${refVal.runtimeType}" — using default');
-  }
-
-  final networkVal = atMap['network'];
-  if (networkVal != null) {
-    final parsed = parseAndthenNetworkPolicy(networkVal);
-    if (parsed != null) {
-      network = parsed;
-    } else {
-      warns.add('Invalid andthen.network: "$networkVal" — using default "${defaults.network.yamlValue}"');
-    }
-  }
-
-  return AndthenConfig(gitUrl: gitUrl, ref: ref, network: network);
-}
-
-int _parseInt(String key, String? cliValue, Object? yamlValue, int defaultValue, List<String> warns) {
-  if (cliValue != null) {
-    final parsed = int.tryParse(cliValue);
-    if (parsed != null) return parsed;
-    warns.add('Invalid CLI value for $key: "$cliValue" — using default');
-  }
-  if (yamlValue != null) {
-    if (yamlValue is int) return yamlValue;
-    if (yamlValue is String) {
-      final parsed = int.tryParse(yamlValue);
-      if (parsed != null) return parsed;
-    }
-    warns.add('Invalid type for $key: "${yamlValue.runtimeType}" — using default');
-  }
-  return defaultValue;
-}
-
-bool _parseBool(String key, String? cliValue, Object? yamlValue, bool defaultValue, List<String> warns) {
-  if (cliValue != null) {
-    if (cliValue == 'true') return true;
-    if (cliValue == 'false') return false;
-    warns.add('Invalid CLI value for $key: "$cliValue" — using default');
-  }
-  if (yamlValue is bool) return yamlValue;
-  return defaultValue;
-}
-
-String _parseString(
-  String key,
-  String? cliValue,
-  Object? yamlValue,
-  String defaultValue,
-  Map<String, String> env,
-  List<String> warns,
-) {
-  if (cliValue != null) return cliValue;
-  return _yamlString(key, yamlValue, defaultValue, env, warns);
-}
-
-String _yamlString(String key, Object? yamlValue, String defaultValue, Map<String, String> env, List<String> warns) {
-  if (yamlValue == null) return defaultValue;
-  if (yamlValue is! String) {
-    warns.add('Invalid type for $key: "${yamlValue.runtimeType}" — using default');
-    return defaultValue;
-  }
-  return envSubstitute(yamlValue, env: env);
-}
-
-String? _yamlStringOrNull(String key, Object? yamlValue, Map<String, String> env, List<String> warns) {
-  if (yamlValue == null) return null;
-  if (yamlValue is! String) {
-    warns.add('Invalid type for $key: "${yamlValue.runtimeType}" — ignoring');
-    return null;
-  }
-  return envSubstitute(yamlValue, env: env);
 }

@@ -10,6 +10,7 @@ sealed class ProjectLifecycleEvent extends DartclawEvent {
 }
 
 /// Fired when a project's status changes.
+// NOT_ALERTABLE: project lifecycle telemetry — surfaced via SSE only
 final class ProjectStatusChangedEvent extends ProjectLifecycleEvent {
   @override
   /// Identifier of the affected project.

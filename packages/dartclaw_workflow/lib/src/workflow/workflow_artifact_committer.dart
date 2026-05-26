@@ -1,8 +1,9 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show OutputFormat, ProjectService, Task;
-import 'package:dartclaw_models/dartclaw_models.dart'
-    show WorkflowDefinition, WorkflowGitArtifactsStrategy, WorkflowNode, WorkflowRun, WorkflowStep;
+import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService, Task;
+import 'workflow_definition.dart'
+    show OutputFormat, WorkflowDefinition, WorkflowGitArtifactsStrategy, WorkflowNode, WorkflowStep;
+import 'workflow_run.dart' show WorkflowRun;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -20,12 +21,12 @@ const _artifactCommitAuthorName = 'DartClaw Workflow';
 const _artifactCommitAuthorEmail = 'workflow@dartclaw.local';
 
 const _artifactProducingSkills = <String>{
-  'dartclaw-prd',
-  'dartclaw-plan',
-  'dartclaw-spec',
-  'dartclaw-review',
-  'dartclaw-architecture',
-  'dartclaw-remediate-findings',
+  'andthen:prd',
+  'andthen:plan',
+  'andthen:spec',
+  'andthen:review',
+  'andthen:architecture',
+  'andthen:remediate-findings',
 };
 
 /// Policy inputs needed to commit path artifacts after a successful step.
@@ -99,14 +100,6 @@ Future<ArtifactCommitResult> maybeCommitArtifacts(
 Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy policy) async {
   final definition = policy.definition;
   final step = policy.step;
-  if ((step.id == 'discover-project' || step.skill == 'dartclaw-discover-project') &&
-      !step_config_policy.requiresPerMapItemBootstrap(
-        definition,
-        policy.context,
-        templateEngine: policy.templateEngine,
-      )) {
-    return const ArtifactCommitResult.skipped();
-  }
   final artifacts = definition.gitStrategy?.artifacts;
   final hasProducer = workflowHasArtifactProducer(definition);
   final shouldCommit = artifacts?.commit ?? hasProducer;
@@ -118,9 +111,6 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     for (final key in step.outputKeys)
       if (policy.context.data.containsKey(key)) key: policy.context.data[key],
   };
-  if (policy.context.data.containsKey('project_index')) {
-    outputValues['project_index'] = policy.context.data['project_index'];
-  }
   final planDir = _planDirFromOutputs(outputValues);
   final runtimeArtifactsRoot = _runtimeArtifactsRoot(policy);
   final preliminaryArtifacts = resolver.resolve(
@@ -187,7 +177,7 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
   if (!Directory(projectDir).existsSync()) {
     _log.warning(
       "artifact-commit: step '${step.id}' resolved project '${resolved.projectId}' "
-      "but directory '$projectDir' does not exist — skipping commit",
+      "but directory '$projectDir' does not exist – skipping commit",
     );
     return ArtifactCommitResult.failed(
       failureReason: "artifact-commit: directory '$projectDir' does not exist",
@@ -217,13 +207,17 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
   }
   if (producedPaths.isEmpty) return const ArtifactCommitResult.skipped();
 
-  final messageTemplate = artifacts?.commitMessage ?? 'chore(workflow): artifacts for run {{runId}}';
+  final messageTemplate = artifacts?.commitMessage ?? 'chore(workflow): {{step.id}} artifacts';
   final resolvedMessage = policy.templateEngine
-      .resolve(messageTemplate.replaceAll('{{runId}}', policy.run.id), policy.context)
+      .resolve(
+        messageTemplate
+            .replaceAll('{{runId}}', policy.run.id)
+            .replaceAll('{{step.id}}', step.id)
+            .replaceAll('{{step.name}}', step.name),
+        policy.context,
+      )
       .trim();
-  final commitMessage = resolvedMessage.isEmpty
-      ? 'chore(workflow): artifacts for run ${policy.run.id}'
-      : resolvedMessage;
+  final commitMessage = resolvedMessage.isEmpty ? 'chore(workflow): ${step.id} artifacts' : resolvedMessage;
 
   try {
     await git.add(projectDir, producedPaths);
@@ -235,7 +229,7 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
         _log.warning(reason);
         return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: missingAtHead, fatal: failureIsFatal);
       }
-      _log.info("artifact-commit: no staged changes in '$projectDir' after step '${step.id}' — skipping commit");
+      _log.info("artifact-commit: no staged changes in '$projectDir' after step '${step.id}' – skipping commit");
       return ArtifactCommitResult.skipped(skippedPaths: producedPaths);
     }
     final commit = await git.commit(
@@ -271,14 +265,8 @@ String _runtimeArtifactsRoot(ArtifactCommitPolicy policy) =>
 
 String _planDirFromOutputs(Map<String, Object?> outputs) {
   final explicitPlanPath = (outputs['plan'] as String?)?.trim();
-  final projectIndex = switch (outputs['project_index']) {
-    final Map<dynamic, dynamic> map => map,
-    _ => null,
-  };
-  final planPath = explicitPlanPath == null || explicitPlanPath.isEmpty
-      ? (projectIndex?['active_plan'] as String?)?.trim()
-      : explicitPlanPath;
-  return planPath == null || planPath.isEmpty ? '' : p.dirname(planPath);
+  if (explicitPlanPath == null || explicitPlanPath.isEmpty) return '';
+  return p.dirname(explicitPlanPath);
 }
 
 Future<List<String>> _pathsMissingAtHead(WorkflowGitPort git, String projectDir, List<String> paths) async {
@@ -295,7 +283,7 @@ Future<List<String>> _pathsMissingAtHead(WorkflowGitPort git, String projectDir,
 /// from inheriting artifacts through the workflow branch.
 bool artifactCommitFailureIsFatal(ArtifactCommitPolicy policy) {
   if (policy.definition.gitStrategy?.artifacts?.commit != true) return false;
-  return step_config_policy.requiresPerMapItemBootstrap(
+  return step_config_policy.requiresPerMapItemGitIsolation(
     policy.definition,
     policy.context,
     templateEngine: policy.templateEngine,

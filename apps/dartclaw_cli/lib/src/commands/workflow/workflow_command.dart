@@ -1,6 +1,7 @@
 import 'package:args/command_runner.dart';
 
 import 'workflow_cancel_command.dart';
+import 'workflow_cleanup_skills_command.dart';
 import 'workflow_list_command.dart';
 import 'workflow_pause_command.dart';
 import 'workflow_retry_command.dart';
@@ -15,6 +16,7 @@ import 'workflow_validate_command.dart';
 class WorkflowCommand extends Command<void> {
   WorkflowCommand() {
     addSubcommand(WorkflowListCommand());
+    addSubcommand(WorkflowCleanupSkillsCommand());
     addSubcommand(WorkflowShowCommand());
     addSubcommand(WorkflowRunCommand());
     addSubcommand(WorkflowRunsCommand());

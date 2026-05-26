@@ -20,6 +20,7 @@ import 'pages/settings_page.dart';
 import 'pages/tasks_page.dart';
 import 'pages/workflows_page.dart';
 
+/// Registers the built-in system [DashboardPage]s with [registry].
 void registerSystemDashboardPages(
   PageRegistry registry, {
   HealthService? healthService,

@@ -1,12 +1,17 @@
 import 'package:collection/collection.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
 
+/// class SecurityBashStepConfig {.
 class SecurityBashStepConfig {
+  /// envAllowlist.
   final List<String> envAllowlist;
+
+  /// extraStripPatterns.
   final List<String> extraStripPatterns;
 
+  /// Creates a [SecurityBashStepConfig] value.
   const SecurityBashStepConfig({
-    this.envAllowlist = kDefaultBashStepEnvAllowlist,
+    this.envAllowlist = defaultBashStepEnvAllowlist,
     this.extraStripPatterns = const <String>[],
   });
 
@@ -26,17 +31,37 @@ class SecurityBashStepConfig {
 
 /// Configuration for the security subsystem.
 class SecurityConfig {
+  /// guards.
   final GuardConfig guards;
+
+  /// guardsYaml.
   final Map<String, dynamic> guardsYaml;
+
+  /// bashStep.
   final SecurityBashStepConfig bashStep;
+
+  /// contentGuardEnabled.
   final bool contentGuardEnabled;
+
+  /// contentGuardClassifier.
   final String contentGuardClassifier;
+
+  /// contentGuardModel.
   final String contentGuardModel;
+
+  /// contentGuardMaxBytes.
   final int contentGuardMaxBytes;
+
+  /// inputSanitizerEnabled.
   final bool inputSanitizerEnabled;
+
+  /// inputSanitizerChannelsOnly.
   final bool inputSanitizerChannelsOnly;
+
+  /// guardAuditMaxRetentionDays.
   final int guardAuditMaxRetentionDays;
 
+  /// Creates a [SecurityConfig] value.
   const SecurityConfig({
     this.guards = const GuardConfig.defaults(),
     this.guardsYaml = const {},

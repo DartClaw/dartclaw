@@ -5,27 +5,17 @@ import 'package:dartclaw_core/dartclaw_core.dart'
     show
         AgentExecutionStatusChangedEvent,
         AgentStateChangedEvent,
-        ArtifactCreated,
-        Compaction,
         EventBus,
         ProjectService,
         ProjectStatusChangedEvent,
-        PushBack,
-        StatusChanged,
-        StructuredOutputInlineUsed,
-        StructuredOutputFallbackUsed,
         Task,
-        TaskErrorEvent,
         TaskEventCreatedEvent,
         TaskEventKind,
         TaskStatus,
         TaskStatusChangedEvent,
-        TokenUpdate,
-        ToolCalled,
-        WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunStatus, WorkflowService;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
@@ -294,30 +284,30 @@ Router taskSseRoutes(
 /// Brief display text for compact dashboard event preview.
 String _compactEventText(TaskEventKind kind, Map<String, dynamic> details) {
   return switch (kind) {
-    StatusChanged() => truncate('Status \u2192 ${details['newStatus']?.toString() ?? 'unknown'}', 80),
-    ToolCalled() => formatToolEventText(
+    TaskEventKind.statusChanged => truncate('Status \u2192 ${details['newStatus']?.toString() ?? 'unknown'}', 80),
+    TaskEventKind.toolCalled => formatToolEventText(
       details['name']?.toString() ?? '(tool)',
       context: details['context']?.toString(),
       maxLength: 80,
     ),
-    ArtifactCreated() => truncate(details['name']?.toString() ?? '(artifact)', 80),
-    StructuredOutputInlineUsed() => truncate(
+    TaskEventKind.artifactCreated => truncate(details['name']?.toString() ?? '(artifact)', 80),
+    TaskEventKind.structuredOutputInlineUsed => truncate(
       'Structured inline: ${details['outputKey']?.toString() ?? '(output)'}',
       80,
     ),
-    StructuredOutputFallbackUsed() => truncate(
+    TaskEventKind.structuredOutputFallbackUsed => truncate(
       'Structured fallback: ${details['outputKey']?.toString() ?? '(output)'}',
       80,
     ),
-    PushBack() => truncate(details['comment']?.toString() ?? 'Push-back', 80),
-    TokenUpdate() => () {
+    TaskEventKind.pushBack => truncate(details['comment']?.toString() ?? 'Push-back', 80),
+    TaskEventKind.tokenUpdate => () {
       final input = (details['inputTokens'] as num?)?.toInt() ?? 0;
       final output = (details['outputTokens'] as num?)?.toInt() ?? 0;
       final total = input + output;
       if (total >= 1000) return '${(total / 1000).toStringAsFixed(1)}K tokens';
       return '$total tokens';
     }(),
-    TaskErrorEvent() => truncate(details['message']?.toString() ?? 'Error', 80),
-    Compaction() => truncate('Compaction (trigger: ${details['trigger'] ?? 'auto'})', 80),
+    TaskEventKind.taskError => truncate(details['message']?.toString() ?? 'Error', 80),
+    TaskEventKind.compaction => truncate('Compaction (trigger: ${details['trigger'] ?? 'auto'})', 80),
   };
 }

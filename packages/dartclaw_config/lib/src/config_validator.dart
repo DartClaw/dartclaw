@@ -8,6 +8,7 @@ class ValidationError {
   /// Human-readable error message.
   final String message;
 
+  /// const ValidationError({required this.field, required this.me.
   const ValidationError({required this.field, required this.message});
 
   @override
@@ -19,6 +20,7 @@ class ValidationError {
 /// Validates proposed values against the [ConfigMeta] registry:
 /// unknown fields, read-only fields, type checks, and constraint checks.
 class ConfigValidator {
+  /// const ConfigValidator();.
   const ConfigValidator();
 
   static const _validAdvisorTriggers = <String>{'turn_depth', 'token_velocity', 'periodic', 'task_review', 'explicit'};

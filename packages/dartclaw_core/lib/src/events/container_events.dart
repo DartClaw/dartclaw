@@ -14,6 +14,7 @@ sealed class ContainerLifecycleEvent extends DartclawEvent {
 }
 
 /// Fired when a container starts successfully.
+// NOT_ALERTABLE: normal lifecycle telemetry — no operator action required
 final class ContainerStartedEvent extends ContainerLifecycleEvent {
   @override
   /// Security profile identifier used for the container.
@@ -35,6 +36,7 @@ final class ContainerStartedEvent extends ContainerLifecycleEvent {
 }
 
 /// Fired when a container is gracefully stopped.
+// NOT_ALERTABLE: normal lifecycle telemetry — no operator action required
 final class ContainerStoppedEvent extends ContainerLifecycleEvent {
   @override
   /// Security profile identifier used for the container.

@@ -17,9 +17,9 @@ void main() {
         WorkflowStep(
           id: 'plan',
           name: 'Plan',
-          type: 'coding',
+          type: WorkflowTaskType.agent,
           prompts: ['Plan the work'],
-          outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story-specs')},
+          outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs')},
         ),
       ],
     );
@@ -32,25 +32,27 @@ void main() {
       updatedAt: now,
       currentStepIndex: 0,
       definitionJson: definition.toJson(),
+      workflowWorktree: WorkflowWorktreeBinding(
+        key: 'run-plan-missing-fis',
+        path: harness.tempDir.path,
+        branch: 'test',
+        workflowRunId: 'run-plan-missing-fis',
+      ),
     );
-    final context = WorkflowContext(
-      data: {
-        'project_index': {'project_root': harness.tempDir.path},
-      },
-    );
+    final context = WorkflowContext(data: {});
     await harness.workflowRuns.insert(run);
 
     final completionSub = harness.eventBus
         .on<TaskStatusChangedEvent>()
         .where((event) => event.newStatus == TaskStatus.queued)
         .listen((event) async {
-          final session = await harness.sessions.getOrCreateMain();
+          final session = await harness.sessions.getOrCreateMainSession();
           await harness.tasks.updateFields(event.taskId, sessionId: session.id);
           await harness.messages.insertMessage(
             sessionId: session.id,
             role: 'assistant',
             content:
-                'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","dependencies":[],"spec_path":"fis/a.md"},{"id":"S02","title":"Two","dependencies":["S01"],"spec_path":"fis/b.md"}]}}</workflow-context>',
+                'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","dependencies":[],"spec_path":"fis/s01-a.md"},{"id":"S02","title":"Two","dependencies":["S01"],"spec_path":"fis/s02-b.md"}]}}</workflow-context>',
           );
           try {
             await harness.tasks.transition(event.taskId, TaskStatus.running, trigger: 'test');
@@ -72,7 +74,7 @@ void main() {
     );
 
     expect(handoff, isA<StepHandoffValidationFailed>());
-    expect(handoff.validationFailure?.missingPaths, ['fis/a.md', 'fis/b.md']);
+    expect(handoff.validationFailure?.missingPaths, ['fis/s01-a.md', 'fis/s02-b.md']);
     expect(handoff.outputs.keys.where((key) => key.startsWith('_dartclaw.internal')), isEmpty);
   });
 }

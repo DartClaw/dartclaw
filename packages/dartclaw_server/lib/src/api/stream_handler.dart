@@ -4,8 +4,6 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
 
-import '../turn_manager.dart';
-
 /// Formats an SSE frame with HTML content. Newlines in [htmlContent] are
 /// replaced with spaces because SSE data lines cannot contain literal newlines.
 String _sseHtmlFrame(String event, String htmlContent) {

@@ -44,15 +44,6 @@ class ChannelManager {
 
     /// Returns the name of the admin who initiated the pause (for acknowledgment).
     String Function()? pausedByName,
-    // Deprecated task-related parameters kept for API compatibility.
-    // They are silently ignored — wire a ChannelTaskBridge instead.
-    @Deprecated('Wire a ChannelTaskBridge via taskBridge instead') dynamic taskCreator,
-    @Deprecated('Wire a ChannelTaskBridge via taskBridge instead') dynamic taskLister,
-    @Deprecated('Wire a ChannelTaskBridge via taskBridge instead') dynamic reviewCommandParser,
-    @Deprecated('Wire a ChannelTaskBridge via taskBridge instead') dynamic reviewHandler,
-    @Deprecated('Wire a ChannelTaskBridge via taskBridge instead') dynamic triggerParser,
-    @Deprecated('Wire a ChannelTaskBridge via taskBridge instead') dynamic eventBus,
-    @Deprecated('Wire a ChannelTaskBridge via taskBridge instead') dynamic taskTriggerConfigs,
   }) : liveScopeConfig = liveScopeConfig ?? LiveScopeConfig(const SessionScopeConfig.defaults()),
        _taskBridge = taskBridge,
        _isPaused = isPaused,

@@ -1,5 +1,7 @@
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show Task, TaskStatus, WorkflowDefinition, WorkflowRun, WorkflowRunStatus;
+import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus;
+import 'workflow_definition.dart' show WorkflowDefinition;
+import 'workflow_run.dart' show WorkflowRun;
 
 /// Maps a task's status (or absence) to a workflow step status string.
 ///
@@ -33,12 +35,12 @@ String stepStatusFromTask(WorkflowRun run, int index, Task? task, {String? stepI
   return switch (task.status) {
     TaskStatus.draft || TaskStatus.queued => 'queued',
     TaskStatus.running => 'running',
+    TaskStatus.interrupted => 'interrupted',
     TaskStatus.review => 'review',
     TaskStatus.accepted => 'completed',
     TaskStatus.failed => 'failed',
     TaskStatus.cancelled => 'cancelled',
     TaskStatus.rejected => 'failed',
-    _ => 'pending',
   };
 }
 

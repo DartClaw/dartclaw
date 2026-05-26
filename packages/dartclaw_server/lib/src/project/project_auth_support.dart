@@ -6,6 +6,7 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 
 const _gitHubApiVersion = '2026-03-10';
 
+/// Performs an authenticated probe request against the GitHub API.
 typedef GitHubProbeRunner =
     Future<({int statusCode, String body})> Function(Uri uri, {required Map<String, String> headers});
 

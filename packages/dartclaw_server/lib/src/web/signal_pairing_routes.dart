@@ -5,8 +5,8 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import 'page_registry.dart';
+import 'sidebar_data_builder.dart';
 import 'signal_pairing.dart';
-import 'web_routes.dart' show buildSidebarData;
 import 'web_utils.dart';
 
 /// Signal pairing page and registration routes.
@@ -24,7 +24,7 @@ Router signalPairingRoutes({
 
   // GET /pairing — Signal pairing/status page.
   router.get('/pairing', (Request request) async {
-    final sidebarData = await buildSidebarData(sessions, tasksEnabled: tasksEnabled);
+    final sidebarData = await buildMinimalSidebarData(sessions, tasksEnabled: tasksEnabled);
     final phone = signalChannel.config.phoneNumber;
     final error = request.requestedUri.queryParameters['error'];
 
@@ -87,7 +87,7 @@ Router signalPairingRoutes({
       return Response(204);
     }
     // Connected — render full page so HTMX can swap to "Connected" state.
-    final sidebarData = await buildSidebarData(sessions, tasksEnabled: tasksEnabled);
+    final sidebarData = await buildMinimalSidebarData(sessions, tasksEnabled: tasksEnabled);
     final html = signalPairingTemplate(
       isConnected: true,
       connectedPhone: signalChannel.sidecar.registeredPhone ?? signalChannel.config.phoneNumber,

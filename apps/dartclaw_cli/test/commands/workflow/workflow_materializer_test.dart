@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:dartclaw_cli/src/commands/workflow_materializer.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -46,7 +47,7 @@ void main() {
 
     expect(copied, 3);
 
-    final targetDir = Directory(p.join(tempDir.path, 'workflows', 'definitions'));
+    final targetDir = Directory(p.join(tempDir.path, 'workflows', 'built-in'));
     expect(targetDir.existsSync(), isTrue);
     final names =
         targetDir
@@ -66,7 +67,7 @@ void main() {
   });
 
   test('does not overwrite a pre-existing workflow file', () async {
-    final targetDir = Directory(p.join(tempDir.path, 'workflows', 'definitions'))..createSync(recursive: true);
+    final targetDir = Directory(p.join(tempDir.path, 'workflows', 'built-in'))..createSync(recursive: true);
     final existingFile = File(p.join(targetDir.path, 'code-review.yaml'));
     existingFile.writeAsStringSync('name: code-review\ndescription: local override\n');
 
@@ -97,14 +98,14 @@ void main() {
     final copied = await WorkflowMaterializer.materialize(dataDir: tempDir.path, sourceDir: sourceDir.path);
 
     expect(copied, 1);
-    final targetFile = File(p.join(tempDir.path, 'workflows', 'definitions', 'code-review.yaml'));
+    final targetFile = File(p.join(tempDir.path, 'workflows', 'built-in', 'code-review.yaml'));
     expect(targetFile.readAsStringSync(), contains('refreshed built-in'));
   });
 
   test('preserves locally modified managed workflow files', () async {
     await WorkflowMaterializer.materialize(dataDir: tempDir.path, sourceDir: _workflowDefinitionsDir);
 
-    final targetFile = File(p.join(tempDir.path, 'workflows', 'definitions', 'code-review.yaml'));
+    final targetFile = File(p.join(tempDir.path, 'workflows', 'built-in', 'code-review.yaml'));
     targetFile.writeAsStringSync('name: code-review\ndescription: locally edited managed copy\n');
 
     final sourceDir = Directory.systemTemp.createTempSync('workflow_materializer_source_');
@@ -144,7 +145,7 @@ void main() {
       File(p.join(_workflowDefinitionsDir, name)).copySync(p.join(sourceDir.path, name));
     }
 
-    final staleFile = File(p.join(tempDir.path, 'workflows', 'definitions', 'code-review.yaml'));
+    final staleFile = File(p.join(tempDir.path, 'workflows', 'built-in', 'code-review.yaml'));
     expect(staleFile.existsSync(), isTrue, reason: 'code-review.yaml should exist before cleanup');
 
     final copied = await WorkflowMaterializer.materialize(dataDir: tempDir.path, sourceDir: sourceDir.path);
@@ -158,11 +159,53 @@ void main() {
     );
   });
 
+  test('resolveBuiltInWorkflowSourceDir prefers asset cache over source tree by default', () async {
+    final assetRoot = Directory(p.join(tempDir.path, 'assets'))..createSync(recursive: true);
+    Directory(p.join(assetRoot.path, 'templates')).createSync(recursive: true);
+    Directory(p.join(assetRoot.path, 'static')).createSync(recursive: true);
+    final assetWorkflows = Directory(p.join(assetRoot.path, 'workflows'))..createSync(recursive: true);
+    File(p.join(assetWorkflows.path, 'sentinel.yaml')).writeAsStringSync('# asset cache wins\n');
+
+    final fakeBin = File(p.join(assetRoot.path, 'dartclaw'))..writeAsStringSync('');
+    final resolver = AssetResolver(resolvedExecutable: fakeBin.path, homeDir: tempDir.path);
+
+    final resolved = WorkflowMaterializer.resolveBuiltInWorkflowSourceDir(assetResolver: resolver);
+    expect(resolved, assetWorkflows.path);
+  });
+
+  test('resolveBuiltInWorkflowSourceDir prefers source tree when preferSourceTree is true', () async {
+    final assetRoot = Directory(p.join(tempDir.path, 'assets'))..createSync(recursive: true);
+    Directory(p.join(assetRoot.path, 'templates')).createSync(recursive: true);
+    Directory(p.join(assetRoot.path, 'static')).createSync(recursive: true);
+    Directory(p.join(assetRoot.path, 'workflows')).createSync(recursive: true);
+
+    final fakeBin = File(p.join(assetRoot.path, 'dartclaw'))..writeAsStringSync('');
+    final resolver = AssetResolver(resolvedExecutable: fakeBin.path, homeDir: tempDir.path);
+
+    // Build a fake source-tree fixture with the canonical upward-walk layout:
+    // <root>/packages/dartclaw_workflow/lib/src/workflow/definitions/. Pinned
+    // via candidateRootsForTesting so the test cannot accidentally pick up
+    // the developer's real DartClaw checkout via Platform.script /
+    // Platform.resolvedExecutable.
+    final sourceCheckout = Directory(p.join(tempDir.path, 'fake-checkout'))..createSync(recursive: true);
+    final sourceWorkflows = Directory(
+      p.join(sourceCheckout.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions'),
+    )..createSync(recursive: true);
+
+    final resolved = WorkflowMaterializer.resolveBuiltInWorkflowSourceDir(
+      assetResolver: resolver,
+      preferSourceTree: true,
+      candidateRootsForTesting: [sourceCheckout.path],
+    );
+
+    expect(resolved, sourceWorkflows.path);
+  });
+
   test('preserves a stale managed workflow file that has local edits', () async {
     await WorkflowMaterializer.materialize(dataDir: tempDir.path, sourceDir: _workflowDefinitionsDir);
 
     // Locally edit the managed file before it becomes stale
-    final targetFile = File(p.join(tempDir.path, 'workflows', 'definitions', 'code-review.yaml'));
+    final targetFile = File(p.join(tempDir.path, 'workflows', 'built-in', 'code-review.yaml'));
     targetFile.writeAsStringSync('name: code-review\ndescription: locally edited\n');
 
     // Create a reduced source dir that omits code-review.yaml

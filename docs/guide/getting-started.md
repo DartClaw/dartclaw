@@ -6,7 +6,7 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 
 | Dependency | Version | Purpose |
 |-----------|---------|---------|
-| Dart SDK | ^3.11.0 | Build toolchain for source checkouts and development runs |
+| Dart SDK | ^3.12.0 | Build toolchain for source checkouts and development runs |
 | `claude` CLI | Latest | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | `codex` CLI | Latest | Agent binary — optional, for OpenAI models (see [Agents § Providers](agents.md#providers)) |
 | SQLite | System lib | Search index |

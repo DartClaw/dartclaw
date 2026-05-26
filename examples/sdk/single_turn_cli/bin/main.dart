@@ -7,9 +7,7 @@ import 'package:dartclaw/dartclaw.dart';
 const _defaultPrompt = 'What is the capital of France?';
 
 Future<void> main(List<String> args) async {
-  final prompt = args.isEmpty
-      ? _readPrompt() ?? _defaultPrompt
-      : args.join(' ');
+  final prompt = args.isEmpty ? _readPrompt() ?? _defaultPrompt : args.join(' ');
 
   final harness = ClaudeCodeHarness(cwd: '.');
   await harness.start();

@@ -136,7 +136,7 @@ void main() {
 
     final events = eventService.listForTask('task-7');
     expect(events, hasLength(1));
-    expect(events[0].kind.name, 'error');
+    expect(events[0].kind.name, 'taskError');
     expect(events[0].details['message'], 'Unexpected failure');
   });
 
@@ -156,7 +156,7 @@ void main() {
     expect(fired, hasLength(2));
     expect(fired[0].kind, 'statusChanged');
     expect(fired[0].taskId, 'task-8');
-    expect(fired[1].kind, 'error');
+    expect(fired[1].kind, 'taskError');
   });
 
   test('recordCompaction inserts compaction event with trigger, sessionId, and optional preTokens', () {

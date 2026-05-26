@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show IdentifierPreservationMode;
+
 import 'package:dartclaw_core/dartclaw_core.dart' show PromptScope;
 import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
 import 'package:logging/logging.dart';
@@ -237,7 +239,10 @@ void main() {
 
     group('identifier preservation', () {
       test('strict mode appends default identifier preservation text', () async {
-        final service = BehaviorFileService(workspaceDir: globalDir.path, identifierPreservation: 'strict');
+        final service = BehaviorFileService(
+          workspaceDir: globalDir.path,
+          identifierPreservation: IdentifierPreservationMode.strict,
+        );
         final result = await service.composeSystemPrompt();
         expect(result, contains(BehaviorFileService.defaultIdentifierPreservationText));
       });
@@ -249,7 +254,10 @@ void main() {
       });
 
       test('off mode omits identifier preservation text', () async {
-        final service = BehaviorFileService(workspaceDir: globalDir.path, identifierPreservation: 'off');
+        final service = BehaviorFileService(
+          workspaceDir: globalDir.path,
+          identifierPreservation: IdentifierPreservationMode.off,
+        );
         final result = await service.composeSystemPrompt();
         expect(result, isNot(contains(BehaviorFileService.defaultIdentifierPreservationText)));
       });
@@ -258,7 +266,7 @@ void main() {
         const customText = 'Preserve all order IDs and SKUs verbatim.';
         final service = BehaviorFileService(
           workspaceDir: globalDir.path,
-          identifierPreservation: 'custom',
+          identifierPreservation: IdentifierPreservationMode.custom,
           identifierInstructions: customText,
         );
         final result = await service.composeSystemPrompt();
@@ -269,7 +277,7 @@ void main() {
       test('custom mode with null identifierInstructions omits identifier text', () async {
         final service = BehaviorFileService(
           workspaceDir: globalDir.path,
-          identifierPreservation: 'custom',
+          identifierPreservation: IdentifierPreservationMode.custom,
           // identifierInstructions: null (default)
         );
         final result = await service.composeSystemPrompt();
@@ -280,7 +288,7 @@ void main() {
         const customText = 'Keep IDs intact.';
         final service = BehaviorFileService(
           workspaceDir: globalDir.path,
-          identifierPreservation: 'custom',
+          identifierPreservation: IdentifierPreservationMode.custom,
           identifierInstructions: customText,
         );
         final result = await service.composeSystemPrompt();
@@ -291,7 +299,10 @@ void main() {
       });
 
       test('identifier text not included for task scope', () async {
-        final service = BehaviorFileService(workspaceDir: globalDir.path, identifierPreservation: 'strict');
+        final service = BehaviorFileService(
+          workspaceDir: globalDir.path,
+          identifierPreservation: IdentifierPreservationMode.strict,
+        );
         final result = await service.composeSystemPrompt(scope: PromptScope.task);
         expect(result, isNot(contains(BehaviorFileService.defaultIdentifierPreservationText)));
       });

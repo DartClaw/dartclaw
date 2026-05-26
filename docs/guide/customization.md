@@ -100,7 +100,7 @@ Extend DartClaw's Dart source for deep customization:
 ```dart
 class BusinessHoursGuard extends Guard {
   @override String get name => 'business-hours';
-  @override String get category => 'scheduling';
+  @override String get category => 'command';
 
   @override
   Future<GuardVerdict> evaluate(GuardContext context) async {

@@ -3,11 +3,19 @@ import 'session_maintenance_config.dart';
 
 /// Configuration for the session subsystem.
 class SessionConfig {
+  /// resetHour.
   final int resetHour;
+
+  /// idleTimeoutMinutes.
   final int idleTimeoutMinutes;
+
+  /// scopeConfig.
   final SessionScopeConfig scopeConfig;
+
+  /// maintenanceConfig.
   final SessionMaintenanceConfig maintenanceConfig;
 
+  /// Creates a [SessionConfig] value.
   const SessionConfig({
     this.resetHour = 4,
     this.idleTimeoutMinutes = 0,

@@ -66,7 +66,7 @@ void main() {
     test('creates _local project', () async {
       final svc = makeService();
       await svc.initialize();
-      final local = svc.getLocalProject();
+      final local = svc.localProject;
       expect(local.id, equals('_local'));
       expect(local.status, equals(ProjectStatus.ready));
       expect(local.configDefined, isFalse);
@@ -305,11 +305,11 @@ void main() {
     });
   });
 
-  group('getDefaultProject', () {
+  group('defaultProject', () {
     test('returns _local when no external projects', () async {
       final svc = makeService();
       await svc.initialize();
-      final def = await svc.getDefaultProject();
+      final def = await svc.defaultProject;
       expect(def.id, equals('_local'));
     });
 
@@ -318,7 +318,7 @@ void main() {
       await svc.initialize();
       await svc.create(name: 'app', remoteUrl: 'git@example.com:u/app.git');
 
-      final def = await svc.getDefaultProject();
+      final def = await svc.defaultProject;
       expect(def.id, isNot(equals('_local')));
     });
 
@@ -336,7 +336,7 @@ void main() {
       final svc = makeService(projectConfig: config);
       await svc.initialize();
 
-      final def = await svc.getDefaultProject();
+      final def = await svc.defaultProject;
       expect(def.id, equals('app-two'));
     });
   });
@@ -503,6 +503,16 @@ void main() {
       final resolved = await svc.resolveWorkflowBaseRef(makeWorkflowProject(), requestedBranch: 'feature/requested');
 
       expect(resolved, 'feature/requested');
+    });
+
+    test('rejects option-shaped requested branches', () async {
+      final svc = makeService();
+      await svc.initialize();
+
+      await expectLater(
+        svc.resolveWorkflowBaseRef(makeWorkflowProject(), requestedBranch: '--upload-pack=/tmp/pwn'),
+        throwsFormatException,
+      );
     });
 
     test('returns the configured default branch when it is non-empty', () async {
@@ -676,6 +686,24 @@ void main() {
       expect(fetchCall, isNot(contains('main')));
     });
 
+    test('rejects option-shaped fetch refs before invoking git', () async {
+      final commands = <List<String>>[];
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          commands.add(args);
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      await expectLater(
+        svc.ensureFresh(makeReadyProject(), ref: '--upload-pack=/tmp/pwn', strict: true),
+        throwsFormatException,
+      );
+
+      expect(commands.where((args) => args.isNotEmpty && args.first == 'fetch'), isEmpty);
+    });
+
     test('does not throw on fetch failure — best-effort', () async {
       final svc = makeService(
         gitRunner: (args, {environment, workingDirectory}) async {
@@ -717,7 +745,7 @@ void main() {
       );
       await svc.initialize();
 
-      await svc.ensureFresh(svc.getLocalProject(), ref: 'release/0.16', strict: true);
+      await svc.ensureFresh(svc.localProject, ref: 'release/0.16', strict: true);
 
       expect(commands, isEmpty);
     });

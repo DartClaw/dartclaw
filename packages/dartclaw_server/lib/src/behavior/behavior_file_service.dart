@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show IdentifierPreservationMode;
 import 'package:dartclaw_core/dartclaw_core.dart' show PromptScope;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -36,13 +37,9 @@ class BehaviorFileService {
   final String? compactInstructions;
 
   /// Controls identifier preservation text appended to compact instructions.
-  ///
-  /// - `'strict'` (default): appends [defaultIdentifierPreservationText].
-  /// - `'off'`: nothing appended.
-  /// - `'custom'`: appends [identifierInstructions] (or nothing if null).
-  final String identifierPreservation;
+  final IdentifierPreservationMode identifierPreservation;
 
-  /// Custom identifier preservation text used when [identifierPreservation] is `'custom'`.
+  /// Custom identifier preservation text used with [IdentifierPreservationMode.custom].
   final String? identifierInstructions;
 
   /// Tracks whether the project SOUL.md deprecation warning has been logged.
@@ -53,7 +50,7 @@ class BehaviorFileService {
     this.projectDir,
     this.maxMemoryBytes,
     this.compactInstructions,
-    this.identifierPreservation = 'strict',
+    this.identifierPreservation = IdentifierPreservationMode.strict,
     this.identifierInstructions,
   });
 
@@ -122,9 +119,9 @@ class BehaviorFileService {
       // Compact instructions — interactive sessions only (multi-turn, compaction may trigger)
       final instructions = compactInstructions ?? defaultCompactInstructions;
       final identifierText = switch (identifierPreservation) {
-        'strict' => defaultIdentifierPreservationText,
-        'custom' => identifierInstructions,
-        _ => null,
+        IdentifierPreservationMode.strict => defaultIdentifierPreservationText,
+        IdentifierPreservationMode.custom => identifierInstructions,
+        IdentifierPreservationMode.off => null,
       };
       final fullInstructions = identifierText != null ? '$instructions\n$identifierText' : instructions;
       parts.add('# Compact instructions\n$fullInstructions');

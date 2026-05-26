@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show TaskStatus, TaskStatusChangedEvent, WorkflowContext, WorkflowDefinition, WorkflowRunStatus, WorkflowStep;
 import 'package:test/test.dart';
@@ -59,7 +61,7 @@ void main() {
           WorkflowStep(
             id: 'stories',
             name: 'Stories',
-            type: 'foreach',
+            type: WorkflowTaskType.foreach,
             mapOver: 'items',
             maxParallel: 4,
             maxItems: 50,

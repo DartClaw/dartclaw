@@ -32,6 +32,7 @@ class GuardConfigSummary {
   };
 }
 
+/// Groups [GuardConfigItem]s under a labelled section in the guard summary template.
 class GuardConfigSection {
   final String label;
   final List<GuardConfigItem> items;
@@ -41,6 +42,7 @@ class GuardConfigSection {
   Map<String, dynamic> toTemplateMap() => {'label': label, 'items': items.map((i) => i.toTemplateMap()).toList()};
 }
 
+/// Represents a single labelled value rendered inside a [GuardConfigSection].
 class GuardConfigItem {
   final String label;
   final String value;

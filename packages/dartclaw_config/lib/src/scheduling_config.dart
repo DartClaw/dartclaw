@@ -4,11 +4,19 @@ import 'scheduled_task_definition.dart';
 
 /// Configuration for the scheduling subsystem.
 class SchedulingConfig {
+  /// jobs.
   final List<Map<String, dynamic>> jobs;
+
+  /// taskDefinitions.
   final List<ScheduledTaskDefinition> taskDefinitions;
+
+  /// heartbeatEnabled.
   final bool heartbeatEnabled;
+
+  /// heartbeatIntervalMinutes.
   final int heartbeatIntervalMinutes;
 
+  /// Creates a [SchedulingConfig] value.
   const SchedulingConfig({
     this.jobs = const [],
     this.taskDefinitions = const [],

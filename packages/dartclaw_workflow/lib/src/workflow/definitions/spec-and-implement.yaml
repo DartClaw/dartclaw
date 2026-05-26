@@ -1,23 +1,23 @@
 name: spec-and-implement
 description: >-
-  Full feature pipeline — discover the project, write a specification,
-  implement it with exec-spec, and run integrated review in authored order.
+  Full feature pipeline – write a specification, implement it with
+  exec-spec, and run integrated review in authored order.
 variables:
   FEATURE:
     required: true
-    description: Feature description — what to build and why
+    description: "Feature description – free text or path to an existing FIS file"
   PROJECT:
     required: false
     description: Target project for coding steps (omit for default project)
   BRANCH:
     required: false
-    description: Base branch/ref used for workflow bootstrap and comparisons
+    description: Base branch/ref used for workflow integration-branch creation and comparisons
     default: ""
 
 project: "{{PROJECT}}"
 
 gitStrategy:
-  bootstrap: true
+  integrationBranch: true
   worktree: shared
   promotion: merge
   publish:
@@ -44,191 +44,138 @@ stepDefaults:
   - match: "remediate*"
     provider: "@executor"
     model: "@executor"
+  - match: "simplify-code"
+    provider: "@executor"
+    model: "@executor"
   - match: "*"
     provider: "@workflow"
     model: "@workflow"
 
 steps:
-  # Discover the project layout and document/state locations before authoring work starts.
-  # When FEATURE is already a path to an existing spec/FIS file in this project,
-  # discover-project emits it as `spec_path` and marks `spec_source` as
-  # `existing` so the next step can skip spec authoring.
-  - id: discover-project
-    name: Discover Project
-    skill: dartclaw-discover-project
-    # read-only: discovers project layout, no writes — narrow surface preserves
-    # step_config_policy.stepIsReadOnly inference (file_write non-membership).
+  - id: detect-spec-input
+    name: Detect Spec Input
+    skill: dartclaw-discover-andthen-spec
     allowedTools: [shell, file_read]
+    # FEATURE is auto-framed as a <FEATURE> data tag (untrusted input).
+    # Never reference {{FEATURE}} inline – that would suppress auto-framing
+    # and route attacker-controlled text through as instructions.
     workflowVariables: [FEATURE]
     outputs:
-      project_index:
-        format: json
-        schema: project-index
-        description: Normalized snapshot of the project layout, active artifacts, and state protocol.
-      spec_path:
-        format: path
-        description: Workspace-relative path to the FIS on disk — pre-authored (if FEATURE resolves to one) or freshly synthesized by the spec step.
-      spec_source:
-        format: text
-        description: "'existing' when the skill reused a spec, 'synthesized' when it wrote a new one."
+      spec_path: detected_fis_path
+      spec_source: spec_source
+      spec_confidence: spec_confidence
 
-  # Draft the initial implementation spec from the requested feature and
-  # discovered project context. Also emits a 1-10 self-rated confidence
-  # score; downstream review/revise steps are gated on this value so
-  # high-confidence specs skip the review loop entirely. Skipped entirely
-  # when discover-project already marked `spec_source` as `existing`.
   - id: spec
     name: Generate Specification
-    skill: dartclaw-spec
+    skill: andthen:spec
     entryGate: "spec_source == synthesized"
-    inputs: [project_index]
     workflowVariables: [FEATURE]
     prompt: "--auto {{FEATURE}}"
     outputs:
-      spec_path:
-        format: path
-        description: Workspace-relative path to the FIS on disk — pre-authored (if FEATURE resolves to one) or freshly synthesized by the spec step.
-      spec_source:
-        format: text
-        description: "'existing' when the skill reused a spec, 'synthesized' when it wrote a new one."
-      spec_confidence:
-        format: json
-        schema: non-negative-integer
-        description: "Skill's self-rated 1-10 readiness of the synthesized FIS (per the Confidence Check in fis-authoring-guidelines.md). `0` when spec_source == existing (pass-through). `<7` triggers the revise-spec step."
+      spec_path: fis_path
+      spec_source: spec_source
+      spec_confidence: spec_confidence
 
-  # Review-and-revise pass gated on the spec skill's own confidence score.
-  # The `--fix` flag on dartclaw-review writes a doc-review report and
-  # delegates remediation to dartclaw-remediate-findings in one invocation.
-  # Skipped entirely when the spec was reused (spec_source == existing) or
-  # when confidence is already >= 7.
+  # `--fix` delegates remediation to andthen:remediate-findings in one
+  # invocation. Skipped when spec was reused (confidence == 0) or already
+  # >= 7. Modifies the FIS in place at {{context.spec_path}} – no new context
+  # value produced; downstream steps re-read the revised file.
   - id: revise-spec
     name: Revise Spec (low confidence)
-    skill: dartclaw-review
-    entryGate: "spec_source == synthesized && spec_confidence < 7"
-    inputs: [project_index, spec_path, spec_confidence]
-    prompt: '--mode doc --fix --auto --output-dir "{{workflow.runtime_artifacts_dir}}/reviews" {{context.spec_path}}'
-    # revise-spec modifies the FIS file in place at the same path. No new
-    # context value is produced — downstream steps continue reading
-    # {{context.spec_path}} written by the spec step, which now points at the
-    # revised file contents.
+    skill: andthen:review
+    entryGate: "spec_confidence > 0 && spec_confidence < 7"
+    inputs: [spec_path, spec_confidence]
+    prompt: >-
+      --mode doc --fix --auto
+      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      {{context.spec_path}}
 
-  # Implement the feature against the on-disk specification.
   - id: implement
     name: Implement
-    skill: dartclaw-exec-spec
-    inputs: [project_index, spec_path]
+    skill: andthen:exec-spec
+    inputs: [spec_path]
     prompt: "--auto {{context.spec_path}}"
-    outputs:
-      diff_summary:
-        format: text
-        schema: diff-summary
 
-  # Run an integrated implementation review to decide whether remediation is needed.
-  # exec-spec is responsible for running analysis/tests/linting and fixing issues
-  # before emitting a completed diff; this review inspects the resulting change set
-  # holistically and hands any remaining findings to the remediation loop.
+  - id: simplify-code
+    name: Simplify Code
+    skill: andthen:simplify-code
+    provider: "@executor"
+    model: "@executor"
+    prompt: >-
+      --auto - simplify only the changes introduced on the current branch
+      (vs the base ref); preserve behavior; no scope creep into untouched
+      packages.
+
+  # exec-spec already ran analysis/tests/linting and fixed issues before this
+  # review inspects the change set holistically and hands any remaining
+  # findings to the remediation loop.
   - id: integrated-review
     name: Integrated Review
-    skill: dartclaw-review
+    skill: andthen:review
     parallel: true
-    # File-backed review: the remediation skill consumes a report path, so
-    # this step writes the review artifact under the workflow runtime artifacts
-    # directory and emits its absolute path.
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    inputs: [project_index, spec_path, diff_summary]
-    prompt: '--mode mixed --auto --output-dir "{{workflow.runtime_artifacts_dir}}/reviews" Review implementation of {{context.spec_path}}, i.e. all the changes in the current branch.'
+    inputs: [spec_path]
+    prompt: >-
+      --mode mixed --auto
+      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      Review implementation of {{context.spec_path}},
+      i.e. all the changes in the current branch.
     outputs:
-      review_findings:
-        format: path
-        description: Absolute path to the integrated review report file written by dartclaw-review in the --output-dir directory.
-      integrated-review.findings_count:
-        format: json
-        schema: non-negative-integer
-        description: Number of issues flagged by the integrated review; 0 means the remediation loop can exit.
-      integrated-review.gating_findings_count:
-        format: json
-        schema: non-negative-integer
-        description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
+      review_findings: review_report_path
+      integrated-review.findings_count: findings_count
+      integrated-review.gating_findings_count: gating_findings_count
 
   - id: architecture-review
     name: Architecture Review
-    skill: dartclaw-architecture
+    skill: andthen:architecture
     parallel: true
-    inputs: [project_index, spec_path, diff_summary]
-    # File-backed review: the step writes a review report artifact and emits
-    # its workspace-relative path, so it needs a project worktree and file_write.
+    inputs: [spec_path]
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    prompt: "--mode review --auto {{context.spec_path}}. Scope the review to changes introduced on the current branch (vs the base ref) — skip packages untouched by this spec."
+    prompt: >-
+      --mode review --auto {{context.spec_path}}. Scope the review to
+      changes introduced on the current branch (vs the base ref) – skip
+      packages untouched by this spec.
     outputs:
-      architecture_review_findings:
-        format: path
-        description: Workspace-relative path to the architecture review report file written by dartclaw-architecture.
-      architecture-review.findings_count:
-        format: json
-        schema: non-negative-integer
-        description: Number of architecture findings; combined with integrated-review.findings_count to gate the remediation loop.
-      architecture-review.gating_findings_count:
-        format: json
-        schema: non-negative-integer
-        description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
+      architecture_review_findings: review_report_path
+      architecture-review.findings_count: findings_count
+      architecture-review.gating_findings_count: gating_findings_count
 
-  # Iterate remediation until re-review reports a clean result or the loop is exhausted.
-  # The remediation skill is responsible for running analysis/tests/linting on its
-  # edits; re-review inspects the outcome and gates loop exit.
+  - id: review-aggregate
+    name: Aggregate Review Findings
+    type: aggregate-reviews
+    aggregateReviews: [integrated-review, architecture-review]
+    outputs:
+      review_findings: review_report_path
+      findings_count: findings_count
+      gating_findings_count: gating_findings_count
+
   - id: remediation-loop
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    entryGate: "integrated-review.gating_findings_count > 0 || architecture-review.gating_findings_count > 0"
-    exitGate: "re-review.gating_findings_count == 0"
+    entryGate: "gating_findings_count > 0"
+    exitGate: "gating_findings_count == 0"
     steps:
-      # Apply fixes for each current findings report. dartclaw-remediate-findings
-      # accepts exactly one report path or URL per invocation.
       - id: remediate
         name: Remediate Findings
-        skill: dartclaw-remediate-findings
-        entryGate: "integrated-review.gating_findings_count > 0 || re-review.gating_findings_count > 0"
-        inputs: [project_index, spec_path, review_findings]
+        skill: andthen:remediate-findings
+        entryGate: "gating_findings_count > 0"
+        inputs: [spec_path, review_findings]
         prompt: "--auto {{context.review_findings}}"
         outputs:
-          remediation_summary:
-            format: text
-            schema: remediation-summary
-          diff_summary:
-            format: text
-            schema: diff-summary
+          remediation_summary: remediation_summary
 
-      - id: remediate-architecture
-        name: Remediate Architecture Findings
-        skill: dartclaw-remediate-findings
-        entryGate: "architecture-review.gating_findings_count > 0 && loop.remediation-loop.iteration == 1"
-        inputs: [project_index, spec_path, architecture_review_findings]
-        prompt: "--auto {{context.architecture_review_findings}}"
-        outputs:
-          architecture_remediation_summary:
-            format: text
-            schema: remediation-summary
-          architecture_diff_summary:
-            format: text
-            schema: diff-summary
-
-      # Re-check the remediated implementation against the specification baseline.
       - id: re-review
         name: Re-review Gaps
-        skill: dartclaw-review
-        # File-backed review: later remediation iterations consume this report path.
+        skill: andthen:review
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-        inputs: [project_index, spec_path, remediation_summary, diff_summary, architecture_remediation_summary, architecture_diff_summary]
-        prompt: '--mode mixed --auto --output-dir "{{workflow.runtime_artifacts_dir}}/reviews" Review implementation of {{context.spec_path}}, i.e. all the changes in the current branch.'
+        inputs: [spec_path, remediation_summary]
+        prompt: >-
+          --mode mixed --auto
+          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          Review implementation of {{context.spec_path}},
+          i.e. all the changes in the current branch.
         outputs:
-          review_findings:
-            format: path
-            description: Absolute path to the integrated review report file written by dartclaw-review in the --output-dir directory.
-          re-review.findings_count:
-            format: json
-            schema: non-negative-integer
-            description: Number of remaining issues after this re-review; 0 exits the remediation loop.
-          re-review.gating_findings_count:
-            format: json
-            schema: non-negative-integer
-            description: "Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain — the remediation loop reads this field to decide whether to iterate."
+          review_findings: review_report_path
+          findings_count: findings_count
+          gating_findings_count: gating_findings_count

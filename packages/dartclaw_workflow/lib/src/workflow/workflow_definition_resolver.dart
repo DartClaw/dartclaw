@@ -1,4 +1,5 @@
-import 'package:dartclaw_models/dartclaw_models.dart';
+import '../skills/skill_info.dart' show SkillInfo;
+import 'workflow_definition.dart';
 
 import 'skill_registry.dart';
 import 'step_config_resolver.dart' show globMatchStepId;
@@ -92,7 +93,8 @@ class WorkflowDefinitionResolver {
 
     // 2. Skill default_prompt / default_outputs from frontmatter.
     final skill = step.skill;
-    final skillInfo = (skill != null) ? _skillRegistry?.getByName(skill) : null;
+    final resolvedProvider = step.provider ?? matched?.provider;
+    final skillInfo = (skill != null) ? _skillInfoFor(skill, resolvedProvider) : null;
     final skillDefaultPrompt = skillInfo?.defaultPrompt;
     final skillDefaultOutputs = skillInfo?.defaultOutputs;
 
@@ -114,39 +116,29 @@ class WorkflowDefinitionResolver {
       resolvedOutputs = {...skillDefaultOutputs, ...resolvedOutputs};
     }
 
-    return WorkflowStep(
-      id: step.id,
-      name: step.name,
-      skill: step.skill,
+    return step.copyWith(
       prompts: resolvedPrompts,
-      type: step.type,
-      provider: step.provider ?? matched?.provider,
+      provider: resolvedProvider,
       model: step.model ?? matched?.model,
       effort: step.effort ?? matched?.effort,
-      timeoutSeconds: step.timeoutSeconds,
-      parallel: step.parallel,
-      gate: step.gate,
-      entryGate: step.entryGate,
-      inputs: step.inputs,
-      extraction: step.extraction,
       outputs: resolvedOutputs,
       maxTokens: step.maxTokens ?? matched?.maxTokens,
       maxCostUsd: step.maxCostUsd ?? matched?.maxCostUsd,
       maxRetries: step.maxRetries ?? matched?.maxRetries,
       allowedTools: step.allowedTools ?? matched?.allowedTools,
-      mapOver: step.mapOver,
-      mapAlias: step.mapAlias,
-      maxParallel: step.maxParallel,
-      maxItems: step.maxItems,
-      foreachSteps: step.foreachSteps,
-      continueSession: step.continueSession,
-      onError: step.onError,
-      workdir: step.workdir,
-      onFailure: step.onFailure,
       emitsOwnOutcome: step.emitsOwnOutcome || (skillInfo?.emitsOwnOutcome ?? false),
-      autoFrameContext: step.autoFrameContext,
-      workflowVariables: step.workflowVariables,
     );
+  }
+
+  SkillInfo? _skillInfoFor(String skill, String? provider) {
+    final registry = _skillRegistry;
+    if (registry == null) return null;
+    if (provider != null) {
+      return registry.resolveRef(skill, provider)?.skill ?? registry.getByName(skill);
+    }
+    return registry.getByName(skill) ??
+        registry.resolveRef(skill, 'codex')?.skill ??
+        registry.resolveRef(skill, 'claude')?.skill;
   }
 
   /// Replaces `{{KEY}}` occurrences in [input] with the corresponding value
@@ -235,7 +227,7 @@ class WorkflowDefinitionResolver {
     if (controller.mapOver != null) entries.add(MapEntry('map_over', controller.mapOver));
     if (controller.mapAlias != null) entries.add(MapEntry('as', controller.mapAlias));
     if (controller.maxParallel != null) entries.add(MapEntry('max_parallel', controller.maxParallel));
-    if (controller.maxItems != 20) entries.add(MapEntry('max_items', controller.maxItems));
+    if (controller.maxItems != null) entries.add(MapEntry('max_items', controller.maxItems));
     if (controller.inputs.isNotEmpty) {
       entries.add(MapEntry('inputs', controller.inputs.toList()));
     }
@@ -256,8 +248,8 @@ class WorkflowDefinitionResolver {
 
   List<MapEntry<String, dynamic>> _stepToOrderedMap(WorkflowStep step) {
     final entries = <MapEntry<String, dynamic>>[MapEntry('id', step.id), MapEntry('name', step.name)];
-    if (step.type != 'agent') {
-      entries.add(MapEntry('type', step.type));
+    if (step.taskType != WorkflowTaskType.agent) {
+      entries.add(MapEntry('type', step.taskType.toJson()));
     }
     if (step.skill != null) entries.add(MapEntry('skill', step.skill));
     if (step.prompts != null) {
@@ -272,6 +264,9 @@ class WorkflowDefinitionResolver {
     if (step.gate != null) entries.add(MapEntry('gate', step.gate));
     if (step.entryGate != null) entries.add(MapEntry('entryGate', step.entryGate));
     if (step.inputs.isNotEmpty) entries.add(MapEntry('inputs', step.inputs.toList()));
+    if (step.aggregateReviews != null) {
+      entries.add(MapEntry('aggregateReviews', step.aggregateReviews!.toList()));
+    }
     if (step.extraction != null) entries.add(MapEntry('extraction', step.extraction!.toJson()));
     if (step.outputs != null && step.outputs!.isNotEmpty) {
       entries.add(MapEntry('outputs', step.outputs!.map((k, v) => MapEntry(k, v.toJson()))));
@@ -283,7 +278,7 @@ class WorkflowDefinitionResolver {
     if (step.mapOver != null) entries.add(MapEntry('map_over', step.mapOver));
     if (step.mapAlias != null) entries.add(MapEntry('as', step.mapAlias));
     if (step.maxParallel != null) entries.add(MapEntry('max_parallel', step.maxParallel));
-    if (step.maxItems != 20) entries.add(MapEntry('max_items', step.maxItems));
+    if (step.maxItems != null) entries.add(MapEntry('max_items', step.maxItems));
     // Foreach controllers are emitted via [_foreachControllerToOrderedMap]
     // (inline form with nested steps). If we reach here with a foreach
     // controller, something mis-routed — drop the stale ID list rather than

@@ -5,7 +5,7 @@ import 'package:logging/logging.dart';
 import 'map_context.dart';
 import 'workflow_context.dart';
 
-/// Resolves `{{variable}}` and `{{context.key}}` placeholders in templates.
+/// Resolves `{{variable}}` and `{{context.key}}` references in templates.
 ///
 /// Simple substitution only — no Handlebars conditionals.
 class WorkflowTemplateEngine {
@@ -19,6 +19,16 @@ class WorkflowTemplateEngine {
   /// Aliases reserved at the template level — parser must reject `as:` values
   /// that collide with these, since they already have fixed meanings.
   static const reservedMapAliases = {'map', 'context', 'workflow'};
+
+  /// Workflow system-variable keys that are valid in `{{workflow.*}}` templates.
+  static const knownWorkflowSystemVariables = {'workflow.runtime_artifacts_dir'};
+
+  final Set<String> _knownWorkflowSystemVariables;
+
+  WorkflowTemplateEngine({Set<String> knownWorkflowSystemVariableKeys = knownWorkflowSystemVariables})
+    : _knownWorkflowSystemVariables = identical(knownWorkflowSystemVariableKeys, knownWorkflowSystemVariables)
+          ? knownWorkflowSystemVariables
+          : Set.unmodifiable(knownWorkflowSystemVariableKeys);
 
   /// Resolves all template references in [template] against [context].
   ///
@@ -296,6 +306,19 @@ class WorkflowTemplateEngine {
       }
       return true;
     }).toSet();
+  }
+
+  /// Extracts all workflow system-variable references from [template].
+  Set<String> extractWorkflowSystemReferences(String template) =>
+      _pattern.allMatches(template).map((m) => m.group(1)!.trim()).where((ref) => ref.startsWith('workflow.')).toSet();
+
+  /// Returns whether [ref] names a supported workflow system variable.
+  bool isKnownWorkflowSystemVariable(String ref) => _knownWorkflowSystemVariables.contains(ref);
+
+  /// Human-readable list of supported workflow system-variable keys.
+  String get knownWorkflowSystemVariablesDescription {
+    final keys = _knownWorkflowSystemVariables.toList()..sort();
+    return keys.join(', ');
   }
 
   /// Extracts all context key references from [template].

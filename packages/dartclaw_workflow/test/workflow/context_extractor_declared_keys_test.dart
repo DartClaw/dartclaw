@@ -26,26 +26,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-String _definitionsDir() {
-  var current = Directory.current;
-  while (true) {
-    final candidates = [
-      p.join(current.path, 'lib', 'src', 'workflow', 'definitions'),
-      p.join(current.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions'),
-    ];
-    for (final candidate in candidates) {
-      if (Directory(candidate).existsSync()) return candidate;
-    }
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate workflow definitions dir');
-    }
-    current = parent;
-  }
-}
+import '_support/workflow_test_paths.dart';
 
 WorkflowDefinition _load(String fileName) {
-  final yaml = File(p.join(_definitionsDir(), fileName)).readAsStringSync();
+  final yaml = File(p.join(workflowDefinitionsDir(), fileName)).readAsStringSync();
   return WorkflowDefinitionParser().parse(yaml);
 }
 

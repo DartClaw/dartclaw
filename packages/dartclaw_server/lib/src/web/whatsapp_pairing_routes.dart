@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
@@ -9,6 +10,8 @@ import 'page_registry.dart';
 import 'sidebar_data_builder.dart';
 import 'web_utils.dart';
 import 'whatsapp_pairing.dart';
+
+final _log = Logger('whatsappPairing');
 
 /// WhatsApp pairing page and status routes.
 ///
@@ -76,9 +79,12 @@ Router whatsappPairingRoutes({
         headers: htmlHeaders,
       );
     } catch (e) {
+      // Sidecar unreachable (e.g. connection refused) — render the clean
+      // "Not Connected" setup card rather than leaking the raw exception
+      // (errno/address/port) into the UI. Log server-side for diagnosability.
+      _log.fine('GOWA status check failed: $e');
       return Response.ok(
         whatsappPairingTemplate(
-          error: 'Failed to check GOWA status: $e',
           sidebarData: sidebarData,
           navItems: pageRegistry.navItems(activePage: 'Settings'),
           fragmentOnly: fragment,

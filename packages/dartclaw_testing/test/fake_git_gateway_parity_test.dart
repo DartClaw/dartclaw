@@ -120,19 +120,18 @@ Future<_ProcessHarness> _processHarness(Map<String, String> files) async {
   final dir = Directory.systemTemp.createTempSync('fake_git_gateway_parity_');
   await _git(dir.path, ['init', '-q']);
   await _git(dir.path, ['checkout', '-qb', 'main']);
+  // Persist identity to the repo's local config so production calls running under
+  // SafeProcess's sanitized env (no GIT_AUTHOR_*, GIT_CONFIG_NOSYSTEM=1, HOME with
+  // no ~/.gitconfig on CI) still find an identity. Without this `git merge --no-ff`
+  // refuses to start on Linux runners because the resulting merge commit would
+  // have no author, so MERGE_HEAD is never created and mergeAbort then errors.
+  await _git(dir.path, ['config', 'user.name', 'DartClaw Test']);
+  await _git(dir.path, ['config', 'user.email', 'test@example.com']);
   for (final entry in files.entries) {
     File('${dir.path}/${entry.key}').writeAsStringSync(entry.value);
   }
   await _git(dir.path, ['add', '.']);
-  await _git(dir.path, [
-    '-c',
-    'user.name=DartClaw Test',
-    '-c',
-    'user.email=test@example.com',
-    'commit',
-    '-qm',
-    'initial',
-  ]);
+  await _git(dir.path, ['commit', '-qm', 'initial']);
   return _ProcessHarness(
     port: WorkflowGitPortProcess(),
     worktreePath: dir.path,
@@ -144,27 +143,11 @@ Future<void> _createConflictingBranch(String repoPath) async {
   await _git(repoPath, ['checkout', '-qb', 'feature']);
   File('$repoPath/conflict.txt').writeAsStringSync('feature');
   await _git(repoPath, ['add', 'conflict.txt']);
-  await _git(repoPath, [
-    '-c',
-    'user.name=DartClaw Test',
-    '-c',
-    'user.email=test@example.com',
-    'commit',
-    '-qm',
-    'feature change',
-  ]);
+  await _git(repoPath, ['commit', '-qm', 'feature change']);
   await _git(repoPath, ['checkout', 'main']);
   File('$repoPath/conflict.txt').writeAsStringSync('main');
   await _git(repoPath, ['add', 'conflict.txt']);
-  await _git(repoPath, [
-    '-c',
-    'user.name=DartClaw Test',
-    '-c',
-    'user.email=test@example.com',
-    'commit',
-    '-qm',
-    'main change',
-  ]);
+  await _git(repoPath, ['commit', '-qm', 'main change']);
 }
 
 Future<void> _git(String workingDirectory, List<String> args) async {

@@ -2,12 +2,15 @@ import 'dart:convert';
 
 import 'loader.dart';
 
-const _defaultLayoutScripts = ['/static/app.js'];
-const _realtimeShellScripts = ['/static/tasks.js', '/static/workflows.js'];
+const _defaultLayoutScripts = <String>[];
 
-/// Returns the standard script set for shell pages that render the live sidebar.
-List<String> standardShellScripts([List<String> pageScripts = const []]) {
-  return <String>[..._defaultLayoutScripts, ..._realtimeShellScripts, ...pageScripts];
+/// Returns the per-page script set appended to [layoutTemplate]'s scripts block.
+///
+/// Returns an empty list today: the shell scripts (Stimulus bootstrap, vendored libs)
+/// are loaded directly from `layout.html`. The seam is kept so a future page can opt
+/// into an extra script without re-plumbing every caller.
+List<String> standardShellScripts() {
+  return <String>[..._defaultLayoutScripts];
 }
 
 /// Full HTML document wrapper. [title] is auto-escaped by Trellis (`tl:text`);

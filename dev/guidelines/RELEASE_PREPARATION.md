@@ -2,7 +2,7 @@
 
 Run `bash dev/tools/release_check.sh` before tagging — it runs the automated gates as one command: exported bundle cleanup (`dev/bundle/` and legacy transient export paths must be empty; see `dev/state/SPEC-LIFECYCLE.md`), version pin lockstep (`check_versions.sh`), `dart format --line-length=120 --set-exit-if-changed`, `dart analyze --fatal-warnings --fatal-infos`, and `dart test`. Use `--quick` to skip the test suite during iteration. The script's manual gates (still required before tagging) are:
 - `dart test -t integration`
-- UI smoke test: `bash dev/testing/profiles/smoke-test/run.sh` (requires a running dev server)
+- UI smoke test: `bash dev/testing/profiles/plain/run.sh` (requires a running dev server)
 
 Then bump in a single commit:
 - `dartclawVersion` in `packages/dartclaw_server/lib/src/version.dart`

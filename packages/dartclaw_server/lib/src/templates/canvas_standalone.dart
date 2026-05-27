@@ -1,6 +1,7 @@
 import 'loader.dart';
 
 /// Renders the public share-token canvas page.
+// Intentional architectural exception: standalone document with nonce-based CSP and no shell bootstrap.
 String canvasStandaloneTemplate({
   required String token,
   required String permission,

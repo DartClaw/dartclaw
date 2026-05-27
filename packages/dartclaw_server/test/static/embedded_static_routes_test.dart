@@ -22,7 +22,7 @@ void main() {
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_static_test_');
     final staticDir = Directory(p.join(tempDir.path, 'static'))..createSync(recursive: true);
-    File(p.join(staticDir.path, 'app.js')).writeAsStringSync('console.log("filesystem");');
+    File(p.join(staticDir.path, 'fixture.js')).writeAsStringSync('console.log("filesystem");');
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
     worker = FakeAgentHarness();
@@ -42,8 +42,8 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  test('GET /static/app.js serves filesystem bytes with the cache header', () async {
-    final response = await server.handler(Request('GET', Uri.parse('http://localhost/static/app.js')));
+  test('GET /static/fixture.js serves filesystem bytes with the cache header', () async {
+    final response = await server.handler(Request('GET', Uri.parse('http://localhost/static/fixture.js')));
 
     expect(response.statusCode, equals(200));
     expect(response.headers['content-type'], startsWith('text/javascript'));

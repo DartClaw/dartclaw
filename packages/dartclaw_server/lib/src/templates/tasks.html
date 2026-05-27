@@ -2,7 +2,7 @@
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
   <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
-    <div class="page-inner" id="tasks-content">
+    <div class="page-inner" id="tasks-content" data-controller="dc-tasks">
 
       <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
 

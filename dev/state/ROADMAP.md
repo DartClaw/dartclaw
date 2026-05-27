@@ -4,15 +4,9 @@
 
 ## Active Milestone
 
-### 0.16.6 — Web UI Stimulus Adoption (Active)
+### 0.16.6 — Web UI Stimulus Adoption (Release-ready, awaiting tag)
 
-Standardize the browser interaction layer on Stimulus across the Web UI while preserving HTMX + Trellis and the zero-Node toolchain. Covers shared shell behavior, page/controller migration across the main browser surfaces, legacy page-global pattern removal, and post-migration doc/spec synchronization.
-
-## Planned
-
-### 0.17 — Personal AI & Developer Experience (Planned)
-
-Structured `USER.md` identity context, conversational onboarding bootstrapping, inbox-drop knowledge ingestion, LLM-maintained knowledge wiki, temporal knowledge graph (SQLite-based structured facts with time-validity), guard config editor, SDK docs Phase 2, chat input redesign (composable input, slash command palette, file attachments, @-mention context references), interrupted-turn retry UX, automated kill/restart crash-recovery validation.
+Stimulus is now the standard browser interaction layer across the Web UI while HTMX + Trellis remain the rendering/request foundation and the zero-Node toolchain is preserved. Shared shell behavior, core pages, special surfaces, and migrated browser interactions now use `dc-*` Stimulus controllers with the legacy page-global model removed as the primary path. The private 0.17 chat-composer FIS and contributor-facing architecture/guidelines were synced to the migrated controller model.
 
 Backlog migrations from 0.16.5 close-out triage:
 - TD-020: Reply-to-bot gating with GOWA v8 `replied_to_id` tracking.
@@ -25,6 +19,12 @@ Backlog migrations from 0.16.5 close-out triage:
 - TD-079: Output-contract inference from `outputs:` declarations.
 - TD-080: Agent-resolved-merge v2 cluster: pause escalation, conflict review UI, default-on rollout.
 - TD-084: Foreach/map empty-collection policy (`onEmpty`) for misconfigured upstream outputs.
+
+## Planned
+
+### 0.17 — Personal AI & Developer Experience (Planned)
+
+Structured `USER.md` identity context, conversational onboarding bootstrapping, inbox-drop knowledge ingestion, LLM-maintained knowledge wiki, temporal knowledge graph (SQLite-based structured facts with time-validity), guard config editor, SDK docs Phase 2, chat input redesign (composable input, slash command palette, file attachments, @-mention context references), interrupted-turn retry UX, automated kill/restart crash-recovery validation.
 
 ### 0.18 — Provider Harness Expansion (Planned)
 

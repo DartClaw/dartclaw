@@ -1,0 +1,98 @@
+# DartClaw — Visual Validation Testing Config
+# Usage: bash dev/testing/profiles/visual/run.sh
+
+port: 3338
+
+gateway:
+  auth_mode: token
+
+guards:
+  enabled: true
+
+# Channels are enabled in unpaired/disconnected state so the channel UI
+# surfaces (sidebar entry, /settings cards, /settings/channels/<type> detail
+# pages, /whatsapp/pairing, /signal/pairing) render their unconfigured/
+# disconnected look. The underlying binaries (gowa, signal-cli) and
+# Google Chat credentials are intentionally unavailable - channel
+# construction succeeds (constructors are pure data), but connect() fails
+# under ChannelManager.connectAll() try/catch and the channels remain
+# disconnected. Do NOT use this profile for actual channel E2E - that is
+# what the `channels` profile is for.
+channels:
+  whatsapp:
+    enabled: true
+    gowa_executable: whatsapp           # placeholder; binary intentionally absent
+    gowa_host: 127.0.0.1
+    gowa_port: 3001
+    dm_access: pairing
+    group_access: disabled
+    require_mention: true
+    mention_patterns:
+      - '@DartClaw'
+      - '@bot'
+    max_chunk_size: 4000
+
+  signal:
+    enabled: true
+    executable: signal-cli              # placeholder; binary intentionally absent
+    host: 127.0.0.1
+    port: 8080
+    phone_number: "+15551234567"        # placeholder; not used until pairing
+    dm_access: pairing
+    group_access: disabled
+
+  google_chat:
+    enabled: true
+    # service_account intentionally omitted - channel construction fails to
+    # resolve credentials and the channel object stays null, but the settings
+    # card still renders Google Chat as configured-but-not-connected because
+    # the settings page reads enabled-ness from config, not from channel.
+    audience:
+      type: app-url
+      value: https://visual.example.invalid/integrations/googlechat
+    dm_access: pairing
+    group_access: disabled
+    require_mention: true
+
+scheduling:
+  heartbeat:
+    enabled: false
+  jobs:
+    - name: daily-summary
+      schedule: 0 9 * * *
+      prompt: Summarize yesterday's key events and tasks.
+      delivery: announce
+    - name: test-job
+      schedule: 0 9 * * *
+      type: prompt
+      delivery: announce
+      prompt: Daily test prompt
+
+automation:
+  scheduled_tasks:
+    - id: visual-review-seed
+      schedule: "0 9 * * 1-5"
+      enabled: true
+      task:
+        title: Visual review seed task
+        description: Keep the task system visible for visual validation.
+        type: research
+        acceptance_criteria: The task detail page renders a stable seeded review flow.
+        auto_start: false
+
+projects:
+  visual-demo:
+    remote: git@github.com:DartClaw/workflow-test-todo-app.git
+    branch: main
+
+canvas:
+  enabled: true
+
+workspace:
+  git_sync:
+    enabled: false
+
+logging:
+  level: FINE
+governance: {budget: {daily_tokens: 500000}, loop_detection: {enabled: true}}
+features: {thread_binding: {enabled: true}}

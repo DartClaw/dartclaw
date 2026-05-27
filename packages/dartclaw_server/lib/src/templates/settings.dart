@@ -105,10 +105,5 @@ String settingsTemplate({
     'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
-  return layoutTemplate(
-    title: 'Settings',
-    body: body,
-    appName: appName,
-    scripts: standardShellScripts(const ['/static/settings.js']),
-  );
+  return layoutTemplate(title: 'Settings', body: body, appName: appName, scripts: standardShellScripts());
 }

@@ -21,6 +21,9 @@ guards:
   enabled: true
 
 providers:
+  claude:
+    executable: claude
+    pool_size: 1
   codex:
     executable: codex
     pool_size: 3
@@ -30,13 +33,13 @@ providers:
 workflow:
   defaults:
     workflow:
-      model: codex/gpt-5.3-codex
+      model: codex/gpt-5.5
       effort: medium
     planner:
       model: codex/gpt-5.5
       effort: xhigh
     executor:
-      model: codex/gpt-5.3-codex
+      model: codex/gpt-5.5
       effort: medium
     reviewer:
       model: codex/gpt-5.5

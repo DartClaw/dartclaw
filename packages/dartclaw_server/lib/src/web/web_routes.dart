@@ -469,23 +469,14 @@ Router webRoutes(
       } else {
         final channel = googleChatChannel;
         final dmAccess = channel?.dmAccess;
-        final String statusLabel;
-        final String statusClass;
-        if (channel == null) {
-          statusLabel = 'Not configured';
-          statusClass = 'warn';
-        } else if (channel.config.enabled) {
-          statusLabel = 'Connected';
-          statusClass = 'ok';
-        } else {
-          statusLabel = 'Disconnected';
-          statusClass = 'warn';
-        }
+        final googleChatConfig =
+            config?.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat) ?? const GoogleChatConfig.disabled();
+        final status = googleChatChannelStatus(channel, enabledInConfig: googleChatConfig.enabled);
         final page = channelDetailTemplate(
           channelType: 'google_chat',
           channelLabel: 'Google Chat',
-          statusLabel: statusLabel,
-          statusClass: statusClass,
+          statusLabel: status.label,
+          statusClass: status.badgeClass,
           dmAccessMode: dmAccess?.mode.name ?? 'disabled',
           dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
           dmAllowlist: dmAccess?.allowlist.toList() ?? const [],

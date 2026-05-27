@@ -40,6 +40,7 @@ void main() {
 
     expect(html, contains('data-task-start'));
     expect(html, contains('Start Task'));
+    expect(html, contains('data-controller="dc-tasks"'));
   });
 
   test('renders provider badge in the task meta grid', () {

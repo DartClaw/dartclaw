@@ -136,7 +136,8 @@ void main() {
     final assetEntries = _tarEntries(assetArchive);
     expect(platformEntries, contains('bin/dartclaw'));
     expect(platformEntries, contains('share/dartclaw/templates/layout.html'));
-    expect(platformEntries, contains('share/dartclaw/static/app.js'));
+    expect(platformEntries, contains('share/dartclaw/static/stimulus.min.js'));
+    expect(platformEntries, contains('share/dartclaw/static/controllers/index.js'));
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-discover-andthen-spec/SKILL.md'));
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-discover-andthen-plan/SKILL.md'));
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-validate-workflow/SKILL.md'));
@@ -147,7 +148,8 @@ void main() {
 
     expect(assetEntries, isNot(contains('bin/dartclaw')));
     expect(assetEntries, contains('templates/layout.html'));
-    expect(assetEntries, contains('static/app.js'));
+    expect(assetEntries, contains('static/stimulus.min.js'));
+    expect(assetEntries, contains('static/controllers/index.js'));
     expect(assetEntries, contains('skills/dartclaw-discover-andthen-spec/SKILL.md'));
     expect(assetEntries, contains('skills/dartclaw-discover-andthen-plan/SKILL.md'));
     expect(assetEntries, contains('skills/dartclaw-validate-workflow/SKILL.md'));
@@ -212,7 +214,8 @@ void main() {
     expect(installPath, p.join(tempHome.path, '.dartclaw', 'assets', 'v$dartclawVersion'));
     expect(stderrLines.single, startsWith('Downloading assets for v$dartclawVersion ('));
     expect(File(p.join(installPath, 'templates', 'layout.html')).existsSync(), isTrue);
-    expect(File(p.join(installPath, 'static', 'app.js')).existsSync(), isTrue);
+    expect(File(p.join(installPath, 'static', 'stimulus.min.js')).existsSync(), isTrue);
+    expect(File(p.join(installPath, 'static', 'controllers', 'index.js')).existsSync(), isTrue);
     expect(File(p.join(installPath, 'skills', 'dartclaw-discover-andthen-spec', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(installPath, 'skills', 'dartclaw-discover-andthen-plan', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(installPath, 'workflows', 'plan-and-implement.yaml')).existsSync(), isTrue);

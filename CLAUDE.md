@@ -67,6 +67,7 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Ubiquitous language | `dev/state/UBIQUITOUS_LANGUAGE.md` | Domain glossary – use these terms in code, docs, naming |
 | Tech debt backlog | `dev/state/TECH-DEBT-BACKLOG.md` | Known debt requiring requirements input or architecture decision |
 | Spec lifecycle | `dev/state/SPEC-LIFECYCLE.md` | When exported implementation bundle files appear or disappear |
+| Design system | `dev/design-system/DESIGN.md` (+ `tokens.css`, `components.css`, `icons.css`, `showcase.html`) | Single source of truth for visual design. YAML frontmatter follows the [DESIGN.md spec](https://github.com/google-labs-code/design.md). Read before any UI/CSS/template work. |
 | Implementation bundle specs | `dev/bundle/docs/specs/` | Transient PRD/plan/FIS copies for public workflow runs; canonical in private |
 | Implementation bundle docs | `dev/bundle/docs/` | Transient support docs copied with private `docs/` layout preserved |
 | Changelog | `CHANGELOG.md` | Shipped history per release |
@@ -124,6 +125,7 @@ Read relevant guidelines before coding, architecture, UX/UI, or review work:
 - _`dev/guidelines/HTMX-GUIDELINES.md`_ – HTMX usage patterns, attributes, server-side rendering best practices, streaming updates, error handling, security considerations
 - _`dev/guidelines/TRELLIS-GUIDELINES.md`_ – Trellis template usage, escaping rules, fragment patterns, integration with HTMX, security best practices
 - _`dev/guidelines/TESTING-STRATEGY.md`_ – Test philosophy, four-layer pyramid, async patterns, coverage guidance, shared fakes, anti-patterns. **Read before writing tests**
+- _`dev/design-system/DESIGN.md`_ – Design system: tokens (YAML frontmatter, [DESIGN.md spec](https://github.com/google-labs-code/design.md)), surface ladder, container taxonomy, components, icons. **Read before any UI/CSS/template work**
 
 
 ---
@@ -134,7 +136,8 @@ Read relevant guidelines before coding, architecture, UX/UI, or review work:
 The `andthen:visual-validation` skill auto-reads this `## Visual Validation Workflow` section first; follow the linked references.
 
 - `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` – full conventions for visual validation
-- `dev/testing/UI-SMOKE-TEST.md` – test cases TC-01…TC-31. Run via `bash dev/testing/profiles/smoke-test/run.sh`. Trigger: _"Run the UI smoke test"_
+- `dev/testing/UI-SMOKE-TEST.md` – test cases TC-01…TC-31. Run via `bash dev/testing/profiles/plain/run.sh`. Trigger: _"Run the UI smoke test"_
+- `dev/testing/README.md` – testing profiles (`plain`, `channels`, `governance`, `visual`, `workflows`) and AI-native scenarios (`dev/testing/scenarios/`)
 
 
 ---

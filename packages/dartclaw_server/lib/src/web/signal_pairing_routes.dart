@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:logging/logging.dart';
 import 'package:qr/qr.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -8,6 +9,8 @@ import 'page_registry.dart';
 import 'sidebar_data_builder.dart';
 import 'signal_pairing.dart';
 import 'web_utils.dart';
+
+final _log = Logger('signalPairing');
 
 /// Signal pairing page and registration routes.
 ///
@@ -54,7 +57,11 @@ Router signalPairingRoutes({
         showReconnecting = true;
       }
     } catch (e) {
-      templateError = 'Failed to check signal-cli status: $e';
+      // Sidecar unreachable / status probe failed — fall through to the clean
+      // "signal-cli Not Reachable" setup card (templateError stays as the
+      // request's ?error= value, if any) rather than leaking the raw exception
+      // into the UI. Log server-side for diagnosability.
+      _log.fine('signal-cli status check failed: $e');
     }
 
     final html = signalPairingTemplate(

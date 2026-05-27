@@ -45,15 +45,15 @@
         </div>
 
         <!-- QR code state -->
-        <div tl:if="${showQr}" class="wa-section wa-qr-section" tl:attr="data-qr-duration=${qrDuration}">
+        <div tl:if="${showQr}" class="wa-section wa-qr-section" data-controller="dc-whatsapp" tl:attr="data-dc-whatsapp-qr-duration-value=${qrDuration}">
           <div class="wa-section-title">Connect WhatsApp</div>
 
           <!-- Active QR (hidden when expired by JS). -->
-          <div class="wa-qr-active">
+          <div class="wa-qr-active" data-dc-whatsapp-target="active">
             <div class="wa-qr-wrapper">
               <div class="wa-qr-frame">
-                <img tl:attr="src=${qrImageUrl}" alt="QR Code" class="wa-qr-img">
-                <div class="wa-qr-placeholder">[ QR Code ]</div>
+                <img tl:attr="src=${qrImageUrl}" alt="QR Code" class="wa-qr-img" data-dc-whatsapp-target="qrImage">
+                <div class="wa-qr-placeholder" data-dc-whatsapp-target="qrPlaceholder">[ QR Code ]</div>
               </div>
               <p class="wa-hint">Scan this QR code with WhatsApp on your phone</p>
             </div>
@@ -79,7 +79,7 @@
               </div>
             </div>
 
-            <div class="wa-expiry-timer">Expires in <span class="wa-countdown">--:--</span></div>
+            <div class="wa-expiry-timer">Expires in <span class="wa-countdown" data-dc-whatsapp-target="countdown">--:--</span></div>
 
             <!-- Lightweight poll: 204 while waiting, full page swap on connect. -->
             <div class="wa-status-row"
@@ -91,7 +91,7 @@
           </div>
 
           <!-- Expired state (shown by JS when countdown reaches 0) -->
-          <div class="wa-qr-expired" style="display:none;">
+          <div class="wa-qr-expired" data-dc-whatsapp-target="expired" style="display:none;">
             <div class="wa-expired-icon">&#9203;</div>
             <div class="wa-expired-title">QR Code Expired</div>
             <p class="wa-expired-text">The QR code has expired. Generate a new one to continue pairing.</p>

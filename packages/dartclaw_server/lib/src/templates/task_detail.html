@@ -2,7 +2,8 @@
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
   <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
-    <div class="page-inner task-detail-page" id="tasks-content" tl:attr="data-task-id=${taskId}">
+    <div class="page-inner task-detail-page" id="tasks-content" data-controller="dc-tasks"
+         tl:attr="data-task-id=${taskId}">
 
       <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
 
@@ -170,9 +171,9 @@
       </div>
 
       <div tl:if="${isReview}" class="task-review-bar">
-        <button type="button" class="btn btn-accept" data-action="accept">Accept</button>
-        <button type="button" class="btn btn-reject" data-action="reject">Reject</button>
-        <button type="button" class="btn btn-pushback" data-action="push_back">Push Back</button>
+        <button type="button" class="btn btn-accept">Accept</button>
+        <button type="button" class="btn btn-reject">Reject</button>
+        <button type="button" class="btn btn-pushback">Push Back</button>
         <div class="pushback-comment" style="display:none">
           <textarea id="pushback-comment" class="form-input" rows="2"
                     placeholder="Explain what needs to change..."></textarea>

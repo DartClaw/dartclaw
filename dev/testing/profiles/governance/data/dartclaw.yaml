@@ -1,0 +1,52 @@
+# DartClaw — Governance Testing Config
+# Tight governance limits for integration/scenario testing
+# Usage: bash dev/testing/profiles/governance/run.sh
+#
+# Auth token:
+#   Gateway token: devtoken0
+#
+# This profile uses a single gateway token via data/gateway_token.
+# It is suitable for global governance and budget-warning scenarios.
+# The companion run.sh script seeds the current UTC day to 8,000 tokens used
+# so the first turn can deterministically emit a budget warning.
+# Per-sender rate limiting is better covered by automated tests than by this profile.
+
+port: 3337
+
+gateway:
+  auth_mode: token
+
+guards:
+  enabled: true
+
+governance:
+  rate_limits:
+    global:
+      turns: 5
+      window: 1   # minutes
+    per_sender:
+      messages: 3
+      window: 1   # minutes
+  budget:
+    daily_tokens: 10000
+    action: warn
+    timezone: UTC
+  loop_detection:
+    enabled: true
+    max_consecutive_turns: 5
+    action: warn
+
+scheduling:
+  heartbeat:
+    enabled: false
+
+workspace:
+  git_sync:
+    enabled: false
+
+logging:
+  level: FINE
+
+features:
+  thread_binding:
+    enabled: true

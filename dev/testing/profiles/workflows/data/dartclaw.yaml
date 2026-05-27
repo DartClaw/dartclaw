@@ -1,0 +1,79 @@
+# DartClaw — Workflow Testing Config
+# Usage: bash dev/testing/profiles/workflows/run.sh           (start server)
+#        bash dev/testing/profiles/workflows/run.sh workflow  (CLI workflow commands)
+#
+# This profile is configured for real workflow execution against the
+# dedicated workflow-test-todo-app fixture repository. The run.sh script
+# templates absolute paths for data_dir and workflow.workspace_dir at launch
+# time.
+
+port: 3333
+data_dir: "__DATA_DIR__"
+
+agent:
+  provider: codex
+  model: gpt-5.4
+
+gateway:
+  auth_mode: token
+
+guards:
+  enabled: true
+
+providers:
+  codex:
+    executable: codex
+    pool_size: 3
+    approval: never
+    sandbox: danger-full-access
+
+credentials:
+  openai:
+    api_key: ${CODEX_API_KEY}
+  github-main:
+    type: github-token
+    token: ${GITHUB_TOKEN}
+    repository: DartClaw/workflow-test-todo-app
+
+workflow:
+  workspace_dir: "__WORKFLOW_WORKSPACE_DIR__"
+  defaults:
+    workflow:
+      model: codex/gpt-5.4
+    planner:
+      model: codex/gpt-5.4
+    executor:
+      model: codex/gpt-5.4-mini
+    reviewer:
+      model: codex/gpt-5-codex
+
+projects:
+  workflow-test-todo-app:
+    remote: git@github.com:DartClaw/workflow-test-todo-app.git
+    branch: main
+    credentials: github-main
+    default: true
+    pr:
+      strategy: github-pr
+      draft: true
+      labels: [workflow-test]
+
+workspace:
+  git_sync:
+    enabled: false
+
+logging:
+  level: FINE
+
+governance:
+  budget:
+    daily_tokens: 5000000   # 5M — enough for multi-step plan-and-implement
+  loop_detection:
+    enabled: true
+
+tasks:
+  completion_action: accept
+
+features:
+  thread_binding:
+    enabled: true

@@ -1,4 +1,4 @@
-<div tl:fragment="memoryDashboard" class="shell">
+<div tl:fragment="memoryDashboard" class="shell" data-controller="dc-memory">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
   <div tl:utext="${topbar}"><!-- topbar --></div>
   <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
@@ -108,7 +108,7 @@
           <p tl:unless="${hasPrunerHistory}" class="card-detail card-detail-muted card-subsection">No prune runs recorded yet</p>
 
           <div class="card-actions">
-            <button class="btn btn-ghost" data-action="confirm-prune">Prune Now</button>
+            <button class="btn btn-ghost" data-action="click->dc-memory#confirmPrune">Prune Now</button>
           </div>
         </div>
 
@@ -143,14 +143,14 @@
         <h2 class="section-label">Memory Files</h2>
         <div class="card" id="memory-files-card">
           <div class="tab-bar" role="tablist">
-            <button class="tab-btn active" data-action="switch-tab" data-tab="tab-memory" role="tab" aria-selected="true" aria-controls="tab-memory">MEMORY.md</button>
-            <button class="tab-btn" data-action="switch-tab" data-tab="tab-errors" role="tab" aria-selected="false" aria-controls="tab-errors">errors.md</button>
-            <button class="tab-btn" data-action="switch-tab" data-tab="tab-learnings" role="tab" aria-selected="false" aria-controls="tab-learnings">learnings.md</button>
-            <button class="tab-btn" data-action="switch-tab" data-tab="tab-archive" role="tab" aria-selected="false" aria-controls="tab-archive">Archive</button>
+            <button class="tab-btn active" data-action="click->dc-memory#switchTab" data-tab="tab-memory" role="tab" aria-selected="true" aria-controls="tab-memory">MEMORY.md</button>
+            <button class="tab-btn" data-action="click->dc-memory#switchTab" data-tab="tab-errors" role="tab" aria-selected="false" aria-controls="tab-errors">errors.md</button>
+            <button class="tab-btn" data-action="click->dc-memory#switchTab" data-tab="tab-learnings" role="tab" aria-selected="false" aria-controls="tab-learnings">learnings.md</button>
+            <button class="tab-btn" data-action="click->dc-memory#switchTab" data-tab="tab-archive" role="tab" aria-selected="false" aria-controls="tab-archive">Archive</button>
             <div class="tab-header-actions">
               <div class="toggle-btn-group">
-                <button class="toggle-btn active" data-action="toggle-view" data-mode="raw">Raw</button>
-                <button class="toggle-btn" data-action="toggle-view" data-mode="rendered">Rendered</button>
+                <button class="toggle-btn active" data-action="click->dc-memory#toggleView" data-mode="raw">Raw</button>
+                <button class="toggle-btn" data-action="click->dc-memory#toggleView" data-mode="rendered">Rendered</button>
               </div>
             </div>
           </div>

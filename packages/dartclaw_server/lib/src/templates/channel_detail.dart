@@ -98,12 +98,7 @@ String channelDetailTemplate({
     'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
-  return layoutTemplate(
-    title: '$channelLabel Channel',
-    body: body,
-    appName: appName,
-    scripts: standardShellScripts(const ['/static/settings.js']),
-  );
+  return layoutTemplate(title: '$channelLabel Channel', body: body, appName: appName, scripts: standardShellScripts());
 }
 
 const _dmModeHelp = <String, String>{

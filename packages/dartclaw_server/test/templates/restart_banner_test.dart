@@ -16,8 +16,7 @@ void main() {
       expect(html, contains('agent.model, port'));
       expect(html, contains('Restart Now'));
       expect(html, contains('Dismiss'));
-      expect(html, contains('data-action="confirm-restart"'));
-      expect(html, contains('data-action="dismiss-restart-banner"'));
+      expect(html, isNot(contains('data-dc-legacy-action')));
     });
 
     test('with empty fields returns empty string', () {

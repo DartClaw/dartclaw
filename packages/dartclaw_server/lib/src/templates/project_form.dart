@@ -1,7 +1,7 @@
 /// Returns HTML for the "Add Project" dialog element.
 ///
 /// Rendered as a `<dialog>` that can be opened via `showModal()`.
-/// Form submission is handled by the static task JS module.
+/// Form submission is handled by the active Stimulus project/task controller.
 String addProjectDialogHtml() {
   return '''
 <dialog id="add-project-dialog" class="task-dialog">

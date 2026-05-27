@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.16.6] - 2026-05-27
+
+Web UI Stimulus Adoption – the browser interaction layer is now Stimulus-on-HTMX. Every page-global IIFE (`dartclaw.pages.*`) has been replaced by one Stimulus controller per surface; HTMX swap re-init is now handled by Stimulus `connect()`/`disconnect()` instead of the manual `initAfterSwapReinit()` path. Server rendering (Trellis + HTMX), CSP (`script-src` unchanged, no `unsafe-eval`), and the zero-Node toolchain are preserved – Stimulus 3.2.2 is vendored as a single `/static/stimulus.min.js` file. Milestone closed on 2026-05-26 across four stories: S01 foundation, S02 core migration, S04 special surfaces + legacy removal, S05 docs/spec sync + final UI smoke (all eight migrated surfaces verified). See `dev/specs/0.16.6/` in the private repo for the canonical PRD + plan + per-story FIS.
+
+### Added
+
+- **Stimulus runtime** vendored at `packages/dartclaw_server/lib/src/static/stimulus.min.js` (3.2.2, UMD bundle from `unpkg.com/@hotwired/stimulus@3.2.2/dist/stimulus.umd.js`) and loaded from `layout.html` with a `defer` `<script>` tag. `packages/dartclaw_server/lib/src/static/VENDORS.md` documents version and re-vendor procedure.
+- **Controller bootstrap** at `packages/dartclaw_server/lib/src/static/controllers/index.js` – calls `Application.start()` once and explicitly `application.register('dc-name', ControllerClass)` for every controller. No lazy/autoloader registration; available controllers are auditable in one file. The `Application` instance is exposed as `window.dartclaw.stimulus` for DevTools (`Stimulus.debug = true`).
+- **Controller conventions** at `packages/dartclaw_server/lib/src/static/controllers/CONVENTIONS.md` – locks the `dc-*` identifier prefix, `dc_*_controller.js` filename pattern, explicit `application.register()`, template attribute family (`data-controller`, `data-action="event->dc-name#method"`, `data-dc-name-target`, `data-dc-name-*-value`), Stimulus `connect()`/`disconnect()` lifecycle (replaces `runPageHook` / `initAfterSwapReinit`), and Trellis (`tl:attr`) integration patterns.
+- **14 Stimulus controllers** under `packages/dartclaw_server/lib/src/static/controllers/` covering every page surface with JS behaviour: `dc-shell` (global shell), `dc-chat`, `dc-tasks`, `dc-workflows`, `dc-projects`, `dc-settings`, `dc-scheduling`, `dc-memory`, `dc-health`, `dc-channel-detail`, `dc-whatsapp`, `dc-canvas-admin`, `dc-toast`, plus the `dc-hello` proof-of-concept that validated the connect/disconnect contract across load, HTMX swap, and removal.
+- **Shared controller helpers** under `static/controllers/` carry reusable UI utilities and running-sidebar rendering without reintroducing a page-global shell script.
+
+### Changed
+
+- **Stimulus owns the `data-action` namespace** – legacy delegated-action attributes were retired after migration, and templates now use Stimulus-format `data-action="event->dc-name#method"` where browser behavior is needed.
+- **All page templates moved to Stimulus attributes** – `chat.html`, `tasks.html`, `workflow_list.html`, `projects.html`, `settings.html`, `scheduling.html`, `memory_dashboard.html`, `health_dashboard.html`, `channel_detail.html`, `whatsapp_pairing.html`, `canvas_admin_panel.html`, plus shell fragments (`layout.html`, `sidebar.html`, `topbar.html`, `restart_banner.html`, `components.html`). Behaviour is preserved; only the wiring changed.
+- **`app.js` removed from the shell path** – shell, chat, restart, custom-select, session, and shared utility behavior moved into Stimulus controller modules.
+- **HTMX swap re-initialization** is now an implicit consequence of Stimulus controller `connect()`. Pages no longer rely on the `initAfterSwapReinit()` global or the page-global `runPageHook` pattern as the primary lifecycle path.
+- **CSP unchanged** – `security_headers.dart` `script-src` was not relaxed; the vendored Stimulus bundle works under the existing policy with no `unsafe-eval` and no new origin. Verified by diff: `git diff packages/dartclaw_server/lib/src/auth/security_headers.dart` is empty.
+- **Canvas standalone left outside Stimulus** as a documented narrow exception – it is an independent document with its own nonce-based CSP and does not share `layout.html`'s bootstrap. `controllers/index.js` carries an inline comment recording the rationale.
+- **`packages/dartclaw_server/CLAUDE.md`** updated to describe the Stimulus-based interaction layer so package-scoped agents land on the current model.
+
+### Removed
+
+- **Six legacy page-global scripts deleted** – `packages/dartclaw_server/lib/src/static/{memory,scheduling,settings,tasks,whatsapp,workflows}.js`. No page depends on `dartclaw.pages.*` as its primary interaction model after this milestone.
+- **`_realtimeShellScripts` and the default shell script list retired** in `packages/dartclaw_server/lib/src/templates/layout.dart`; per-page behavior now goes through Stimulus controller registration instead of `/static/app.js`.
+- **No `package.json` / `node_modules/` / build-tool artifacts** introduced – the zero-Node toolchain is intact; Stimulus is consumed as a single vendored file.
+
+### Fixed
+
+- **Duplicate `controllers/index.js` load eliminated** (caught by the S05 UI smoke): `layout.dart`'s default script list previously included the controller module via the standard shell script set, while the layout `<head>` also loaded it as `<script type="module">`. The classic load was dropped so Stimulus boots exactly once per page.
+- **Scheduling Stimulus controller reconnected to real behavior** (caught by the S05 mixed review): the first migration pass left `dc-scheduling` delegating to the deleted `window.dartclaw.pages.scheduling` module. The controller now owns job/task form handling, cron previews, toggles, and delete confirmation directly.
+
+### Documentation
+
+- **`dev/guidelines/HTMX-GUIDELINES.md`** gained a `### Use Stimulus for browser behavior owned by DOM islands` section under *Recommended Patterns* covering the `dc-*` naming convention, the `connect()`/`disconnect()` lifecycle (replacing `initAfterSwapReinit()`), targets, values, Stimulus actions, and the HTMX-creates-and-removes-controllers-naturally rule.
+- **`dev/design-system/DESIGN.md`** and **`dev/architecture/system-architecture.md`** updated to describe the Stimulus-based Web UI layer and the controller template attribute conventions; stale references to `dartclaw.pages.*` / IIFE page modules / `loadScript()` were removed.
+- **`packages/dartclaw_server/CLAUDE.md`** updated to describe the Stimulus-based interaction layer so package-scoped agents land on the current model.
+- **`dev/state/STATE.md`** records 0.16.6 closure (completed 2026-05-26) and folds the milestone scope into *Implemented Features (through 0.16.6)*.
+
+### Verification
+
+UI smoke executed against the plain testing profile across all eight migrated surfaces (Dashboard, Chat, Tasks, Workflows, Settings, Scheduling, Memory, Health) – every surface loaded, the expected `dc-*` controller connected, and a fresh-context browser console produced no error-level messages after the duplicate-load fix. No new dart unit tests added in S05 by design – controller behaviour was already covered by per-story Verify lines in S01–S04. Net diff for the milestone: 66 files changed.
+
+---
+
 ## [0.16.5] - 2026-05-25
 
 Stabilisation & Hardening – consolidation sprint with zero new user-facing features. Closes the alert-classifier safety gap, wires 7 orphan sealed events, narrows the `dartclaw_workflow` barrel, installs 13 governance checks in CI (7 Level-1 + 6 Level-2), extracts `WorkflowRunRepository` / `WorkflowTaskBindingCoordinator` / `ProcessEnvironmentPlan` / `ClaudeSettingsBuilder` to their canonical packages, shrinks `dartclaw_models` to a true shared kernel, types four stringly-typed workflow flags as enums, renames `k`-prefix constants and `get*` service methods per Effective Dart, refreshes user docs and `AGENTS.md`, and bundles 13 tech-debt closures plus 3 explicit triage decisions into the housekeeping sweep. ADR-023 formalises the workflow↔task boundary; ADR-025 (in-flight) drops the AndThen rebranding path. 24 catalogued stories + standalone work for workflow output presets, review aggregator step, AndThen direct skill-name resolution, data-dir skill provisioning, and AndThen `plan.json` adoption. See `dev/specs/0.16.5/` in the private repo for the canonical PRD + plan + per-story FIS.

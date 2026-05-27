@@ -186,6 +186,25 @@ a:hover { text-decoration: underline; }
   .session-item .session-delete { opacity: 1; }
 }
 
+/* On desktop the archive/delete action overlays the right edge instead of
+   reserving a 44px column, so the provider badge stays flush-right and aligned
+   with the channel/main rows. Badge and action swap on hover. Mobile keeps the
+   in-flow, always-visible delete (above) so the two never overlap. */
+@media (min-width: 769px) {
+  .session-item { position: relative; }
+  .session-item .session-delete {
+    position: absolute;
+    top: 50%;
+    right: var(--sp-1);
+    transform: translateY(-50%);
+    margin: 0;
+  }
+  /* Only rows that actually have a delete button swap badge↔action; rows
+     without one (main, channels, tasks) keep their badge visible on hover. */
+  .session-item:has(.session-delete):hover .provider-badge,
+  .session-item:has(.session-delete):focus-within .provider-badge { opacity: 0; }
+}
+
 .session-item-archive { opacity: 0.7; }
 .session-item-archive:hover { opacity: 1; }
 

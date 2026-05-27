@@ -24,7 +24,7 @@
   <div tl:if="${detail}" class="msg-turn-failed-detail" tl:text="${detail}">Error detail</div>
 </div>
 
-<main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area"
+<main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area" data-controller="dc-chat"
   tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-earliest-cursor=${earliestCursor}">
   <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">banner</div>
   <div class="chat-load-earlier">
@@ -66,6 +66,6 @@
     </div>
     <div sse-swap="tool_result" hx-swap="none"></div>
     <div id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" style="display:none"
-         hx-on::after-swap="dartclaw.handleTurnError(event)"></div>
+         data-action="htmx:afterSwap->dc-chat#handleTurnError"></div>
   </div>
 </tl:block>

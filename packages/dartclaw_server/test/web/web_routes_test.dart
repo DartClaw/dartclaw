@@ -499,6 +499,37 @@ void main() {
     expect(body, contains('Configured'));
   });
 
+  test(
+    'Google Chat detail page reports Configured (not Not configured) when enabled in config but not connected',
+    () async {
+      final handler = webRoutes(
+        sessions,
+        messages,
+        config: const DartclawConfig(
+          channels: ChannelConfig(
+            channelConfigs: {
+              'google_chat': {
+                'enabled': true,
+                'require_mention': true,
+                'dm_access': 'open',
+                'group_access': 'disabled',
+              },
+            },
+          ),
+        ),
+      ).call;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/settings/channels/google_chat')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains('Google Chat'));
+      // Consistent with the settings overview card: enabled-in-config-but-no-live-channel is "Configured".
+      expect(body, contains('Configured'));
+      expect(body, isNot(contains('Not configured')));
+    },
+  );
+
   group('login routes', () {
     test('GET /login preserves next path and token hint in the form', () async {
       final res = await handler(Request('GET', Uri.parse('http://localhost/login?next=%2Ftasks&token=abc123')));

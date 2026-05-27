@@ -27,7 +27,7 @@
 ## Conventions
 - Add new dashboard pages by registering a `DashboardPage` with `PageRegistry` (`lib/src/web/page_registry.dart`). Routes must start with `/` and not collide with the reserved-route patterns (health, static, /login, channel pairing, etc.) — `register()` throws on conflict.
 - Templates are paired `.html` + `.dart` files under `lib/src/templates/` (loaded by `loader.dart`; the file names are listed in `expectedTemplates` — startup fails if missing). Use Trellis with HTML-escaped placeholders; never concatenate user data into HTML strings. Follow `dev/guidelines/HTMX-GUIDELINES.md` and `dev/guidelines/TRELLIS-GUIDELINES.md` for fragments and SSE.
-- Static assets under `lib/src/static/` are vendored — see `VENDORS.md` (highlight.js, DOMPurify, htmx-ext-sse). Don't add npm/CDN runtime fetches; upgrade by replacing files and bumping `VENDORS.md`.
+- Static assets under `lib/src/static/` are vendored where practical — see `VENDORS.md` (highlight.js, DOMPurify, htmx-ext-sse, Stimulus). Do not add new npm/CDN runtime fetches; existing pinned CDN exceptions are declared in `layout.html` and CSP.
 - Routes go under `lib/src/api/*_routes.dart` (one shelf router per domain) with helpers from `api_helpers.dart`. SSE streams use `sse_broadcast.dart` / `stream_handler.dart` — don't roll new SSE plumbing.
 - Auth resolution and base-URL handling belong in middleware/`auth/`, never inline in routes. Use `AllowlistValidator` for outbound URL gating.
 - Turn lifecycle: callers go through `TurnManager.reserve` → `TurnRunner.execute` → outcome. `BusyTurnException` is the public busy signal. Don't construct `TurnRunner` directly in routes — go through `TurnManager`.
@@ -51,6 +51,7 @@
 - `lib/src/server.dart` + `server_builder.dart` — composition root, route mounting.
 - `lib/src/web/page_registry.dart` + `lib/src/web/pages/` — dashboard page registration.
 - `lib/src/templates/loader.dart` (`expectedTemplates`) + `lib/src/templates/*.{html,dart}` — Trellis templates.
+- `lib/src/static/controllers/` — Stimulus bootstrap + controller contract (`index.js`, `CONVENTIONS.md`, `dc_*_controller.js`).
 - `lib/src/api/*_routes.dart` + `api_helpers.dart` + `sse_broadcast.dart` — HTTP/SSE surface.
 - `lib/src/turn_manager.dart` + `turn_runner.dart` + `turn_governance_enforcer.dart` + `harness_pool.dart` — turn lifecycle.
 - `lib/src/task/task_executor.dart` + `task_service.dart` + `worktree_manager.dart` + `merge_executor.dart` — task runtime + git ops.

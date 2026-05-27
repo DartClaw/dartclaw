@@ -1,4 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 
@@ -55,6 +56,18 @@ Future<ChannelStatus> signalChannelStatus(SignalChannel? channel) async {
   } catch (e) {
     return ChannelStatus.pairingNeeded;
   }
+}
+
+/// Resolves the [ChannelStatus] for the Google Chat channel.
+///
+/// Google Chat is webhook-based (no sidecar to probe): a live [channel] means
+/// connected; [enabledInConfig] without a live channel is
+/// [ChannelStatus.configured] (enabled in config but not connected); otherwise
+/// [ChannelStatus.disabled]. Shared by the settings card and the channel detail
+/// page so both surfaces report the same status.
+ChannelStatus googleChatChannelStatus(GoogleChatChannel? channel, {required bool enabledInConfig}) {
+  if (channel != null) return ChannelStatus.connected;
+  return enabledInConfig ? ChannelStatus.configured : ChannelStatus.disabled;
 }
 
 /// Renders pending DM pairing entries as JSON-ready maps for the dashboard.

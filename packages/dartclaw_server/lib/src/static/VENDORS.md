@@ -52,3 +52,19 @@ Download latest from `https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.j
 ### Upgrading
 
 Download latest from `https://unpkg.com/htmx-ext-sse@{version}/sse.js`.
+
+## Stimulus
+
+- **Version**: 3.2.2
+- **License**: MIT
+- **Source**: https://github.com/hotwired/stimulus
+
+### Files
+
+| File | Description |
+|------|-------------|
+| `stimulus.min.js` | Stimulus browser bundle served from local `/static/` |
+
+### Upgrading
+
+Download from `https://unpkg.com/@hotwired/stimulus@3.2.2/dist/stimulus.umd.js` and vendor as `stimulus.min.js`.

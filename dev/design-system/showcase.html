@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw Design System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="components.css">
+  <link rel="stylesheet" href="icons.css">
+  <style>
+    /* Showcase-only styles (not part of the design system) */
+    .showcase { padding: var(--sp-6); max-width: 1100px; margin: 0 auto; }
+    .showcase h1 { font-size: var(--text-xl); margin-bottom: var(--sp-2); }
+    .showcase .subtitle { font-size: var(--text-sm); color: var(--fg-sub0); margin-bottom: var(--sp-6); }
+    .showcase h2 {
+      font-size: var(--text-lg); margin: var(--sp-8) 0 var(--sp-3);
+      padding-bottom: var(--sp-2); border-bottom: var(--border); color: var(--fg-sub1);
+    }
+    .showcase h3 { font-size: var(--text-base); margin: var(--sp-4) 0 var(--sp-2); color: var(--fg-sub0); }
+    .showcase > p, .showcase .note { font-size: var(--text-sm); color: var(--fg-sub0); margin-bottom: var(--sp-3); }
+    .showcase .use-case { font-size: var(--text-xs); color: var(--fg-sub0); font-style: italic; margin-bottom: var(--sp-3); }
+
+    .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--sp-2); }
+    .swatch {
+      height: 48px; border-radius: var(--radius); display: flex;
+      align-items: flex-end; padding: var(--sp-1) var(--sp-2);
+      font-size: 10px; border: 1px solid color-mix(in srgb, var(--bg-surface2) 35%, transparent);
+    }
+    .swatch span { background: rgba(0,0,0,.4); color: #fff; padding: 1px 4px; border-radius: 2px; }
+
+    .type-scale > div { margin-bottom: var(--sp-2); display: flex; align-items: baseline; gap: var(--sp-3); }
+    .type-scale .label { font-size: var(--text-xs); color: var(--fg-sub0); min-width: 80px; }
+
+    .btn-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+    .toggle-row { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+    .theme-control { display: inline-flex; align-items: center; gap: var(--sp-2); }
+    .theme-control * { margin-bottom: var(--sp-2); }
+    .theme-control #theme-label { display: inline-flex; align-items: center; line-height: 1; }
+    .depth-demo { display: flex; gap: 2px; height: 48px; border-radius: var(--radius-lg); overflow: hidden; margin-bottom: var(--sp-4); }
+    .depth-demo > div { flex: 1; display: flex; align-items: flex-end; padding: 4px 6px; font-size: 10px; color: var(--fg-sub0); }
+    .variation-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface0));
+      color: var(--accent);
+      margin-left: var(--sp-3);
+      -webkit-text-fill-color: currentColor;
+    }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--sp-3); }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3); }
+    @media (max-width: 768px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+
+    .demo-shell {
+      border: var(--border); border-radius: var(--radius-lg); overflow: hidden;
+      height: 500px; display: grid; grid-template-columns: var(--sidebar-w) 1fr;
+      grid-template-rows: var(--topbar-h) 1fr; box-shadow: var(--shadow-md); position: relative;
+    }
+    @media (max-width: 768px) {
+      .demo-shell { grid-template-columns: 1fr; height: 400px; }
+    }
+
+    .banner-demo { display: flex; flex-direction: column; gap: var(--sp-2); }
+  </style>
+</head>
+<body>
+  <div class="showcase">
+    <div class="toggle-row">
+      <h1 style="background:linear-gradient(90deg,var(--accent),var(--info),var(--accent));background-size:200% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:gradient-slide 6s linear infinite">DartClaw Design System</h1>
+      <div class="theme-control">
+        <button type="button" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"><span class="sr-only">Toggle theme</span></button>
+        <span class="text-sm text-muted" id="theme-label">dark</span>
+      </div>
+    </div>
+    <p class="subtitle">Terminal-aesthetic design system. Catppuccin Mocha/Latte, monospace typography, green accent. See <code>style-guide.md</code> for full documentation.</p>
+
+
+    <!-- SURFACE LADDER -->
+    <h2>Surface Ladder (7 levels)</h2>
+    <div class="depth-demo">
+      <div style="background:var(--bg-pit)"><span>pit</span></div>
+      <div style="background:var(--bg-crust)"><span>crust</span></div>
+      <div style="background:var(--bg-mantle)"><span>mantle</span></div>
+      <div style="background:var(--bg-base)"><span>base</span></div>
+      <div style="background:var(--bg-sub-base)"><span>sub-base</span></div>
+      <div style="background:var(--bg-surface0)"><span>srf0</span></div>
+      <div style="background:var(--bg-surface1)"><span>srf1</span></div>
+    </div>
+
+    <h3>Foreground &amp; Semantic</h3>
+    <div class="swatch-grid">
+      <div class="swatch" style="background:var(--fg)"><span>fg</span></div>
+      <div class="swatch" style="background:var(--fg-sub1)"><span>fg-sub1</span></div>
+      <div class="swatch" style="background:var(--fg-sub0)"><span>fg-sub0</span></div>
+      <div class="swatch" style="background:var(--fg-overlay)"><span>fg-overlay</span></div>
+      <div class="swatch" style="background:var(--accent)"><span>accent</span></div>
+      <div class="swatch" style="background:var(--error)"><span>error</span></div>
+      <div class="swatch" style="background:var(--warning)"><span>warning</span></div>
+      <div class="swatch" style="background:var(--info)"><span>info</span></div>
+    </div>
+
+
+    <!-- TYPOGRAPHY -->
+    <h2>Typography</h2>
+    <div class="type-scale">
+      <div><span class="label">text-xs</span> <span style="font-size:var(--text-xs)">The quick brown fox jumps (12px)</span></div>
+      <div><span class="label">text-sm</span> <span style="font-size:var(--text-sm)">The quick brown fox jumps (13px)</span></div>
+      <div><span class="label">text-base</span> <span style="font-size:var(--text-base)">The quick brown fox jumps (14px)</span></div>
+      <div><span class="label">text-lg</span> <span style="font-size:var(--text-lg)">The quick brown fox jumps (16px)</span></div>
+      <div><span class="label">text-xl</span> <span style="font-size:var(--text-xl)">The quick brown fox jumps (20px)</span></div>
+    </div>
+
+
+    <!-- CARD TAXONOMY -->
+    <h2>Card Taxonomy</h2>
+    <p>8 card types, each with a distinct purpose. Choose by intent, not visual preference.</p>
+
+    <h3>1&ndash;4. Elevation &amp; State</h3>
+    <p class="use-case">Elevation controls visual weight. State communicates selection.</p>
+    <div class="grid-4">
+      <div class="card card-sunken">
+        <div class="card-header">Sunken</div>
+        <div class="card-body">Inset. Code wells, form fields, embeds.</div>
+        <div class="card-footer"><code>card card-sunken</code></div>
+      </div>
+      <div class="card">
+        <div class="card-header">Default</div>
+        <div class="card-body">The workhorse. Any standalone content. Hover for glow.</div>
+        <div class="card-footer"><code>card</code></div>
+      </div>
+      <div class="card card-elevated">
+        <div class="card-header">Elevated</div>
+        <div class="card-body">Floating. Modals, dropdowns, popovers.</div>
+        <div class="card-footer"><code>card card-elevated</code></div>
+      </div>
+      <div class="card card-active">
+        <div class="card-header"><span class="status-dot status-dot--live"></span> Active</div>
+        <div class="card-body">Selected/focused. Persistent glow.</div>
+        <div class="card-footer"><code>card card-active</code></div>
+      </div>
+    </div>
+
+    <hr class="divider divider-fade" style="margin:var(--sp-8) 0">
+
+    <h3>5. Panels &mdash; severity indicator</h3>
+    <p class="use-case">Left-border accent + gradient bleed. "This content has a level."</p>
+    <div class="grid-2">
+      <div class="card panel-accent">
+        <div class="card-header"><span class="status-dot status-dot--live"></span> Agent Active</div>
+        <div class="card-body">Processing: "Refactor auth module". Turn 4/10.</div>
+        <div class="card-footer"><code>card panel-accent</code></div>
+      </div>
+      <div class="card panel-info">
+        <div class="card-header">Session Info</div>
+        <div class="card-body">WhatsApp DM. Messages: 142.</div>
+        <div class="card-footer"><code>card panel-info</code></div>
+      </div>
+      <div class="card panel-error">
+        <div class="card-header">Guard Block</div>
+        <div class="card-body">Blocked: <code>rm -rf /</code>. InputSanitizer.</div>
+        <div class="card-footer"><code>card panel-error</code></div>
+      </div>
+      <div class="card panel-warning">
+        <div class="card-header">Rate Limit</div>
+        <div class="card-body">85% budget consumed. 340K / 400K tokens.</div>
+        <div class="card-footer"><code>card panel-warning</code></div>
+      </div>
+    </div>
+
+    <hr class="divider divider-fade" style="margin:var(--sp-8) 0">
+
+    <h3>6. Metric Cards &mdash; KPIs</h3>
+    <p class="use-case">Inner glow on hover matches semantic color.</p>
+    <div class="grid-4">
+      <div class="card card-metric card-metric--accent"><div class="metric-value">3</div><div class="metric-label">Agents</div></div>
+      <div class="card card-metric card-metric--info"><div class="metric-value">142</div><div class="metric-label">Messages</div></div>
+      <div class="card card-metric card-metric--warning"><div class="metric-value">85%</div><div class="metric-label">Budget</div></div>
+      <div class="card card-metric card-metric--error"><div class="metric-value">7</div><div class="metric-label">Blocks</div></div>
+    </div>
+
+    <hr class="divider divider-fade" style="margin:var(--sp-8) 0">
+
+    <h3>7. Tint Cards &mdash; subtle semantic hover</h3>
+    <p class="use-case">Background shifts toward semantic color on hover. For categorized lists.</p>
+    <div class="grid-2">
+      <div class="card card-tint-accent">
+        <div class="card-header"><span class="status-dot status-dot--live"></span> Refactor auth</div>
+        <div class="card-body">Coding task. Turn 4/10.</div>
+        <div class="card-footer"><code>card-tint-accent</code> <span style="margin-left:auto" class="status-pill status-pill--live"><span class="status-dot status-dot--live" style="width:6px;height:6px"></span> Running</span></div>
+      </div>
+      <div class="card card-tint-error">
+        <div class="card-header">Deploy staging</div>
+        <div class="card-body">Failed: container OOM.</div>
+        <div class="card-footer"><code>card-tint-error</code> <span style="margin-left:auto" class="status-pill status-pill--error">Failed</span></div>
+      </div>
+    </div>
+
+    <hr class="divider divider-fade" style="margin:var(--sp-8) 0">
+
+    <h3>8. Featured Cards &mdash; gradient border</h3>
+    <p class="use-case">Maximum emphasis. Active tasks, hero cards, urgent items.</p>
+    <div class="grid-2">
+      <div class="card card-featured-accent">
+        <div class="card-header-gradient"><span class="status-dot status-dot--live"></span> Primary Agent</div>
+        <div class="card-body">
+          Refactoring auth to JWT.
+          <div class="scan-bar" style="margin:var(--sp-2) 0"></div>
+        </div>
+        <div class="card-footer"><span class="status-pill status-pill--live"><span class="status-dot status-dot--live" style="width:6px;height:6px"></span> Turn 4/10</span></div>
+      </div>
+      <div class="card card-featured-error">
+        <div class="card-header-gradient">Container Failure</div>
+        <div class="card-body">OOM after 2.1GB resident. Increase memory limit.</div>
+        <div class="card-footer"><span class="status-pill status-pill--error">Failed</span></div>
+      </div>
+    </div>
+
+    <hr class="divider divider-center" style="margin:var(--sp-8) 0">
+
+    <h3>Card Header Variants</h3>
+    <div class="grid-2">
+      <div class="card"><div class="card-header">Standard Header</div><div class="card-body">1px solid border-bottom.</div></div>
+      <div class="card"><div class="card-header-gradient">Gradient Header</div><div class="card-body">Accent gradient underline.</div></div>
+    </div>
+
+
+    <!-- WELLS -->
+    <h2>Wells &mdash; Grouping Containers</h2>
+    <p>Lightweight recessed containers. No hover, no semantics. Wells nest freely.</p>
+
+    <div class="grid-2">
+      <div>
+        <p class="use-case"><code>.well</code> &mdash; Standard grouping</p>
+        <div class="well" style="display:flex; flex-direction:column; gap:var(--sp-1)">
+          <div class="tool-indicator pending">Reading src/auth/handler.ts</div>
+          <div class="tool-indicator success">Reading src/auth/handler.ts</div>
+          <div class="tool-indicator error">Bash: npm test</div>
+        </div>
+      </div>
+      <div>
+        <p class="use-case"><code>.well-deep</code> &mdash; Code/terminal output</p>
+        <div class="well-deep">
+          <pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code>$ dart run dartclaw_cli:dartclaw serve
+Listening on http://localhost:3000</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <h3>Well Content &mdash; Message Thread</h3>
+    <p class="use-case"><code>.well-content</code> &mdash; Roomier. Message threads, form sections.</p>
+    <div class="well-content">
+      <div class="msg msg-user"><div class="msg-role">You</div><div class="msg-content">Refactor auth to JWT?</div></div>
+      <div class="msg msg-assistant"><div class="msg-role">Assistant</div><div class="msg-content">
+        <div class="tool-indicator success">Reading handler.ts</div>
+        <pre><code>export function verifyToken(req, res, next) {
+  const token = req.headers.authorization?.split(' ')[1];
+}</code></pre>
+        <p>Done.<span class="streaming"></span></p>
+      </div></div>
+    </div>
+
+    <h3>Nesting Example</h3>
+    <p class="use-case"><code>well-content</code> &gt; <code>card panel-accent</code> &gt; <code>well</code> + <code>well-deep</code></p>
+    <div class="well-content">
+      <div class="card panel-accent">
+        <div class="card-header"><span class="status-dot status-dot--live"></span> Agent: Primary &mdash; Turn 4</div>
+        <div class="card-body">
+          <div class="well" style="display:flex; flex-direction:column; gap:var(--sp-1); margin-bottom:var(--sp-3)">
+            <div class="tool-indicator success">Reading src/auth/handler.ts</div>
+            <div class="tool-indicator pending">Writing src/auth/jwt.ts</div>
+          </div>
+          <div class="well-deep">
+            <pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code>+ import { verify } from 'jsonwebtoken';
++ export function jwtMiddleware(req, res, next) {
++   verify(token, process.env.JWT_SECRET);
++ }</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- STATUS INDICATORS -->
+    <h2>Status Indicators</h2>
+
+    <h3>Scanning Bar</h3>
+    <div class="card" style="display:flex;flex-direction:column;gap:var(--sp-3)">
+      <p class="text-sm text-muted">Animated loading indicator (varies by width):</p>
+      <div class="scan-bar" style="width:120px"></div>
+      <div class="scan-bar" style="width:100%"></div>
+    </div>
+
+    <h3>Status Dots &amp; Badges &amp; Pills</h3>
+    <div class="card">
+      <div class="btn-row" style="gap:var(--sp-6); margin-bottom:var(--sp-4)">
+        <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="status-dot status-dot--live"></span><span class="text-sm">Running</span></span>
+        <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="status-dot status-dot--error"></span><span class="text-sm">Failed</span></span>
+        <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="status-dot status-dot--warning"></span><span class="text-sm">Pending</span></span>
+        <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="status-dot status-dot--idle"></span><span class="text-sm">Idle</span></span>
+      </div>
+      <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Badges:</div>
+      <div class="btn-row" style="margin-bottom:var(--sp-4)">
+        <span class="status-badge status-badge-success"><span class="status-dot status-dot--live"></span>Running</span>
+        <span class="status-badge status-badge-error"><span class="status-dot status-dot--error"></span>Failed</span>
+        <span class="status-badge status-badge-warning"><span class="status-dot status-dot--warning"></span>Pending</span>
+      </div>
+      <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Pills (gradient-filled):</div>
+      <div class="btn-row">
+        <span class="status-pill status-pill--live"><span class="status-dot status-dot--live" style="width:6px;height:6px"></span> Running</span>
+        <span class="status-pill status-pill--info">Research</span>
+        <span class="status-pill status-pill--warning">85% Budget</span>
+        <span class="status-pill status-pill--error">Blocked</span>
+      </div>
+    </div>
+
+    <h3>Gradient Dividers</h3>
+    <div class="card card-sunken" style="padding:var(--sp-6)">
+      <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Left-fade (section boundaries):</div>
+      <hr class="divider divider-fade" style="margin:var(--sp-3) 0">
+      <div class="text-sm text-muted" style="margin:var(--sp-4) 0 var(--sp-2)">Center-fade (content breaks):</div>
+      <hr class="divider divider-center" style="margin:var(--sp-3) 0">
+    </div>
+
+
+    <!-- BUTTONS -->
+    <h2>Buttons</h2>
+    <div class="btn-row">
+      <button type="button" class="btn">Default</button>
+      <button type="button" class="btn btn-primary">Primary</button>
+      <button type="button" class="btn btn-ghost">Ghost</button>
+      <button type="button" class="btn btn-danger">Danger</button>
+      <button type="button" class="btn btn-primary" disabled>Disabled</button>
+    </div>
+
+
+    <!-- BANNERS -->
+    <h2>Banners</h2>
+    <div class="banner-demo">
+      <div class="banner banner-error">Agent interrupted. <button type="button" class="dismiss" aria-label="Dismiss error banner">&times;</button></div>
+      <div class="banner banner-warning">API key not set. <button type="button" class="dismiss" aria-label="Dismiss warning banner">&times;</button></div>
+      <div class="banner banner-info">Connection restored. <button type="button" class="dismiss" aria-label="Dismiss info banner">&times;</button></div>
+    </div>
+
+
+    <!-- TOASTS -->
+    <h2>Toast Notifications</h2>
+    <div class="btn-row">
+      <button type="button" class="btn" onclick="showDemoToast('success', 'Session renamed')">Success</button>
+      <button type="button" class="btn" onclick="showDemoToast('error', 'Failed to delete')">Error</button>
+      <button type="button" class="btn" onclick="showDemoToast('warning', 'Rate limit approaching')">Warning</button>
+      <button type="button" class="btn" onclick="showDemoToast('info', 'Agent processing')">Info</button>
+    </div>
+
+
+    <!-- INPUT AREA -->
+    <h2>Input Area</h2>
+    <div class="grid-2">
+      <div>
+        <p class="use-case">Active</p>
+        <div class="input-area" style="border-radius:var(--radius-lg)">
+          <textarea id="active-message" name="active-message" rows="2" placeholder="Type a message..."></textarea>
+          <button type="button" class="btn btn-primary btn-send">Send</button>
+        </div>
+      </div>
+      <div>
+        <p class="use-case">Disabled (streaming)</p>
+        <div class="input-area" style="border-radius:var(--radius-lg)">
+          <textarea id="disabled-message" name="disabled-message" rows="2" placeholder="Agent is responding..." disabled></textarea>
+          <button type="button" class="btn btn-primary btn-send" disabled>Send</button>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- EMPTY STATE -->
+    <h2>Empty State</h2>
+    <div class="well-content">
+      <div class="empty-state">
+        <div class="icon">&#x276F;_</div>
+        <p><strong style="color:var(--fg)">No sessions yet</strong></p>
+        <p>Create a new session to start chatting.</p>
+        <button type="button" class="btn btn-primary">+ New Session</button>
+      </div>
+    </div>
+
+
+    <!-- COMPOSITION EXAMPLE -->
+    <h2>Composition Example</h2>
+    <p>Metric cards + featured card + panels composing a dashboard.</p>
+
+    <div class="grid-4" style="margin-bottom:var(--sp-3)">
+      <div class="card card-metric card-metric--accent"><div class="metric-value">3</div><div class="metric-label">Agents</div></div>
+      <div class="card card-metric card-metric--info"><div class="metric-value">47</div><div class="metric-label">Sessions</div></div>
+      <div class="card card-metric card-metric--warning"><div class="metric-value">85%</div><div class="metric-label">Budget</div></div>
+      <div class="card card-metric card-metric--error"><div class="metric-value">3</div><div class="metric-label">Blocks</div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card card-featured-accent">
+        <div class="card-header-gradient"><span class="status-dot status-dot--live"></span> Active Task</div>
+        <div class="card-body">Refactoring auth module<div class="scan-bar" style="margin:var(--sp-2) 0"></div></div>
+        <div class="card-footer"><span class="status-pill status-pill--live"><span class="status-dot status-dot--live" style="width:6px;height:6px"></span> Turn 4/10</span></div>
+      </div>
+      <div class="card panel-error">
+        <div class="card-header">Guard Block</div>
+        <div class="card-body">Blocked: <code>rm -rf /</code> via WhatsApp.</div>
+        <div class="card-footer"><span class="status-pill status-pill--error">Blocked</span></div>
+      </div>
+    </div>
+
+
+    <!-- ICONS -->
+    <h2>Icons</h2>
+    <p>32 Lucide icons via CSS <code>mask-image</code>. Inherit <code>currentColor</code> from parent.</p>
+
+    <h3>Inline Icons (<code>.icon.icon-*</code>)</h3>
+    <div class="card" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:var(--sp-3); padding:var(--sp-4)">
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-activity"></span><span class="text-xs">activity</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-archive"></span><span class="text-xs">archive</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-arrow-left"></span><span class="text-xs">arrow-left</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-arrow-right"></span><span class="text-xs">arrow-right</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-at-sign"></span><span class="text-xs">at-sign</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-brain"></span><span class="text-xs">brain</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-calendar-clock"></span><span class="text-xs">calendar-clock</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-check"></span><span class="text-xs">check</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-chevron-down"></span><span class="text-xs">chevron-down</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-chevron-right"></span><span class="text-xs">chevron-right</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-circle-check"></span><span class="text-xs">circle-check</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-circle-x"></span><span class="text-xs">circle-x</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-clipboard-list"></span><span class="text-xs">clipboard-list</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-folder-kanban"></span><span class="text-xs">folder-kanban</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-hash"></span><span class="text-xs">hash</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-info"></span><span class="text-xs">info</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-menu"></span><span class="text-xs">menu</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-message-circle"></span><span class="text-xs">message-circle</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-messages-square"></span><span class="text-xs">messages-square</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-moon"></span><span class="text-xs">moon</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-pencil"></span><span class="text-xs">pencil</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-radio-tower"></span><span class="text-xs">radio-tower</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-server"></span><span class="text-xs">server</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-settings"></span><span class="text-xs">settings</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-shield-alert"></span><span class="text-xs">shield-alert</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-square"></span><span class="text-xs">square</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-square-pen"></span><span class="text-xs">square-pen</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-sun"></span><span class="text-xs">sun</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-terminal"></span><span class="text-xs">terminal</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-triangle-alert"></span><span class="text-xs">triangle-alert</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-users"></span><span class="text-xs">users</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-x"></span><span class="text-xs">x</span></span>
+    </div>
+
+    <h3>Semantic Colors</h3>
+    <p class="use-case">Icons inherit <code>currentColor</code> — wrap in a colored container:</p>
+    <div class="btn-row" style="gap:var(--sp-6)">
+      <span style="color:var(--fg);display:flex;align-items:center;gap:var(--sp-1)"><span class="icon icon-terminal"></span> <span class="text-sm">Default</span></span>
+      <span style="color:var(--accent);display:flex;align-items:center;gap:var(--sp-1)"><span class="icon icon-circle-check"></span> <span class="text-sm">Accent</span></span>
+      <span style="color:var(--error);display:flex;align-items:center;gap:var(--sp-1)"><span class="icon icon-circle-x"></span> <span class="text-sm">Error</span></span>
+      <span style="color:var(--warning);display:flex;align-items:center;gap:var(--sp-1)"><span class="icon icon-triangle-alert"></span> <span class="text-sm">Warning</span></span>
+      <span style="color:var(--info);display:flex;align-items:center;gap:var(--sp-1)"><span class="icon icon-info"></span> <span class="text-sm">Info</span></span>
+    </div>
+
+    <h3>Size Scaling</h3>
+    <p class="use-case">Icons scale with <code>font-size</code> via <code>em</code> units:</p>
+    <div class="btn-row" style="align-items:flex-end; gap:var(--sp-4)">
+      <span style="font-size:var(--text-xs)"><span class="icon icon-settings"></span> 12px</span>
+      <span style="font-size:var(--text-sm)"><span class="icon icon-settings"></span> 13px</span>
+      <span style="font-size:var(--text-base)"><span class="icon icon-settings"></span> 14px</span>
+      <span style="font-size:var(--text-lg)"><span class="icon icon-settings"></span> 16px</span>
+      <span style="font-size:var(--text-xl)"><span class="icon icon-settings"></span> 20px</span>
+      <span style="font-size:24px"><span class="icon icon-settings"></span> 24px</span>
+    </div>
+
+    <h3>Sidebar Nav Example (<code>data-icon</code>)</h3>
+    <div class="card card-sunken" style="max-width:260px; padding:var(--sp-2) 0">
+      <div class="sidebar-section-label" style="padding:var(--sp-2) var(--sp-3)">System</div>
+      <a class="sidebar-nav-item active" data-icon="health" style="cursor:pointer">Health</a>
+      <a class="sidebar-nav-item" data-icon="tasks" style="cursor:pointer">Tasks</a>
+      <a class="sidebar-nav-item" data-icon="projects" style="cursor:pointer">Projects</a>
+      <a class="sidebar-nav-item" data-icon="settings" style="cursor:pointer">Settings</a>
+      <a class="sidebar-nav-item" data-icon="memory" style="cursor:pointer">Memory</a>
+      <a class="sidebar-nav-item" data-icon="scheduling" style="cursor:pointer">Scheduling</a>
+    </div>
+
+
+    <!-- FULL LAYOUT -->
+    <h2>Full Layout</h2>
+    <div class="demo-shell">
+      <div class="sidebar" id="demo-sidebar">
+        <div class="sidebar-header"><span class="logo">&#x276F; DartClaw</span></div>
+        <button type="button" class="btn btn-ghost btn-new-session" style="width:calc(100% - var(--sp-6))">+ New Session</button>
+        <div class="session-list">
+          <div class="session-item active">Refactor auth module <button type="button" class="delete-btn" aria-label="Delete session">&times;</button></div>
+          <div class="session-item">Debug API endpoints</div>
+          <div class="session-item">Setup scaffold</div>
+        </div>
+      </div>
+      <button type="button" class="sidebar-scrim" id="demo-sidebar-scrim" aria-label="Close sidebar"></button>
+      <div class="topbar">
+        <button
+          type="button"
+          class="btn btn-ghost btn-icon menu-toggle"
+          id="demo-menu-toggle"
+          aria-controls="demo-sidebar"
+          aria-expanded="false"
+          aria-label="Open sidebar">☰</button>
+        <input id="demo-session-title" name="demo-session-title" class="session-title" value="Refactor auth module">
+        <div class="topbar-actions"><button type="button" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button></div>
+      </div>
+      <div class="chat-area">
+        <div class="messages">
+          <div class="msg msg-user"><div class="msg-role">You</div><div class="msg-content">Refactor auth</div></div>
+          <div class="msg msg-assistant"><div class="msg-role">Assistant</div><div class="msg-content"><div class="tool-indicator success">Reading handler.ts</div><p>Done!<span class="streaming"></span></p></div></div>
+        </div>
+        <div class="input-area">
+          <textarea id="demo-message" name="demo-message" rows="1" placeholder="Type a message..."></textarea>
+          <button type="button" class="btn btn-primary btn-send">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const demoSidebar = document.querySelector('.demo-shell .sidebar');
+    const demoMenuToggle = document.getElementById('demo-menu-toggle');
+    const demoSidebarScrim = document.getElementById('demo-sidebar-scrim');
+
+    function setDemoSidebarOpen(open) {
+      if (!demoSidebar || !demoMenuToggle || !demoSidebarScrim) return;
+      demoSidebar.classList.toggle('open', open);
+      demoMenuToggle.setAttribute('aria-expanded', String(open));
+      demoMenuToggle.setAttribute('aria-label', open ? 'Close sidebar' : 'Open sidebar');
+    }
+
+    if (demoMenuToggle && demoSidebarScrim) {
+      demoMenuToggle.addEventListener('click', () => {
+        setDemoSidebarOpen(!demoSidebar.classList.contains('open'));
+      });
+      demoSidebarScrim.addEventListener('click', () => setDemoSidebarOpen(false));
+      window.addEventListener('resize', () => {
+        if (window.innerWidth > 768) setDemoSidebarOpen(false);
+      });
+    }
+
+    function toggleTheme() {
+      const html = document.documentElement;
+      const isLight = html.dataset.theme === 'light';
+      html.dataset.theme = isLight ? '' : 'light';
+      if (isLight) html.removeAttribute('data-theme');
+      document.getElementById('theme-label').textContent = isLight ? 'dark' : 'light';
+      localStorage.setItem('dartclaw-theme', isLight ? 'dark' : 'light');
+    }
+
+    const saved = localStorage.getItem('dartclaw-theme');
+    if (saved === 'light') {
+      document.documentElement.dataset.theme = 'light';
+      document.getElementById('theme-label').textContent = 'light';
+    }
+
+    function getOrCreateToastContainer() {
+      let c = document.getElementById('toast-container');
+      if (!c) { c = document.createElement('div'); c.id = 'toast-container'; c.className = 'toast-container'; document.body.appendChild(c); }
+      return c;
+    }
+
+    function showDemoToast(type, msg) {
+      const c = getOrCreateToastContainer();
+      const t = document.createElement('div');
+      t.className = 'toast toast-' + type;
+      const text = document.createElement('span');
+      text.textContent = msg;
+      const dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.className = 'toast-dismiss';
+      dismiss.setAttribute('aria-label', 'Dismiss notification');
+      dismiss.textContent = '\u00D7';
+      dismiss.addEventListener('click', () => {
+        t.classList.add('removing');
+        t.addEventListener('animationend', () => t.remove(), {once:true});
+      });
+      t.append(text, dismiss);
+      c.appendChild(t);
+      while (c.children.length > 5) { const o = c.firstElementChild; o.classList.add('removing'); o.addEventListener('animationend', () => o.remove(), {once:true}); }
+      setTimeout(() => { if (t.parentNode && !t.classList.contains('removing')) { t.classList.add('removing'); t.addEventListener('animationend', () => t.remove(), {once:true}); } }, 4000);
+    }
+  </script>
+</body>
+</html>

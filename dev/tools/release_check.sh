@@ -43,8 +43,9 @@ section "1. Exported bundle cleanup (transient dev docs must be empty before mer
 leaked_bundle=""
 # dev/bundle is the current export root. The other dev/* directories and root
 # markdown files are legacy transient export paths; canonical public docs live
-# under dev/state/, dev/guidelines/, docs/, or package-specific directories.
-for exported_dir in dev/bundle dev/specs dev/adrs dev/research dev/wireframes dev/design-system dev/architecture dev/diagrams; do
+# under dev/state/, dev/guidelines/, dev/architecture/, dev/design-system/,
+# docs/, or package-specific directories.
+for exported_dir in dev/bundle dev/specs dev/adrs dev/research dev/wireframes dev/diagrams; do
   if [[ -d "$exported_dir" ]]; then
     leaked=$(find "$exported_dir" -type f ! -name '.gitkeep' 2>/dev/null)
     if [[ -n "$leaked" ]]; then
@@ -147,7 +148,7 @@ if [[ ${#FAILED[@]} -eq 0 ]]; then
   cat <<'NEXT'
 Manual gates still required before tagging:
   - Integration tests:   dart test -t integration
-  - UI smoke test:       bash dev/testing/profiles/smoke-test/run.sh
+  - UI smoke test:       bash dev/testing/profiles/plain/run.sh
                          (requires a running dev server)
 
 Then proceed with the version-bump commit and tag per

@@ -50,7 +50,7 @@ void main() {
       test('/static/ prefix passes through', () async {
         final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
         final handler = mw(makeOk());
-        final response = await handler(Request('GET', Uri.parse('http://localhost/static/app.js')));
+        final response = await handler(Request('GET', Uri.parse('http://localhost/static/controllers/index.js')));
         expect(response.statusCode, 200);
       });
 

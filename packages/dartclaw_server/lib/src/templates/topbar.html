@@ -8,8 +8,8 @@
     <a tl:attr="href=${infoHref},hx-get=${infoHref}" class="btn btn-icon btn-ghost" aria-label="Session info"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#sidebar" data-icon="info"></a>
-    <button tl:if="${showResume}" class="btn btn-ghost btn-sm"
-      data-action="resume-archive" tl:attr="data-session-id=${sessionId}">Resume</button>
+    <button tl:if="${showResume}" class="btn btn-ghost btn-sm" data-session-resume="true"
+      tl:attr="data-session-id=${sessionId}">Resume</button>
     <button tl:if="${showReset}" class="btn btn-ghost btn-sm btn-reset"
       tl:attr="hx-post=${resetHref}"
       hx-confirm="Reset this session? Conversation will be archived."

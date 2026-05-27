@@ -65,10 +65,5 @@ String whatsappPairingTemplate({
   );
 
   if (fragmentOnly) return '$body$topbar$sidebar';
-  return layoutTemplate(
-    title: 'WhatsApp Setup',
-    body: body,
-    appName: appName,
-    scripts: standardShellScripts(const ['/static/whatsapp.js']),
-  );
+  return layoutTemplate(title: 'WhatsApp Setup', body: body, appName: appName, scripts: standardShellScripts());
 }

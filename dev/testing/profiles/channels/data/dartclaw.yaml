@@ -1,0 +1,59 @@
+# DartClaw — Channels Testing Config (WhatsApp + Signal enabled)
+# Usage: bash dev/testing/profiles/channels/run.sh
+
+port: 3336
+
+gateway:
+  auth_mode: token
+
+guards:
+  enabled: true
+
+channels:
+  whatsapp:
+    enabled: true
+    gowa_executable: whatsapp
+    gowa_host: 127.0.0.1
+    gowa_port: 3001
+    dm_access: pairing
+    group_access: disabled
+    require_mention: true
+    mention_patterns:
+      - '@DartClaw'
+      - '@bot'
+    max_chunk_size: 4000
+
+  signal:
+    enabled: true
+    executable: signal-cli
+    host: 127.0.0.1
+    port: 8080
+    phone_number: "+46725619417"
+    dm_access: open
+    group_access: disabled
+
+  google_chat:
+    enabled: true
+    service_account: credentials/googlechat/service-account.json
+    audience:
+      type: app-url
+      value: https://mimir.tail315dbf.ts.net/integrations/googlechat
+    bot_user: users/104817664214523572409
+    typing_indicator: true
+    dm_access: pairing
+    dm_allowlist:
+      - users/111261968043283685958
+    group_access: allowlist
+    require_mention: true
+
+scheduling:
+  heartbeat:
+    enabled: false
+  jobs: []
+
+workspace:
+  git_sync:
+    enabled: false
+
+logging:
+  level: FINE

@@ -24,6 +24,17 @@ Use official docs for API details, defaults, and examples:
 
 ## Recommended Patterns
 
+### Use Stimulus for browser behavior owned by DOM islands
+
+Stimulus is DartClaw's adopted browser interaction layer. HTMX keeps owning navigation, requests, swaps, and SSE-delivered fragments; Stimulus owns imperative behavior attached to server-rendered DOM.
+
+- Name controllers with the `dc-*` prefix in markup, matching files under `static/controllers/` (`data-controller="dc-chat"`).
+- Put setup and teardown in controller lifecycle methods: `connect()` attaches behavior, `disconnect()` releases timers, observers, and event subscriptions.
+- Use targets for owned elements (`data-dc-chat-target="input"`) instead of repeated DOM queries from global page modules.
+- Use values for typed configuration passed from Trellis templates (`data-dc-chat-session-id-value="..."`).
+- Use Stimulus actions for local event wiring (`data-action="submit->dc-chat#send"`).
+- Let HTMX swaps create and remove controllers naturally. `connect()` replaces the old manual `initAfterSwapReinit()` pattern after `htmx:afterSwap` and history restoration.
+
 ### Prefer explicit navigation over `hx-boost` for app shells
 
 Use explicit links when you need predictable targets, swaps, and history behavior.
@@ -152,4 +163,3 @@ X-Accel-Buffering: no
 - [ ] Responses that vary by `HX-Request` send `Vary: HX-Request`
 - [ ] SSE endpoints send the required stream headers
 - [ ] Untrusted data is not inserted into `hx-on` or `js:` expressions
-

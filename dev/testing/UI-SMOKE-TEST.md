@@ -14,16 +14,16 @@ scope (separate channel-E2E test suite).
 
 ## Setup
 
-### Recommended path — smoke-test profile
+### Recommended path — `plain` testing profile
 
 ```bash
-bash dev/testing/profiles/smoke-test/run.sh
+bash dev/testing/profiles/plain/run.sh
 ```
 
 | Setting | Value |
 |---|---|
 | URL | `http://localhost:3335` (profile sets `port: 3335`) |
-| Token | `devtoken0` (`dev/testing/profiles/smoke-test/data/gateway_token`) |
+| Token | `devtoken0` (`dev/testing/profiles/plain/data/gateway_token`) |
 | Auto-auth URL | `http://localhost:3335/?token=devtoken0` |
 | Pre-seeded | 1 main session (Workspace/Agent), 2 scheduled jobs, workspace memory files, guards on |
 | Not seeded | tasks, workflow runs, projects, canvas — empty-state versions of those pages are testable; deeper TCs note when seeding is required |

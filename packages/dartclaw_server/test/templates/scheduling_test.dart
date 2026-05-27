@@ -47,8 +47,8 @@ void main() {
         systemJobNames: ['heartbeat'],
       );
       expect(html, contains('action-btns'));
-      expect(html, contains('data-action="edit-job"'));
-      expect(html, contains('data-action="confirm-delete-job"'));
+      expect(html, contains('click->dc-scheduling#editJob'));
+      expect(html, contains('click->dc-scheduling#confirmDeleteJob'));
     });
 
     test('system jobs have no action buttons', () {
@@ -61,7 +61,7 @@ void main() {
         systemJobNames: ['heartbeat'],
       );
       // System jobs should not have edit/delete buttons
-      expect(html, isNot(contains('data-action="edit-job"')));
+      expect(html, isNot(contains('click->dc-scheduling#editJob')));
     });
 
     test('cron human-readable description appears in output', () {
@@ -86,7 +86,7 @@ void main() {
       final html = schedulingTemplate(sidebarData: emptySidebar, navItems: emptyNavItems, jobs: [], systemJobNames: []);
       expect(html, contains('job-form'));
       expect(html, contains('display: none'));
-      expect(html, contains('data-action="toggle-job-form"'));
+      expect(html, contains('click->dc-scheduling#toggleJobForm'));
     });
 
     test('restart badge present in form', () {

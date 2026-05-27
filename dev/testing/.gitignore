@@ -1,0 +1,51 @@
+# Runtime artifacts common to all testing profiles
+logs/
+guard-audit/
+sessions/
+tasks/
+**/data/workflows/
+**/workspace/agents/
+**/workspace/memory/
+**/workspace/.dartclaw/
+**/workspace/errors.md
+**/workspace/learnings.md
+**/projects/
+
+search.db
+kv.json
+*.bak
+usage.jsonl
+tasks.db*
+state.db*
+*.runtime.yaml
+
+audit.ndjson
+restart.pending
+.env
+*.key
+*.pem
+secrets*
+**/credentials/
+
+# Scenario run artifacts (results/<scenario>-<timestamp>/) — never committed.
+scenarios/results/
+
+# The generic workflow fixture should use runtime-materialized built-ins
+# rather than checked-in copies.
+**/workspace/workflows/
+
+# The visual profile is a committed fixture, not just a scratch runtime.
+# Re-include its seeded corpus so scenario-critical pages render meaningful data.
+!profiles/visual/data/kv.json
+!profiles/visual/data/search.db
+!profiles/visual/data/state.db
+!profiles/visual/data/tasks.db
+!profiles/visual/data/usage.jsonl
+!profiles/visual/data/sessions/
+!profiles/visual/data/sessions/**
+!profiles/visual/data/tasks/
+!profiles/visual/data/tasks/**
+!profiles/visual/data/workspace/errors.md
+!profiles/visual/data/workspace/learnings.md
+!profiles/visual/data/workspace/memory/
+!profiles/visual/data/workspace/memory/**

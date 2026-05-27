@@ -2,9 +2,9 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-05-25 09:44 CEST
+Last Updated: 2026-05-27 20:17 CEST
 
-### Implemented Features (through 0.16.5)
+### Implemented Features (through 0.16.6)
 
 - **Runtime**: 2-layer model (Dart host → Claude Code JSONL + Codex JSON-RPC binaries). Multi-provider `HarnessPool` with per-task provider override. Task orchestrator: lifecycle state machine, parallel execution, optimistic locking. Coding tasks: worktree isolation, diff, merge, PR creation. Standalone AOT binary with embedded templates, static assets, and skills (`dev/tools/build.sh`)
 - **CLI**: `dartclaw init` onboarding wizard (interactive + non-interactive), `dartclaw service` management (LaunchAgent/systemd), connected-by-default workflow execution with SSE lifecycle control (`workflow run/status/pause/resume/cancel`), operational command groups (`tasks`, `config`, `projects`, `sessions`, `agents`, `traces`, `jobs`). Unified instance directory (`~/.dartclaw/`)
@@ -15,37 +15,30 @@ Last Updated: 2026-05-25 09:44 CEST
 - **Security**: Guard chain (command/file/network/content guards) with hot-reload, Docker container isolation (`network:none` + proxy), credential proxy (Unix socket), governance (rate limiting, token budgets, loop detection), emergency `/stop`/`/pause`/`/resume`
 - **Configuration**: 3-tier (ephemeral/persistent/hot-reload), 25+ typed sections, `ConfigNotifier`/`Reconfigurable` with SIGUSR1/file-watch reload triggers, extension system, settings UI
 - **Observability**: Alert routing to channels, health monitoring, date-partitioned audit logging, usage/token tracking, turn traces, SSE streaming (tasks/chat/workflows), context monitoring, compaction observability (Claude + Codex lifecycle signals)
-- **Web UI & API**: HTMX+SSE UI (Trellis, zero JS build): dashboard, chat, tasks, workflows (with launch forms), projects, scheduling, memory, settings, health, canvas admin. REST API + MCP server. Multi-project support with PR creation. API read surfaces for sessions, traces, and scheduled jobs
+- **Web UI & API**: HTMX+SSE UI (Trellis, zero JS build) with Stimulus `dc-*` controllers for browser behavior: dashboard, chat, tasks, workflows (with launch forms), projects, scheduling, memory, settings, health, canvas admin. REST API + MCP server. Multi-project support with PR creation. API read surfaces for sessions, traces, and scheduled jobs
 - **Storage**: Files as source of truth (YAML/JSON/NDJSON) + SQLite indexes (tasks.db, search.db, state.db). Workspace behavior files (SOUL/USER/TOOLS/AGENTS/MEMORY.md). FTS5 search with QMD hybrid opt-in. Shareable canvas with workshop templates
 - **Governance** (0.16.5): 13 fitness checks in CI (7 Level-1 every commit + 6 Level-2 every PR) — barrel `show`-clauses, file-LOC ceilings, package cycles, constructor param counts, `ProcessEnvironmentPlan` boundary, safe-process usage, format gate; plus dependency direction, cross-package `src/` import hygiene, testing-package deps, barrel export counts, enum/event consumer exhaustiveness, per-file method-count ceilings. `public_member_api_docs` lint flipped on in `dartclaw_models/_storage/_security/_config`. Alert classifier closes the `LoopDetectedEvent` / `EmergencyStopEvent` safety gap via compiler-enforced exhaustive switch over `sealed DartclawEvent`. All 7 orphan sealed events wired to SSE + alerts
 
 
 ## Current Phase
 
-**0.16.5** — Stabilisation & Hardening. Release-ready, awaiting tag. Closed all 24 planned-target stories plus six in-flight standalone features (workflow output presets shorthand + review aggregator step, AndThen direct skill-name resolution, data-dir skill provisioning, AndThen `plan.json` adoption, discover-project split remediation). Zero new user-facing features. See `CHANGELOG.md` for shipped scope and `dev/specs/0.16.5/` in the private repo for canonical PRD + plan + per-story FIS.
+**0.16.6** — Web UI Stimulus Adoption.
 
-**Status**: Release-ready, awaiting tag (squash-merge to `main` → `v0.16.5` tag).
+**Status**: Release-ready, awaiting tag. All four stories (S01 foundation, S02 core migration, S04 special surfaces + legacy removal, S05 docs/spec sync) closed on 2026-05-26. Transient implementation bundle removed; version pins bumped; CHANGELOG dated 2026-05-27. Awaiting squash-merge to `main`, annotated `v0.16.6` tag, then branch-off to `feat/0.17`.
 
-**Previous**: 0.16.4 — CLI Operations, Connected Workflows & Workflow Platform Hardening — tagged `v0.16.4` on 2026-05-04.
+**Previous**: 0.16.5 — Stabilisation & Hardening (tagged 2026-05-25).
 
-**Next**: 0.16.6 — Web UI Stimulus Adoption. See `dev/state/ROADMAP.md`.
+**Next**: 0.17 — Personal AI & Developer Experience. See `dev/state/ROADMAP.md`.
 
 ## Active Stories
 
-None. All 0.16.5 work is merged onto `feat/0.16.5`; the branch is scope-frozen pending the squash-merge to `main`.
+None.
 
 ## Blockers
 
-None outstanding. Pre-tag manual gates (integration tests, UI smoke test) still owned by the human releaser.
+None.
 
 ## Recent Decisions
 
-- 0.16.4 advisory carry-over (`workflow_executor.dart` LOC trim, `WorkflowCliRunner` placement, typed inter-package `taskConfig` DTOs) closed in 0.16.5 via S15 / S31 / S34 (TD-069 retired).
-- ADR-023 (workflow↔task boundary) formalised as a behavioural contract on top of ADR-021/ADR-022.
-- Agent-resolved-merge contract: bash `{{VAR}}` substitutions are shell-escaped for symmetry with `{{context.X}}` (security-by-design; breaking change). Schema validator enforces `additionalProperties` / `enum` / `minimum` / `maximum` as warnings (soft-validate contract). `escalation: serialize-remaining` is the default; per-attempt structured artifacts carry 9 v1 fields scoped per iteration.
-- Dependency-aware fan-out is a shared `mapOver` / `foreach` contract: records carry `id` + `dependencies`, `story_specs` preserves adjacency, promotion conflicts keep downstream stories pending for retry/resume.
-- Stabilisation sprint shipped as 0.16.5 ahead of Stimulus adoption (0.16.6) so the Web-UI work bakes against a clean structural baseline.
-
-## Session Continuity Notes
-
-(Cleared at 0.16.5 close-out — shipped detail lives in `CHANGELOG.md` and the per-story FIS in `dev/specs/0.16.5/` of the private repo.)
+- 0.16.6 closed with Stimulus as the Web UI behavior layer while HTMX and Trellis remain the server-rendered interaction foundation.
+- Architecture deep-dives (`dev/architecture/`) and design system (`dev/design-system/`) promoted to canonical in this repo during 0.16.6; `release_check.sh` and `SPEC-LIFECYCLE.md` updated to stop treating them as transient.

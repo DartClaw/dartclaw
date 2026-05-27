@@ -3,7 +3,14 @@
   <div tl:utext="${topbar}"><!-- topbar --></div>
   <main id="main-content" tabindex="-1" hx-history-elt class="dashboard">
     <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
-    <div class="dashboard-inner">
+    <div class="dashboard-inner"
+         data-controller="dc-health"
+         data-health-refresh
+         hx-get="/health-dashboard"
+         hx-target="this"
+         hx-select=".dashboard-inner"
+         hx-swap="outerHTML"
+         hx-trigger="refresh">
 
       <div class="status-hero" tl:classappend="${statusColorClass}">
         <div class="status-indicator" tl:utext="${statusIcon}"><!-- icon --></div>

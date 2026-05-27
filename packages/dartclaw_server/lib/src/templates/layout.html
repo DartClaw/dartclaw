@@ -22,8 +22,10 @@
   <script defer="defer" src="/static/hljs.min.js"></script>
   <script defer="defer" src="/static/hljs-dart.min.js"></script>
   <script defer="defer" src="/static/purify.min.js"></script>
+  <script defer="defer" src="/static/stimulus.min.js"></script>
+  <script type="module" src="/static/controllers/index.js"></script>
 </head>
-<body tl:attr="data-app-name=${appName}">
+<body tl:attr="data-app-name=${appName}" data-controller="dc-shell dc-toast">
 <tl:block tl:utext="${body}"></tl:block>
 <tl:block tl:utext="${scriptsHtml}"></tl:block>
 </body>

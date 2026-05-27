@@ -21,6 +21,7 @@ class _FakeSignalCliManager extends SignalCliManager {
   bool verifyThrows = false;
   bool smsThrows = false;
   bool voiceThrows = false;
+  bool healthCheckThrows = false;
 
   _FakeSignalCliManager({this.fakeHealthy = true, this.fakeRegistered = false, this.fakeLinkUri})
     : super(executable: 'signal-cli', phoneNumber: '+15551234567');
@@ -29,7 +30,14 @@ class _FakeSignalCliManager extends SignalCliManager {
   bool get isRunning => fakeHealthy;
 
   @override
-  Future<bool> healthCheck() async => fakeHealthy;
+  Future<bool> healthCheck() async {
+    if (healthCheckThrows) {
+      throw const SocketException(
+        'Connection refused (OS Error: Connection refused, errno = 61), address = 127.0.0.1, port = 47000',
+      );
+    }
+    return fakeHealthy;
+  }
 
   @override
   Future<bool> isAccountRegistered() async => fakeRegistered;
@@ -124,6 +132,17 @@ void main() {
       expect(res.statusCode, 200);
       final body = await res.readAsString();
       expect(body, contains('signal-cli Not Reachable'));
+    });
+
+    test('status probe failure shows clean setup card without leaking the exception', () async {
+      fakeSidecar.healthCheckThrows = true;
+      final res = await handler(Request('GET', Uri.parse('http://localhost/pairing')));
+      expect(res.statusCode, 200);
+      final body = await res.readAsString();
+      expect(body, contains('signal-cli Not Reachable'));
+      expect(body, isNot(contains('Failed to check signal-cli status')));
+      expect(body, isNot(contains('SocketException')));
+      expect(body, isNot(contains('errno')));
     });
 
     // TD-035: step=verify UI is hidden — route still works but GET /pairing

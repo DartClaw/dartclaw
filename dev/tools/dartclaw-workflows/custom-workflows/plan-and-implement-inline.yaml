@@ -162,6 +162,27 @@ steps:
       plan-review.findings_count: findings_count
       plan-review.gating_findings_count: gating_findings_count
 
+  - id: plan-review-council
+    name: Review Full Implementation with Council
+    skill: andthen:review
+    parallel: true
+    provider: claude
+    model: opus[1m]
+    effort: max
+    inputs: [story_specs, story_results, plan]
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: >-
+      --mode mixed --council --auto
+      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      Review implementation of {{context.plan}}. Scope by the plan and
+      per-story FIS – assess only the working-tree state implementing this
+      plan; the live checkout may contain unrelated operator work, so do
+      not flag it.
+    outputs:
+      plan-review-council.review_findings: review_report_path
+      plan-review-council.findings_count: findings_count
+      plan-review-council.gating_findings_count: gating_findings_count
+
   - id: architecture-review
     name: Architecture Review
     skill: andthen:architecture
@@ -181,7 +202,7 @@ steps:
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [plan-review, architecture-review]
+    aggregateReviews: [plan-review, plan-review-council, architecture-review]
     outputs:
       review_findings: review_report_path
       findings_count: findings_count

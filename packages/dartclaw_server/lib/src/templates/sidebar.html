@@ -83,7 +83,7 @@
   </div>
 
   <div class="sidebar-section-label">Chats</div>
-  <button class="btn btn-ghost btn-new-session" data-action="create-session" data-icon="new-session">New Chat</button>
+  <button class="btn btn-ghost btn-new-session" data-session-create="true" data-icon="new-session">New Chat</button>
   <div tl:if="${noActiveEntries}" class="sidebar-placeholder">No chats yet</div>
 
   <div tl:each="entry : ${activeEntries}" class="session-item"
@@ -95,14 +95,13 @@
       <span tl:if="${entry.provider}" class="provider-badge"
         tl:classappend="'provider-badge-' + ${entry.provider}"
         tl:text="${entry.providerLabel}">Claude</span></a>
-    <button class="session-delete" data-action="archive-session"
+    <button class="session-delete" data-session-archive="true"
       tl:attr="data-session-id=${entry.id},data-icon=${'x'}" aria-label="Archive chat"></button>
   </div>
 
   <div tl:if="${hasArchivedEntries}" class="sidebar-archive-section"
     tl:classappend="${archiveContainsActive} ? 'force-expanded' : ''">
-    <button class="sidebar-archive-toggle" aria-expanded="false"
-      data-action="toggle-archive">
+    <button class="sidebar-archive-toggle" aria-expanded="false">
       <span class="sidebar-archive-label">Archived</span>
       <span class="sidebar-archive-count" tl:text="${archivedCount}">0</span>
       <span class="sidebar-archive-chevron" data-icon="chevron-down" aria-hidden="true"></span>
@@ -117,7 +116,7 @@
           <span tl:if="${entry.provider}" class="provider-badge"
             tl:classappend="'provider-badge-' + ${entry.provider}"
             tl:text="${entry.providerLabel}">Claude</span></a>
-        <button class="session-delete" data-action="delete-session"
+        <button class="session-delete" data-session-delete="true"
           tl:attr="data-session-id=${entry.id},data-icon=${'x'}" aria-label="Delete session"></button>
       </div>
     </div>

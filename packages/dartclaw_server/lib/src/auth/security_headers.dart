@@ -13,6 +13,10 @@ const _csp =
     'font-src https://fonts.gstatic.com; '
     "img-src 'self' data:; "
     "connect-src 'self'; "
+    // Allow embedding same-origin iframes (e.g. the canvas-admin Live Canvas
+    // preview). Without this, frame-src falls back to default-src 'none' and
+    // the browser blocks the iframe entirely.
+    "frame-src 'self'; "
     "base-uri 'self'; "
     "form-action 'self'; "
     "frame-ancestors 'none'";
@@ -24,13 +28,19 @@ const _csp =
 Middleware securityHeadersMiddleware({bool enableHsts = false}) {
   return (Handler inner) => (Request request) async {
     final response = await inner(request);
-    final hasCacheControl = response.headers.keys.any((key) => key.toLowerCase() == 'cache-control');
+    bool hasHeader(String name) => response.headers.keys.any((key) => key.toLowerCase() == name);
+    final hasCacheControl = hasHeader('cache-control');
+    // A route that sets its own CSP owns its framing policy too (e.g. the
+    // sandboxed canvas embed needs frame-ancestors 'self' + a script nonce to
+    // render inside the admin iframe). Don't clobber it with the global CSP or
+    // X-Frame-Options: DENY, which would block same-origin framing entirely.
+    final routeOwnsCsp = hasHeader('content-security-policy');
     return response.change(
       headers: {
-        'Content-Security-Policy': _csp,
+        if (!routeOwnsCsp) 'Content-Security-Policy': _csp,
         'Referrer-Policy': 'no-referrer',
         'X-Content-Type-Options': 'nosniff',
-        'X-Frame-Options': 'DENY',
+        if (!routeOwnsCsp) 'X-Frame-Options': 'DENY',
         if (!hasCacheControl) 'Cache-Control': 'no-store',
         'Vary': 'HX-Request',
         if (enableHsts) 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',

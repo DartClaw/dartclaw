@@ -10,7 +10,6 @@ import '../../params/display_params.dart';
 import '../../provider_status_service.dart';
 import '../../templates/guard_config_summary.dart';
 import '../../templates/settings.dart';
-import '../channel_status.dart';
 import '../dashboard_page.dart';
 import '../page_support.dart';
 import '../web_utils.dart';
@@ -68,7 +67,6 @@ class SettingsPage extends DashboardPage {
     final googleChatConfig =
         context.config?.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat) ?? const GoogleChatConfig.disabled();
     final googleChatConfigured = googleChatConfig.enabled;
-    final googleChatConnected = googleChatChannel != null;
 
     final page = settingsTemplate(
       sidebarData: sidebarData,
@@ -90,11 +88,7 @@ class SettingsPage extends DashboardPage {
       signalStatus: sigStatus,
       signalPendingCount: signalChannel?.dmAccess.pendingPairings.length ?? 0,
       googleChatEnabled: googleChatConfigured,
-      googleChatStatus: googleChatConnected
-          ? ChannelStatus.connected
-          : googleChatConfigured
-          ? ChannelStatus.configured
-          : ChannelStatus.disabled,
+      googleChatStatus: googleChatChannelStatus(googleChatChannel, enabledInConfig: googleChatConfigured),
       googleChatPendingCount: googleChatChannel?.dmAccess?.pendingPairings.length ?? 0,
       guardsEnabled: guardsEnabled,
       guardFailOpen: gc?.failOpen ?? false,

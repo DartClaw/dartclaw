@@ -167,7 +167,7 @@ void main() {
     test('emptyAppState renders create session button', () async {
       final html = await engine.renderFileFragment('components', fragment: 'emptyAppState', context: const {});
       expect(html, contains('No chats yet'));
-      expect(html, contains('data-action="create-session"'));
+      expect(html, isNot(contains('data-dc-legacy-action')));
     });
   });
 
@@ -177,32 +177,25 @@ void main() {
         'title': 'Test Page',
         'body': '<p>Hello</p>',
         'appName': 'DartClaw',
-        'scriptsHtml': '<script defer="defer" src="/static/app.js"></script>',
+        'scriptsHtml': '',
       });
       expect(html, contains('<!DOCTYPE html>'));
       expect(html, contains('Test Page - DartClaw'));
     });
 
     test('includes required CDN scripts', () async {
-      final html = await engine.renderFile('layout', {
-        'title': 'T',
-        'body': '',
-        'scriptsHtml': '<script defer="defer" src="/static/app.js"></script>',
-      });
+      final html = await engine.renderFile('layout', {'title': 'T', 'body': '', 'scriptsHtml': ''});
       expect(html, contains('htmx.org'));
       expect(html, contains('marked'));
       expect(html, contains('purify.min.js'));
     });
 
     test('includes static asset references', () async {
-      final html = await engine.renderFile('layout', {
-        'title': 'T',
-        'body': '',
-        'scriptsHtml': '<script defer="defer" src="/static/app.js"></script>',
-      });
+      final html = await engine.renderFile('layout', {'title': 'T', 'body': '', 'scriptsHtml': ''});
       expect(html, contains('/static/tokens.css'));
       expect(html, contains('/static/components.css'));
-      expect(html, contains('/static/app.js'));
+      expect(html, contains('/static/controllers/index.js'));
+      expect(html, isNot(contains('/static/app.js')));
       expect(html, isNot(contains('/static/settings.js')));
     });
 
@@ -210,18 +203,13 @@ void main() {
       final html = await engine.renderFile('layout', {
         'title': 'T',
         'body': '',
-        'scriptsHtml':
-            '<script defer="defer" src="/static/app.js"></script>\n<script defer="defer" src="/static/settings.js"></script>',
+        'scriptsHtml': '<script defer="defer" src="/static/extra-page.js"></script>',
       });
-      expect(html, contains('/static/settings.js'));
+      expect(html, contains('/static/extra-page.js'));
     });
 
     test('escapes title to prevent XSS', () async {
-      final html = await engine.renderFile('layout', {
-        'title': '<script>xss</script>',
-        'body': '',
-        'scriptsHtml': '<script defer="defer" src="/static/app.js"></script>',
-      });
+      final html = await engine.renderFile('layout', {'title': '<script>xss</script>', 'body': '', 'scriptsHtml': ''});
       expect(html, contains('&lt;script&gt;'));
       expect(html, isNot(contains('<script>xss</script>')));
     });
@@ -263,7 +251,7 @@ void main() {
           'resetHref': '/api/sessions/a1/reset',
         },
       );
-      expect(html, contains('resume-archive'));
+      expect(html, contains('>Resume<'));
     });
 
     test('plainTopbar renders DartClaw branding', () async {
@@ -473,8 +461,8 @@ void main() {
         },
       );
 
-      expect(html, contains('data-action="archive-session"'));
-      expect(html, contains('data-action="delete-session"'));
+      expect(html, contains('data-session-archive="true"'));
+      expect(html, contains('data-session-delete="true"'));
       expect(html, contains('aria-label="Archive chat"'));
       expect(html, contains('aria-label="Delete session"'));
     });
@@ -811,6 +799,44 @@ void main() {
       expect(html, contains('Authentication'));
       expect(html, contains('System Health'));
       expect(html, contains('Workspace'));
+    });
+
+    test('shows channel configure links even when channels are disabled', () async {
+      final html = await engine.renderFileFragment(
+        'settings',
+        fragment: 'settings',
+        context: {
+          'whatsAppEnabled': false,
+          'signalConnected': false,
+          'signalDisconnected': false,
+          'signalNotConfigured': true,
+          'signalEnabled': false,
+          'googleChatEnabled': false,
+          'signalPhone': '',
+          'guardsActive': false,
+          'activeGuardCount': 0,
+          'activeGuards': <String>[],
+          'schedulingActive': false,
+          'scheduledJobsCount': 0,
+          'heartbeatDisplay': 'disabled',
+          'healthBadgeHtml': '<span class="status-badge status-badge-success">Healthy</span>',
+          'whatsAppStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+          'signalStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+          'googleChatStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+          'uptimeStr': '1h 30m',
+          'sessionCount': 5,
+          'version': '0.3.0',
+          'gitSyncEnabled': false,
+          'workspacePathDisplay': '~/.dartclaw/workspace/',
+          'gitSyncDisplay': 'Disabled',
+          'sidebar': '',
+          'topbar': '',
+        },
+      );
+
+      expect(html, contains('/settings/channels/whatsapp'));
+      expect(html, contains('/settings/channels/signal'));
+      expect(html, contains('/settings/channels/google_chat'));
     });
 
     test('shows WhatsApp configure link when enabled', () async {

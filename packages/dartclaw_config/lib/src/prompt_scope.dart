@@ -4,9 +4,15 @@ enum PromptScope {
   /// Full workspace behavior cascade.
   ///
   /// Includes SOUL.md, USER.md, TOOLS.md, errors.md, learnings.md, MEMORY.md,
-  /// compact instructions, and AGENTS.md. Used for web chat, DM, group, and
-  /// cron sessions where the full behavior context is appropriate.
+  /// compact instructions, and AGENTS.md. Used for DM, group, and cron
+  /// sessions where the full behavior context is appropriate.
   interactive,
+
+  /// Web chat prompt that is eligible for first-run onboarding instructions.
+  ///
+  /// Includes the full interactive behavior cascade plus a fresh
+  /// ONBOARDING.md sentinel when one exists.
+  webInteractive,
 
   /// Lean task execution prompt.
   ///

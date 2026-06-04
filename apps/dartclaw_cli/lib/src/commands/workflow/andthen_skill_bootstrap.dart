@@ -14,28 +14,6 @@ import 'package:path/path.dart' as p;
 
 import 'project_definition_paths.dart';
 
-/// Project directories searched for workflow skills.
-List<String> workflowSkillProjectDirs(config_tools.DartclawConfig config, {required String fallbackCwd}) {
-  if (config.projects.definitions.isEmpty) {
-    return [fallbackCwd];
-  }
-  return configuredProjectDirectories(config);
-}
-
-({String claudeSkillsDir, String agentsSkillsDir}) workflowDataDirSkillRoots(String dataDir) {
-  return (claudeSkillsDir: p.join(dataDir, '.claude', 'skills'), agentsSkillsDir: p.join(dataDir, '.agents', 'skills'));
-}
-
-({String claudeSkillsDir, String agentsSkillsDir})? workflowOptionalUserSkillRoots(Map<String, String>? environment) {
-  final env = environment ?? Platform.environment;
-  final home = (env['HOME'] ?? env['USERPROFILE'] ?? '').trim();
-  if (home.isEmpty) return null;
-  return (
-    claudeSkillsDir: config_tools.expandHome('~/.claude/skills', env: env),
-    agentsSkillsDir: config_tools.expandHome('~/.agents/skills', env: env),
-  );
-}
-
 /// Provisions DartClaw-native workflow skills into provider-native roots.
 Future<void> bootstrapWorkflowSkills({
   required config_tools.DartclawConfig config,
@@ -73,6 +51,9 @@ Future<void> bootstrapWorkflowSkills({
     final linker = WorkspaceSkillLinker();
     final workspaceDirs = _workspaceMaterializationDirs(config, fallbackWorkspaceDir: fallbackWorkspaceDir);
     for (final workspaceDir in workspaceDirs) {
+      if (p.normalize(p.absolute(workspaceDir)) == p.normalize(p.absolute(dataDir))) {
+        continue;
+      }
       linker.materialize(
         dataDir: dataDir,
         workspaceDir: workspaceDir,

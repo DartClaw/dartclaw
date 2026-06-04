@@ -79,6 +79,9 @@ class FakeWorkerService implements AgentHarness {
   }
 
   @override
+  Future<void> resetSessionContinuity(String sessionId) async {}
+
+  @override
   Future<void> cancel() async {
     cancelCalled = true;
     _turnCompleter?.completeError(StateError('Cancelled'));

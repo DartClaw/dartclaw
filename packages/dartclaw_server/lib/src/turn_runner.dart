@@ -207,6 +207,8 @@ class TurnRunner implements core.TurnRunner {
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     // Governance checks happen before the session lock so blocked turns do not
     // hold the lock while waiting or failing fast.
@@ -228,6 +230,8 @@ class TurnRunner implements core.TurnRunner {
       maxTurns: maxTurns,
       behaviorOverride: behaviorOverride,
       promptScope: promptScope,
+      allowedTools: allowedTools,
+      readOnly: readOnly,
     );
     _outcomePending[turnId] = Completer<TurnOutcome>();
     _resetService?.touchActivity(sessionId);
@@ -273,6 +277,23 @@ class TurnRunner implements core.TurnRunner {
     _outcomePending.remove(turnId)?.completeError(StateError('Turn released without execution'));
   }
 
+  @override
+  Future<void> resetSessionContinuity(String sessionId) async {
+    if (_activeTurns.isNotEmpty) {
+      throw BusyTurnException(
+        'Cannot reset session continuity while a turn is in progress',
+        isSameSession: _activeTurns.containsKey(sessionId),
+      );
+    }
+    _recentOutcomes.removeWhere((_, entry) => entry.outcome.sessionId == sessionId);
+    _recoveredSessions.remove(sessionId);
+    _turnProgressSnapshots.remove(sessionId);
+    _taskToolFilterGuard?.setSessionToolFilter(sessionId, null);
+    _taskToolFilterGuard?.setSessionReadOnly(sessionId, false);
+    await _turnState?.delete(sessionId);
+    await _worker.resetSessionContinuity(sessionId);
+  }
+
   Future<String> startTurn(
     String sessionId,
     List<Map<String, dynamic>> messages, {
@@ -282,6 +303,8 @@ class TurnRunner implements core.TurnRunner {
     String? effort,
     int? maxTurns,
     bool isHumanInput = false,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     final turnId = await reserveTurn(
       sessionId,
@@ -290,6 +313,8 @@ class TurnRunner implements core.TurnRunner {
       effort: effort,
       maxTurns: maxTurns,
       isHumanInput: isHumanInput,
+      allowedTools: allowedTools,
+      readOnly: readOnly,
     );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;
@@ -393,12 +418,17 @@ class TurnRunner implements core.TurnRunner {
   // ---------------------------------------------------------------------------
 
   Future<String> _buildSystemPrompt(String sessionId) async {
-    if (_worker.promptStrategy == PromptStrategy.append) return '';
-
     // Use task-scoped behavior override when present (project-backed tasks).
     final turnContext = _activeTurns[sessionId];
     final effectiveBehavior = turnContext?.behaviorOverride ?? _behavior;
     final scope = turnContext?.promptScope ?? PromptScope.interactive;
+
+    if (_worker.promptStrategy == PromptStrategy.append) {
+      if (scope == PromptScope.webInteractive && effectiveBehavior.hasFreshOnboardingSentinel(logStale: true)) {
+        return effectiveBehavior.composeStaticPrompt(scope: scope);
+      }
+      return '';
+    }
 
     final behaviorPrompt = await effectiveBehavior.composeSystemPrompt(scope: scope);
 
@@ -440,6 +470,13 @@ class TurnRunner implements core.TurnRunner {
   }) async {
     final buffer = StringBuffer();
     final stopwatch = Stopwatch()..start();
+    final turnPolicy = _activeTurns[sessionId];
+    if (turnPolicy?.allowedTools != null) {
+      _taskToolFilterGuard?.setSessionToolFilter(sessionId, turnPolicy!.allowedTools);
+    }
+    if (turnPolicy?.readOnly ?? false) {
+      _taskToolFilterGuard?.setSessionReadOnly(sessionId, true);
+    }
     var progressTextLength = 0;
     final progressMonitor = _stallTimeout > Duration.zero
         ? TurnProgressMonitor(
@@ -697,6 +734,12 @@ class TurnRunner implements core.TurnRunner {
         );
       }
     } finally {
+      if (turnPolicy?.allowedTools != null) {
+        _taskToolFilterGuard?.setSessionToolFilter(sessionId, null);
+      }
+      if (turnPolicy?.readOnly ?? false) {
+        _taskToolFilterGuard?.setSessionReadOnly(sessionId, false);
+      }
       statusTickTimer?.cancel();
       progressMonitor?.stop();
       await eventSub.cancel();

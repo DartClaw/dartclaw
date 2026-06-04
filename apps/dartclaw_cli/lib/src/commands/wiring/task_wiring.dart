@@ -95,6 +95,7 @@ class TaskWiring {
   late AgentObserver _agentObserver;
   late final WorkspaceSkillLinker _workspaceSkillLinker = WorkspaceSkillLinker();
   late TaskExecutor _taskExecutor;
+  late WorkflowCliRunner _workflowCliRunner;
   late ChannelReviewHandler _reviewHandler;
   late TaskCancellationSubscriber _taskCancellationSubscriber;
   late ContainerTaskFailureSubscriber _containerTaskFailureSubscriber;
@@ -173,7 +174,7 @@ class TaskWiring {
   Future<void> wirePostServer({
     required TurnManager turns,
     required HarnessPool pool,
-    Future<void> Function()? onSpawnNeeded,
+    SpawnTaskRunner? onSpawnNeeded,
   }) async {
     _diffGenerator = DiffGenerator(projectDir: Directory.current.path);
     _artifactCollector = ArtifactCollector(
@@ -201,7 +202,7 @@ class TaskWiring {
 
     _agentObserver = AgentObserver(pool: pool, eventBus: _eventBus);
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
-    final workflowCliRunner = WorkflowCliRunner(
+    _workflowCliRunner = WorkflowCliRunner(
       providers: {
         for (final providerId in <String>{config.agent.provider, ...config.providers.entries.keys})
           providerId: WorkflowCliProviderConfig(
@@ -230,13 +231,16 @@ class TaskWiring {
         kvService: _storage.kvService,
         eventBus: _eventBus,
       ),
-      runners: TaskExecutorRunners(turns: turns, observer: _agentObserver, workflowCliRunner: workflowCliRunner),
+      runners: TaskExecutorRunners(turns: turns, observer: _agentObserver, workflowCliRunner: _workflowCliRunner),
       limits: TaskExecutorLimits(
         maxMemoryBytes: config.memory.maxBytes,
         compactInstructions: config.context.compactInstructions,
         identifierPreservation: config.context.identifierPreservation,
         identifierInstructions: config.context.identifierInstructions,
         budgetConfig: config.tasks.budget,
+        defaultProviderId: config.agent.provider,
+        stallTimeout: config.governance.turnProgress.stallTimeout,
+        stallAction: config.governance.turnProgress.stallAction,
       ),
       onSpawnNeeded: onSpawnNeeded,
       onAutoAccept: buildAutoAcceptCallback(
@@ -275,6 +279,7 @@ class TaskWiring {
   }
 
   Future<void> dispose() async {
+    await _workflowCliRunner.cancelInflight();
     await _taskExecutor.stop();
     _agentObserver.dispose();
     await _taskCancellationSubscriber.dispose();

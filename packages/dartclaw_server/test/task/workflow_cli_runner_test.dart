@@ -1,8 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/task/cli_process_supervisor.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
+import 'package:fake_async/fake_async.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -129,6 +134,205 @@ void main() {
       expect(result.structuredOutput, isNull);
       expect(result.inputTokens, 12);
       expect(result.outputTokens, 7);
+    });
+
+    test('dispatches custom provider aliases by configured family', () async {
+      final provider = _RecordingCliProvider();
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'my_agent': WorkflowCliProviderConfig(
+            executable: '/opt/bin/custom-codex',
+            environment: {'ALIAS_ENV': '1'},
+            options: {'family': 'codex', 'sandbox': 'read-only'},
+          ),
+        },
+        providerImpls: {'codex': provider},
+      );
+
+      final result = await runner.executeTurn(
+        provider: 'my_agent',
+        prompt: 'Review this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+
+      expect(result.providerSessionId, 'recorded-session');
+      expect(provider.requests, hasLength(1));
+      expect(provider.requests.single.providerConfig.executable, '/opt/bin/custom-codex');
+      expect(provider.requests.single.providerConfig.environment, {'ALIAS_ENV': '1'});
+      expect(provider.requests.single.providerConfig.options['sandbox'], 'read-only');
+    });
+
+    test('codex stall monitor starts at subprocess start and kills silent process on cancel', () {
+      fakeAsync((async) {
+        late FakeProcess fake;
+        final eventBus = EventBus();
+        final stallEvents = <WorkflowCliStallEvent>[];
+        final sub = eventBus.on<WorkflowCliStallEvent>().listen(stallEvents.add);
+        final runner = WorkflowCliRunner(
+          providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+          eventBus: eventBus,
+          processStarter: (exe, args, {workingDirectory, environment}) async {
+            fake = FakeProcess(completeExitOnKill: true, killExitCode: -1);
+            return fake;
+          },
+        );
+
+        Object? error;
+        unawaited(
+          runner
+              .executeTurn(
+                provider: 'codex',
+                prompt: 'silent',
+                workingDirectory: Directory.systemTemp.path,
+                profileId: 'workspace',
+                stepName: 'Implement',
+                stallTimeout: const Duration(seconds: 10),
+                stallAction: TurnProgressAction.cancel,
+              )
+              .then<void>((_) => fail('silent process should not complete'), onError: (Object e) => error = e),
+        );
+
+        async.flushMicrotasks();
+        expect(fake.killCalled, isFalse);
+        async.elapse(const Duration(seconds: 9));
+        async.flushMicrotasks();
+        expect(error, isNull);
+
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+
+        expect(fake.killCalled, isTrue);
+        expect(error, isA<WorkflowCliStallException>());
+        expect(stallEvents, hasLength(1));
+        expect(stallEvents.single.stepName, 'Implement');
+        expect(stallEvents.single.action, 'cancel');
+        unawaited(sub.cancel());
+        unawaited(eventBus.dispose());
+      });
+    });
+
+    test('stall cancellation escalates and reports failure only after the process exits', () {
+      fakeAsync((async) {
+        final fake = _SigkillOnlyFakeProcess();
+        final supervisor = CliProcessSupervisor(
+          process: fake,
+          provider: 'codex',
+          stepName: 'Escalate',
+          stallTimeout: const Duration(seconds: 10),
+          stallAction: TurnProgressAction.cancel,
+          stepTimeout: null,
+          eventBus: null,
+          log: Logger('WorkflowCliRunnerTest'),
+          terminationGrace: const Duration(seconds: 5),
+        )..start();
+
+        Object? error;
+        unawaited(
+          supervisor.waitForExitCode().then<void>(
+            (_) => fail('silent process should not complete'),
+            onError: (Object e) => error = e,
+          ),
+        );
+
+        async.elapse(const Duration(seconds: 10));
+        async.flushMicrotasks();
+
+        expect(fake.killSignals, [ProcessSignal.sigterm]);
+        expect(error, isNull, reason: 'failure must wait for the escalated process reap path');
+
+        async.elapse(const Duration(seconds: 5));
+        async.flushMicrotasks();
+
+        expect(fake.killSignals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
+        expect(error, isA<WorkflowCliStallException>());
+        supervisor.stop();
+      });
+    });
+
+    test('codex parsed output resets the stall timer', () {
+      fakeAsync((async) {
+        late FakeProcess fake;
+        final runner = WorkflowCliRunner(
+          providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+          processStarter: (exe, args, {workingDirectory, environment}) async {
+            fake = FakeProcess();
+            return fake;
+          },
+        );
+
+        WorkflowCliTurnResult? result;
+        Object? error;
+        unawaited(
+          runner
+              .executeTurn(
+                provider: 'codex',
+                prompt: 'stream',
+                workingDirectory: Directory.systemTemp.path,
+                profileId: 'workspace',
+                stepName: 'Review',
+                stallTimeout: const Duration(seconds: 10),
+                stallAction: TurnProgressAction.cancel,
+              )
+              .then<void>((value) => result = value, onError: (Object e) => error = e),
+        );
+
+        async.flushMicrotasks();
+        fake.emitStdout(jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-stream'}));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 9));
+        fake.emitStdout(jsonEncode({'type': 'turn.started'}));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 9));
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'turn.completed',
+            'usage': {'input_tokens': 2, 'output_tokens': 3},
+          }),
+        );
+        fake.exit(0);
+        async.flushMicrotasks();
+
+        expect(fake.killCalled, isFalse);
+        expect(error, isNull);
+        expect(result?.providerSessionId, 'codex-thread-stream');
+      });
+    });
+
+    test('step timeout kills overlong one-shot process distinctly from stall', () {
+      fakeAsync((async) {
+        late FakeProcess fake;
+        final runner = WorkflowCliRunner(
+          providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+          processStarter: (exe, args, {workingDirectory, environment}) async {
+            fake = FakeProcess(completeExitOnKill: true, killExitCode: -1);
+            return fake;
+          },
+        );
+
+        Object? error;
+        unawaited(
+          runner
+              .executeTurn(
+                provider: 'claude',
+                prompt: 'slow',
+                workingDirectory: Directory.systemTemp.path,
+                profileId: 'workspace',
+                stepName: 'Timeout step',
+                stallTimeout: Duration.zero,
+                stepTimeout: const Duration(seconds: 30),
+              )
+              .then<void>((_) => fail('overlong process should not complete'), onError: (Object e) => error = e),
+        );
+
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 30));
+        async.flushMicrotasks();
+
+        expect(fake.killCalled, isTrue);
+        expect(error, isA<WorkflowCliTimeoutException>());
+        expect(error.toString(), contains('Timeout step'));
+      });
     });
 
     test('builds Codex one-shot args with explicit approval policy and sandbox override', () async {
@@ -259,7 +463,7 @@ void main() {
         profileId: 'workspace',
       );
 
-      expect(arguments, containsAll(['--setting-sources', 'project']));
+      expect(arguments, isNot(contains('--setting-sources')));
       expect(arguments, containsAll(['--permission-mode', 'dontAsk']));
       expect(arguments, isNot(contains('--dangerously-skip-permissions')));
       final settingsIndex = arguments.indexOf('--settings');
@@ -1406,6 +1610,37 @@ class _FakeCliProvider implements CliProvider {
     onRun();
     return WorkflowCliTurnResult(providerSessionId: 'fake-session', responseText: 'fake-response', newInputTokens: 0);
   }
+
+  @override
+  Future<void> cancelInflight() async {}
+}
+
+class _SigkillOnlyFakeProcess extends FakeProcess {
+  final killSignals = <ProcessSignal>[];
+
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
+    killCalled = true;
+    lastKillSignal = signal;
+    killSignals.add(signal);
+    if (signal == ProcessSignal.sigkill) {
+      super.exit(-9);
+    }
+    return true;
+  }
+}
+
+final class _RecordingCliProvider implements CliProvider {
+  final requests = <CliTurnRequest>[];
+
+  @override
+  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
+    requests.add(request);
+    return WorkflowCliTurnResult(providerSessionId: 'recorded-session', responseText: 'ok', newInputTokens: 0);
+  }
+
+  @override
+  Future<void> cancelInflight() async {}
 }
 
 class _FakeContainerExecutor implements ContainerExecutor {

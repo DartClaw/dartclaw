@@ -56,6 +56,7 @@ AlertClassification? classifyAlert(DartclawEvent event) {
     CompactionStartingEvent() => null,
     WorkflowRunStatusChangedEvent() => null,
     WorkflowStepCompletedEvent() => null,
+    WorkflowCliStallEvent() => null,
     WorkflowCliTurnProgressEvent() => null,
     ParallelGroupCompletedEvent() => null,
     LoopIterationCompletedEvent() => null,

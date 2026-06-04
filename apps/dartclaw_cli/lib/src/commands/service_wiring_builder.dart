@@ -101,7 +101,6 @@ void _applyServerBuilderPostServer(
     ..threadBindingStore = channel.threadBindingStore
     ..workflowService = workflowService
     ..workflowDefinitionSource = workflowRegistry
-    ..skillRegistry = ctx.skillRegistry
     ..schedulingDisplay = SchedulingDisplayParams(
       jobs: scheduling.displayJobs,
       systemJobNames: scheduling.systemJobNames,

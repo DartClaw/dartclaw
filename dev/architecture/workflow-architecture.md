@@ -1,8 +1,16 @@
 # Workflow Architecture
 
-Canonical deep-dive for DartClaw's workflow engine. This document covers deterministic orchestration, the definition model, step execution semantics, parallel groups, loops, map/fan-out, context flow, budgets, skill integration, crash recovery, and how the engine relates to task execution.
+Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
 **Current through**: 0.16.5 (map/foreach `maxItems` is opt-in; omitted means uncapped)
+
+---
+
+## Audience & Scope
+
+This is the **contributor reference**. It documents how the workflow engine is built, why it is structured the way it is, and the invariants that keep it deterministic. Use it when modifying the parser, validator, executor, or context flow — or when writing tests against any of those.
+
+For **authoring workflows** (YAML field reference, step types in practice, examples of `mapOver`, `foreach`, loops, gates, multi-prompt, approval flow, trigger surfaces, CLI usage), read [`docs/guide/workflows.md`](../../docs/guide/workflows.md) — that is the user-facing canonical reference. This document deliberately avoids duplicating that material; sections below that overlap point back to the guide.
 
 ---
 
@@ -44,14 +52,14 @@ This matches the broader 2-layer model:
 
 The implementation is split across:
 
-- `packages/dartclaw_models/lib/src/workflow_definition.dart` — definition model, step model, loop model
-- `packages/dartclaw_models/lib/src/workflow_run.dart` — run state model
-- `packages/dartclaw_workflow/lib/src/workflow/` — parser, validator, executor, context extractor, template engine, skill registry, schema validation, filesystem-backed workflow definitions and skills
+- `packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart` — definition model, step model, loop model
+- `packages/dartclaw_workflow/lib/src/workflow/workflow_run.dart` — run state model
+- `packages/dartclaw_workflow/lib/src/workflow/` — parser, validator, executor, context extractor, template engine, runtime skill preflight, schema validation, filesystem-backed workflow definitions and skills
 - `packages/dartclaw_server/lib/src/api/workflow_routes.dart` — HTTP API endpoints
 - `apps/dartclaw_cli/lib/src/commands/workflow/` — CLI commands
 
-The public-facing companion guide is [workflows.md](../../../dartclaw-public/docs/guide/workflows.md).
-This architecture builds on the multi-provider harness boundary established in [ADR-016](../adrs/016-multi-provider-harness-architecture.md).
+The public-facing companion guide is [workflows.md](../../docs/guide/workflows.md).
+This architecture builds on the multi-provider harness boundary established in ADR-016 (private repo).
 
 ## 2. System Overview
 
@@ -101,7 +109,16 @@ This keeps the workflow package responsible for workflow metadata, keeps the tas
 
 ## 3. Definition Model
 
-The typed model lives in `dartclaw_models`, not core. The important types are:
+A workflow is intentionally only four things: **metadata, variables, steps, loops**. That keeps the authoring surface area proportional to what the executor can actually enforce.
+
+The typed model lives in `dartclaw_workflow`, not the server or CLI. That layering decision matters:
+
+- parser and validator operate on shared typed models
+- CLI validation uses the same structures as the server runtime
+- execution can be tested without pulling in HTTP concerns
+- storage serializes model state without re-parsing YAML
+
+The important types are:
 
 | Type | Purpose |
 |---|---|
@@ -121,15 +138,87 @@ The model deliberately keeps string-based fields where the workflow authoring su
 
 ```yaml
 name: spec-and-implement
+description: Write a specification, implement it, and run integrated review.
 variables:
   FEATURE:
     required: true
 steps:
-  - id: research
-    name: Research
+  - id: detect-spec-input
+    name: Detect Spec Input
+    skill: dartclaw-discover-andthen-spec
+    workflowVariables: [FEATURE]
+    outputs:
+      spec_path: detected_fis_path
+      spec_source: spec_source
+  - id: spec
+    name: Generate Specification
+    skill: andthen:spec
+    entryGate: "spec_source == synthesized"
+    workflowVariables: [FEATURE]
+    outputs:
+      spec_path: fis_path
+      spec_source: spec_source
 ```
 
-The parser accepts the full model surface used by the shipped workflows: `skill`, `parallel`, `gate`, `entryGate`, `inputs`, `outputs` (canonical declaration of context-write keys; per-entry `format`/`schema`/`source`/`outputMode`/`description`/`setValue`), `mapOver`, `maxParallel`, `maxItems`, `continueSession`, `onError`, `workdir`, `maxTokens`, `maxCostUsd`, and `stepDefaults`.
+At the top level, the parser reads:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `name` | string | Stable identifier used in registry, CLI, and API |
+| `description` | string | Human summary for discovery surfaces |
+| `variables` | mapping | Declared runtime inputs with defaults and required flags |
+| `steps` | list | Linear step catalog in author order |
+| `loops` | list | Legacy loop declarations (compatibility) that normalize into ordered loop nodes |
+| `maxTokens` | int? | Whole-run budget ceiling |
+| `stepDefaults` | list | Glob-matched default policy for steps |
+
+Two details matter:
+
+- the runtime executes by `id`, not by display `name`
+- context edges are explicit; steps do not implicitly see prior outputs
+
+The definition model encodes 0.16-era capabilities directly on the step object:
+
+| Step field | Purpose |
+|---|---|
+| `type` | structural execution mode: omitted/`agent`, `bash`, `approval`, `foreach`, or `loop` |
+| `skill` | provider-native skill reference |
+| `parallel` | marks a step as part of a linear parallel group |
+| `gate` | pre-step boolean condition against workflow context |
+| `entryGate` | step-level skip-when-false gate |
+| `inputs` | named context keys supplied to the step prompt |
+| `outputs` | canonical per-key output configuration (`format`/`schema`/`source`/`outputMode`/`description`/`setValue`) — the map's keys are the step's context-write set |
+| `mapOver` | collection key for fan-out execution |
+| `maxParallel` | per-map concurrency cap |
+| `maxItems` | map item ceiling (opt-in; omitted means uncapped) |
+| `continueSession` | session continuity target |
+| `onFailure` | `fail` (default), `continue`, `retry`, or `pause` — modern step failure policy (drives workflow-owned retry budget handling for any step type) |
+| `onError` | legacy `pause` / `continue` / `fail` — still honored by the executor and loop runner for any step type when set; primarily used by bash steps. `onFailure` is the preferred field for new authoring |
+| `provider` / `model` / `effort` | explicit provider, model, or reasoning-effort override |
+| `auto_frame_context` | bool, default `true` — opt out of auto-XML-framing of `inputs:` / `workflow_variables:` |
+| `emitsOwnOutcome` | bool, default `false` — skip the `<step-outcome>` framing append |
+| `maxTokens` / `maxCostUsd` | step-level budgets |
+| `allowedTools` | tool allowlist override |
+| `workdir` | step working directory override |
+
+Loops remain a separate object in the serialized model for backward compatibility, but runtime traversal treats them as ordered nodes:
+
+| Loop field | Purpose |
+|---|---|
+| `id` | stable loop identifier for recovery and diagnostics |
+| `steps` | ordered list of step IDs that belong to the loop |
+| `exitGate` | boolean expression checked after each iteration |
+| `maxIterations` | hard ceiling to prevent infinite repetition |
+| `finally` | optional step ID that runs after termination |
+
+This design keeps the executor predictable:
+
+- authored order is the primary execution order
+- loop-owned steps are executed when their loop node is reached
+- finalizers remain loop-owned and run within loop execution semantics
+- legacy `loops:` declarations are normalized to the same runtime behavior
+
+The consequence: a workflow definition is declarative enough to be validated statically, but concrete enough that the runtime never has to infer author intent from prompt text.
 
 ### Schema (S66/S67): `outputs:` and `setValue`
 
@@ -183,6 +272,8 @@ The built-in `code-review` workflow no longer hardcodes an `extract-diff` bash s
 
 All built-in `dartclaw-review` steps pass `--output-dir "{{workflow.runtime_artifacts_dir}}/reviews"`, where `{{workflow.runtime_artifacts_dir}}` is a render-only system variable that resolves to `<dataDir>/workflows/runs/<runId>/runtime-artifacts`. The workflow engine creates that directory and its `reviews/` subdirectory at run start before any provider CLI is launched. This uses AndThen's explicit report-output override to avoid heuristic placement drift while keeping transient review reports outside the project worktree.
 
+Review report path outputs remain durable even when the review is clean. If a zero-finding review omits the report path or claims a missing path under the runtime-artifacts directory, the context extractor materializes a diagnostic clean-review markdown file there and records that path in context.
+
 ### 4.2 Approval Steps
 
 Approval steps hold the workflow until an operator accepts or cancels the run. They are zero-task, zero-token gates.
@@ -216,7 +307,7 @@ No current built-in workflow requires an `approval` step. `spec-and-implement` n
 `WorkflowRunStatus` now distinguishes operator holds from failure states:
 
 - `paused` means an operator deliberately paused the run.
-- `awaitingApproval` means the run is blocked on an approval gate or a step-reported `needsInput` outcome.
+- `awaitingApproval` means the run is blocked on an approval gate or a step-reported `needsInput` outcome that did not opt into `onFailure: continue`.
 - `failed` means the run hit a runtime, gate, or step failure and is eligible for explicit retry.
 
 Only `completed`, `failed`, and `cancelled` are terminal lifecycle states. This keeps dashboards, SSE subscribers, and CLI exit codes aligned with operator intent instead of conflating "waiting on a human" with "something broke".
@@ -235,10 +326,14 @@ Runtime handling:
 
 - `succeeded` records `step.<id>.outcome = "succeeded"` and continues normally.
 - `failed` records the semantic outcome and applies `onFailure` (`fail`, `continue`, `retry`, `pause`).
-- `needsInput` always transitions the run to `awaitingApproval`, reusing the same `_approval.*` metadata shape as an explicit approval step.
+- `needsInput` transitions the run to `awaitingApproval` by default, reusing the same `_approval.*` metadata shape as an explicit approval step. `onFailure: continue` is the explicit best-effort policy for advisory/cleanup steps that should record the `needsInput` reason and advance.
 - Missing tags fall back to lifecycle status (`accepted -> succeeded`, `failed/cancelled -> failed`), emit a warning log, and increment the `workflow.outcome.fallback` counter.
 
 The older `<stepId>.status` keys remain as lifecycle metadata. Outcome is additive rather than a replacement, so existing gates keep working while authors can now write semantic gates such as `step.review.outcome != failed`.
+
+Workflow `onFailure: retry` is the single retry authority for workflow-spawned tasks. `maxRetries: N` means at most `N + 1` workflow task attempts across single steps, map items, and foreach child steps. The workflow-owned retry budget covers failed tasks, failed `<step-outcome>` envelopes, post-task validation failures, and missing declared artifacts. Retry attempts receive the previous workflow-validation failure in the next prompt so the agent can repair missing files or malformed outputs instead of repeating the same response. The helper stops early when consecutive failures normalize to the same error class, preserving the deterministic-failure guard without reintroducing task-runtime retry.
+
+The task-runtime retry path remains in `dartclaw_server` for non-workflow tasks. Workflow task creation persists `Task.maxRetries == 0`, so workflow retry cannot multiply with task-runtime retry and server retry code stays uncoupled from workflow outcome semantics.
 
 ### 4.3 Hybrid Step Concept
 
@@ -456,7 +551,7 @@ The server-side extractor uses a deterministic fallback chain (full priority lis
 
 1. `OutputConfig.setValue` — literal write, short-circuits all extraction
 2. `OutputConfig.source` — direct task metadata read (`worktree.branch`, `worktree.path`)
-3. Canonical context defaults — `*_source` keys default to `synthesized` for any step that emits them blank; `prd`, `plan`, and `story_specs` pre-fill from `project_index` only for the `discover-project` step (see `context_output_defaults.dart`)
+3. Canonical context defaults — `*_source` keys default to `synthesized` for any step that emits them blank (see `context_output_defaults.dart`)
 4. Per-key resolver — `FileSystemOutput` (path glob), `InlineOutput`/`NarrativeOutput` (`<workflow-context>` JSON, then structured-output payload)
 5. Step-level legacy `extraction:` — first-key path
 6. Empty string with warning
@@ -511,47 +606,34 @@ stepDefaults:
 
 This keeps expensive reviewer steps bounded without repeating the same configuration on every step.
 
-## 11. Skill Registry
+## 11. Skill-Aware Steps and Runtime Preflight
 
-The skill system plugs into workflow authoring through a narrow interface:
+The skill system plugs into workflow authoring through the `skill:` field and runtime provider introspection:
 
-- `SkillRegistry.listAll()`
-- `SkillRegistry.getByName()`
-- `SkillRegistry.validateRef()`
-- `SkillRegistry.isNativeFor()`
+- `WorkflowDefinitionValidator` checks step shape, but does not reject unknown skill names at YAML load time.
+- `WorkflowExecutor` collects reachable authored skill refs, including nested workflow nodes and synthetic merge-resolve steps, before dispatching the first step.
+- `SkillIntrospector.listAvailable()` probes the effective provider's visible skill list once per provider/executable pair for that run.
+- `workflow_skill_preflight.dart` compares authored refs against the provider-visible names and records aliases when a provider exposes a different invocation name, such as Codex `andthen-review` for authored `andthen:review`.
+- Missing refs fail with `WorkflowPreflightException` before any workflow step dispatches.
 
 When a step declares `skill:`, the `SkillPromptBuilder` handles four prompt construction cases:
 
 | Case | Prompt shape |
 |---|---|
 | skill + prompt | `"Use the '<skill>' skill.\n\n<resolved prompt>"` |
-| skill + no prompt | `"Use the '<skill>' skill.\n\nContext:\n- key: value..."` |
+| skill + no prompt | skill activation line plus a markdown input summary when inputs exist, otherwise the activation line alone |
 | no skill + prompt | passthrough (resolved prompt unchanged) |
 | no skill + no prompt | rejected by validator |
 
 After construction, the `PromptAugmenter` appends schema-driven output format instructions if the step declares outputs with a `schema` field (Section 11.1).
 
-### Skill Frontmatter Workflow Block
+### No Skill Frontmatter Workflow Defaults
 
-Each `SKILL.md` can declare a `workflow:` block in its YAML frontmatter:
+`SKILL.md` frontmatter is provider-owned skill metadata, not workflow configuration. DartClaw does not parse third-party skill files and does not consume a `workflow:` frontmatter block for `default_prompt`, `default_outputs`, or outcome protocol defaults.
 
-```yaml
----
-name: dartclaw-quick-review
-description: …
-workflow:
-  default_prompt: "Use $dartclaw-quick-review to run a fast fresh-context review of the recent changes."
-  default_outputs:
-    quick_review_summary: {format: text}
-    quick_review_findings_count: {format: json, schema: non_negative_integer, description: "…"}
----
-```
+Workflow prompts and output schemas are authored directly in workflow YAML. Skill-only steps remain valid: when a step omits `prompt:`, `SkillPromptBuilder` emits the provider-native activation line and either appends a markdown summary of declared inputs or lets workflow variables auto-frame at the tail. The provider loads the skill body through its own native skill mechanism.
 
-The `SkillRegistryImpl._parseFrontmatterContent` pass reads the block into `SkillInfo.defaultPrompt` and `SkillInfo.defaultOutputs`. The workflow executor consults these when a step declares `skill:` and omits `prompt:` / `outputs:` — the missing fields are filled from the registry entry so Case 1 applies (the skill-line prefix followed by the default prompt), and the extraction path uses the merged `outputs:` map.
-
-This replaces the legacy per-skill `agents/openai.yaml` files; the shape of the frontmatter block is intentionally neutral (no harness label) so third-party skills can target the same surface without declaring per-harness artifacts.
-
-As of ADR-025 (implemented in 0.16.4 / S71 and simplified by S81), DartClaw ships three DC-native skills (`dartclaw-discover-project`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`). All other workflow skills (`dartclaw-spec`, `dartclaw-plan`, `dartclaw-prd`, `dartclaw-exec-spec`, `dartclaw-review`, `dartclaw-remediate-findings`, `dartclaw-quick-review`, `dartclaw-ops`) are provisioned at `dartclaw serve` startup by `SkillProvisioner` (`packages/dartclaw_workflow/lib/src/skills/skill_provisioner.dart`).
+DartClaw ships four DC-native workflow skills as package assets: `dartclaw-discover-andthen-spec`, `dartclaw-discover-andthen-plan`, `dartclaw-validate-workflow`, and `dartclaw-merge-resolve`. The canonical list is `dcNativeSkillNames` in `packages/dartclaw_workflow/lib/src/skills/skill_provisioner.dart`.
 
 #### Runtime-Provisioning Model (S71, Simplified By S81)
 
@@ -572,14 +654,13 @@ The only install destination is the native harness user tier: `~/.agents/skills`
 3. Skip the key if `{{context.key}}` / `{{context.tagName}}` (inputs) or `{{KEY}}` / `{{tagName}}` (variables) appears in the template prompt (pre-substitution form — required for correct detection when the substitution has already happened).
 4. Otherwise append `\n\n<tagName>\n{resolved value}\n</tagName>`; null/empty values render as `_(empty)_` per the existing `formatContextSummary` convention.
 
-`WorkflowStep.autoFrameContext` (YAML key `auto_frame_context`, default `true`) opts the step out. The shipped built-in workflows intentionally lean on this mechanism for boilerplate-free step authoring: generic prompt wrappers such as manual `Branch:` lines or duplicated `file_read` reminders are omitted from YAML when skill defaults + auto-framed inputs already carry the same information.
+`WorkflowStep.autoFrameContext` (YAML key `auto_frame_context`, default `true`) opts the step out. The shipped built-in workflows intentionally lean on this mechanism for boilerplate-free step authoring: generic prompt wrappers such as manual `Branch:` lines or duplicated `file_read` reminders are omitted from YAML when explicit step prompts and auto-framed inputs already carry the same information.
 
 ### Resolved Workflow Observability
 
 `WorkflowDefinitionResolver` converts a `WorkflowDefinition` into a round-trippable, fully-merged form:
 
 - `stepDefaults` patterns applied to each step (first match wins; explicit step fields take precedence).
-- Skill frontmatter defaults injected where the step omits `prompt:` / `outputs:` (shallow merge for outputs).
 - Workflow-level `{{VAR}}` bindings substituted in step prompts when bindings are supplied; unbound references and `{{context.*}}` references stay intact.
 - `stepDefaults` is removed from the emitted definition (already baked into steps) and `nodes` is recomputed via `normalizeNodes`.
 
@@ -593,7 +674,7 @@ The resolver is surfaced through two gates:
 
 ### 11.1 Schema Presets and Validation
 
-The engine ships 13 built-in schema presets (registered in `schema_presets.dart`) that workflow authors can reference by name instead of writing inline JSON Schema:
+The engine ships built-in schema presets (registered in `schema_presets.dart`) that workflow authors can reference by name instead of writing inline JSON Schema:
 
 | Preset | Purpose |
 |---|---|
@@ -605,7 +686,6 @@ The engine ships 13 built-in schema presets (registered in `schema_presets.dart`
 | `story_result` | Result record for a single story executed via `ForeachNode` |
 | `file_list` | Array of file paths with reasons |
 | `checklist` | Pass/fail checklist with items and `all_pass` rollup |
-| `project_index` | Normalized project index emitted by `dartclaw-discover-project` |
 | `non_negative_integer` | Scalar guard used for counts such as `findings_count` |
 | `diff_summary` | Structured diff summary for code-review flows |
 | `validation_summary` | Structured validator output (errors, warnings) |
@@ -695,16 +775,13 @@ The shipped built-in workflow library contains 3 workflows:
 
 (`research-and-evaluate` was removed in 0.16.4 — the three remaining built-ins all use skill-backed thin wrappers around the `dartclaw-*` skill surface.)
 
-The runtime ships three DC-native `dartclaw-*` skills as filesystem assets
-under the shared asset root (`dartclaw-discover-project`,
-`dartclaw-validate-workflow`, `dartclaw-merge-resolve`). At `dartclaw serve`
-startup, `SkillProvisioner` (see §11) provisions the AndThen-derived
-`dartclaw-*` workflow skills into the native user-tier harness roots and copies
-the three DC-native skills alongside them. The Codex-tier root carries the
-`.dartclaw-andthen-sha` marker tracking the AndThen commit that produced the
-install. The registry then discovers the resulting trees through the standard
-skill-discovery path; provenance attribution follows the native discovery
-source.
+The runtime ships four DC-native `dartclaw-*` skills as filesystem assets
+under the shared asset root: `dartclaw-discover-andthen-spec`,
+`dartclaw-discover-andthen-plan`, `dartclaw-validate-workflow`, and
+`dartclaw-merge-resolve`. At startup, `SkillProvisioner` (see §11) copies those
+skills into the native user-tier harness roots. Workflow execution then checks
+authored refs against the provider-visible skill list during runtime preflight;
+there is no DartClaw skill-discovery registry in the execution path.
 
 The built-in workflow definitions are shipped as YAML files under the shared
 asset root and materialized into `<dataDir>/workflows/definitions/` on startup
@@ -753,10 +830,6 @@ The workflow server exposes definition listing, run lifecycle, form-launch, and 
 - `POST /api/workflows/runs/<id>/cancel` — cancel a workflow (also rejects pending approval gates with optional `feedback`)
 - `GET /api/workflows/runs/<id>/events` — SSE event stream (Section 15.3)
 
-The matching skill discovery endpoint is:
-
-- `GET /api/skills`
-
 The listing surfaces intentionally use summary projections, not full prompt bodies. Full definitions load only when execution or detail display needs them.
 
 ### 15.1 Trigger Surfaces
@@ -767,7 +840,7 @@ Workflows can currently be triggered from six surfaces:
 |---|---|---|
 | HTTP API | `POST /api/workflows/run` | Accepts `{definition, variables, project}`. Returns the created `WorkflowRun` |
 | Web UI launch form | `POST /api/workflows/run-form` from `/workflows` | HTMX form launch. Validates required variables inline and redirects with `HX-Location: /workflows/<runId>` |
-| Web chat command | `POST /api/sessions/<id>/send` with `/workflow list` or `/workflow run <name> KEY=value` | `ChatCommandHandler` intercepts the message before a normal turn is created, returns an HTML card, and deduplicates repeated commands for 30 seconds |
+| Web chat command | `POST /api/sessions/<id>/send` with `/workflow list` or `/workflow run <name> KEY=value` | `ChatCommandHandler` intercepts the message before a normal turn is created, returns an HTML card, and deduplicates repeated commands for 30 seconds. `/workflow list` is broadly available; `/workflow run` is advertised and accepted only when the request carries admin permission |
 | GitHub webhook | `POST /webhook/github` | `GitHubWebhookHandler` verifies HMAC-SHA256 signatures, maps PR metadata into workflow variables, and deduplicates active runs for the same workflow + PR + repo |
 | CLI connected mode | `dartclaw workflow run <name> -v KEY=VALUE` | Default mode in 0.16.4. Calls `POST /api/workflows/run`, then streams `/api/workflows/runs/<id>/events` over SSE. Exit codes: 0=completed, 1=failed, 2=paused/awaitingApproval/cancelled |
 | CLI standalone mode | `dartclaw workflow run <name> --standalone [--force]` | Explicit local fallback via `CliWorkflowWiring`. Probes `/health` first and aborts unless `--force` is set when a server is already running. Passes `headless: true` so review steps auto-accept |
@@ -830,112 +903,12 @@ Workflow support has evolved in clear phases:
 | Milestone | What changed |
 |---|---|
 | 0.15 | Initial deterministic workflow engine: sequential steps, parallel groups, loops with exit gates |
-| 0.15.1 | Schema presets and validation, skill registry and skill-aware steps, map/fan-out execution, loop finalizers, built-in workflows, output format augmentation |
+| 0.15.1 | Schema presets and validation, the original skill-aware step surface, map/fan-out execution, loop finalizers, built-in workflows, output format augmentation |
 | 0.16.1 | Multi-prompt steps (continuation turns), session continuity (`continueSession`), approval gates with timeout, bash step execution with shell escaping, hybrid step validation, `plan-and-implement` workflow, dependency graph for map items |
 | 0.16.3 | Workflow package unification (`dartclaw_workflow`), built-in workflow workspace with `AGENTS.md`, filesystem skill materialization, filesystem-backed workflow materialization, CLI `workflow run/list/validate/status` commands, API endpoint consolidation, architecture documentation |
 | 0.16.4 | `ForeachNode` per-item sub-pipeline primitive; `plan-and-implement` redesigned to declare all orchestration in YAML (`plan` step owns stories + story_specs in one pass, `story-pipeline` foreach runs per-story implementation, plan-level remediation loop remains the only open-ended loop); AndThen `>= 0.14.0` declared as runtime prerequisite (ADR-025), ported `dartclaw-*` skills removed; connected-by-default workflow CLI (`run`, `status`, `runs`, `pause`, `resume`, `cancel`), HTMX launch forms on `/workflows`, web chat `/workflow` interception, and GitHub PR webhook triggers for `code-review` |
 
 The important design boundary is unchanged: the host owns orchestration, the provider owns reasoning, and the workflow model keeps those responsibilities explicit.
-
-## 17. Definition Model
-
-The definition model is intentionally small. A workflow is only four things:
-
-1. metadata
-2. variables
-3. steps
-4. loops
-
-That keeps authoring surface area proportional to what the executor can
-actually enforce.
-
-At the top level, the parser reads:
-
-| Field | Type | Purpose |
-|---|---|---|
-| `name` | string | Stable identifier used in registry, CLI, and API |
-| `description` | string | Human summary for discovery surfaces |
-| `variables` | mapping | Declared runtime inputs with defaults and required flags |
-| `steps` | list | Linear step catalog in author order |
-| `loops` | list | Legacy loop declarations (compatibility) that normalize into ordered loop nodes |
-| `maxTokens` | int? | Whole-run budget ceiling |
-| `stepDefaults` | list | Glob-matched default policy for steps |
-
-The workflow model is defined in `dartclaw_models`, not in the server or CLI.
-That is a deliberate layering decision:
-
-- parser and validator operate on shared typed models
-- CLI validation uses the same structures as the server runtime
-- execution can be tested without pulling in HTTP concerns
-- storage serializes model state without re-parsing YAML
-
-A minimal definition looks like this:
-
-```yaml
-name: spec-and-implement
-description: Discover the project, specify the change, and implement it
-variables:
-  FEATURE:
-    required: true
-steps:
-  - id: discover-project
-    name: Discover Project
-    prompt: Discover the project structure for {{FEATURE}}.
-  - id: spec
-    name: Generate Specification
-    prompt: Write the specification for {{FEATURE}} using the project index.
-    inputs: [project_index]
-```
-
-Two details matter here:
-
-- the runtime executes by `id`, not by display `name`
-- context edges are explicit; steps do not implicitly see prior outputs
-
-The definition model also encodes newer 0.16-era capabilities directly on the
-step object:
-
-| Step field | Purpose |
-|---|---|
-| `type` | structural execution mode: omitted/`agent`, `bash`, `approval`, `foreach`, or `loop` |
-| `skill` | provider-native skill reference |
-| `parallel` | marks a step as part of a linear parallel group |
-| `gate` | pre-step boolean condition against workflow context |
-| `inputs` | named context keys supplied to the step prompt |
-| `outputs` | canonical per-key output configuration (`format`/`schema`/`source`/`outputMode`/`description`/`setValue`) — the map's keys are the step's context-write set |
-| `mapOver` | collection key for fan-out execution |
-| `maxParallel` | per-map concurrency cap |
-| `maxItems` | map item ceiling |
-| `continueSession` | session continuity target |
-| `onFailure` | `fail` (default), `continue`, `retry`, or `pause` — modern step failure policy (drives `step_dispatcher` outcome handling for any step type) |
-| `onError` | legacy `pause` / `continue` / `fail` — still honored by the executor and loop runner for any step type when set; primarily used by bash steps. `onFailure` is the preferred field for new authoring |
-| `provider` / `model` / `effort` | explicit provider, model, or reasoning-effort override |
-| `auto_frame_context` | bool, default `true` — opt out of auto-XML-framing of `inputs:` / `workflow_variables:` |
-| `emitsOwnOutcome` | bool, default `false` — skip the `<step-outcome>` framing append |
-| `maxTokens` / `maxCostUsd` | step-level budgets |
-| `allowedTools` | tool allowlist override |
-
-Loops remain a separate object in the serialized model for backward
-compatibility, but runtime traversal treats them as ordered nodes:
-
-| Loop field | Purpose |
-|---|---|
-| `id` | stable loop identifier for recovery and diagnostics |
-| `steps` | ordered list of step IDs that belong to the loop |
-| `exitGate` | boolean expression checked after each iteration |
-| `maxIterations` | hard ceiling to prevent infinite repetition |
-| `finally` | optional step ID that runs after termination |
-
-This design keeps the executor predictable:
-
-- authored order is the primary execution order
-- loop-owned steps are executed when their loop node is reached
-- finalizers remain loop-owned and run within loop execution semantics
-- legacy `loops:` declarations are normalized to the same runtime behavior
-
-The consequence is important: a workflow definition is declarative enough to
-be validated statically, but concrete enough that the runtime never has to
-infer author intent from prompt text.
 
 ## 18. Parser Contract
 
@@ -1170,7 +1143,7 @@ User-declared outputs are then extracted by `ContextExtractor`. The pipeline dri
 
 1. `OutputConfig.setValue` — literal write (any JSON-encodable value, including `null`); short-circuits all other extraction.
 2. `OutputConfig.source` — direct read from task metadata (`worktree.branch`, `worktree.path`).
-3. Canonical context defaults (`context_output_defaults.dart`) — `*_source` keys default to `synthesized` for any step that declares them and emits no value (the `existing` branch is gated on `step.id == 'discover-project'`); the `prd`, `plan`, and `story_specs` keys pre-fill from the `project_index` projection only for the `discover-project` step.
+3. Canonical context defaults (`context_output_defaults.dart`) — `*_source` keys default to `synthesized` for any step that declares them and emits no value.
 4. Per-key resolver from `outputResolverFor` — `FileSystemOutput` (glob over changed files; `format: path`), `InlineOutput` (read from the `<workflow-context>` JSON, then the structured-output payload), `NarrativeOutput` (same priority as inline).
 5. Step-level legacy `extraction:` config — first-key path only, kept for backwards compatibility.
 6. Empty string with warning.
@@ -1248,7 +1221,7 @@ plan.status == accepted && plan.tokenCount < 12000
 plan-review.gating_findings_count > 0 || architecture-review.gating_findings_count > 0
 ```
 
-Null-literal handling: `x == null` matches when the value is empty/missing or the literal string `"null"`. Numeric comparisons against an empty actual value default the actual to `'0'`. Keys may be dotted (`project_index.active_prd`); a stray `context.` prefix is forgiven with a warning.
+Null-literal handling: `x == null` matches when the value is empty/missing or the literal string `"null"`. Numeric comparisons against an empty actual value default the actual to `'0'`. Keys may be dotted (`plan_review.gating_findings_count`); a stray `context.` prefix is forgiven with a warning.
 
 The evaluator is fail-safe:
 
@@ -1326,15 +1299,17 @@ The runtime rejects that rather than inventing implicit rules.
 
 ## File-Based Artifact Contract
 
-Artifact-producing skills (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`) follow a **single-mode file-based contract**: they always write their artifact (PRD, plan, per-story FIS) to disk at the canonical location reported by `dartclaw-discover-project`'s `artifact_locations.*` output, and they always emit the workspace-relative **path** under their `outputs:` block — never inline content. Workflow steps downstream read the file via `file_read`.
+Artifact-producing AndThen skills (`andthen:spec` and `andthen:plan`) follow a **single-mode file-based contract**: they write their artifacts to disk and emit workspace-relative **paths** under their `outputs:` block, never inline artifact content. Workflow steps downstream read those paths via `file_read`.
 
-**Read-existing branches.** `dartclaw-prd` checks `context.project_index.active_prd`; when the referenced file exists, the skill reuses it and emits `prd: <path>` + `prd_source: "existing"` without synthesizing. Otherwise it synthesizes into `artifact_locations.prd` and emits `prd_source: "synthesized"`. `dartclaw-plan` applies the same pattern to `active_plan` and additionally, per story row, checks the `**FIS**` column: rows whose FIS already exists skip the per-story sub-agent and carry the existing path forward in `story_specs[i].spec_path`; rows whose FIS is missing dispatch the sub-agent pipeline.
+**Read-existing branches.** `dartclaw-discover-andthen-spec` classifies `FEATURE` as an existing FIS path or a feature description. Existing FIS inputs emit `spec_path` with `spec_source: "existing"` and skip `andthen:spec`; synthesized inputs leave the path empty until `andthen:spec` writes the FIS. `dartclaw-discover-andthen-plan` discovers an existing PRD/plan/story-spec state for `plan-and-implement`; `andthen:plan` fills only the missing plan or per-story FIS artifacts and emits `plan` plus `story_specs` paths.
 
-**`story_specs` shape.** `story_specs` is an array of **structured per-story records** — not bare paths. Each record carries `{id, title, spec_path, acceptance_criteria, phase, wave, dependencies, key_files}` so existing downstream prompts keep working with `{{map.item.title}}` / `{{map.item.id}}` / `{{map.item.acceptance_criteria}}`. `{{map.item.spec_path}}` is the added field that `dartclaw-exec-spec` uses with `file_read` to load the FIS body.
+**`story_specs` shape.** `story_specs` is an array of **structured per-story records** — not bare paths. Each record carries `{id, title, spec_path, acceptance_criteria, phase, wave, dependencies, key_files}` so downstream prompts keep working with `{{map.item.title}}` / `{{map.item.id}}` / `{{map.item.acceptance_criteria}}`. `{{map.item.spec_path}}` is the field that `andthen:exec-spec` uses with `file_read` to load the FIS body.
+
+Every emitted `story_specs[].spec_path` must resolve to an existing file before the plan step succeeds. The executor validates those paths after extraction against the producing task's `worktree.path` when present, falling back to the active workflow root for inline/no-worktree steps. Missing FIS files convert the step to a workflow failure and, when `onFailure: retry` is configured, the retry prompt includes the validation failure.
 
 ### Single-step PRD/spec contract
 
-The built-in workflows no longer ship separate review-prd / review-spec steps. `dartclaw-prd` and `dartclaw-spec` are responsible for producing a solid final artifact themselves, while downstream steps consume the emitted path (`prd`, `spec_path`) via `file_read`. `plan-review` remains the aggregate read-only review surface for the multi-story pipeline.
+The built-in workflows no longer ship separate review-prd / review-spec steps. `andthen:spec` and `andthen:plan` are responsible for producing solid final artifacts themselves, while downstream steps consume emitted paths (`spec_path`, `prd`, `plan`, and `story_specs[].spec_path`) via `file_read`. `plan-review` remains the aggregate read-only review surface for the multi-story pipeline.
 
 ## Generalized `entryGate`
 

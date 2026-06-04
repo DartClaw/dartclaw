@@ -72,7 +72,7 @@ class HarnessWiring {
   })
   _memoryHandlers;
   BudgetEnforcer? _budgetEnforcer;
-  Future<void> Function()? _onSpawnNeeded;
+  SpawnTaskRunner? _onSpawnNeeded;
   bool _authEnabled = false;
   TokenService? _tokenService;
   String? _resolvedGatewayToken;
@@ -99,7 +99,7 @@ class HarnessWiring {
   })
   get memoryHandlers => _memoryHandlers;
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
-  Future<void> Function()? get onSpawnNeeded => _onSpawnNeeded;
+  SpawnTaskRunner? get onSpawnNeeded => _onSpawnNeeded;
   bool get authEnabled => _authEnabled;
   TokenService? get tokenService => _tokenService;
   String? get resolvedGatewayToken => _resolvedGatewayToken;
@@ -111,6 +111,7 @@ class HarnessWiring {
       workspaceDir: config.workspaceDir,
       projectDir: p.join(Directory.current.path, '.dartclaw'),
       maxMemoryBytes: config.memory.maxBytes,
+      onboardingExpiryDays: config.onboarding.expiryDays,
       compactInstructions: config.context.compactInstructions,
       identifierPreservation: config.context.identifierPreservation,
       identifierInstructions: config.context.identifierInstructions,
@@ -394,12 +395,25 @@ class HarnessWiring {
     _pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: maxConcurrent);
 
     // Lazy spawn callback — consumed by TaskExecutor when tasks arrive.
-    var spawnIndex = 0;
+    final consumedSpawnPlanIndexes = <int>{};
     _onSpawnNeeded = spawnPlan.isEmpty
         ? null
-        : () async {
-            if (_pool.spawnableCount <= 0 || spawnIndex >= spawnPlan.length) return;
-            final plan = spawnPlan[spawnIndex];
+        : (requestedProviderId) async {
+            if (_pool.spawnableCount <= 0) return;
+            final planIndex = _nextSpawnPlanIndex(
+              spawnPlan,
+              consumedSpawnPlanIndexes,
+              requestedProviderId: requestedProviderId,
+            );
+            if (planIndex == null) {
+              _log.warning(
+                requestedProviderId == null
+                    ? 'No task runner spawn-plan entry remains'
+                    : 'No task runner spawn-plan entry remains for provider "$requestedProviderId"',
+              );
+              return;
+            }
+            final plan = spawnPlan[planIndex];
             final containerManager =
                 _security.containerManagers[plan.profileId] ?? _security.containerManagers['workspace'];
             try {
@@ -463,7 +477,7 @@ class HarnessWiring {
                 providerId: plan.providerId,
               );
               _pool.addRunner(runner);
-              spawnIndex++;
+              consumedSpawnPlanIndexes.add(planIndex);
             } catch (e) {
               _log.warning('Failed to spawn task runner: $e');
             }
@@ -538,3 +552,16 @@ Map<String, dynamic> _providerOptions(DartclawConfig config, String providerId) 
 
 bool _hasSearchProvider(DartclawConfig config) =>
     config.search.providers.values.any((p) => p.enabled && p.apiKey.isNotEmpty);
+
+int? _nextSpawnPlanIndex(
+  List<({String providerId, String profileId, String executable, Map<String, dynamic> options})> spawnPlan,
+  Set<int> consumedIndexes, {
+  required String? requestedProviderId,
+}) {
+  for (var i = 0; i < spawnPlan.length; i++) {
+    if (consumedIndexes.contains(i)) continue;
+    if (requestedProviderId != null && spawnPlan[i].providerId != requestedProviderId) continue;
+    return i;
+  }
+  return null;
+}

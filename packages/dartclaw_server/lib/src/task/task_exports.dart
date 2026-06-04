@@ -26,10 +26,19 @@ export 'task_executor.dart' show TaskExecutor;
 export 'task_executor_limits.dart' show TaskExecutorLimits;
 export 'task_executor_runners.dart' show TaskExecutorRunners;
 export 'task_executor_services.dart' show TaskExecutorServices;
+export 'task_runner_pool_coordinator.dart' show SpawnTaskRunner;
 export 'task_file_guard.dart' show TaskFileGuard;
 export 'task_notification_subscriber.dart' show TaskNotificationSubscriber;
 export 'workflow_cli_runner.dart'
-    show CliProvider, CliTurnRequest, WorkflowCliProviderConfig, WorkflowCliRunner, WorkflowCliTurnResult;
+    show
+        CliProvider,
+        CliTurnRequest,
+        WorkflowCliException,
+        WorkflowCliProviderConfig,
+        WorkflowCliRunner,
+        WorkflowCliStallException,
+        WorkflowCliTimeoutException,
+        WorkflowCliTurnResult;
 export 'task_review_service.dart'
     show
         TaskReviewService,

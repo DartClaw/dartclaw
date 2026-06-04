@@ -244,6 +244,7 @@ class TasksPage extends DashboardPage {
                 id: m.id,
                 role: m.role,
                 content: m.content,
+                metadata: m.metadata,
                 senderName: _parseSenderDisplayName(m.metadata),
               ),
             )

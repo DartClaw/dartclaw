@@ -284,6 +284,79 @@
       .provider-section-note {
         margin: 0;
       }
+
+      .guard-editor-shell {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+        margin-bottom: var(--sp-4);
+      }
+
+      .guard-editor-tabs,
+      .guard-editor-actions,
+      .guard-editor-form-row,
+      .guard-tester-row {
+        display: flex;
+        gap: var(--sp-2);
+        flex-wrap: wrap;
+      }
+
+      .guard-editor-tab {
+        border: var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-surface0);
+        color: var(--fg-sub0);
+        cursor: pointer;
+        font: inherit;
+        font-size: var(--text-xs);
+        padding: var(--sp-1) var(--sp-3);
+      }
+
+      .guard-editor-tab.active {
+        border-color: var(--accent);
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, var(--bg-base));
+      }
+
+      .guard-editor-table {
+        width: 100%;
+        min-width: 560px;
+        border-collapse: collapse;
+        font-size: var(--text-sm);
+      }
+
+      .guard-editor-table th,
+      .guard-editor-table td {
+        border: var(--border);
+        padding: var(--sp-2);
+        text-align: left;
+      }
+
+      .guard-editor-table th {
+        color: var(--fg-sub1);
+        font-size: var(--text-xs);
+        text-transform: uppercase;
+      }
+
+      .guard-editor-value {
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        word-break: break-all;
+      }
+
+      .guard-editor-message {
+        color: var(--fg-sub0);
+        font-size: var(--text-sm);
+      }
+
+      .guard-editor-error {
+        color: var(--error);
+      }
+
+      .guard-editor-form-row .form-input,
+      .guard-tester-row .form-input {
+        flex: 1 1 220px;
+      }
     </style>
     <nav class="settings-tabs" aria-label="Settings sections">
       <a href="#agent" class="settings-tab">Agent</a>
@@ -744,9 +817,53 @@
       <div id="security" class="guard-detail-section" data-tab="security">
         <div class="guard-detail-header">
           <h2>Security &amp; Guards</h2>
-          <span class="mode-badge">View only</span>
+          <span class="mode-badge">Editable extensions</span>
           <span tl:if="${guardsEnabled}" class="status-badge status-badge-success" tl:text="${activeGuardCount} + ' active'">0 active</span>
           <span tl:unless="${guardsEnabled}" class="status-badge status-badge-muted">Disabled</span>
+        </div>
+        <div
+          id="guard-editor"
+          class="card guard-editor-shell"
+          data-guard-editor>
+          <div class="card-header">
+            <span class="card-title">Guard Extensions</span>
+          </div>
+          <div class="guard-editor-tabs" data-guard-editor-tabs></div>
+          <div class="table-scroll">
+            <table class="guard-editor-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Field</th>
+                  <th>Value</th>
+                  <th>Controls</th>
+                </tr>
+              </thead>
+              <tbody data-guard-editor-rows>
+                <tr><td colspan="4" class="guard-editor-message">Loading guard extensions...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <form class="guard-editor-form-row" data-guard-editor-add>
+            <select class="form-select" data-guard-editor-field aria-label="Guard extension field"></select>
+            <input class="form-input font-mono" data-guard-editor-value placeholder="Pattern, domain, or file glob">
+            <select class="form-select" data-guard-editor-level aria-label="File access level" hidden>
+              <option value="no_access">No access</option>
+              <option value="read_only">Read only</option>
+              <option value="no_delete">No delete</option>
+            </select>
+            <button type="submit" class="btn btn-primary btn-sm">Add</button>
+          </form>
+          <form class="guard-tester-row" data-guard-editor-test>
+            <input class="form-input font-mono" data-guard-editor-test-input placeholder="Test command, path, URL, or message">
+            <select class="form-select" data-guard-editor-test-mode aria-label="File operation" hidden>
+              <option value="read">Read</option>
+              <option value="write" selected>Write</option>
+              <option value="delete">Delete</option>
+            </select>
+            <button type="submit" class="btn btn-ghost btn-sm">Test</button>
+          </form>
+          <div class="guard-editor-message" data-guard-editor-result></div>
         </div>
         <div tl:unless="${guardsEnabled}" class="card guard-detail-disabled">
           <div class="card-detail card-detail-muted">

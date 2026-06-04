@@ -82,12 +82,14 @@ class SetupVerifier {
     required String instanceDir,
     required int port,
     bool skipNetwork = false,
+    bool skipPortCheck = false,
   }) async {
     final localCheck = await _runLocal(
       configPath: configPath,
       providerIds: providerIds,
       instanceDir: instanceDir,
       port: port,
+      skipPortCheck: skipPortCheck,
     );
     final local = localCheck.local;
 
@@ -120,6 +122,7 @@ class SetupVerifier {
     required List<String> providerIds,
     required String instanceDir,
     required int port,
+    required bool skipPortCheck,
   }) async {
     final failures = <String>[];
     final warnings = <String>[];
@@ -140,7 +143,7 @@ class SetupVerifier {
       failures.add('Instance directory not writable: $instanceDir');
     }
 
-    if (!await _portFree(port)) {
+    if (!skipPortCheck && !await _portFree(port)) {
       failures.add('Port $port is already in use.');
     }
 

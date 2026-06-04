@@ -124,33 +124,8 @@ void main() {
     expect(File(p.join(dataDir, '.dartclaw-native-skills')).existsSync(), isTrue);
     expect(_findDartclawEntries(fakeHome.path), isEmpty);
 
-    // Wiring proof: SkillRegistry built by ServiceWiring.wire()
-    // must resolve every AndThen skill the shipped workflow YAMLs reference.
-    // Without this, plan-and-implement / spec-and-implement / code-review would
-    // be silently excluded from the registry as unresolved skill refs.
-    final skillRegistry = result.skillRegistry;
-    for (final name in _shippedDartclawSkillRefs) {
-      expect(
-        skillRegistry.resolveRef(name, 'claude'),
-        isNotNull,
-        reason: '$name must resolve through provider-native discovery',
-      );
-      expect(skillRegistry.validateRef(name, provider: 'claude'), isNull, reason: '$name validateRef should pass');
-    }
-    for (final name in const [
-      'dartclaw-discover-andthen-spec',
-      'dartclaw-discover-andthen-plan',
-      'dartclaw-validate-workflow',
-      'dartclaw-merge-resolve',
-    ]) {
-      expect(skillRegistry.getByName(name), isNotNull, reason: '$name DC-native skill must resolve');
-    }
-
-    // Workflow-registry proof: every shipped
-    // built-in workflow must register against the resulting skill registry.
-    // Earlier symptom: H1's wiring gap or the validator's role-alias blindness
-    // would silently exclude these from `WorkflowRegistry.listAll()`, leaving
-    // the workflow routes returning DEFINITION_NOT_FOUND.
+    // Workflow-registry proof: every shipped built-in workflow must register
+    // without filesystem skill-reference validation at load time.
     final workflowRegistry = result.workflowRegistry;
     final registeredNames = workflowRegistry.listAll().map((w) => w.name).toSet();
     for (final builtIn in const ['plan-and-implement', 'spec-and-implement', 'code-review']) {

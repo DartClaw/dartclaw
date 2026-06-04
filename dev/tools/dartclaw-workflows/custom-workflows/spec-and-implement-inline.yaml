@@ -95,6 +95,9 @@ steps:
     provider: "@executor"
     model: "@executor"
     inputs: [spec_path]
+    # Best-effort cleanup: red baseline or advisory blockage should be recorded
+    # without parking the live-checkout workflow after required work landed.
+    onFailure: continue
     prompt: >-
       --auto - simplify only the changes implementing {{context.spec_path}}
       in the live checkout; preserve behavior; no scope creep into unrelated
@@ -104,6 +107,8 @@ steps:
     name: Integrated Review
     skill: andthen:review
     parallel: true
+    onFailure: retry
+    maxRetries: 1
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     inputs: [spec_path]
     prompt: >-
@@ -121,6 +126,8 @@ steps:
     name: Architecture Review
     skill: andthen:architecture
     parallel: true
+    onFailure: retry
+    maxRetries: 1
     inputs: [spec_path]
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
@@ -144,7 +151,7 @@ steps:
   - id: remediation-loop
     name: Remediation Loop
     type: loop
-    maxIterations: 3
+    maxIterations: 5
     entryGate: "gating_findings_count > 0"
     exitGate: "gating_findings_count == 0"
     steps:
@@ -173,3 +180,53 @@ steps:
           review_findings: review_report_path
           findings_count: findings_count
           gating_findings_count: gating_findings_count
+
+  # --- Deterministic verification gate ----------------------------------------
+  # After the review/remediation loop, run the CI-equivalent gates as a
+  # deterministic bash step. Unlike the
+  # skill-driven steps above, these don't depend on an agent choosing to run
+  # verification: verify-gate.sh runs fixed commands, captures output under the
+  # run artifacts dir, and prints `pass`/`fail` that the fix loop branches on.
+  #
+  # Bash steps execute on the host with a sandboxed workdir (<dataDir>/workspace);
+  # verify-gate.sh is reached via the custom-workflows symlink at
+  # <dataDir>/workflows/custom and locates the repo itself.
+  - id: verify-all
+    name: Verify CI Gate
+    type: bash
+    timeout: 90m
+    script: >-
+      bash ../workflows/custom/scripts/verify-gate.sh all
+      {{workflow.runtime_artifacts_dir}}
+    outputs:
+      verify-all.result: text
+
+  - id: verify-fix-loop
+    name: Verification Fix Loop
+    type: loop
+    maxIterations: 3
+    entryGate: "verify-all.result == fail"
+    exitGate: "verify-recheck.result == pass"
+    steps:
+      - id: fix-verification
+        name: Fix Verification Failures
+        skill: andthen:triage
+        provider: "@executor"
+        model: "@executor"
+        prompt: >-
+          --auto The deterministic verification gate failed. Read the failure
+          logs under {{workflow.runtime_artifacts_dir}}/verify/ (format.log,
+          analyze.log, test.log, arch.log, fitness.log, whitespace.log) and
+          fix only the reported gate failures. Scope strictly to these failures
+          — preserve behavior and do not refactor unrelated code or touch other
+          operator work in the checkout.
+
+      - id: verify-recheck
+        name: Re-run Verification Gate
+        type: bash
+        timeout: 60m
+        script: >-
+          bash ../workflows/custom/scripts/verify-gate.sh all
+          {{workflow.runtime_artifacts_dir}}
+        outputs:
+          verify-recheck.result: text

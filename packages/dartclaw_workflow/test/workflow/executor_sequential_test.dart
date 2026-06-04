@@ -87,10 +87,10 @@ void main() {
     if (captured == null) {
       final finalRun = await h.repository.getById('run-fail-fast');
       expect(finalRun?.status, equals(WorkflowRunStatus.failed));
-      expect(finalRun?.errorMessage, contains('AgentExecution + WorkflowStepExecution persistence'));
+      expect(finalRun?.errorMessage, contains("Failed to create task for step 'S1'"));
     } else {
-      expect(captured, isA<StateError>());
-      expect((captured as StateError).message, contains('AgentExecution + WorkflowStepExecution persistence'));
+      expect(captured, isA<AssertionError>());
+      expect(captured.toString(), contains('ctx.taskRepository != null'));
     }
   });
 

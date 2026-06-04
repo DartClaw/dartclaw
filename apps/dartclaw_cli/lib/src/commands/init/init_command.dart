@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:mason_logger/mason_logger.dart';
+import 'package:path/path.dart' as p;
 
 import '../config_loader.dart';
 import '../service/service_backend.dart';
@@ -45,6 +46,7 @@ abstract class _InitImpl extends Command<void> {
     required List<String> providers,
     required int port,
     required String instanceDir,
+    bool workflowTrack,
     Future<ProcessResult> Function(String, List<String>)? runProcess,
   })
   _runPreflight;
@@ -61,6 +63,7 @@ abstract class _InitImpl extends Command<void> {
       required List<String> providers,
       required int port,
       required String instanceDir,
+      bool workflowTrack,
       Future<ProcessResult> Function(String, List<String>)? runProcess,
     })?
     runPreflight,
@@ -79,6 +82,9 @@ abstract class _InitImpl extends Command<void> {
        _verifier = verifier ?? SetupVerifier(),
        _serviceBackend = serviceBackend {
     argParser
+      ..addFlag('workflow', help: 'Configure a minimal standalone workflow setup', negatable: false)
+      ..addFlag('personalize', help: 'Re-seed conversational onboarding without rerunning full setup', negatable: false)
+      ..addFlag('apply-drafts', help: 'Apply USER.md.draft and SOUL.md.draft from onboarding', negatable: false)
       ..addFlag(
         'non-interactive',
         abbr: 'n',
@@ -171,6 +177,15 @@ abstract class _InitImpl extends Command<void> {
     final explicitConfigPath = _globalConfigPath();
     final existingConfig = _loadExistingConfig(explicitConfigPath);
 
+    if (argResults!['personalize'] as bool) {
+      await _runPersonalize(existingConfig);
+      return;
+    }
+    if (argResults!['apply-drafts'] as bool) {
+      await _runApplyDrafts(existingConfig, isTerminal: isTerminal);
+      return;
+    }
+
     if (!isTerminal && !nonInteractive) {
       _writeLine('No terminal detected - running in non-interactive mode.');
     }
@@ -178,7 +193,7 @@ abstract class _InitImpl extends Command<void> {
     final state = nonInteractive || !isTerminal ? _resolveFromFlags(existingConfig) : await _runWizard(existingConfig);
 
     var launch = argResults!['launch'] as String;
-    if (!nonInteractive && isTerminal && !argResults!.wasParsed('launch')) {
+    if (!state.workflowTrack && !nonInteractive && isTerminal && !argResults!.wasParsed('launch')) {
       launch = _logger.chooseOne<String>(
         'Launch after setup',
         choices: ['skip', 'foreground', 'background', 'service'],
@@ -193,7 +208,12 @@ abstract class _InitImpl extends Command<void> {
       _writeLine('');
     }
 
-    final preflight = await _runPreflight(providers: state.providers, port: state.port, instanceDir: state.instanceDir);
+    final preflight = await _runPreflight(
+      providers: state.providers,
+      port: state.port,
+      instanceDir: state.instanceDir,
+      workflowTrack: state.workflowTrack,
+    );
 
     if (!preflight.passed) {
       for (final error in preflight.errors) {
@@ -217,7 +237,11 @@ abstract class _InitImpl extends Command<void> {
     }
 
     _writeLine('');
-    _writeLine('DartClaw instance ready at: ${state.instanceDir}');
+    if (state.workflowTrack) {
+      _writeLine('Done. Config written to ${state.configPath}');
+    } else {
+      _writeLine('DartClaw instance ready at: ${state.instanceDir}');
+    }
     for (final file in created) {
       _writeLine('  $file');
     }
@@ -232,6 +256,7 @@ abstract class _InitImpl extends Command<void> {
       instanceDir: state.instanceDir,
       port: state.port,
       skipNetwork: argResults!['skip-verify'] as bool,
+      skipPortCheck: state.workflowTrack,
     );
     verifyProgress?.complete('Done');
 
@@ -256,7 +281,81 @@ abstract class _InitImpl extends Command<void> {
       _writeLine('Status: verified');
     }
 
+    if (state.workflowTrack) {
+      // The bare standalone command resolves only the cwd-local ./dartclaw/dartclaw.yaml;
+      // a custom config folder must be passed explicitly with --config.
+      final configPath = p.join(state.instanceDir, 'dartclaw.yaml');
+      final isCwdLocal = p.equals(p.absolute(configPath), p.absolute(p.join('dartclaw', 'dartclaw.yaml')));
+      if (isCwdLocal) {
+        _writeLine('Run a workflow: dartclaw workflow run --standalone code-review');
+      } else {
+        _writeLine('Run a workflow: dartclaw workflow run --standalone --config $configPath code-review');
+      }
+      return;
+    }
+
     await _handleLaunch(launch, state);
+  }
+
+  Future<void> _runPersonalize(DartclawConfig? existingConfig) async {
+    final state = _personalizationState(existingConfig);
+    final created = await SetupApply.personalize(state);
+    _writeLine('');
+    _writeLine('Onboarding re-seeded for ${state.instanceDir}');
+    for (final file in created) {
+      _writeLine('  $file');
+    }
+    _writeLine('Open web chat to review personalization. Drafts can be applied with dartclaw init --apply-drafts.');
+  }
+
+  Future<void> _runApplyDrafts(DartclawConfig? existingConfig, {required bool isTerminal}) async {
+    final state = _personalizationState(existingConfig);
+    var confirmSoulReplace = false;
+    final soulDraft = File(p.join(state.instanceDir, 'workspace', 'SOUL.md.draft'));
+    if (soulDraft.existsSync() && isTerminal) {
+      confirmSoulReplace = _logger.confirm('Replace SOUL.md with SOUL.md.draft?', defaultValue: false);
+    }
+    final applied = await SetupApply.applyDrafts(state, confirmSoulReplace: confirmSoulReplace);
+
+    _writeLine('');
+    if (applied.isEmpty) {
+      if (soulDraft.existsSync() && !confirmSoulReplace) {
+        _writeLine('SOUL.md.draft requires interactive confirmation; left unchanged.');
+        return;
+      }
+      _writeLine('No onboarding drafts found.');
+      return;
+    }
+    _writeLine('Applied onboarding drafts:');
+    for (final file in applied) {
+      _writeLine('  $file');
+    }
+    if (soulDraft.existsSync() && !confirmSoulReplace) {
+      _writeLine('SOUL.md.draft requires interactive confirmation; left unchanged.');
+    }
+  }
+
+  SetupState _personalizationState(DartclawConfig? existingConfig) {
+    final defaults = _defaultsFromExisting(existingConfig);
+    final explicitConfigPath = _globalConfigPath();
+    final instanceDir = argResults!.wasParsed('instance-dir')
+        ? argResults!['instance-dir'] as String
+        : defaults.instanceDir;
+    final configPath =
+        explicitConfigPath ?? resolveCliConfigPath(configPath: null, env: {'DARTCLAW_HOME': instanceDir});
+    return SetupState(
+      instanceName: defaults.instanceName,
+      instanceDir: instanceDir,
+      configPath: configPath,
+      provider: defaults.primaryProvider,
+      authMethod: defaults.authMethods[defaults.primaryProvider] ?? 'oauth',
+      model: defaults.models[defaults.primaryProvider],
+      providers: defaults.providers,
+      providerAuthMethods: defaults.authMethods,
+      providerModels: defaults.models,
+      port: defaults.port,
+      gatewayAuthMode: defaults.gatewayAuthMode,
+    );
   }
 
   String _requireAuthMethod(Map<String, String> authMethods, String primaryProvider) {
@@ -336,12 +435,19 @@ abstract class _InitImpl extends Command<void> {
   }
 
   SetupState _resolveFromFlags(DartclawConfig? existingConfig) {
-    final defaults = _defaultsFromExisting(existingConfig);
+    final workflowTrack = argResults!['workflow'] as bool;
+    final defaults = workflowTrack
+        ? _workflowDefaultsFromExisting(existingConfig)
+        : _defaultsFromExisting(existingConfig);
     final explicitConfigPath = _globalConfigPath();
     final selectedProviders = ((argResults!['provider'] as List<String>?) ?? const <String>[]).toSet().toList(
       growable: false,
     );
-    final providers = selectedProviders.isEmpty ? defaults.providers : selectedProviders;
+    final providers = workflowTrack
+        ? (selectedProviders.isEmpty ? [defaults.primaryProvider] : [selectedProviders.first])
+        : selectedProviders.isEmpty
+        ? defaults.providers
+        : selectedProviders;
     final primaryProvider =
         (argResults!['primary-provider'] as String?) ??
         (providers.length == 1
@@ -443,6 +549,7 @@ abstract class _InitImpl extends Command<void> {
       providerModels: models,
       port: port,
       gatewayAuthMode: gatewayAuthMode,
+      workflowTrack: workflowTrack,
       manageAdvancedSettings: manageAdvancedSettings,
       whatsappEnabled: argResults!.wasParsed('whatsapp') ? argResults!['whatsapp'] as bool : defaults.whatsappEnabled,
       gowaExecutable: argResults!.wasParsed('gowa-executable')
@@ -480,6 +587,10 @@ abstract class _InitImpl extends Command<void> {
   }
 
   Future<SetupState> _runWizard(DartclawConfig? existingConfig) async {
+    if (argResults!['workflow'] as bool) {
+      return _runWorkflowWizard(existingConfig);
+    }
+
     final defaults = _defaultsFromExisting(existingConfig);
     final explicitConfigPath = _globalConfigPath();
 
@@ -601,6 +712,65 @@ abstract class _InitImpl extends Command<void> {
       gatewayAuthMode: gatewayAuthMode,
       configPath: explicitConfigPath,
       defaults: defaults,
+    );
+  }
+
+  Future<SetupState> _runWorkflowWizard(DartclawConfig? existingConfig) async {
+    final defaults = _workflowDefaultsFromExisting(existingConfig);
+    final explicitConfigPath = _globalConfigPath();
+
+    _writeLine('');
+    _writeLine('DartClaw Workflow Setup');
+    _writeLine('───────────────────────');
+    _writeLine('Quick setup for running workflows standalone. Press Enter to accept defaults.');
+    _writeLine('');
+
+    final provider = _logger.chooseOne<String>(
+      'AI provider',
+      choices: ['claude', 'codex'],
+      defaultValue: argResults!.wasParsed('provider') ? (argResults!['provider'] as List<String>).first : 'claude',
+    );
+    final authMethod = _logger.chooseOne<String>(
+      provider == 'codex' ? 'Codex auth method' : 'Claude auth method',
+      choices: ['oauth', 'env'],
+      defaultValue: _providerArgOrDefault(provider, defaults.authMethods[provider] ?? 'oauth'),
+      display: (value) => switch ((provider, value)) {
+        ('codex', 'oauth') => 'oauth  (use codex login)',
+        ('codex', _) => 'env    (read CODEX_API_KEY)',
+        (_, 'oauth') => 'oauth  (use claude CLI login)',
+        _ => 'env    (read ANTHROPIC_API_KEY)',
+      },
+    );
+    final model = provider == 'codex'
+        ? _logger
+              .prompt('Codex model', defaultValue: _providerModelOption('codex') ?? defaults.models['codex'] ?? 'gpt-5')
+              .trim()
+        : _logger.chooseOne<String>(
+            'Claude model',
+            choices: ['sonnet', 'opus', 'haiku'],
+            defaultValue: _providerModelOption('claude') ?? defaults.models['claude'] ?? 'sonnet',
+          );
+    final instanceDir = _logger.prompt(
+      'Config folder (where DartClaw stores its data)',
+      defaultValue: argResults!.wasParsed('instance-dir')
+          ? argResults!['instance-dir'] as String
+          : defaults.instanceDir,
+    );
+    _writeLine('');
+
+    return SetupState(
+      instanceName: defaults.instanceName,
+      instanceDir: instanceDir,
+      configPath: explicitConfigPath,
+      provider: provider,
+      authMethod: authMethod,
+      model: model,
+      providers: [provider],
+      providerAuthMethods: {provider: authMethod},
+      providerModels: {provider: model},
+      port: defaults.port,
+      gatewayAuthMode: defaults.gatewayAuthMode,
+      workflowTrack: true,
     );
   }
 
@@ -834,6 +1004,34 @@ abstract class _InitImpl extends Command<void> {
       containerImage: existingConfig?.container.image,
       contentGuardEnabled: existingConfig?.security.contentGuardEnabled ?? true,
       inputSanitizerEnabled: existingConfig?.security.inputSanitizerEnabled ?? true,
+    );
+  }
+
+  _SetupDefaults _workflowDefaultsFromExisting(DartclawConfig? existingConfig) {
+    final base = _defaultsFromExisting(existingConfig);
+    return (
+      instanceName: base.instanceName,
+      instanceDir: './dartclaw',
+      providers: base.providers.isEmpty ? const ['claude'] : base.providers,
+      primaryProvider: base.primaryProvider,
+      authMethods: base.authMethods,
+      models: base.models,
+      port: base.port,
+      gatewayAuthMode: base.gatewayAuthMode,
+      whatsappEnabled: false,
+      gowaExecutable: base.gowaExecutable,
+      gowaPort: base.gowaPort,
+      signalEnabled: false,
+      signalPhoneNumber: base.signalPhoneNumber,
+      signalExecutable: base.signalExecutable,
+      googleChatEnabled: false,
+      googleChatServiceAccount: base.googleChatServiceAccount,
+      googleChatAudienceType: base.googleChatAudienceType,
+      googleChatAudience: base.googleChatAudience,
+      containerEnabled: false,
+      containerImage: base.containerImage,
+      contentGuardEnabled: base.contentGuardEnabled,
+      inputSanitizerEnabled: base.inputSanitizerEnabled,
     );
   }
 

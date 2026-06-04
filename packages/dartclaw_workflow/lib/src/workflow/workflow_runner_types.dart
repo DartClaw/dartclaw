@@ -21,8 +21,8 @@ import 'package:uuid/uuid.dart';
 import 'context_extractor.dart';
 import 'gate_evaluator.dart';
 import 'prompt_augmenter.dart';
+import 'skill_introspector.dart';
 import 'skill_prompt_builder.dart';
-import 'skill_registry.dart';
 import 'step_config_resolver.dart';
 import 'workflow_context.dart';
 import 'workflow_git_port.dart';
@@ -208,7 +208,8 @@ final class StepExecutionContext {
   final ContextExtractor contextExtractor;
   final WorkflowTurnAdapter? turnAdapter;
   final WorkflowStepOutputTransformer? outputTransformer;
-  final SkillRegistry? skillRegistry;
+  final SkillIntrospector? skillIntrospector;
+  final WorkflowSkillPreflightConfig skillPreflightConfig;
   final TaskRepository? taskRepository;
   final AgentExecutionRepository? agentExecutionRepository;
   final WorkflowStepExecutionRepository? workflowStepExecutionRepository;
@@ -236,7 +237,8 @@ final class StepExecutionContext {
     required this.contextExtractor,
     this.turnAdapter,
     this.outputTransformer,
-    this.skillRegistry,
+    this.skillIntrospector,
+    this.skillPreflightConfig = const WorkflowSkillPreflightConfig(),
     this.taskRepository,
     this.agentExecutionRepository,
     this.workflowStepExecutionRepository,
@@ -272,7 +274,8 @@ final class StepExecutionContext {
       contextExtractor: contextExtractor,
       turnAdapter: turnAdapter,
       outputTransformer: outputTransformer,
-      skillRegistry: skillRegistry,
+      skillIntrospector: skillIntrospector,
+      skillPreflightConfig: skillPreflightConfig,
       taskRepository: taskRepository,
       agentExecutionRepository: agentExecutionRepository,
       workflowStepExecutionRepository: workflowStepExecutionRepository,
@@ -307,7 +310,8 @@ final class StepExecutionContext {
       contextExtractor: contextExtractor,
       turnAdapter: turnAdapter,
       outputTransformer: outputTransformer,
-      skillRegistry: skillRegistry,
+      skillIntrospector: skillIntrospector,
+      skillPreflightConfig: skillPreflightConfig,
       taskRepository: taskRepository,
       agentExecutionRepository: agentExecutionRepository,
       workflowStepExecutionRepository: workflowStepExecutionRepository,

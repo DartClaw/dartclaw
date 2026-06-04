@@ -4,13 +4,15 @@ viewport: desktop
 port: 3333
 auth_token: devtoken0
 ---
-# Scenario: Workflow Publish - Spec And Implement
+# Scenario: Workflow Live UI - Spec And Implement
 
-Validates the full connected `spec-and-implement` round-trip against the dedicated `workflow-test-todo-app` repository: real project-scoped worktree creation, remote branch push, and actual GitHub PR creation. This scenario uses a uniquely named single-file documentation change so repeated runs stay isolated. Close the PR after verification to keep the test repository tidy.
+Consolidated live acceptance scenario for `spec-and-implement`. It validates the operator-facing surface that no automated test exercises: the Web UI (workflows list, run detail page, live progress, completion state) and the connected CLI → server → SSE path driving a **real** harness run to completion.
+
+The engine mechanics — per-task worktree creation, branch push, GitHub PR creation and PR diff contents — are covered by the automated integration test `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` (TI03), which runs the same workflow against the same `workflow-test-todo-app` repository with a real harness, real `gh pr create`, and automatic PR cleanup. This scenario does **not** re-assert those mechanics; it confirms only that the run reaches a clean `completed` state and that the operator-facing surface reflects it. The run still publishes, so it closes the published PR as cleanup.
+
+**Workflow structure**: `detect-spec-input → spec → revise-spec → implement → simplify-code → integrated-review ∥ architecture-review → review-aggregate → remediation-loop`. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
 
 Server should be running: `bash dev/testing/profiles/workflows/run.sh`
-
-This scenario assumes the workflow-test-todo-app profile is configured with `credentials.github-main.type: github-token` and that `GITHUB_TOKEN` is exported before startup.
 
 Use these helpers in any shell snippet that invokes the DartClaw CLI:
 
@@ -24,37 +26,59 @@ workflow_cli() {
 }
 ```
 
-## S1: Start A Real Spec-And-Implement Publish Run
+## S1: Open The Workflows Page And Verify Built-In Definitions
 
 ### Steps
 
-1. Generate and persist a unique marker for this run:
+1. Open `http://localhost:3333/?token=devtoken0` in a fresh browser context
+2. Navigate to the `Workflows` page
+3. Run `agent-browser snapshot -i` to capture the workflows list
+
+### Expected
+
+- The app loads without showing a login form
+- The workflows page loads successfully
+- A workflow card or list entry for `spec-and-implement` is visible
+- A workflow card or list entry for `plan-and-implement` is visible
+- No authentication error or generic error banner is visible
+
+
+## S2: Start A Minimal Full-Completion Spec-And-Implement Run
+
+### Steps
+
+1. Reset the workflow-test-todo-app fixture to a known clean baseline:
+   ```bash
+   bash dev/testing/profiles/workflows/fixture.sh reset
+   ```
+2. Generate and persist a unique marker for this run:
    ```bash
    date '+%Y%m%d-%H%M%S' | tee /tmp/workflow-spec-and-implement-publish.marker
    ```
-2. Start the workflow in a background shell with the connected CLI:
+3. In a dedicated shell session, start a workflow run in the foreground with the connected CLI and capture JSON with `tee`:
    ```bash
    WF_MARKER="$(cat /tmp/workflow-spec-and-implement-publish.marker)"
    workflow_cli run spec-and-implement \
      -p workflow-test-todo-app \
-     -v "FEATURE=Workflow publish scenario ${WF_MARKER}. The final implementation in the workflow-test-todo-app repository must create exactly one new markdown file at notes/spec-publish-${WF_MARKER}.md with one heading and one bullet only. The specification and review artifacts must not use that path and must not count as the implementation change. Do not modify any other files. Complete the full workflow and publish the result." \
-     --json > /tmp/workflow-spec-and-implement-publish.jsonl 2>&1 &
-   echo $!
+     -v "FEATURE=Workflow live UI scenario (${WF_MARKER}). The final implementation in the workflow-test-todo-app repository must create exactly one new markdown file at notes/spec-live-${WF_MARKER}.md with one heading and one bullet only. The specification and review artifacts must not use that path and must not count as the implementation change. Do not modify any other files. Complete the full workflow and publish the result." \
+     --json | tee /tmp/workflow-spec-and-implement-publish.jsonl
    ```
-3. Wait for the `run_started` event, record the run id, and persist it:
+   Keep that shell attached while the run is active. Do not background it from the agent shell.
+4. In a second shell, wait for the `run_started` event, record the workflow run id, and persist it:
    ```bash
    until rg -m1 '^{"type":"run_started"' /tmp/workflow-spec-and-implement-publish.jsonl; do sleep 1; done
    rg -m1 '^{"type":"run_started"' /tmp/workflow-spec-and-implement-publish.jsonl | jq -r '.run.id' | tee /tmp/workflow-spec-and-implement-publish.run_id
    ```
-4. Verify the `run_started` payload targets `PROJECT=workflow-test-todo-app`:
+5. Verify the `run_started` payload targets `PROJECT=workflow-test-todo-app`:
    ```bash
    rg -m1 '^{"type":"run_started"' /tmp/workflow-spec-and-implement-publish.jsonl | jq -r '.run.variablesJson.PROJECT'
    ```
-5. Open `http://localhost:3333/workflows/<run-id>` in the browser
-6. Run `agent-browser snapshot -i` to capture the initial run detail page
+6. Open `http://localhost:3333/workflows/<run-id>` in the browser
+7. Run `agent-browser snapshot -i` to capture the initial run detail page
 
 ### Expected
 
+- The fixture reset command succeeds and leaves the nested `workflow-test-todo-app` repo clean
 - The connected CLI emits a `run_started` event
 - The `run_started` JSON contains an `id` field and `definitionName` equal to `spec-and-implement`
 - The `run_started` payload explicitly targets `PROJECT=workflow-test-todo-app`
@@ -62,50 +86,7 @@ workflow_cli() {
 - The run is shown as `running` or otherwise actively progressing
 
 
-## S2: Verify A Real Worktree Is Created For The Coding Step
-
-### Steps
-
-1. Poll the workflow child tasks until one task exposes `worktreeJson.path` and `worktreeJson.branch`, then persist that task JSON:
-   ```bash
-   RUN_ID="$(cat /tmp/workflow-spec-and-implement-publish.run_id)"
-   deadline=$(( $(date +%s) + 900 ))
-   while [ "$(date +%s)" -lt "$deadline" ]; do
-     run_json="$(workflow_cli status "$RUN_ID" --json)"
-     run_status="$(printf '%s' "$run_json" | jq -r '.status')"
-     for task_id in $(printf '%s' "$run_json" | jq -r '.steps[]?.taskId // empty' | sort -u); do
-       task_json="$(dartclaw_cli tasks show "$task_id" --json)"
-       if printf '%s' "$task_json" | jq -e '.worktreeJson.path != null and .worktreeJson.branch != null' >/dev/null; then
-         printf '%s' "$task_json" > /tmp/workflow-spec-and-implement-publish.worktree_task.json
-         jq -r '.id, .title, .worktreeJson.path, .worktreeJson.branch' /tmp/workflow-spec-and-implement-publish.worktree_task.json
-         exit 0
-       fi
-     done
-     if [ "$run_status" = "failed" ] || [ "$run_status" = "cancelled" ]; then
-       echo "Workflow ended before a worktree-backed task was observed: $run_status" >&2
-       exit 1
-     fi
-     sleep 5
-   done
-   echo "Timed out waiting for a worktree-backed task" >&2
-   exit 1
-   ```
-2. Verify the captured worktree path currently exists on disk:
-   ```bash
-   test -d "$(jq -r '.worktreeJson.path' /tmp/workflow-spec-and-implement-publish.worktree_task.json)"
-   ```
-3. Refresh or revisit `http://localhost:3333/workflows/<run-id>`
-4. Run `agent-browser snapshot -i` to capture the in-progress state
-
-### Expected
-
-- At least one workflow child task exposes a non-empty `worktreeJson.path`
-- The same task exposes a non-empty `worktreeJson.branch`
-- The worktree path exists on disk while the workflow is still running
-- No generic server error banner is visible on the workflow page
-
-
-## S3: Wait For Publish Completion And Verify The Real GitHub PR
+## S3: Wait For Full Completion And Verify The Final Workflow State
 
 ### Steps
 
@@ -126,54 +107,46 @@ workflow_cli() {
    echo "Timed out waiting for workflow completion" >&2
    exit 1
    ```
-2. Extract the published branch and PR URL from the workflow context and persist the PR URL:
+2. Print the final status and publish metadata (the PR URL is captured for cleanup, not asserted in depth):
    ```bash
-   jq -r '.contextJson.data["publish.status"], .contextJson.data["publish.branch"], .contextJson.data["publish.pr_url"]' /tmp/workflow-spec-and-implement-publish.final_run.json
+   jq -r '.status, .currentStepIndex, .contextJson.data["publish.status"], .contextJson.data["publish.pr_url"]' /tmp/workflow-spec-and-implement-publish.final_run.json
    jq -r '.contextJson.data["publish.pr_url"]' /tmp/workflow-spec-and-implement-publish.final_run.json | tee /tmp/workflow-spec-and-implement-publish.pr_url
    ```
-3. Verify the published branch exists on the remote:
+3. Verify connected CLI status reports the finished run:
    ```bash
-   BRANCH="$(jq -r '.contextJson.data["publish.branch"]' /tmp/workflow-spec-and-implement-publish.final_run.json)"
-   git -C dev/testing/profiles/workflows/data/projects/workflow-test-todo-app ls-remote --heads origin "$BRANCH"
+   workflow_cli status "$(cat /tmp/workflow-spec-and-implement-publish.run_id)"
    ```
-4. Verify the PR exists on GitHub and capture its metadata:
-   ```bash
-   gh pr view "$(cat /tmp/workflow-spec-and-implement-publish.pr_url)" --json url,state,isDraft,headRefName,baseRefName
-   ```
-5. Verify the published PR diff contains the expected implementation file:
-   ```bash
-   WF_MARKER="$(cat /tmp/workflow-spec-and-implement-publish.marker)"
-   gh pr diff "$(cat /tmp/workflow-spec-and-implement-publish.pr_url)" --name-only | rg "notes/spec-publish-${WF_MARKER}\\.md"
-   ```
-6. Refresh or revisit `http://localhost:3333/workflows/<run-id>`
-7. Run `agent-browser snapshot -i` to capture the completed workflow state
+4. Refresh or revisit `http://localhost:3333/workflows/<run-id>`
+5. Run `agent-browser snapshot -i` to capture the completed state
 
 ### Expected
 
 - The final workflow status is `completed`
-- `publish.status` is `success`
-- `publish.branch` is non-empty
-- `publish.pr_url` is a non-empty GitHub pull request URL
-- The published branch exists on `origin`
-- `gh pr view` succeeds for the published PR URL
-- The published PR diff contains `notes/spec-publish-<marker>.md`
-- No generic server error banner is visible on the workflow page
+- The detail page shows semantically complete progress: every authored top-level step (`detect-spec-input`, `spec`, `revise-spec`, `implement`, `simplify-code`, `integrated-review`, `architecture-review`, `review-aggregate`, `remediation-loop`) is finished and no step is left pending or running
+- `publish.status` is `success` and `publish.pr_url` is a non-empty GitHub pull request URL (the run reached and passed the publish step)
+- No generic server error banner is visible on the page
+- The workflow detail page remains usable after completion
 
 
-## S4: Close The PR And Delete The Branch As Test Cleanup
+## S4: Verify The Published PR And Clean It Up
 
 ### Steps
 
-1. Close the PR and delete its branch:
+1. Verify the PR exists on GitHub:
    ```bash
-   gh pr close "$(cat /tmp/workflow-spec-and-implement-publish.pr_url)" --delete-branch --comment "Workflow publish scenario cleanup"
+   gh pr view "$(cat /tmp/workflow-spec-and-implement-publish.pr_url)" --json url,state,isDraft,headRefName,baseRefName
    ```
-2. Verify the PR is closed:
+2. Close the PR and delete its branch:
+   ```bash
+   gh pr close "$(cat /tmp/workflow-spec-and-implement-publish.pr_url)" --delete-branch --comment "Workflow live UI scenario cleanup"
+   ```
+3. Verify the PR is closed:
    ```bash
    gh pr view "$(cat /tmp/workflow-spec-and-implement-publish.pr_url)" --json state
    ```
 
 ### Expected
 
+- `gh pr view` succeeds for the published PR URL
 - The cleanup command succeeds
 - The PR state is `CLOSED`

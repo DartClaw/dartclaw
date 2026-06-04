@@ -22,6 +22,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
+import 'package:dartclaw_workflow/src/workflow/step_retry_policy.dart';
+
 import 'workflow_executor_test_support.dart';
 
 void main() {
@@ -30,6 +32,13 @@ void main() {
   tearDown(h.tearDown);
 
   group('step outcome protocol and onFailure policy wiring', () {
+    test('workflow retry failure classifier normalizes comparable failure reasons', () {
+      expect(workflowRetryFailureClass(null), 'workflow step failed');
+      expect(workflowRetryFailureClass('StateError: Boom (attempt 1)'), 'boom');
+      expect(workflowRetryFailureClass('Invalid argument(s): Missing PROJECT [retryable]'), 'missing project');
+      expect(workflowRetryFailureClass('x' * 120), hasLength(80));
+    });
+
     Future<void> completeTaskWithOutcome(
       String taskId, {
       required String outcomeContent,
@@ -151,6 +160,80 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
 
+    test('needsInput without onFailure continue moves the run to awaiting approval', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      var taskCount = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        await completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"needsInput","reason":"operator decision required"}</step-outcome>',
+        );
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(taskCount, equals(1));
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
+    });
+
+    test('onFailure: continueWorkflow continues execution after a needsInput outcome', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.continueWorkflow,
+          ),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      var taskCount = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        if (taskCount == 1) {
+          await completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent: '<step-outcome>{"outcome":"needsInput","reason":"optional cleanup blocked"}</step-outcome>',
+          );
+        } else {
+          await completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"continued"}</step-outcome>',
+          );
+        }
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(taskCount, equals(2));
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
     test('onFailure: retry retries the step when the outcome is failed', () async {
       final definition = h.makeDefinition(
         steps: [
@@ -168,11 +251,14 @@ void main() {
       await h.repository.insert(run);
 
       int taskCount = 0;
+      final descriptions = <String>[];
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
         await Future<void>.delayed(Duration.zero);
         taskCount++;
+        final task = await h.taskService.get(e.taskId);
+        descriptions.add(task?.description ?? '');
         if (taskCount == 1) {
           await completeTaskWithOutcome(
             e.taskId,
@@ -190,8 +276,163 @@ void main() {
       await sub.cancel();
 
       expect(taskCount, equals(2));
+      expect(descriptions.first, isNot(contains('Previous Workflow Attempt')));
+      expect(descriptions.last, contains('Previous Workflow Attempt'));
+      expect(descriptions.last, contains('first attempt failed'));
       final finalRun = await h.repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('S01 onFailure retry with maxRetries 1 dispatches exactly two workflow tasks on persistent failure', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 1,
+          ),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      final taskIds = <String>[];
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskIds.add(e.taskId);
+        await completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"failed","reason":"persistent failure $taskIds"}</step-outcome>',
+        );
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(taskIds, hasLength(2));
+      for (final taskId in taskIds) {
+        expect((await h.taskService.get(taskId))?.maxRetries, equals(0));
+      }
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    });
+
+    test('S06 repeated identical workflow failure class short-circuits before exhausting maxRetries', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 3,
+          ),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      var taskCount = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        await completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent:
+              '<step-outcome>{"outcome":"failed","reason":"Deterministic error: same input"}</step-outcome>',
+        );
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(taskCount, equals(2), reason: 'same failure class should stop before 4 total executions');
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    });
+
+    test('workflow retry exhausts the full budget when failure classes differ', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 3,
+          ),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      var taskCount = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        await completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent:
+              '<step-outcome>{"outcome":"failed","reason":"retry-class-$taskCount: still failing"}</step-outcome>',
+        );
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(taskCount, equals(4), reason: 'maxRetries: 3 permits 4 total attempts without early-stop');
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    });
+
+    test('single step fails when context extraction throws an unexpected error', () async {
+      // Fail loud: an unexpected (non-MissingArtifact, non-StateError) extraction
+      // exception must fail the step rather than silently report success with
+      // empty/partial outputs. Matches the map path.
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+        ],
+      );
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      final executor = h.makeExecutor(
+        contextExtractor: ThrowingContextExtractor(
+          taskService: h.taskService,
+          messageService: h.messageService,
+          dataDir: h.tempDir.path,
+          workflowStepExecutionRepository: h.workflowStepExecutionRepository,
+        ),
+      );
+
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await h.completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(
+        finalRun?.status,
+        equals(WorkflowRunStatus.failed),
+        reason: 'an unexpected extraction exception must fail the step, not silently succeed',
+      );
     });
 
     test('step.<id>.outcome and reason are written to context after a successful step-outcome tag', () async {

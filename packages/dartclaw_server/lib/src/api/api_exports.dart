@@ -13,7 +13,6 @@ export 'memory_routes.dart' show memoryRoutes;
 export 'project_routes.dart' show projectRoutes;
 export 'provider_routes.dart' show providerRoutes;
 export 'session_routes.dart' show sessionRoutes;
-export 'skill_routes.dart' show skillRoutes;
 export 'slash_command_handler.dart' show SlashCommandHandler;
 export 'sse_broadcast.dart' show SseBroadcast;
 export 'stream_handler.dart' show sseStreamResponse;

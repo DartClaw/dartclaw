@@ -129,5 +129,25 @@ void main() {
       final content = (responseBody['result'] as Map)['content'] as List;
       expect((content[0] as Map)['text'], 'world');
     });
+
+    test('oversized body without Content-Length is rejected with 413', () async {
+      // Simulates a chunked or header-omitted delivery exceeding 1 MiB.
+      // The header check alone would not catch this — the bounded stream read must.
+      final oversize = 'x' * (1024 * 1024 + 1);
+      final request = Request(
+        'POST',
+        Uri.parse('http://localhost/mcp'),
+        body: oversize,
+        headers: {
+          'authorization': 'Bearer $token',
+          'content-type': 'application/json',
+          // Deliberately omit content-length to prove the read-time limit fires.
+        },
+      );
+      final response = await handler(request);
+      expect(response.statusCode, 413);
+      final responseBody = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(responseBody['error'], contains('Payload too large'));
+    });
   });
 }

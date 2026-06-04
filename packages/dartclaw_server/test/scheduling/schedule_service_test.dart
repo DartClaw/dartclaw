@@ -447,8 +447,9 @@ void main() {
       expect(service.isJobPaused('nonexistent'), isFalse);
     });
 
-    test('callback job runs onExecute without agent turn', () async {
+    test('callback job runs onExecute in a cron session without agent turn', () async {
       final turns = _ConfigurableTurnManager();
+      final sessions = _FakeSessionService();
       var callbackInvoked = false;
       final callbackJob = ScheduledJob(
         id: 'callback-job',
@@ -459,12 +460,13 @@ void main() {
           return 'callback result';
         },
       );
-      final service = ScheduleService(turns: turns, sessions: _FakeSessionService(), jobs: [callbackJob]);
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [callbackJob]);
       service.start();
       await service.executeJobForTesting(callbackJob);
       expect(callbackInvoked, isTrue);
       // No agent turn should have been created
       expect(turns.startTurnCallCount, 0);
+      expect(sessions._keyedSessions, contains(SessionKey.cronSession(jobId: 'callback-job')));
       service.stop();
     });
 
@@ -539,6 +541,8 @@ class _ConfigurableTurnManager implements TurnManager {
     String? effort,
     int? maxTurns,
     bool isHumanInput = false,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     startTurnCallCount++;
     lastModel = model;

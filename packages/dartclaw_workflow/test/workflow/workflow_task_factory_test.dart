@@ -98,19 +98,61 @@ void main() {
         provider: 'codex',
         projectId: 'proj',
         maxTokens: 100,
-        maxRetries: 2,
         taskConfig: {'model': 'gpt-test'},
       );
 
       final task = await taskRepository.getById('task-1');
       expect(task, isNotNull);
       expect(task!.agentExecution, isNotNull);
+      expect(task.maxRetries, equals(0));
       expect(task.configJson.containsKey('model'), isFalse);
       expect((await agentExecutionRepository.list()).single.model, equals('gpt-test'));
       final stepExecution = await workflowStepExecutionRepository.getByTaskId('task-1');
       expect(stepExecution?.stepId, equals('step-1'));
       expect(stepExecution?.stepType, equals('agent'));
       expect(events.single.newStatus.name, equals('queued'));
+    });
+
+    test('workflow task always persists maxRetries == 0 — workflow engine owns retry authority', () async {
+      // Supplying a positive maxTokens and a step with retry config should not
+      // result in task-runtime retries; the workflow engine owns that authority.
+      await createWorkflowTaskTriple(
+        ctx: executionContext,
+        workflowWorkspaceDir: p.join(tempDir.path, 'workflow-workspace'),
+        taskId: 'task-retry-contract',
+        run: _run(),
+        step: const WorkflowStep(id: 'step-retry', name: 'Retry Step'),
+        stepIndex: 0,
+        title: 'Retry title',
+        description: 'Prompt',
+        type: TaskType.coding,
+        provider: 'codex',
+        projectId: 'proj',
+        maxTokens: 1000,
+        taskConfig: const {},
+      );
+
+      final task = await taskRepository.getById('task-retry-contract');
+      expect(task, isNotNull);
+      expect(
+        task!.maxRetries,
+        equals(0),
+        reason: 'Workflow-spawned tasks must opt out of task-runtime retry; workflow engine owns retry authority',
+      );
+    });
+
+    test('non-workflow task creation preserves configured maxRetries', () async {
+      final task = await taskService.create(
+        id: 'ordinary-task',
+        title: 'Ordinary retry task',
+        description: 'Created outside workflow dispatch.',
+        type: TaskType.automation,
+        maxRetries: 2,
+      );
+
+      expect(task.workflowRunId, isNull);
+      expect(task.maxRetries, equals(2));
+      expect((await taskRepository.getById('ordinary-task'))?.maxRetries, equals(2));
     });
 
     test('rolls back task and agent execution when step execution insert fails', () async {
@@ -141,7 +183,6 @@ void main() {
           provider: 'codex',
           projectId: null,
           maxTokens: null,
-          maxRetries: 0,
           taskConfig: const {},
         ),
         throwsStateError,

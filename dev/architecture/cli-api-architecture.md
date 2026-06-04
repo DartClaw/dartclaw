@@ -233,7 +233,7 @@ Workflow triggering now exists beyond direct CLI/API calls:
 | Surface | Entry point | Handler |
 |---|---|---|
 | Web UI form | `POST /api/workflows/run-form` | `workflow_routes.dart` |
-| Web chat command | `/workflow list`, `/workflow run ...` via `POST /api/sessions/<id>/send` | `ChatCommandHandler` |
+| Web chat command | `/workflow list` (broadly available), `/workflow run ...` (admin only) via `POST /api/sessions/<id>/send` | `ChatCommandHandler` |
 | GitHub PR webhook | `POST /webhook/github` | `GitHubWebhookHandler` |
 
 These are all server-owned surfaces. The CLI does not implement separate logic for them; it interoperates with the same workflow runtime through the API.

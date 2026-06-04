@@ -81,7 +81,6 @@ export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, Pairi
 export 'src/harness/agent_harness.dart' show AgentHarness, PromptStrategy;
 export 'src/harness/base_protocol_adapter.dart' show intValue, stringValue;
 export 'src/harness/claude_settings_builder.dart' show ClaudeSettingsBuilder;
-export 'src/harness/conversation_history.dart' show buildReplaySafeHistory;
 export 'src/harness/canonical_tool.dart' show CanonicalTool;
 export 'src/harness/claude_code_harness.dart' show ClaudeCodeHarness;
 export 'src/harness/claude_protocol_adapter.dart' show ClaudeProtocolAdapter;
@@ -112,13 +111,9 @@ export 'src/harness/tool_result.dart' show ToolResult, ToolResultError, ToolResu
 // Security — interfaces and user-constructable guards
 export 'package:dartclaw_security/dartclaw_security.dart';
 
-// Memory
-// Show clause review: parseMemoryEntries and memoryTimestampRe are used by
-// dartclaw_server (MemoryStatusService). Retained for cross-package access
-// within the workspace. Candidates for removal when server uses src/ imports.
 export 'src/memory/memory_file_service.dart' show MemoryFileService;
 export 'src/memory/memory_entry.dart' show MemoryEntry;
-export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries, memoryTimestampRe;
+export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries;
 
 export 'src/container/container_executor.dart' show ContainerExecutor, containerClaudeExecutable;
 export 'src/scoping/common_channel_fields.dart' show CommonChannelFields;
@@ -211,6 +206,7 @@ export 'src/events/dartclaw_event.dart'
         WorkflowApprovalResolvedEvent,
         WorkflowBudgetWarningEvent,
         WorkflowLifecycleEvent,
+        WorkflowCliStallEvent,
         WorkflowCliTurnProgressEvent,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent,

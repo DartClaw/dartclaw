@@ -14,16 +14,19 @@ Three built-in workflows ship in `packages/dartclaw_workflow/lib/src/workflow/de
 | `plan-and-implement` | `FEATURE` | Multi-story milestone pipeline. Requires an existing PRD. `dartclaw-discover-andthen-plan` emits flat `prd`, optional `plan`, and optional `story_specs`; `andthen:plan` fills missing plan/specs. |
 | `code-review` | `TARGET` | Single-methodology review of a PR / branch / module + bounded remediation loop. |
 
-Two custom **inline** variants ship in `dev/tools/dartclaw-workflows/custom-workflows/`:
+Three custom **inline** variants ship in `dev/tools/dartclaw-workflows/custom-workflows/`:
 
 | Workflow | Required variable | Purpose |
 |----------|-------------------|---------|
-| `spec-and-implement-inline` | `FEATURE` | Same pipeline as `spec-and-implement`, but runs on the current branch in the live checkout (`gitStrategy.integrationBranch: false`, `worktree: inline`). No integration branch, no worktree, no merge-back. |
-| `plan-and-implement-inline` | `FEATURE` | Same pipeline as `plan-and-implement`, but inline. Per-story worktrees are disabled and `MAX_PARALLEL` defaults to `1` because parallel sessions in a shared checkout would clobber each other. |
+| `spec-and-implement-inline` | `FEATURE` | Same pipeline as `spec-and-implement`, but runs on the current branch in the live checkout (`gitStrategy.integrationBranch: false`, `worktree: inline`). No integration branch, no worktree, no merge-back. Adds a deterministic verification gate after remediation (see below). |
+| `plan-and-implement-inline` | `FEATURE` | Same pipeline as `plan-and-implement`, but inline. Per-story worktrees are disabled and `MAX_PARALLEL` defaults to `1` because parallel sessions in a shared checkout would clobber each other. Adds a deterministic verification gate after remediation (see below). |
+| `review-and-remediate-inline` | `TARGET` | Review + remediate for an already-implemented milestone, version, or feature – nothing is implemented. Reviews all changes on the current branch (diffed against `BASE_BRANCH`, default `main`) with the same multi-lens depth as `plan-and-implement` – mixed review, a Claude opus council pass, and architecture review in parallel – then runs a bounded remediation loop and the deterministic verification gate. The fuller counterpart to the built-in single-methodology `code-review`. Runs inline on the current branch. |
+
+**Deterministic verification gate.** After the review/remediation loop, both inline variants run format (`dart format --set-exit-if-changed`), static analysis (`dart analyze --fatal-infos`), the full test suite (`dev/tools/test_workspace.sh`), architecture checks, fitness checks, `git diff --check`, and `git status --short` via `custom-workflows/scripts/verify-gate.sh`. The script captures each gate's output under the run's artifacts dir (`<run>/verify/*.log`) and prints `pass`/`fail`; a bounded `verify-fix-loop` then dispatches `andthen:triage` to fix any failures and re-runs the combined gate until green or the iteration cap is hit. This is the deterministic counterpart to the skill-driven verification the worktree-isolated built-ins rely on.
 
 `run.sh` exposes the custom-workflows directory to the registry by symlinking it into the maintainer profile's data directory at `<DATA_DIR>/workflows/custom/` (the data dir is gitignored). The host loads instance-scoped custom workflows from that path automatically. Edit the YAMLs in place to tweak step config – changes take effect on the next run.
 
-The `spec.sh` / `plan.sh` convenience scripts run the **inline** variants. To get the worktree-isolated pipeline (separate workflow branch + merge-back), invoke `run.sh workflow run` directly with the unsuffixed name.
+The `spec.sh` / `plan.sh` / `review.sh` convenience scripts run the **inline** variants. To get the worktree-isolated pipeline (separate workflow branch + merge-back), invoke `run.sh workflow run` directly with the unsuffixed name (`spec-and-implement`, `plan-and-implement`); for a single-methodology worktree-isolated review use the built-in `code-review`.
 
 After updating from an older checkout that provisioned the pre-rename discovery skill directories, start the workflow profile normally. `SkillProvisioner.ensureCacheCurrent` removes stale discovery skill directories from the profile data dir and reprovisions the renamed `dartclaw-discover-andthen-*` skills on the next workflow start.
 
@@ -39,6 +42,7 @@ This profile is **maintainer-only** and intentionally permissive – not a harde
 
 - `providers.codex.sandbox: danger-full-access` – Codex one-shots run with unrestricted filesystem and network access.
 - `providers.codex.approval: never` – no approval gate before Codex executes a turn.
+- `providers.claude.inherit_user_settings: true` by default – Claude workflow steps can see user-scope plugins and `andthen:*` skills. Set it to `false` only when you intentionally want project-only Claude settings.
 - `dev_mode: true`, `tasks.completion_action: accept`, `governance.budget.daily_tokens: 10000000` – generous budgets and auto-accept completions.
 
 A misclicked or runaway workflow can rewrite arbitrary files in this checkout (and beyond) without prompting. Use one of the user-facing profiles (`examples/run.sh` or the private testing profiles) for anything where that is unacceptable.
@@ -95,7 +99,14 @@ bash dev/tools/dartclaw-workflows/spec.sh 'Add a /health endpoint returning serv
 bash dev/tools/dartclaw-workflows/plan.sh 'Implement the next planned DartClaw milestone from the active PRD and plan'
 ```
 
-These wrap `run.sh workflow run --standalone --allow-dirty-localpath spec-and-implement-inline|plan-and-implement-inline …`. `--allow-dirty-localpath` is required because inline mode mutates the live working tree by design.
+To review + remediate an already-implemented milestone/feature on the current branch, use `review.sh`. The first argument is the `TARGET` (what to review); extra `-v` flags are forwarded, e.g. to override the base ref:
+
+```bash
+bash dev/tools/dartclaw-workflows/review.sh 'the 0.17 milestone'
+bash dev/tools/dartclaw-workflows/review.sh 'the 0.17 milestone' -v 'BASE_BRANCH=release/0.16'
+```
+
+These wrap `run.sh workflow run --standalone --allow-dirty-localpath spec-and-implement-inline|plan-and-implement-inline|review-and-remediate-inline …`. `--allow-dirty-localpath` is required because inline mode mutates the live working tree by design.
 
 ## Injected Variables
 

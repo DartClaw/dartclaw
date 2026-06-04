@@ -1,3 +1,5 @@
+import 'package:path/path.dart' as p;
+
 /// Shared provider-family normalization rules.
 ///
 /// Provider IDs encode vendor identity (`codex` needs OpenAI credentials).
@@ -23,6 +25,37 @@ class ProviderIdentity {
   /// Returns the credential/vendor family used by [providerId].
   static String family(String? providerId, {String fallback = claude}) {
     return normalize(providerId, fallback: fallback);
+  }
+
+  /// Resolves the effective family for [providerId], honoring an explicit
+  /// `family` (or legacy `provider`) override in [options] and, failing that, a
+  /// canonical name embedded in [executable].
+  ///
+  /// Resolution order: a configured `family`/`provider` option wins; otherwise a
+  /// canonical [providerId] (`claude`/`codex`) is used; otherwise the
+  /// [executable] basename is inspected for a canonical name; finally the
+  /// normalized [providerId] is returned as-is. This is the single source of
+  /// family classification — runtime skill preflight and introspection probing
+  /// must both call it so a custom provider alias resolves identically on every
+  /// path.
+  static String resolveFamily(
+    String? providerId, {
+    Map<String, dynamic>? options,
+    String? executable,
+    String fallback = claude,
+  }) {
+    final configured = options?['family'] ?? options?['provider'];
+    if (configured is String && configured.trim().isNotEmpty) {
+      return family(configured, fallback: fallback);
+    }
+    final resolved = family(providerId, fallback: fallback);
+    if (resolved == claude || resolved == codex) return resolved;
+    if (executable != null && executable.isNotEmpty) {
+      final executableName = p.basenameWithoutExtension(executable).toLowerCase();
+      if (executableName.contains(claude)) return claude;
+      if (executableName.contains(codex)) return codex;
+    }
+    return resolved;
   }
 
   /// Returns a human-readable label for [providerId].

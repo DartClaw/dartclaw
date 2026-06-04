@@ -23,14 +23,44 @@ class TaskToolFilterGuard extends Guard {
   /// `test`, `pwd`, or `git status`.
   bool readOnly = false;
 
+  final Map<String, List<String>?> _allowedToolsBySession = {};
+  final Set<String> _readOnlySessionIds = {};
+
+  /// Sets a session-local tool allowlist that overrides [allowedTools].
+  ///
+  /// Passing null clears the session override. The policy applies only when the
+  /// guard context carries the same session ID.
+  void setSessionToolFilter(String sessionId, List<String>? allowedTools) {
+    if (allowedTools == null) {
+      _allowedToolsBySession.remove(sessionId);
+      return;
+    }
+    _allowedToolsBySession[sessionId] = List.unmodifiable(allowedTools);
+  }
+
+  /// Enables or disables read-only enforcement for one session.
+  ///
+  /// Session read-only mode is additive with [readOnly]; a globally read-only
+  /// guard still blocks mutating tools for every session.
+  void setSessionReadOnly(String sessionId, bool readOnly) {
+    if (readOnly) {
+      _readOnlySessionIds.add(sessionId);
+    } else {
+      _readOnlySessionIds.remove(sessionId);
+    }
+  }
+
   @override
   Future<GuardVerdict> evaluate(GuardContext context) async {
     if (context.hookPoint != 'beforeToolCall') return GuardVerdict.pass();
 
-    final readOnlyVerdict = _evaluateReadOnly(context);
+    final sessionId = context.sessionId;
+    final sessionReadOnly = sessionId != null && _readOnlySessionIds.contains(sessionId);
+    final readOnlyVerdict = _evaluateReadOnly(context, readOnly || sessionReadOnly);
     if (readOnlyVerdict != null) return readOnlyVerdict;
 
-    final tools = allowedTools;
+    final hasSessionPolicy = sessionId != null && _allowedToolsBySession.containsKey(sessionId);
+    final tools = hasSessionPolicy ? _allowedToolsBySession[sessionId] : allowedTools;
     if (tools == null || tools.isEmpty) return GuardVerdict.pass();
     final toolName = context.toolName;
     if (toolName == null) return GuardVerdict.pass();
@@ -38,8 +68,8 @@ class TaskToolFilterGuard extends Guard {
     return GuardVerdict.block('Tool "$toolName" is not in this task\'s allowed tools: ${tools.join(', ')}');
   }
 
-  GuardVerdict? _evaluateReadOnly(GuardContext context) {
-    if (!readOnly) return null;
+  GuardVerdict? _evaluateReadOnly(GuardContext context, bool readOnlyActive) {
+    if (!readOnlyActive) return null;
 
     final toolName = context.toolName;
     final toolInput = context.toolInput;

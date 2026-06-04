@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show TurnProgressAction;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfig;
 import 'package:logging/logging.dart';
 
@@ -58,6 +59,8 @@ final class WorkflowOneShotRunner {
     required List<String>? allowedTools,
     required bool readOnly,
     required String? sandboxOverride,
+    required Duration stallTimeout,
+    required TurnProgressAction stallAction,
   }) async {
     final runner = _runner;
     if (runner == null) {
@@ -73,6 +76,15 @@ final class WorkflowOneShotRunner {
     final workflowStepId = workflowStepExecution?.stepId;
     final appendSystemPrompt = switch (task.configJson['appendSystemPrompt']) {
       final String value when value.trim().isNotEmpty => value,
+      _ => null,
+    };
+    final stepName = switch (task.configJson[WorkflowTaskConfig.workflowStepName]) {
+      final String value when value.trim().isNotEmpty => value,
+      _ => workflowStepId,
+    };
+    final stepTimeout = switch (task.configJson[WorkflowTaskConfig.workflowTimeoutSeconds]) {
+      final int seconds when seconds > 0 => Duration(seconds: seconds),
+      final num seconds when seconds > 0 => Duration(seconds: seconds.toInt()),
       _ => null,
     };
     final mergeResolveEnv = WorkflowTaskConfig.readMergeResolveEnv(task);
@@ -165,6 +177,10 @@ final class WorkflowOneShotRunner {
         providerSessionId: providerSessionId,
         model: modelOverride,
         effort: effortOverride,
+        stepName: stepName,
+        stallTimeout: stallTimeout,
+        stallAction: stallAction,
+        stepTimeout: stepTimeout,
         allowedTools: allowedTools,
         readOnly: readOnly,
         appendSystemPrompt: appendSystemPrompt,
@@ -212,6 +228,10 @@ final class WorkflowOneShotRunner {
           providerSessionId: providerSessionId,
           model: modelOverride,
           effort: effortOverride,
+          stepName: stepName,
+          stallTimeout: stallTimeout,
+          stallAction: stallAction,
+          stepTimeout: stepTimeout,
           allowedTools: allowedTools,
           readOnly: readOnly,
           maxTurns: provider == 'claude' ? 5 : null,

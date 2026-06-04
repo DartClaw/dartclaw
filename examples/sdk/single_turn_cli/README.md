@@ -9,5 +9,5 @@ Prerequisites: Dart SDK 3.12+, `claude` in `PATH`, and either `ANTHROPIC_API_KEY
 ```bash
 cd examples/sdk/single_turn_cli
 dart pub get
-dart run -- "Explain what DartClaw is."
+dart run single_turn_cli "Explain what DartClaw is."
 ```

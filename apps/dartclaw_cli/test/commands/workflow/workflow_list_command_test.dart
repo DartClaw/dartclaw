@@ -83,6 +83,10 @@ void main() {
       expect(command.argParser.options.containsKey('json'), isTrue);
     });
 
+    test('accepts --standalone for workflow command parity', () {
+      expect(command.argParser.options.containsKey('standalone'), isTrue);
+    });
+
     test('default output is tabular with materialized workflows', () async {
       await runner.run(['list']);
 
@@ -125,6 +129,24 @@ void main() {
 
       final totalLine = output.lastWhere((l) => l.contains('Total:'));
       expect(totalLine, contains('materialized'));
+    });
+
+    test('lists custom workflows placed directly under data-dir workflows', () async {
+      final workflowsDir = Directory(p.join(tempDir.path, 'workflows'))..createSync(recursive: true);
+      File(p.join(workflowsDir.path, 'my-review.yaml')).writeAsStringSync('''
+name: my-review
+description: Direct data-dir workflow
+steps:
+  - id: shell-check
+    name: Shell Check
+    type: bash
+    prompt: |
+      printf 'ok\\n'
+''');
+
+      await runner.run(['list', '--standalone']);
+
+      expect(output.join('\n'), contains('my-review'));
     });
 
     test('uses installed assets when available', () async {

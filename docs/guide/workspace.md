@@ -9,9 +9,12 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
   workspace/
     SOUL.md          # Agent identity and personality
     AGENTS.md        # Safety rules (injected after user content)
-    USER.md          # User context (name, timezone, preferences)
+    USER.md          # Structured user context and relevance preferences
     TOOLS.md         # Environment notes (SSH hosts, API endpoints)
     MEMORY.md        # Persistent knowledge (agent-maintained)
+    ONBOARDING.md    # Temporary first-run personalization sentinel
+    wiki/
+      README.md      # Wiki conventions and provenance guidance
     HEARTBEAT.md     # Periodic checklist (human-maintained)
     .gitignore       # Auto-created if git sync enabled
   sessions/          # Per-session message history (NDJSON)
@@ -48,13 +51,35 @@ Injected *after* user content in the system prompt (harder to override via promp
 ```
 
 ### USER.md -- User Context
-User-specific preferences. The agent can update this.
+User-specific context. The agent can update this, but the six top-level sections are a stable contract used by
+personalization, relevance filtering, and later knowledge features.
 
 ```markdown
 # User Context
-- Name: Tobias
-- Timezone: Europe/Berlin (UTC+1/+2)
-- Prefers concise answers
+
+## Identity
+
+Name, timezone, location, communication needs, and stable personal context.
+
+## Goals
+
+Active goals, projects, responsibilities, and outcomes the assistant should help with.
+
+## Current Challenges
+
+Near-term blockers, constraints, recurring friction, or decisions in progress.
+
+## Preferences
+
+Communication style, tooling preferences, scheduling preferences, and working norms.
+
+## Proactivity Level
+
+Observer, Advisor, Assistant, or Partner. Include boundaries for proactive behavior.
+
+## Not Relevant
+
+Topics, sources, or personal details the assistant should ignore or avoid using for personalization.
 ```
 
 ### TOOLS.md -- Environment Notes
@@ -81,6 +106,18 @@ Agent-maintained. The agent writes here via `memory_save` tool. Structured as ti
 
 Memory consolidation runs during heartbeat if MEMORY.md exceeds 32KB -- the agent deduplicates and reorganizes entries.
 
+### wiki/ -- Synthesized Knowledge
+Use `wiki/` for durable, source-backed pages that organize knowledge from memory, user-provided documents, and explicit
+sources. `MEMORY.md` remains the chronological memory stream; `wiki/` pages are curated summaries and references.
+Treat the inbox as a curated source queue for bounded corpora such as a project, meeting set, or product spec set, not
+as a firehose for unrelated material.
+
+### ONBOARDING.md -- Personalization Sentinel
+`dartclaw init` seeds `ONBOARDING.md` for a fresh instance. Web chat receives the onboarding instructions until the agent
+calls `onboarding_complete`, the user defers, or the sentinel expires. Non-web task, cron, channel, canvas, advisor, and
+evaluator turns do not receive onboarding instructions. Run `dartclaw init --personalize` to rerun onboarding. Reruns
+write `.draft` files and `dartclaw init --apply-drafts` applies reviewed changes.
+
 ### HEARTBEAT.md -- Periodic Checklist
 Human-maintained. Processed by the heartbeat scheduler at configured intervals (default: 30 minutes).
 
@@ -94,11 +131,13 @@ Human-maintained. Processed by the heartbeat scheduler at configured intervals (
 
 The system prompt is assembled in this order:
 
-1. **SOUL.md** (global, then project)
+1. **SOUL.md**
 2. **USER.md** (wrapped in `## User Context`)
 3. **TOOLS.md** (wrapped in `## Environment Notes`)
-4. **MEMORY.md** (truncated if over limit)
-5. **AGENTS.md** (safety rules -- last, hardest to override)
+4. **errors.md** and **learnings.md**
+5. **MEMORY.md** (truncated if over limit)
+6. **ONBOARDING.md** (web chat only, when fresh)
+7. **AGENTS.md** (safety rules -- appended after behavior content)
 
 ## Git Sync
 

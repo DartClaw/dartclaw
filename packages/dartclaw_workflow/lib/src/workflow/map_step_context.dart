@@ -37,6 +37,12 @@ class MapStepContext {
   /// Set to true when the workflow budget is exhausted mid-execution.
   bool budgetExhausted = false;
 
+  /// Set to true when the run left `running` (pause/cancel) while a map item
+  /// awaited its task. Signals the runner to stop dispatching siblings and
+  /// return `null` so the executor exits without completing the run — the
+  /// step-level analogue of the single-step dispatcher's null return on abort.
+  bool aborted = false;
+
   MapStepContext({required this.collection, required this.maxParallel, required this.maxItems})
     : results = List<dynamic>.filled(collection.length, null);
 

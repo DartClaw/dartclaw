@@ -95,6 +95,7 @@ void main() {
     ProjectService? projectService,
     WorkflowCliRunner? workflowCliRunner,
     TaskEventRecorder? eventRecorder,
+    TaskExecutorLimits limits = const TaskExecutorLimits(),
     Duration pollInterval = const Duration(milliseconds: 10),
   }) {
     return TaskExecutor(
@@ -110,6 +111,7 @@ void main() {
         eventRecorder: eventRecorder,
       ),
       runners: TaskExecutorRunners(turns: turns, workflowCliRunner: workflowCliRunner),
+      limits: limits,
       onAutoAccept: onAutoAccept,
       pollInterval: pollInterval,
     );
@@ -356,6 +358,47 @@ void main() {
       'outputTokens': 500,
     });
     expect((await workflowStepExecutions.getByTaskId('task-oneshot'))?.structuredOutput, isA<Map<Object?, Object?>>());
+  });
+
+  test('provider-less workflow oneshot uses configured default provider instead of pool runner provider', () async {
+    String? executable;
+    final cliRunner = WorkflowCliRunner(
+      providers: const {
+        'claude': WorkflowCliProviderConfig(executable: 'claude'),
+        'codex': WorkflowCliProviderConfig(executable: 'codex'),
+      },
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        executable = exe;
+        final payload = jsonEncode({'session_id': 'default-provider-session', 'result': 'Done.'});
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
+      },
+    );
+    final oneShotExecutor = buildExecutor(
+      workflowCliRunner: cliRunner,
+      limits: const TaskExecutorLimits(defaultProviderId: 'codex'),
+    );
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-oneshot-default-provider',
+      title: 'One-shot workflow step',
+      description: 'Run the workflow step.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-oneshot-default-provider',
+      workflowRunId: 'wf-default-provider',
+    );
+    await seedWorkflowExecution(
+      'task-oneshot-default-provider',
+      agentExecutionId: 'ae-task-oneshot-default-provider',
+      workflowRunId: 'wf-default-provider',
+    );
+
+    final processed = await oneShotExecutor.pollOnce();
+
+    expect(processed, isTrue);
+    expect(executable, 'codex');
+    expect((await tasks.get('task-oneshot-default-provider'))!.status, TaskStatus.review);
   });
 
   test('workflow oneshot passes read-only allowedTools to CLI policy', () async {
@@ -2440,6 +2483,151 @@ void main() {
     expect(pool.activeCount, 0);
   });
 
+  test('provider-less workflow pool task spawns and acquires configured default provider', () async {
+    String? executable;
+    final spawnRequests = <String?>[];
+    final cliRunner = WorkflowCliRunner(
+      providers: const {
+        'claude': WorkflowCliProviderConfig(executable: 'claude'),
+        'codex': WorkflowCliProviderConfig(executable: 'codex'),
+      },
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        executable = exe;
+        final payload = jsonEncode({'session_id': 'pool-default-provider-session', 'result': 'Done.'});
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
+      },
+    );
+    final codexWorker = _FakeTaskWorker();
+    addTearDown(codexWorker.dispose);
+
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
+    final pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: 1);
+    final poolTurns = TurnManager.fromPool(pool: pool);
+    final poolExecutor = TaskExecutor(
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        workflowRunRepository: workflowRuns,
+        workflowStepExecutionRepository: workflowStepExecutions,
+      ),
+      runners: TaskExecutorRunners(turns: poolTurns, workflowCliRunner: cliRunner),
+      limits: const TaskExecutorLimits(defaultProviderId: 'codex'),
+      onSpawnNeeded: (requestedProviderId) async {
+        spawnRequests.add(requestedProviderId);
+        if (requestedProviderId == 'codex') {
+          pool.addRunner(
+            TurnRunner(
+              harness: codexWorker,
+              messages: messages,
+              behavior: behavior,
+              sessions: sessions,
+              providerId: 'codex',
+            ),
+          );
+        }
+      },
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(poolExecutor.stop);
+
+    await tasks.create(
+      id: 'task-pool-default-provider',
+      title: 'Pool workflow step',
+      description: 'Run provider-less workflow task through pool mode.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-pool-default-provider',
+      workflowRunId: 'wf-pool-default-provider',
+    );
+    await seedWorkflowExecution(
+      'task-pool-default-provider',
+      agentExecutionId: 'ae-task-pool-default-provider',
+      workflowRunId: 'wf-pool-default-provider',
+    );
+
+    final processed = await poolExecutor.pollOnce();
+
+    expect(processed, isTrue);
+    TaskStatus? status;
+    for (var attempt = 0; attempt < 20; attempt++) {
+      status = (await tasks.get('task-pool-default-provider'))!.status;
+      if (status == TaskStatus.review) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(spawnRequests, ['codex']);
+    expect(executable, 'codex');
+    expect(status, TaskStatus.review);
+    expect(pool.hasTaskRunnerForProvider('codex'), isTrue);
+    expect(pool.hasTaskRunnerForProvider('claude'), isFalse);
+  });
+
+  test('lazy spawn provider demand follows FIFO task ordering', () async {
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
+    final codexWorker = _FakeTaskWorker()..responseText = 'codex result';
+    addTearDown(codexWorker.dispose);
+    final pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: 1);
+    final poolTurns = TurnManager.fromPool(pool: pool);
+    final spawnRequests = <String?>[];
+    final spawnRequested = Completer<void>();
+    final poolExecutor = TaskExecutor(
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+      ),
+      runners: TaskExecutorRunners(turns: poolTurns),
+      onSpawnNeeded: (requestedProviderId) async {
+        spawnRequests.add(requestedProviderId);
+        if (requestedProviderId == 'codex') {
+          pool.addRunner(
+            TurnRunner(
+              harness: codexWorker,
+              messages: messages,
+              behavior: behavior,
+              sessions: sessions,
+              providerId: 'codex',
+            ),
+          );
+        }
+        if (!spawnRequested.isCompleted) {
+          spawnRequested.complete();
+        }
+      },
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(poolExecutor.stop);
+
+    await tasks.create(
+      id: 'task-old-codex',
+      title: 'Older codex task',
+      description: 'Oldest queued provider-specific task.',
+      type: TaskType.coding,
+      provider: 'codex',
+      autoStart: true,
+      now: DateTime.parse('2026-03-10T09:00:00Z'),
+    );
+    await tasks.create(
+      id: 'task-new-claude',
+      title: 'Newer claude task',
+      description: 'Newer queued provider-specific task.',
+      type: TaskType.coding,
+      provider: 'claude',
+      autoStart: true,
+      now: DateTime.parse('2026-03-10T09:01:00Z'),
+    );
+
+    final processed = await poolExecutor.pollOnce();
+    await spawnRequested.future;
+
+    expect(processed, isTrue);
+    expect(spawnRequests, ['codex']);
+  });
+
   test('dispatches multiple queued tasks concurrently when multiple runners are idle', () async {
     final poolWorker1Gate = Completer<void>();
     final poolWorker2Gate = Completer<void>();
@@ -3133,6 +3321,9 @@ class _FakeTaskWorker implements AgentHarness {
   }
 
   @override
+  Future<void> resetSessionContinuity(String sessionId) async {}
+
+  @override
   Future<void> cancel() async {}
 
   @override
@@ -3268,6 +3459,8 @@ class _CapturingTurnManager extends TurnManager {
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     lastDirectory = directory;
     lastPromptScope = promptScope;
@@ -3321,6 +3514,8 @@ class _BusyOnceTurnManager extends TurnManager {
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     if (_busyOnce) {
       _busyOnce = false;

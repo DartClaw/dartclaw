@@ -1,15 +1,15 @@
 # Quick Start
 
-**SDK Guide** | [User Guide](../guide/getting-started.md) | [API Reference](https://pub.dev/documentation/dartclaw/latest/) | [Examples](../../examples/sdk/)
+**SDK Guide** | [Concepts](concepts.md) | [Architecture](architecture.md) | [Security](security.md) | [User Guide](../guide/getting-started.md) | [API Reference](https://pub.dev/documentation/dartclaw/latest/) | [Examples](../../examples/sdk/)
 
 > **Status**: DartClaw is name-squatted on pub.dev as `0.0.1-dev.1`; the real publish is deferred until the public repo opens. Until then, use a git-pinned dependency or `dependency_overrides` against a local checkout. See ADR-008 (private repo: `docs/adrs/008-sdk-publishing-strategy.md`).
 
-DartClaw is a Dart SDK for building agent runtimes around the native `claude` CLI. The reference server in this repo is one consumer of that SDK, but the same packages also let you build a one-file CLI, embed an agent in an existing Dart service, or compose your own storage, guards, and channels.
+DartClaw is a Dart SDK for building agent runtimes around native agent harnesses such as Claude Code and Codex. The reference server in this repo is one consumer of that SDK, but the same packages also let you build a one-file CLI, embed an agent in an existing Dart service, or compose your own storage, guards, and channels.
 
 ## Prerequisites
 
 - Dart SDK `>=3.12.0`
-- `claude` binary in your `PATH`
+- For the Claude-based snippets on this page: `claude` binary in your `PATH`
 - Either `ANTHROPIC_API_KEY` in your environment or an existing Claude CLI login
 
 ## Install
@@ -99,13 +99,16 @@ Future<void> main() async {
 
 ## What's Happening
 
-`ClaudeCodeHarness` is the Dart-side host. It starts the native `claude` process, sends turns over the JSONL control protocol, and exposes streamed events such as `DeltaEvent`, `ToolUseEvent`, and `SystemInitEvent`. That split is the core DartClaw model: Dart owns lifecycle, policy, storage, and integration points; the agent process owns reasoning and tool execution.
+In these snippets, `ClaudeCodeHarness` is the Dart-side host for Claude Code. It starts the native `claude` process, sends turns over the JSONL control protocol, and exposes streamed events such as `DeltaEvent`, `ToolUseEvent`, and `SystemInitEvent`. The same SDK model also supports other provider harnesses such as `CodexHarness`: Dart owns lifecycle, policy, storage, and integration points; the agent process owns reasoning and tool execution.
 
 ## Next Steps
 
 - Need help choosing packages: [Package Guide](packages.md)
+- Want the mental model behind the snippet: [Core Concepts](concepts.md)
+- Want SDK-focused architecture and extension seams: [Architecture](architecture.md)
+- Want guard-chain, isolation, and credential guidance: [Security](security.md)
 - Want a runnable project instead of an inline snippet: [single_turn_cli](../../examples/sdk/single_turn_cli/README.md)
+- Want examples for common extension seams: [custom_guard](../../examples/sdk/custom_guard/README.md), [multi_turn_cli](../../examples/sdk/multi_turn_cli/README.md), and [shelf_server](../../examples/sdk/shelf_server/README.md)
 - Want the deployable reference app: [User Guide](../guide/getting-started.md)
-- Want a deeper mental model: Core Concepts is planned for 0.10
 
-> `dartclaw_server` and `dartclaw_cli` in this repo are full working examples built on these same SDK packages. Study them when you need a production-sized reference implementation.
+> `dartclaw_server` and `dartclaw_cli` in this repo are full working reference implementations built on these same SDK packages. Study them when you need production-sized composition examples; they are not the SDK itself.

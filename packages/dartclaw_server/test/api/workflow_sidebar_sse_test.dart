@@ -6,7 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/api/task_sse_routes.dart';
 import 'package:dartclaw_server/src/task/task_service.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRunStatus, WorkflowService, WorkflowStep;
+    show WorkflowDefinition, WorkflowPersistencePorts, WorkflowRunStatus, WorkflowService, WorkflowStep;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -53,13 +53,15 @@ void main() {
       repository: workflowRepo,
       taskService: tasks,
       messageService: messages,
+      persistencePorts: WorkflowPersistencePorts(
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionRepositoryTransactor: executionTransactor,
+      ),
       eventBus: eventBus,
       kvService: kv,
       dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionRepositoryTransactor: executionTransactor,
     );
   });
 

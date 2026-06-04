@@ -2,6 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' show MemorySearchResult, Searc
 import 'package:logging/logging.dart';
 
 import 'qmd_manager.dart';
+import 'wiki_search_source.dart';
 
 /// Search depth options for QMD queries.
 enum SearchDepth {
@@ -42,8 +43,15 @@ class QmdSearchBackend implements SearchBackend {
   /// Default search depth applied when callers do not override it.
   final SearchDepth defaultDepth;
 
+  final WikiSearchSource? _wikiSearch;
+
   /// Creates a QMD-backed search backend with [fallback] as the FTS5 substitute.
-  QmdSearchBackend({required this.manager, required this.fallback, this.defaultDepth = SearchDepth.standard});
+  QmdSearchBackend({
+    required this.manager,
+    required this.fallback,
+    this.defaultDepth = SearchDepth.standard,
+    WikiSearchSource? wikiSearch,
+  }) : _wikiSearch = wikiSearch;
 
   @override
   Future<List<MemorySearchResult>> search(String query, {int limit = 10, String userId = 'owner'}) async {
@@ -55,14 +63,21 @@ class QmdSearchBackend implements SearchBackend {
     try {
       final results = await manager.query(query, depth: defaultDepth.value, limit: limit);
 
-      return results.map((r) {
+      final wiki = await _wikiSearch?.search(query, limit: limit) ?? const <MemorySearchResult>[];
+      final raw = results.map((r) {
+        // QMD relevance is higher-is-better; the merged list and the FTS5
+        // fallback both sort ascending (lower-is-better, matching wiki/bm25
+        // sentinels). Negate so a more relevant QMD row sorts ahead of a less
+        // relevant one and below wiki-backed results.
         return MemorySearchResult(
           text: r['text'] as String? ?? r['content'] as String? ?? '',
           source: r['source'] as String? ?? r['path'] as String? ?? 'qmd',
           category: r['category'] as String?,
-          score: (r['score'] as num?)?.toDouble() ?? 0.0,
+          score: -((r['score'] as num?)?.toDouble() ?? 0.0),
         );
-      }).toList();
+      });
+      final combined = [...wiki, ...raw]..sort((a, b) => a.score.compareTo(b.score));
+      return combined.take(limit).toList();
     } catch (e) {
       _log.warning('QMD search failed — falling back to FTS5: $e');
       return fallback.search(query, limit: limit, userId: userId);

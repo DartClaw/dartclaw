@@ -39,10 +39,8 @@ void _runGit(String workingDirectory, List<String> args) {
   }
 }
 
-/// Stages skeletal provider-owned AndThen skills directly into SkillRegistry
-/// scan locations under [searchRoot]. Tests that rely on shipped workflow
-/// definitions need these references resolvable while keeping skill bootstrap
-/// out of the specific behavior under test.
+/// Stages skeletal provider-owned AndThen skills under [searchRoot] so
+/// provider-native skill roots exist for tests that exercise invocation paths.
 void _stageProviderAndThenSkillStubs(String searchRoot) {
   const refs = [
     'andthen:prd',
@@ -301,9 +299,6 @@ void main() {
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
-
-    expect(result.skillRegistry.getByName('dartclaw-discover-andthen-spec'), isNotNull);
-    expect(result.skillRegistry.getByName('dartclaw-discover-andthen-plan'), isNotNull);
 
     for (final projectId in ['alpha', 'beta']) {
       final projectSkillDir = p.join(

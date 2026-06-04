@@ -8,9 +8,6 @@
 /// - [MemoryChunk] / [MemorySearchResult] -- memory system types
 /// - [ChannelType] / [ChannelConfig] / [SessionScopeConfig] -- shared channel and scoping types
 /// - [AgentDefinition] / [ContainerConfig] / [TaskType] -- shared runtime-adjacent value types
-/// - [Project] / [ProjectStatus] / [CloneStrategy] / [PrStrategy] -- project management
-/// - [WorkflowDefinition] / [WorkflowStep] / [WorkflowVariable] / [WorkflowLoop] -- workflow domain models
-/// - [WorkflowRun] / [WorkflowRunStatus] -- workflow execution state
 library;
 
 export 'src/models.dart' show Session, SessionType, Message, MemoryChunk, MemorySearchResult;

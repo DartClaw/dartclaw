@@ -1,12 +1,12 @@
 # Architecture
 
-> Current through: **0.16.4**
+> Current through: **0.17**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
 For contributors and fork authors who need the executable checks that keep
 package boundaries from drifting after refactors, see
-[Architecture Governance](../development/architecture-governance.md).
+[Architecture Governance](../../dev/architecture/architecture-governance.md).
 
 ## The Two Layers
 
@@ -191,6 +191,8 @@ Mutable files use atomic writes (temp file + rename) to prevent corruption on cr
 Messages in NDJSON files use their line number as a cursor. After a crash or restart, the client requests "all messages after cursor X" to resume exactly where it left off. This is more reliable than timestamp-based recovery because line numbers are monotonic and gap-free.
 
 Separately, active turn reservations are persisted in `state.db` via `TurnStateStore`. On restart, the server scans that table for orphaned turns, cleans the rows, and surfaces a one-time recovery notice for the affected sessions.
+
+The restart path is covered by the integration-tagged crash-recovery smoke test in `packages/dartclaw_server/test/integration/crash_recovery_smoke_test.dart`. It starts a server, reserves an active turn, kills the process, restarts against the same data directory, verifies orphan cleanup, and checks that the recovered session still renders the user-visible recovery banner and turn-failed message styling.
 
 ### Memory Search
 

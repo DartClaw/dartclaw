@@ -44,26 +44,12 @@ abstract class AgentHarness {
   /// because compaction signals are already available via hook callbacks.
   bool get supportsPreCompactHook => false;
 
-  /// Renders the native skill-activation line this harness recognises.
+  /// Renders the native skill-activation line for prompts targeting this harness.
   ///
-  /// Workflow steps (and any caller that wants to hand the harness a skill
-  /// to run) should use this to build the prompt preamble, so the harness
-  /// can pre-load the `SKILL.md` body instead of asking the model to find
-  /// and read it via a tool call. Skipping that tool-call round-trip saves
-  /// one agent turn and a few thousand cumulative input tokens per skill
-  /// invocation.
-  ///
-  /// Subclasses override with the harness-native form (Codex uses
-  /// `$skill-name`, Claude Code uses `/skill-name`, etc.). The default
-  /// here is the portable verbose form so a fresh harness works before
-  /// anyone teaches it the convention — and so non-native harnesses still
-  /// understand the intent via plain language.
+  /// Subclasses override with Codex/Claude-native forms; the default is portable.
   String skillActivationLine(String skill) => defaultSkillActivationLine(skill);
 
-  /// The portable-verbose skill-activation line used when no harness
-  /// override applies. Shared with `HarnessFactory` so the "unregistered
-  /// provider" fallback mirrors the subclass default without duplicating
-  /// the literal.
+  /// Portable skill-activation line used when no harness override applies.
   static String defaultSkillActivationLine(String skill) => "Use the '$skill' skill.";
 
   /// Current lifecycle state of the harness.
@@ -98,6 +84,11 @@ abstract class AgentHarness {
     String? effort,
     int? maxTurns,
   });
+
+  /// Clears provider-side conversation continuity for [sessionId], if any.
+  ///
+  /// Callers must not invoke this while a turn for [sessionId] is active.
+  Future<void> resetSessionContinuity(String sessionId) async {}
 
   /// Cancel the current in-progress turn.
   Future<void> cancel();

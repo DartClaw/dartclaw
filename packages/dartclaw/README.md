@@ -2,10 +2,10 @@
 
 An experimental, security-conscious AI agent runtime built with Dart.
 
-DartClaw wraps the native `claude` CLI binary behind a Dart host that owns
-security policy, subprocess orchestration, session state, storage, and
-multi-channel messaging. The result is an AOT-friendly SDK with zero npm at
-runtime.
+DartClaw wraps native agent harness binaries such as Claude Code and Codex
+behind a Dart host that owns security policy, subprocess orchestration,
+session state, storage, and multi-channel messaging. The result is an
+AOT-friendly SDK with zero npm at runtime.
 
 > **Status: Pre-1.0**. The package structure is stabilizing, but APIs may
 > still change before a 1.0 release.
@@ -19,9 +19,9 @@ runtime.
 │  AgentHarness • GuardChain • EventBus • Sessions • Channels│
 │                                                            │
 └───────────────────────┬────────────────────────────────────┘
-                        │ JSONL over stdin/stdout
+                        │ provider-native control protocol
 ┌───────────────────────▼────────────────────────────────────┐
-│ Native `claude` CLI binary                                 │
+│ Native agent harness binary                                │
 │                                                            │
 │  model execution • tool protocol • streaming deltas        │
 │                                                            │
@@ -40,7 +40,9 @@ validation, credential-proxy plumbing, or security-profile resolution.
 
 ## Quick Start
 
-Prerequisites: install the `claude` binary and set `ANTHROPIC_API_KEY`.
+This quick start uses Claude Code because it is the shortest example. Install
+the `claude` binary and either set `ANTHROPIC_API_KEY` or complete a Claude CLI
+login. The same SDK also exposes `CodexHarness` for Codex-backed runtimes.
 
 ```dart
 import 'package:dartclaw/dartclaw.dart';
@@ -92,10 +94,10 @@ Future<void> main() async {
 
 ## Core Abstractions
 
-- `AgentHarness` and `ClaudeCodeHarness` manage the Claude subprocess lifecycle and turn execution.
+- `AgentHarness`, `ClaudeCodeHarness`, and `CodexHarness` manage provider subprocess lifecycle and turn execution.
 - `Guard` and `GuardChain` enforce application-level security before tool calls or inbound messages reach the model.
 - `Channel` and `ChannelManager` provide a common interface for messaging transports.
-- `BridgeEvent` and `EventBus` expose typed streaming events from the JSONL control protocol and the wider runtime.
+- `BridgeEvent` and `EventBus` expose typed streaming events from provider control protocols and the wider runtime.
 - `Session`, `Message`, `Task`, and `Goal` capture persisted conversation and work state.
 
 ## Reference Implementations
@@ -140,7 +142,11 @@ it when your process shuts down.
 ## Documentation
 
 - [User Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/guide)
-- [SDK Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/sdk)
+- [SDK Quick Start](https://github.com/DartClaw/dartclaw/tree/main/docs/sdk/quick-start.md)
+- [SDK Concepts](https://github.com/DartClaw/dartclaw/tree/main/docs/sdk/concepts.md)
+- [SDK Architecture](https://github.com/DartClaw/dartclaw/tree/main/docs/sdk/architecture.md)
+- [SDK Security](https://github.com/DartClaw/dartclaw/tree/main/docs/sdk/security.md)
+- [SDK Package Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/sdk/packages.md)
 - [API Reference](https://pub.dev/documentation/dartclaw/latest/)
 - [Examples](https://github.com/DartClaw/dartclaw/tree/main/examples/sdk)
 - [Repository](https://github.com/DartClaw/dartclaw)

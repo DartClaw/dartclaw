@@ -7,7 +7,7 @@ environment:
   sdk: ^3.12.0
 
 dependencies:
-  dartclaw: ^0.9.0
+  dartclaw: ^0.16.6
 
 # During local development, point the example at this workspace.
 # Remove these overrides to consume the published packages instead.

@@ -29,7 +29,7 @@
 - `CommandGuard` strips single-quoted strings before scanning to defeat `'rm' '-rf'` bypass, but `$(...)` subshells are intentionally not blocked (their inner command is rescanned). Don't add subshell blocking — container isolation handles the variable-expansion class.
 - `FileGuard` resolves symlinks (e.g. `/var` → `/private/var` on macOS); rules use globs against the **resolved** path. Use `FileGuardConfig.withSelfProtection(configPath)` so the agent cannot rewrite its own `dartclaw.yaml`.
 - Provider-specific interception: Claude Code uses `--dangerously-skip-permissions` + `PreToolUse` hook (guard chain is the active gate); Codex uses approval requests only (must keep approvals on, never `--yolo`).
-- Workflow read-only research/analysis steps express write-policy via `configJson.readOnly = true` + post-turn `git status` against the worktree, not a separate guard rule.
+- Session-scoped tool and read-only policy lives on `TaskToolFilterGuard` (`setSessionToolFilter` / `setSessionReadOnly`) and is applied per turn by `TurnRunner` before harness execution. Session read-only is additive with the global `readOnly` flag — a globally read-only guard blocks all sessions regardless.
 
 ## Testing
 - Flat `test/<feature>_test.dart` layout — one file per guard / classifier / utility. Add tests in the matching file when touching behavior.

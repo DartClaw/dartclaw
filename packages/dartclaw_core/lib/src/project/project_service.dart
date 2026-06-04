@@ -54,7 +54,6 @@ abstract class ProjectService {
   /// Fetches the latest commits from the remote for the given project.
   ///
   /// Bypasses any cooldown — always triggers a real `git fetch`.
-  /// Used by the `POST /api/projects/<id>/fetch` endpoint (S04).
   Future<Project> fetch(String id);
 
   /// Ensures the project clone is fresh, fetching if the cooldown has elapsed.

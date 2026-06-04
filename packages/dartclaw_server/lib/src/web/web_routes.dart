@@ -241,7 +241,9 @@ Router webRoutes(
       final sidebarData = await pageContext.sidebar.build(activeSessionId: id);
       final msgs = await messages.getMessagesTail(id);
       final messageList = msgs
-          .map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null))
+          .map(
+            (m) => classifyMessage(id: m.id, role: m.role, content: m.content, metadata: m.metadata, senderName: null),
+          )
           .toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
       final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
@@ -308,7 +310,9 @@ Router webRoutes(
           ? await messages.getMessagesTail(id)
           : await messages.getMessagesBefore(id, beforeCursor);
       final messageList = msgs
-          .map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null))
+          .map(
+            (m) => classifyMessage(id: m.id, role: m.role, content: m.content, metadata: m.metadata, senderName: null),
+          )
           .toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
       final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;

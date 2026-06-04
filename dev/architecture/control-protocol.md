@@ -87,6 +87,7 @@ claude --print \
        --include-partial-messages \
        --no-session-persistence \
        --permission-prompt-tool stdio \
+       [--setting-sources project] \
        --model opus[1m] \
        [--effort <level>] \
        [--append-system-prompt <prompt>] \
@@ -102,6 +103,7 @@ claude --print \
 | `--include-partial-messages` | Emit `assistant` messages with partial tool blocks |
 | `--no-session-persistence` | Disable the binary's own session storage; DartClaw manages persistence |
 | `--permission-prompt-tool stdio` | Route tool approval requests through the JSONL protocol (not interactive TTY) |
+| `--setting-sources project` | Project-only settings isolation. Omitted by default so Claude loads user, project, and local settings; emitted only when `providers.claude.inherit_user_settings: false` |
 | `--model` | Model selection — bare names (`haiku`, `sonnet`, `opus`) or with context suffix (`opus[1m]`). Default: `opus[1m]`. Configurable via `HarnessConfig` |
 | `--effort` | Reasoning effort level: `low`, `medium`, `high`, `max` (optional; configurable via `HarnessConfig`) |
 | `--append-system-prompt` | Behavior content injected at spawn (append-mode strategy) |
@@ -120,6 +122,10 @@ const claudeNestingEnvVars = [
 ```
 
 These are stripped before spawning. The parent environment is otherwise inherited (`includeParentEnvironment: false` with a filtered copy of `Platform.environment`).
+
+### Claude settings sources
+
+Direct host-side Claude spawns omit `--setting-sources` by default. Claude's default is to load user, project, and local settings, which makes user-scope plugins, skills, agents, commands, and MCP configuration visible to spawned sessions and workflow one-shots. Set `providers.claude.inherit_user_settings: false` to restore the previous project-only posture; DartClaw then passes `--setting-sources project` before `--model` on long-lived harness spawns and before prompt execution on the workflow one-shot path. Containerized Claude spawns do not use this flag because the container provides the isolation boundary.
 
 ### Containerized spawning
 
@@ -1104,7 +1110,7 @@ TurnRunner? _acquirePoolRunner(String profile) {
 Per-profile containers are uniquely named using a hash of the data directory:
 
 ```
-dartclaw-<sha256(dataDir)[0:8]>-<profileId>
+dartclaw-<fnv1a8(dataDir)>-<profileId>
 ```
 
 Example: `dartclaw-a1b2c3d4-workspace`, `dartclaw-a1b2c3d4-restricted`.

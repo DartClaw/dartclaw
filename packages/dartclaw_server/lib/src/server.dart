@@ -5,9 +5,10 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner, TaskEventService, TurnTraceService;
+import 'package:dartclaw_storage/dartclaw_storage.dart'
+    show MemoryPruner, TaskEventService, TurnTraceService, WebhookDeliveryStore, openWebhookDeliveryStore;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistry, WorkflowDefinitionSource, WorkflowService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -17,7 +18,6 @@ import 'package:shelf_static/shelf_static.dart';
 import 'api/agent_routes.dart';
 import 'api/chat_command_handler.dart';
 import 'api/config_api_routes.dart';
-import 'api/skill_routes.dart';
 import 'api/workflow_routes.dart';
 import 'api/config_routes.dart';
 import 'api/event_bus_sse_bridge.dart';
@@ -38,6 +38,7 @@ import 'api/webhook_routes.dart';
 import 'audit/audit_log_reader.dart';
 import 'auth/auth_middleware.dart';
 import 'auth/auth_rate_limiter.dart';
+import 'auth/origin_host_guard.dart';
 import 'auth/security_headers.dart';
 import 'auth/token_service.dart';
 import 'behavior/heartbeat_scheduler.dart';
@@ -364,6 +365,11 @@ class DartclawServer {
     if (githubConfig == null || !githubConfig.enabled) {
       return null;
     }
+    WebhookDeliveryStore? deliveryStore;
+    final dataDir = _web.appDisplay.dataDir;
+    if (dataDir != null) {
+      deliveryStore = openWebhookDeliveryStore(p.join(dataDir, 'webhook_deliveries.db'));
+    }
     return GitHubWebhookHandler(
       config: githubConfig,
       workflows: workflows,
@@ -371,6 +377,7 @@ class DartclawServer {
       projects: _tasks.projectService,
       eventBus: _observability.eventBus,
       trustedProxies: config.auth.trustedProxies,
+      deliveryStore: deliveryStore,
     );
   }
 
@@ -437,6 +444,7 @@ class DartclawServer {
         googleChatChannel: _channels.googleChatWebhookHandler?.channel,
         eventBus: _observability.eventBus,
         configNotifier: _core.configNotifier,
+        guardChain: _core.guardChain,
       );
       router.mount('/', cfgApiRouter.call);
     }
@@ -574,19 +582,8 @@ class DartclawServer {
     final ts = _tasks.taskService;
     final ds = _web.workflowDefinitionSource;
     if (wf != null && ts != null && ds != null) {
-      final workflowRouter = workflowRoutes(
-        wf,
-        ts,
-        ds,
-        eventBus: _observability.eventBus,
-        skillRegistry: _web.skillRegistry,
-      );
+      final workflowRouter = workflowRoutes(wf, ts, ds, eventBus: _observability.eventBus);
       router.mount('/', workflowRouter.call);
-    }
-    final skills = _web.skillRegistry;
-    if (skills != null) {
-      final skillRouter = skillRoutes(skills);
-      router.mount('/', skillRouter.call);
     }
   }
 
@@ -637,6 +634,7 @@ class DartclawServer {
         final ds = _web.workflowDefinitionSource;
         return (wf != null && ds != null) ? ChatCommandHandler(workflows: wf, definitions: ds) : null;
       }(),
+      projectService: _tasks.projectService,
       sidebarData: sidebarBuilder.build,
       buildSidebarHtml: buildSidebarHtml,
     );
@@ -735,7 +733,15 @@ class DartclawServer {
           publicPrefixes: [if (_web.canvasService != null) '/canvas/'],
         ),
       );
+    } else if (!_core.authEnabled) {
+      // No-auth mode (`auth_mode: none`): single-user local instance — grant
+      // every request admin context so admin-gated routes remain usable.
+      pipeline = pipeline.addMiddleware(localAdminMiddleware());
     }
+    // Origin/Host guard: enforces same-origin writes for cookie-authenticated
+    // sessions. Must run after auth middleware so the cookie-auth context flag
+    // is set. Bearer-token and no-auth requests are automatically exempt.
+    pipeline = pipeline.addMiddleware(originHostGuardMiddleware());
     // Cascade: pass through to styled 404 when router finds no matching route.
     final cascade = Cascade()
         .add(router.call)

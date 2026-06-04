@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shelf/shelf.dart';
 
+import '../auth/auth_utils.dart';
 import 'mcp_server.dart';
 
 /// Creates a shelf [Handler] for the `/mcp` endpoint.
@@ -67,18 +68,16 @@ Handler mcpRoute(McpProtocolHandler handler, {required String gatewayToken}) {
       );
     }
 
-    // Body size check: reject oversized payloads before reading.
-    final contentLength = int.tryParse(request.headers['content-length'] ?? '');
-    if (contentLength != null && contentLength > 1024 * 1024) {
+    // Bounded body read: enforces 1 MiB limit at stream level, regardless of
+    // Content-Length presence or truthfulness (covers chunked / spoofed headers).
+    final body = await readBounded(request, maxWebhookPayloadBytes);
+    if (body == null) {
       return Response(
         413,
         body: jsonEncode({'error': 'Payload too large — 1 MB limit'}),
         headers: {'content-type': 'application/json'},
       );
     }
-
-    // Read body and dispatch to protocol handler
-    final body = await request.readAsString();
     final response = await handler.handleRequest(body);
 
     // Null response means notification (no reply needed) — return 202 Accepted

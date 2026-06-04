@@ -2,7 +2,7 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.16.4
+**Current through**: 0.17.0
 
 ---
 
@@ -97,7 +97,7 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | `security` | `SecurityConfig` | Guard chain config | `contentGuardEnabled`, `contentGuardClassifier`, `contentGuardModel`, `inputSanitizerEnabled` |
 | `memory` | `MemoryConfig` | Memory/workspace files | `maxBytes`, `pruningEnabled`, `archiveAfterDays`, `pruningSchedule` |
 | `search` | `SearchConfig` | Search backend | `backend` (fts5/qmd), `qmd.host`, `qmd.port`, `defaultDepth` |
-| `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, poolSize, options) |
+| `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, poolSize, options such as `inherit_user_settings`) |
 | `credentials` | `CredentialsConfig` | Multi-credential store | `entries` map of `CredentialEntry` (apiKey) |
 | `tasks` | `TaskConfig` | Task execution | `maxConcurrent`, `artifactRetentionDays`, `completionAction`, `worktreeBaseRef`, `worktreeMergeStrategy` |
 | `scheduling` | `SchedulingConfig` | Scheduled jobs | `heartbeatIntervalMinutes`, `jobs` list |
@@ -279,7 +279,7 @@ These modify `RuntimeConfig` in-memory only. State resets on restart.
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /api/config` | Full config JSON with `_meta` (field metadata, restart pending state) |
-| `PATCH /api/config` | Validate, write, and apply config changes |
+| `PATCH /api/config` | Admin-only validate, write, and apply config changes; returns `403` without admin access |
 | `GET /api/scheduling/jobs` | List persisted scheduling jobs for operational clients |
 | `GET /api/scheduling/jobs/<name>` | Read a single scheduling job by name |
 | `POST /api/scheduling/jobs` | Create scheduled job |
@@ -663,7 +663,7 @@ Comprehensive listing of all sections with hot-reload status:
 |---------|-------------|---------------|---------------------|
 | `agent` | `AgentConfig` | No | Default model, effort, max turns |
 | `advisor` | `AdvisorConfig` | No | Self-reflection triggers, model, effort |
-| `providers` | `ProvidersConfig` | No | Provider binary paths, pool sizes |
+| `providers` | `ProvidersConfig` | No | Provider binary paths, pool sizes, provider-specific options |
 | `credentials` | `CredentialsConfig` | No | API key entries |
 
 ### Sessions & Governance
@@ -673,6 +673,7 @@ Comprehensive listing of all sections with hot-reload status:
 | `sessions` | `SessionConfig` | Yes (`reset_hour`, `idle_timeout_minutes`, scopes) | Session lifecycle, scoping, maintenance |
 | `governance` | `GovernanceConfig` | No | Rate limits, budgets, loop detection, queue strategy |
 | `features` | `FeaturesConfig` | No | Thread binding feature flags |
+| `onboarding` | `OnboardingConfig` | No (restart) | Personalization onboarding expiry (0.17) |
 
 ### Tasks & Scheduling
 
@@ -686,6 +687,7 @@ Comprehensive listing of all sections with hot-reload status:
 | Section | Config Class | Hot-Reloadable | Key Responsibilities |
 |---------|-------------|---------------|---------------------|
 | `memory` | `MemoryConfig` | No | Max bytes, pruning config |
+| `knowledge` | `KnowledgeConfig` | No (restart) | Scheduled inbox ingestion + wiki-lint job settings (0.17) |
 | `search` | `SearchConfig` | No | Backend (fts5/qmd), QMD connection |
 | `context` | `ContextConfig` | Yes (`reserve_tokens`, `max_result_bytes`, `warning_threshold`) | Context limits, exploration summary |
 | `workspace` | `WorkspaceConfig` | Yes (git sync toggles) | Git sync enabled/push |
@@ -722,6 +724,7 @@ Comprehensive listing of all sections with hot-reload status:
 | **0.14.2** | Canvas config | `CanvasConfig` with share and workshop mode sections |
 | **0.16** | Live Config Tier 3 | `ConfigNotifier`, `ConfigDelta`, `Reconfigurable` interface. `ReloadTriggerService` (SIGUSR1 + file-watch). `ReloadConfig` on `GatewayConfig`. Guard chain hot-reload. 8+ services implement `Reconfigurable` |
 | **0.16.3** | Workflow & advisor config | `WorkflowConfig`, `AdvisorConfig`, `AlertsConfig`, `HistoryConfig`. Config section count grew to 25+ |
+| **0.17** | Personalization & knowledge config | `OnboardingConfig` (personalization onboarding) and `KnowledgeConfig` (scheduled inbox ingestion + wiki-lint jobs) added as restart-tier sections |
 
 ---
 

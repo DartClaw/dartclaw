@@ -1,14 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show SkillRegistryImpl, WorkflowDefinitionParser, WorkflowDefinitionResolver;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionParser, WorkflowDefinitionResolver;
 import 'package:path/path.dart' as p;
-
-import '../workflow_skill_source_resolver.dart';
 
 import '../../dartclaw_api_client.dart';
 import '../cli_global_options.dart';
@@ -16,11 +12,9 @@ import '../config_loader.dart';
 import '../serve_command.dart' show ExitFn, WriteLine;
 import 'workflow_list_command.dart' show buildWorkflowRegistry;
 import '../workflow_materializer.dart' show WorkflowMaterializer;
-import 'andthen_skill_bootstrap.dart';
 
 /// Prints a workflow definition. Raw by default; `--resolved` merges
-/// `stepDefaults`, skill defaults (`default_prompt`, `default_outputs`), and
-/// workflow-level variables; `--step <id>` narrows the resolved output to a
+/// `stepDefaults` and workflow-level variables; `--step <id>` narrows the resolved output to a
 /// single step.
 ///
 /// Connected mode calls `GET /api/workflows/definitions/<name>[?resolve=true[&step=<id>]]`.
@@ -57,7 +51,7 @@ class WorkflowShowCommand extends Command<void> {
       ..addFlag(
         'resolved',
         negatable: false,
-        help: 'Print the fully merged form (stepDefaults applied, skill defaults injected)',
+        help: 'Print the fully merged form (stepDefaults applied, workflow variables substituted)',
       )
       ..addOption('step', help: 'When combined with --resolved, emit a single resolved step')
       ..addFlag('json', negatable: false, help: 'Emit a JSON envelope {"yaml": "..."} for scripting')
@@ -124,7 +118,12 @@ class WorkflowShowCommand extends Command<void> {
     required String? stepId,
     required bool asJson,
   }) async {
-    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
+    final configPath = resolveStandaloneWorkflowConfigPath(
+      configPath: globalOptionString(globalResults, 'config'),
+      env: _environment,
+      currentDirectory: _projectFallbackCwd,
+    );
+    final config = _config ?? loadCliConfig(configPath: configPath, env: _environment);
     final registry = await buildWorkflowRegistry(config, assetResolver: _assetResolver);
     var definition = registry.getByName(name);
     var authoredYaml = registry.authoredYaml(name);
@@ -150,24 +149,7 @@ class WorkflowShowCommand extends Command<void> {
       return;
     }
 
-    // Build a transient SkillRegistry so the standalone path can fill in
-    // skill-declared default_prompt / default_outputs just like the server.
-    final resolvedAssets = _assetResolver.resolve();
-    final builtInSkillsDir = resolvedAssets?.skillsDir ?? WorkflowSkillSourceResolver.resolveBuiltInSkillsSourceDir();
-    final dataDirSkillRoots = workflowDataDirSkillRoots(config.server.dataDir);
-    final userSkillRoots = workflowOptionalUserSkillRoots(_environment);
-    final skills = SkillRegistryImpl()
-      ..discover(
-        projectDirs: workflowSkillProjectDirs(config, fallbackCwd: _projectFallbackCwd ?? Directory.current.path),
-        workspaceDir: config.workspaceDir,
-        dataDir: config.server.dataDir,
-        builtInSkillsDir: builtInSkillsDir,
-        dataDirClaudeSkillsDir: dataDirSkillRoots.claudeSkillsDir,
-        dataDirAgentsSkillsDir: dataDirSkillRoots.agentsSkillsDir,
-        userClaudeSkillsDir: userSkillRoots?.claudeSkillsDir,
-        userAgentsSkillsDir: userSkillRoots?.agentsSkillsDir,
-      );
-    final resolver = WorkflowDefinitionResolver(skillRegistry: skills);
+    final resolver = WorkflowDefinitionResolver();
     final resolvedDef = resolver.resolve(definition);
     if (stepId != null && stepId.isNotEmpty) {
       final slice = resolver.sliceStep(resolvedDef, stepId);

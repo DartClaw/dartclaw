@@ -221,6 +221,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
       behaviorOverride: BehaviorFileService(
         workspaceDir: workflowWorkspaceDir,
         maxMemoryBytes: config.memory.maxBytes,
+        onboardingExpiryDays: config.onboarding.expiryDays,
         compactInstructions: config.context.compactInstructions,
         identifierPreservation: config.context.identifierPreservation,
         identifierInstructions: config.context.identifierInstructions,

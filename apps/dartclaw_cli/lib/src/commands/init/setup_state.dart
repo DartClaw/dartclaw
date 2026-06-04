@@ -49,6 +49,9 @@ class SetupState {
   /// use this to make deselection/removal explicit.
   final bool manageAdvancedSettings;
 
+  /// Whether this setup is only for standalone workflow execution.
+  final bool workflowTrack;
+
   // -------------------------------------------------------------------------
   // Full-track: WhatsApp channel
   // -------------------------------------------------------------------------
@@ -124,6 +127,7 @@ class SetupState {
     required this.port,
     required this.gatewayAuthMode,
     this.manageAdvancedSettings = false,
+    this.workflowTrack = false,
     this.whatsappEnabled = false,
     this.gowaExecutable,
     this.gowaPort,
@@ -179,5 +183,6 @@ class SetupState {
   @override
   String toString() =>
       'SetupState(name: $instanceName, dir: $instanceDir, config: $configPath, provider: $provider, '
-      'providers: $providers, auth: $authMethod, port: $port, gateway: $gatewayAuthMode)';
+      'providers: $providers, auth: $authMethod, port: $port, gateway: $gatewayAuthMode, '
+      'workflowTrack: $workflowTrack)';
 }

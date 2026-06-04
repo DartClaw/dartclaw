@@ -359,9 +359,9 @@ void _assertDefinitionContract(WorkflowDefinition definition) {
   expect(definition.gitStrategy?.mergeResolve.enabled, isTrue);
   final seed = definition.steps.firstWhere((step) => step.id == 'seed-stories');
   final foreach = definition.steps.firstWhere((step) => step.id == 'story-foreach');
-  expect(seed.type, equals('bash'));
+  expect(seed.type, equals(WorkflowTaskType.bash));
   expect(seed.outputKeys, contains('stories'));
-  expect(foreach.type, equals('foreach'));
+  expect(foreach.type, equals(WorkflowTaskType.foreach));
   expect(foreach.mapOver, equals('stories'));
   expect(foreach.mapAlias, equals('story'));
 }

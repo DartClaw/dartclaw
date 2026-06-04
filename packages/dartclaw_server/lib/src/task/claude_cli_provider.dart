@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show ClaudeProviderOptions;
 import 'package:dartclaw_core/dartclaw_core.dart' show ClaudeSettingsBuilder, ContainerExecutor, intValue, stringValue;
 import 'package:logging/logging.dart';
 
 import 'workflow_cli_runner.dart';
+import 'cli_process_supervisor.dart';
 
 /// [CliProvider] implementation for the Claude CLI one-shot runner.
 ///
@@ -13,7 +16,9 @@ import 'workflow_cli_runner.dart';
 class ClaudeCliProvider implements CliProvider {
   static final _log = Logger('ClaudeCliProvider');
 
-  const ClaudeCliProvider();
+  final Set<Process> _inflight = <Process>{};
+
+  ClaudeCliProvider();
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest req) async {
@@ -25,35 +30,89 @@ class ClaudeCliProvider implements CliProvider {
         : {...req.providerConfig.environment, ...req.extraEnvironment!};
 
     final stopwatch = Stopwatch()..start();
-    final process = await startCliProcess(
-      executable: command.$1,
-      arguments: command.$2,
-      workingDirectory: resolvedWorkDir,
-      environment: env,
-      containerManager: req.containerManager,
-      processStarter: req.processStarter,
-    );
-    await process.stdin.close();
-
+    Process? process;
+    CliProcessSupervisor? supervisor;
     final stdoutBuffer = StringBuffer();
     final stderrBuffer = StringBuffer();
-    await Future.wait([
-      process.stdout.transform(utf8.decoder).forEach(stdoutBuffer.write),
-      process.stderr.transform(utf8.decoder).forEach(stderrBuffer.write),
-    ]);
-
-    final exitCode = await process.exitCode;
-    stopwatch.stop();
-
-    if (exitCode != 0) {
-      final stderr = stderrBuffer.toString().trim();
-      throw StateError(
-        'Workflow one-shot claude command failed with exit code $exitCode'
-        '${stderr.isEmpty ? '' : ': $stderr'}',
+    try {
+      process = await startCliProcess(
+        executable: command.$1,
+        arguments: command.$2,
+        workingDirectory: resolvedWorkDir,
+        environment: env,
+        containerManager: req.containerManager,
+        processStarter: req.processStarter,
       );
-    }
+      _inflight.add(process);
+      supervisor = CliProcessSupervisor(
+        process: process,
+        provider: 'claude',
+        stepName: req.stepName,
+        stallTimeout: req.stallTimeout,
+        stallAction: req.stallAction,
+        stepTimeout: req.stepTimeout,
+        eventBus: req.eventBus,
+        log: req.log,
+      )..start();
+      await process.stdin.close();
 
-    return _parse(stdoutBuffer.toString(), fallbackDuration: stopwatch.elapsed);
+      final stdoutDone = Completer<void>();
+      final stderrDone = Completer<void>();
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) {
+              stdoutBuffer.writeln(line);
+              if (line.trim().isNotEmpty) {
+                supervisor?.recordParsedOutput();
+              }
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (!stdoutDone.isCompleted) stdoutDone.completeError(error, stackTrace);
+            },
+            onDone: () {
+              if (!stdoutDone.isCompleted) stdoutDone.complete();
+            },
+            cancelOnError: true,
+          );
+      process.stderr
+          .transform(utf8.decoder)
+          .listen(
+            stderrBuffer.write,
+            onError: (Object error, StackTrace stackTrace) {
+              if (!stderrDone.isCompleted) stderrDone.completeError(error, stackTrace);
+            },
+            onDone: () {
+              if (!stderrDone.isCompleted) stderrDone.complete();
+            },
+            cancelOnError: true,
+          );
+
+      final exitCode = await supervisor.waitForExitCode();
+      await stdoutDone.future;
+      await stderrDone.future;
+      stopwatch.stop();
+      supervisor.stop();
+
+      if (exitCode != 0) {
+        throw StateError(_describeNonZeroExit(exitCode, stdoutBuffer.toString(), stderrBuffer.toString()));
+      }
+
+      return _parse(stdoutBuffer.toString(), fallbackDuration: stopwatch.elapsed);
+    } finally {
+      supervisor?.stop();
+      final activeProcess = process;
+      if (activeProcess != null) {
+        _inflight.remove(activeProcess);
+      }
+    }
+  }
+
+  @override
+  Future<void> cancelInflight() async {
+    await Future.wait(_inflight.map(terminateCliProcess), eagerError: false);
+    _inflight.clear();
   }
 
   (String, List<String>) _buildCommand(CliTurnRequest req) {
@@ -74,7 +133,8 @@ class ClaudeCliProvider implements CliProvider {
         'Claude workflow one-shot task policy cannot be enforced with ${_settingsPolicyUnsupportedReason(settings)}.',
       );
     }
-    final settingSourcesProject = req.containerManager == null;
+    final settingSourcesProject =
+        req.containerManager == null && ClaudeProviderOptions.useProjectSettingSources(req.providerConfig.options);
     final args = <String>[
       '-p',
       '--output-format',
@@ -133,6 +193,52 @@ class ClaudeCliProvider implements CliProvider {
     }
     return mode;
   }
+}
+
+/// Builds a diagnostic message for a non-zero claude one-shot exit.
+///
+/// `claude -p --output-format json` reports turn-level errors in its stdout
+/// result JSON (`subtype`, `is_error`, `api_error_status`, `result`), while
+/// stderr typically carries only operational warnings (e.g. the benign
+/// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` notice). The stdout diagnostic is placed
+/// before stderr so the real failure survives downstream reason truncation
+/// instead of being masked by a harmless warning.
+String _describeNonZeroExit(int exitCode, String stdout, String stderr) {
+  final parts = <String>['Workflow one-shot claude command failed with exit code $exitCode'];
+  final diagnostic = _resultJsonDiagnostic(stdout);
+  if (diagnostic != null) parts.add(diagnostic);
+  final trimmedStderr = stderr.trim();
+  if (trimmedStderr.isNotEmpty) parts.add('stderr: $trimmedStderr');
+  return parts.join('; ');
+}
+
+/// Extracts a human-readable diagnostic from a claude result JSON envelope, or
+/// null when [stdout] is not a parseable result envelope.
+String? _resultJsonDiagnostic(String stdout) {
+  final trimmed = stdout.trim();
+  if (trimmed.isEmpty) return null;
+  // `--output-format json` emits a single object; fall back to the last line
+  // in case any prefix noise precedes it.
+  for (final candidate in <String>{trimmed, trimmed.split('\n').last.trim()}) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(candidate);
+    } on FormatException {
+      continue;
+    }
+    if (decoded is! Map) continue;
+    final subtype = stringValue(decoded['subtype']);
+    final result = stringValue(decoded['result']);
+    final apiErrorStatus = decoded['api_error_status'];
+    final fields = <String>[
+      if (subtype != null && subtype.isNotEmpty) 'subtype=$subtype',
+      if (decoded['is_error'] == true) 'is_error=true',
+      if (apiErrorStatus != null) 'api_error_status=$apiErrorStatus',
+      if (result != null && result.trim().isNotEmpty) 'result=${result.trim()}',
+    ];
+    if (fields.isNotEmpty) return fields.join(' ');
+  }
+  return null;
 }
 
 String? _permissionModeForTaskPolicy(String? configured, _ClaudeTaskPolicy taskPolicy) {

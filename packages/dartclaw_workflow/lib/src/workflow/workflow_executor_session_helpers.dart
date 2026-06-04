@@ -144,5 +144,5 @@ extension WorkflowExecutorSessionHelpers on WorkflowExecutor {
   );
 
   Map<String, dynamic>? _buildStructuredOutputEnvelopeSchema(WorkflowStep step) =>
-      workflow_task_factory.buildStructuredOutputEnvelopeSchema(step, _effectiveOutputsFor(step));
+      workflow_task_factory.buildStructuredOutputEnvelopeSchema(step, effectiveOutputsFor(step));
 }

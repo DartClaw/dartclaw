@@ -1,7 +1,9 @@
 export 'brave_search_tool.dart' show BraveSearchProvider, BraveSearchTool;
+export 'kg_tools.dart' show KgAddTool, KgQueryTool, KgTimelineTool, KgInvalidateTool, KgContradictionsTool;
 export 'mcp_router.dart' show mcpRoute;
 export 'mcp_server.dart' show McpProtocolHandler;
 export 'memory_tools.dart' show MemoryHandler, MemorySaveTool, MemorySearchTool, MemoryReadTool;
+export 'onboarding_complete_tool.dart' show OnboardingCompleteTool;
 export 'search_provider.dart' show SearchProvider, SearchResult;
 export 'sessions_send_tool.dart' show SessionsSendTool;
 export 'sessions_spawn_tool.dart' show SessionsSpawnTool;

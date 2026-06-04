@@ -6,7 +6,7 @@ import 'prompt_augmenter.dart';
 /// Builds the effective agent prompt for a skill-aware workflow step.
 ///
 /// Composes the provider-native skill activation line (via [HarnessFactory])
-/// with the resolved prompt, skill default prompt, or pre-rendered context
+/// with the resolved prompt or pre-rendered context
 /// summary, then auto-frames unreferenced inputs/variables and delegates
 /// schema-driven output sections to [PromptAugmenter]. See [build] for the
 /// case-by-case selection rules; named anchors `// Case 1:` / `// Case 2:`
@@ -35,8 +35,7 @@ class SkillPromptBuilder {
   /// Selection branches are tagged inline in the body – `// Case 1:` for skill
   /// + prompt, `// Case 2:` for skill + context summary, `// Case 2b:` for
   /// skill alone, `// Case 3:` for prompt-only passthrough. [skill] null routes
-  /// to Case 3; empty [resolvedPrompt] is filled from [skillDefaultPrompt]
-  /// before branching. Auto-framing (when [autoFrameContext] is true) appends
+  /// to Case 3. Auto-framing (when [autoFrameContext] is true) appends
   /// XML-framed values for unreferenced [inputs] / [variables]; output sections
   /// from [outputs] / [outputKeys] are added by [PromptAugmenter].
   String build({
@@ -47,7 +46,6 @@ class SkillPromptBuilder {
     List<String> outputKeys = const [],
     List<String>? outputExamples,
     bool emitStepOutcomeProtocol = false,
-    String? skillDefaultPrompt,
     bool autoFrameContext = true,
     List<String> inputs = const [],
     List<String> variables = const [],
@@ -55,26 +53,14 @@ class SkillPromptBuilder {
     String? templatePrompt,
     String? provider,
   }) {
-    // Step 1: fall back to the skill's frontmatter `default_prompt` when the
-    // step declared no prompt of its own. Injecting here keeps Case 1 as the
-    // canonical skill+prompt path; Case 2 (context summary) remains as the
-    // tertiary fallback for skills that don't carry a default.
-    var effectiveResolvedPrompt = resolvedPrompt;
-    if (skill != null &&
-        (effectiveResolvedPrompt == null || effectiveResolvedPrompt.isEmpty) &&
-        skillDefaultPrompt != null &&
-        skillDefaultPrompt.isNotEmpty) {
-      effectiveResolvedPrompt = skillDefaultPrompt;
-    }
-
     final String prompt;
     var caseUsedSummary = false;
 
     if (skill != null) {
       final skillLine = _harnessFactory.skillActivationLineFor(provider, skill);
-      if (effectiveResolvedPrompt != null && effectiveResolvedPrompt.isNotEmpty) {
+      if (resolvedPrompt != null && resolvedPrompt.isNotEmpty) {
         // Case 1: skill + prompt.
-        prompt = '$skillLine\n\n$effectiveResolvedPrompt';
+        prompt = '$skillLine\n\n$resolvedPrompt';
       } else if (contextSummary != null && contextSummary.isNotEmpty) {
         // Case 2: skill + no prompt – framed context sections stand alone.
         // Sections carry their own `##` headers, so no literal "Context:"
@@ -88,7 +74,7 @@ class SkillPromptBuilder {
     } else {
       // Case 3: no skill + prompt (passthrough).
       // Case 4 (no skill + no prompt) is rejected by validator.
-      prompt = effectiveResolvedPrompt ?? '';
+      prompt = resolvedPrompt ?? '';
     }
 
     // Step 2: auto-frame any unreferenced inputs/variables so the

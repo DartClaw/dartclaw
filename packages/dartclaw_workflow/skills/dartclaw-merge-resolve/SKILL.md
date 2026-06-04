@@ -3,21 +3,6 @@ name: dartclaw-merge-resolve
 description: Resolve a story-branch merge conflict against the integration branch via mechanical merge + LLM-driven semantic resolution + verification, committing all-or-nothing.
 argument-hint: ""
 user-invocable: false
-workflow:
-  default_prompt: "Run dartclaw-merge-resolve to resolve any merge conflicts on this story branch against the integration branch, verify the result, and commit all-or-nothing."
-  default_outputs:
-    merge_resolve.outcome:
-      format: text
-      description: "Outcome of the merge resolution attempt. Enum-typed string: must be one of 'resolved', 'failed', or 'cancelled'."
-    merge_resolve.conflicted_files:
-      format: json
-      description: "JSON array of relative file paths that had conflict markers, sourced from `git diff --name-only --diff-filter=U` (sorted lexicographically). Empty array when the mechanical merge produced no markers."
-    merge_resolve.resolution_summary:
-      format: text
-      description: "Prose summary of the resolution rationale and steps taken. Non-empty for all terminal outcomes; empty string only when zero reasoning was produced before termination."
-    merge_resolve.error_message:
-      format: text
-      description: "Error or cancellation message. Null (emit the literal string 'null') when outcome is 'resolved'; a non-empty string for 'failed' or 'cancelled'."
 ---
 
 # DartClaw Merge Resolve
@@ -153,6 +138,17 @@ merge_resolve.conflicted_files: ["..."]   ← best available from STEP 1, or [] 
 merge_resolve.resolution_summary: <partial reasoning; "" only if none>
 merge_resolve.error_message: cancelled by harness
 ```
+
+Also end the final assistant message with one semantic step-outcome marker so
+the workflow executor does not need to infer from task lifecycle:
+
+```
+<step-outcome>{"outcome":"succeeded","reason":"merge resolved and committed"}</step-outcome>
+```
+
+Use `succeeded` for the success path and `failed` for failure or cancellation
+paths; keep the reason short and consistent with `merge_resolve.error_message`
+when one is present.
 
 ## OPERATIONAL NOTES
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -8,7 +9,12 @@ import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_server/src/api/github_webhook.dart';
 import 'package:dartclaw_server/src/api/github_webhook_config.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
+    show
+        SqliteTaskRepository,
+        SqliteWorkflowRunRepository,
+        WebhookDeliveryStore,
+        openTaskDbInMemory,
+        openWebhookDeliveryStoreInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         InMemoryDefinitionSource,
@@ -91,7 +97,7 @@ void main() {
     );
     final payload = _pullRequestPayload(action: 'opened');
 
-    final response = await handler.handle(_signedRequest(payload, 'secret'));
+    final response = await handler.handle(_signedRequest(payload, 'secret', deliveryId: 'del-1'));
 
     expect(response.statusCode, 200);
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
@@ -141,8 +147,8 @@ void main() {
     );
     final payload = _pullRequestPayload(action: 'opened');
 
-    await handler.handle(_signedRequest(payload, 'secret'));
-    final response = await handler.handle(_signedRequest(payload, 'secret'));
+    await handler.handle(_signedRequest(payload, 'secret', deliveryId: 'del-first'));
+    final response = await handler.handle(_signedRequest(payload, 'secret', deliveryId: 'del-second'));
 
     expect(response.statusCode, 200);
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
@@ -163,7 +169,9 @@ void main() {
       definitions: definitions,
     );
 
-    final response = await handler.handle(_signedRequest(_pullRequestPayload(action: 'closed'), 'secret'));
+    final response = await handler.handle(
+      _signedRequest(_pullRequestPayload(action: 'closed'), 'secret', deliveryId: 'del-closed'),
+    );
 
     expect(response.statusCode, 200);
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
@@ -189,7 +197,9 @@ void main() {
       definitions: definitions,
     );
 
-    final response = await handler.handle(_signedRequest(_pullRequestPayload(action: 'opened'), 'secret'));
+    final response = await handler.handle(
+      _signedRequest(_pullRequestPayload(action: 'opened'), 'secret', deliveryId: 'del-label'),
+    );
 
     expect(response.statusCode, 200);
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
@@ -236,7 +246,9 @@ void main() {
       ]),
     );
 
-    final response = await handler.handle(_signedRequest(_pullRequestPayload(action: 'opened'), 'secret'));
+    final response = await handler.handle(
+      _signedRequest(_pullRequestPayload(action: 'opened'), 'secret', deliveryId: 'del-proj'),
+    );
 
     expect(response.statusCode, 200);
     expect(workflows.lastProjectId, isNotEmpty);
@@ -273,12 +285,207 @@ void main() {
       projects: _StaticProjectService(const []),
     );
 
-    final response = await handler.handle(_signedRequest(_pullRequestPayload(action: 'opened'), 'secret'));
+    final response = await handler.handle(
+      _signedRequest(_pullRequestPayload(action: 'opened'), 'secret', deliveryId: 'del-no-proj'),
+    );
     expect(response.statusCode, 400);
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
     final error = body['error'] as Map<String, dynamic>;
     expect(error['code'], 'PROJECT_RESOLUTION_FAILED');
     expect(workflows.calls, isEmpty);
+  });
+
+  group('delivery-ID replay protection', () {
+    late WebhookDeliveryStore deliveryStore;
+
+    setUp(() {
+      deliveryStore = openWebhookDeliveryStoreInMemory();
+    });
+
+    GitHubWebhookHandler makeHandler({WebhookDeliveryStore? store}) {
+      return GitHubWebhookHandler(
+        config: const GitHubWebhookConfig(
+          enabled: true,
+          webhookSecret: 'secret',
+          triggers: [
+            GitHubWorkflowTrigger(event: 'pull_request', actions: ['opened'], labels: [], workflow: 'code-review'),
+          ],
+        ),
+        workflows: workflows,
+        definitions: definitions,
+        deliveryStore: store,
+      );
+    }
+
+    test('first delivery starts a workflow', () async {
+      final handler = makeHandler(store: deliveryStore);
+      final payload = _pullRequestPayload(action: 'opened');
+
+      final response = await handler.handle(_signedRequest(payload, 'secret', deliveryId: 'unique-abc'));
+
+      expect(response.statusCode, 200);
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(body['ok'], isTrue);
+      expect(body['deduped'], isNot(true));
+      expect(workflows.calls, contains('start:code-review'));
+    });
+
+    test('replayed delivery ID is rejected even after the run reaches terminal status', () async {
+      final handler = makeHandler(store: deliveryStore);
+      final payload = _pullRequestPayload(action: 'opened');
+      const deliveryId = 'replay-target-xyz';
+
+      // First request — starts a run.
+      await handler.handle(_signedRequest(payload, 'secret', deliveryId: deliveryId));
+
+      // Simulate run reaching terminal status.
+      final run = workflows.activeRuns.last;
+      workflows.activeRuns
+        ..remove(run)
+        ..add(run.copyWith(status: WorkflowRunStatus.completed));
+
+      // Replay with the same delivery ID.
+      final replayResponse = await handler.handle(_signedRequest(payload, 'secret', deliveryId: deliveryId));
+
+      expect(replayResponse.statusCode, 200);
+      final body = jsonDecode(await replayResponse.readAsString()) as Map<String, dynamic>;
+      expect(body['deduped'], isTrue);
+      // Only one run was ever started.
+      expect(workflows.calls.where((c) => c == 'start:code-review'), hasLength(1));
+    });
+
+    test('different delivery IDs for different PRs each start a workflow', () async {
+      final handler = makeHandler(store: deliveryStore);
+
+      final r1 = await handler.handle(
+        _signedRequest(_pullRequestPayload(action: 'opened', prNumber: 1), 'secret', deliveryId: 'delivery-1'),
+      );
+      final r2 = await handler.handle(
+        _signedRequest(_pullRequestPayload(action: 'opened', prNumber: 2), 'secret', deliveryId: 'delivery-2'),
+      );
+
+      expect(r1.statusCode, 200);
+      expect(r2.statusCode, 200);
+      expect(workflows.calls.where((c) => c == 'start:code-review'), hasLength(2));
+    });
+
+    test('request missing x-github-delivery header is rejected with 400', () async {
+      final handler = makeHandler(store: deliveryStore);
+      final payload = _pullRequestPayload(action: 'opened');
+      final body = jsonEncode(payload);
+      final digest = Hmac(sha256, utf8.encode('secret')).convert(utf8.encode(body)).toString();
+
+      final response = await handler.handle(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/webhook/github'),
+          headers: {
+            'x-github-event': 'pull_request',
+            'x-hub-signature-256': 'sha256=$digest',
+            // No x-github-delivery header.
+          },
+          body: body,
+        ),
+      );
+
+      expect(response.statusCode, 400);
+      final respBody = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final error = respBody['error'] as Map<String, dynamic>;
+      expect(error['code'], 'MISSING_DELIVERY_ID');
+      expect(workflows.calls, isEmpty);
+    });
+
+    test('without a delivery store, missing header still rejects', () async {
+      // Even without a persistent store, the header is required.
+      final handler = makeHandler(store: null);
+      final payload = _pullRequestPayload(action: 'opened');
+      final body = jsonEncode(payload);
+      final digest = Hmac(sha256, utf8.encode('secret')).convert(utf8.encode(body)).toString();
+
+      final response = await handler.handle(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/webhook/github'),
+          headers: {'x-github-event': 'pull_request', 'x-hub-signature-256': 'sha256=$digest'},
+          body: body,
+        ),
+      );
+
+      expect(response.statusCode, 400);
+    });
+
+    test('redelivery can start after workflow-start failure', () async {
+      final handler = makeHandler(store: deliveryStore);
+      final payload = _pullRequestPayload(action: 'opened');
+      const deliveryId = 'retry-after-start-failure';
+      workflows.startError = StateError('workflow start failed');
+
+      await expectLater(
+        () => handler.handle(_signedRequest(payload, 'secret', deliveryId: deliveryId)),
+        throwsStateError,
+      );
+
+      workflows.startError = null;
+      final response = await handler.handle(_signedRequest(payload, 'secret', deliveryId: deliveryId));
+
+      expect(response.statusCode, 200);
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(body['ok'], isTrue);
+      expect(workflows.calls.where((call) => call == 'start:code-review'), hasLength(2));
+      expect(workflows.activeRuns, hasLength(1));
+    });
+
+    test('accepted run stays deduped after processed-state commit failure and pending reclaim', () async {
+      final deliveryDb = sqlite3.openInMemory();
+      addTearDown(deliveryDb.close);
+      final store = _CommitFailingWebhookDeliveryStore(deliveryDb);
+      final handler = makeHandler(store: store);
+      final payload = _pullRequestPayload(action: 'opened');
+      const deliveryId = 'accepted-commit-failure';
+
+      await expectLater(
+        () => handler.handle(_signedRequest(payload, 'secret', deliveryId: deliveryId)),
+        throwsStateError,
+      );
+      final acceptedRun = workflows.activeRuns.single;
+      workflows.activeRuns
+        ..remove(acceptedRun)
+        ..add(acceptedRun.copyWith(status: WorkflowRunStatus.completed));
+      deliveryDb.execute(
+        "UPDATE webhook_delivery_ids SET updated_at = '1970-01-01T00:00:00.000Z' WHERE delivery_id = ?",
+        [deliveryId],
+      );
+
+      final replay = await handler.handle(_signedRequest(payload, 'secret', deliveryId: deliveryId));
+
+      expect(replay.statusCode, 200);
+      final replayBody = jsonDecode(await replay.readAsString()) as Map<String, dynamic>;
+      expect(replayBody['deduped'], isTrue);
+      expect(store.commitAttempts, 2);
+      expect(workflows.calls.where((call) => call == 'start:code-review'), hasLength(1));
+    });
+
+    test('duplicate same-delivery attempts while pending do not start duplicate workflows', () async {
+      final handler = makeHandler(store: deliveryStore);
+      final payload = _pullRequestPayload(action: 'opened');
+      const deliveryId = 'pending-duplicate';
+      final startCompleter = Completer<WorkflowRun>();
+      workflows.startCompleter = startCompleter;
+
+      final firstResponse = handler.handle(_signedRequest(payload, 'secret', deliveryId: deliveryId));
+      await Future<void>.delayed(Duration.zero);
+
+      final duplicateResponse = await handler.handle(_signedRequest(payload, 'secret', deliveryId: deliveryId));
+      startCompleter.complete(workflows.startResult!);
+      final first = await firstResponse;
+
+      expect(first.statusCode, 200);
+      expect(duplicateResponse.statusCode, 200);
+      final duplicateBody = jsonDecode(await duplicateResponse.readAsString()) as Map<String, dynamic>;
+      expect(duplicateBody['deduped'], isTrue);
+      expect(workflows.calls.where((call) => call == 'start:code-review'), hasLength(1));
+      expect(workflows.activeRuns, hasLength(1));
+    });
   });
 
   test('project-backed webhook fails fast on ambiguous slug matches', () async {
@@ -329,13 +536,27 @@ void main() {
       ]),
     );
 
-    final response = await handler.handle(_signedRequest(_pullRequestPayload(action: 'opened'), 'secret'));
+    final response = await handler.handle(
+      _signedRequest(_pullRequestPayload(action: 'opened'), 'secret', deliveryId: 'del-ambig'),
+    );
     expect(response.statusCode, 400);
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
     final error = body['error'] as Map<String, dynamic>;
     expect(error['code'], 'PROJECT_RESOLUTION_FAILED');
     expect(workflows.calls, isEmpty);
   });
+}
+
+class _CommitFailingWebhookDeliveryStore extends WebhookDeliveryStore {
+  _CommitFailingWebhookDeliveryStore(super.db);
+
+  var commitAttempts = 0;
+
+  @override
+  void commitProcessed(String deliveryId) {
+    commitAttempts += 1;
+    throw StateError('processed-state commit failed');
+  }
 }
 
 class _FakeWorkflowService extends WorkflowService {
@@ -346,7 +567,7 @@ class _FakeWorkflowService extends WorkflowService {
     EventBus eventBus,
     KvService kvService,
     String dataDir,
-  ) : super(
+  ) : super.lifecycleOnly(
         repository: repository,
         taskService: taskService,
         messageService: messageService,
@@ -369,6 +590,8 @@ class _FakeWorkflowService extends WorkflowService {
 
   final List<String> calls = <String>[];
   WorkflowRun? startResult;
+  Object? startError;
+  Completer<WorkflowRun>? startCompleter;
   final List<WorkflowRun> activeRuns = <WorkflowRun>[];
   String? lastProjectId;
 
@@ -382,6 +605,16 @@ class _FakeWorkflowService extends WorkflowService {
   }) async {
     calls.add('start:${definition.name}');
     lastProjectId = projectId;
+    final error = startError;
+    if (error != null) {
+      throw error;
+    }
+    final completer = startCompleter;
+    if (completer != null) {
+      final run = await completer.future;
+      activeRuns.add(run.copyWith(definitionName: definition.name, variablesJson: variables));
+      return run;
+    }
     final run = startResult!;
     activeRuns.add(run.copyWith(definitionName: definition.name, variablesJson: variables));
     return run;
@@ -393,23 +626,28 @@ class _FakeWorkflowService extends WorkflowService {
   }
 }
 
-Request _signedRequest(Map<String, dynamic> payload, String secret) {
+Request _signedRequest(Map<String, dynamic> payload, String secret, {String? deliveryId}) {
   final body = jsonEncode(payload);
   final digest = Hmac(sha256, utf8.encode(secret)).convert(utf8.encode(body)).toString();
   return Request(
     'POST',
     Uri.parse('http://localhost/webhook/github'),
-    headers: {'x-github-event': 'pull_request', 'x-hub-signature-256': 'sha256=$digest'},
+    headers: {
+      'x-github-event': 'pull_request',
+      'x-hub-signature-256': 'sha256=$digest',
+      // ignore: use_null_aware_elements
+      if (deliveryId != null) 'x-github-delivery': deliveryId,
+    },
     body: body,
   );
 }
 
-Map<String, dynamic> _pullRequestPayload({required String action}) {
+Map<String, dynamic> _pullRequestPayload({required String action, int prNumber = 42}) {
   return {
     'action': action,
     'pull_request': {
       'title': 'Add feature',
-      'number': 42,
+      'number': prNumber,
       'head': {'ref': 'feature/test'},
       'base': {'ref': 'main'},
       'labels': const <Map<String, String>>[],

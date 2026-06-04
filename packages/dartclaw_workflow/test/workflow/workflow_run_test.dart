@@ -71,6 +71,9 @@ void main() {
           totalItems: 3,
           completedIndices: const [0, 2],
           failedIndices: const [2],
+          completedSubStepIdsByIndex: const {
+            1: ['implement', 'quick-review'],
+          },
           resultSlots: const [
             'done',
             null,
@@ -99,6 +102,9 @@ void main() {
       expect(restored.executionCursor?.nodeId, 'map-step');
       expect(restored.executionCursor?.completedIndices, [0, 2]);
       expect(restored.executionCursor?.failedIndices, [2]);
+      expect(restored.executionCursor?.completedSubStepIdsByIndex, {
+        1: ['implement', 'quick-review'],
+      });
     });
 
     test('round-trips with minimal fields (defaults)', () {

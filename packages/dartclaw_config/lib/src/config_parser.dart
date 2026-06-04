@@ -50,11 +50,13 @@ const _knownKeys = {
   'providers',
   'credentials',
   'workspace',
+  'onboarding',
   'workflow',
   'search',
   'usage',
   'guard_audit',
   'memory',
+  'knowledge',
   'tasks',
   'canvas',
   'automation',
@@ -736,6 +738,21 @@ WorkspaceConfig _parseWorkspace(Map<String, dynamic> yaml, WorkspaceConfig defau
   return WorkspaceConfig(gitSyncEnabled: gitSyncEnabled, gitSyncPushEnabled: gitSyncPushEnabled);
 }
 
+OnboardingConfig _parseOnboarding(Map<String, dynamic> yaml, OnboardingConfig defaults, List<String> warns) {
+  var expiryDays = defaults.expiryDays;
+
+  final onboardingMap = _sectionMap('onboarding', yaml, warns);
+  if (onboardingMap != null) {
+    expiryDays = readInt('expiry_days', onboardingMap, warns, defaultValue: expiryDays) ?? expiryDays;
+    if (expiryDays < 1) {
+      warns.add('Invalid onboarding.expiry_days: "$expiryDays" — using default ${defaults.expiryDays}');
+      expiryDays = defaults.expiryDays;
+    }
+  }
+
+  return OnboardingConfig(expiryDays: expiryDays);
+}
+
 SchedulingConfig _parseScheduling(Map<String, dynamic> yaml, SchedulingConfig defaults, List<String> warns) {
   var jobs = <Map<String, dynamic>>[];
   var heartbeatEnabled = defaults.heartbeatEnabled;
@@ -910,6 +927,18 @@ ProvidersConfig _parseProviders(
     final options = Map<String, dynamic>.from(providerMap)
       ..remove('executable')
       ..remove('pool_size');
+    if (ProviderIdentity.family(providerId) == ProviderIdentity.claude) {
+      final inheritUserSettingsRaw = providerMap[ClaudeProviderOptions.inheritUserSettingsKey];
+      if (inheritUserSettingsRaw != null && inheritUserSettingsRaw is! bool) {
+        warns.add(
+          'Invalid type for providers.$providerId.inherit_user_settings: '
+          '"${inheritUserSettingsRaw.runtimeType}" — using default',
+        );
+      }
+      options[ClaudeProviderOptions.inheritUserSettingsKey] = ClaudeProviderOptions.normalizeInheritUserSettings(
+        inheritUserSettingsRaw,
+      );
+    }
 
     entries[providerId] = ProviderEntry(
       executable: expandHome(executableRaw.trim(), env: env),
@@ -1156,6 +1185,69 @@ MemoryConfig _parseMemory(
     archiveAfterDays: archiveAfterDays,
     pruningSchedule: pruningSchedule,
   );
+}
+
+KnowledgeConfig _parseKnowledge(Map<String, dynamic> yaml, KnowledgeConfig defaults, List<String> warns) {
+  final knowledgeMap = _sectionMap('knowledge', yaml, warns);
+  if (knowledgeMap == null) return defaults;
+
+  var inbox = defaults.inbox;
+  final inboxMap = readMap('inbox', knowledgeMap, warns);
+  if (inboxMap != null) {
+    inbox = KnowledgeInboxConfig(
+      enabled: readBool('enabled', inboxMap, warns, defaultValue: inbox.enabled) ?? inbox.enabled,
+      intervalMinutes:
+          (readInt('interval_minutes', inboxMap, warns, defaultValue: inbox.intervalMinutes) ?? inbox.intervalMinutes)
+              .clamp(1, 1440)
+              .toInt(),
+      maxBytes: (readInt('max_bytes', inboxMap, warns, defaultValue: inbox.maxBytes) ?? inbox.maxBytes)
+          .clamp(1, 50 * 1024 * 1024)
+          .toInt(),
+      retryAttempts:
+          (readInt('retry_attempts', inboxMap, warns, defaultValue: inbox.retryAttempts) ?? inbox.retryAttempts)
+              .clamp(0, 10)
+              .toInt(),
+      processedRetentionDays:
+          (readInt('processed_retention_days', inboxMap, warns, defaultValue: inbox.processedRetentionDays) ??
+                  inbox.processedRetentionDays)
+              .clamp(0, 3650)
+              .toInt(),
+      deliveryMode: _knowledgeDeliveryMode(inboxMap['delivery_mode'], inbox.deliveryMode, 'knowledge.inbox', warns),
+    );
+  }
+
+  var wikiLint = defaults.wikiLint;
+  final wikiLintMap = readMap('wiki_lint', knowledgeMap, warns);
+  if (wikiLintMap != null) {
+    wikiLint = KnowledgeWikiLintConfig(
+      enabled: readBool('enabled', wikiLintMap, warns, defaultValue: wikiLint.enabled) ?? wikiLint.enabled,
+      intervalMinutes:
+          (readInt('interval_minutes', wikiLintMap, warns, defaultValue: wikiLint.intervalMinutes) ??
+                  wikiLint.intervalMinutes)
+              .clamp(1, 1440)
+              .toInt(),
+      deliveryMode: _knowledgeDeliveryMode(
+        wikiLintMap['delivery_mode'],
+        wikiLint.deliveryMode,
+        'knowledge.wiki_lint',
+        warns,
+      ),
+    );
+  }
+
+  return KnowledgeConfig(inbox: inbox, wikiLint: wikiLint);
+}
+
+String _knowledgeDeliveryMode(Object? raw, String fallback, String path, List<String> warns) {
+  if (raw == null) return fallback;
+  if (raw is! String) {
+    warns.add('Invalid type for $path.delivery_mode: "${raw.runtimeType}" — using default');
+    return fallback;
+  }
+  final value = raw.trim();
+  if (value == 'none' || value == 'announce' || value == 'webhook') return value;
+  warns.add('Invalid $path.delivery_mode: "$raw" — using default');
+  return fallback;
 }
 
 ContainerConfig _parseContainer(Map<String, dynamic> yaml, List<String> warns) {

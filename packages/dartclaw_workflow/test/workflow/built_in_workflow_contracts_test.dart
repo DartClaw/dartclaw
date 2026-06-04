@@ -174,6 +174,8 @@ void main() {
       expect(simplify.provider, '@executor');
       expect(simplify.model, '@executor');
       expect(simplify.continueSession, '@previous');
+      expect(simplify.onFailure, OnFailurePolicy.continueWorkflow);
+      expect(simplify.maxRetries, isNull);
       expect(simplify.inputs, ['story_result']);
       expect(_allPromptText(simplify), contains('changes for this story'));
     });
@@ -186,10 +188,15 @@ void main() {
       expect(stepIds.indexOf('simplify-code'), stepIds.indexOf('implement') + 1);
       expect(stepIds.indexOf('integrated-review'), greaterThan(stepIds.indexOf('simplify-code')));
 
+      final implement = def.steps.singleWhere((step) => step.id == 'implement');
+      expect(implement.maxRetries, 1);
+
       final simplify = def.steps.singleWhere((step) => step.id == 'simplify-code');
       expect(simplify.skill, 'andthen:simplify-code');
       expect(simplify.provider, '@executor');
       expect(simplify.model, '@executor');
+      expect(simplify.onFailure, OnFailurePolicy.continueWorkflow);
+      expect(simplify.maxRetries, isNull);
       expect(simplify.inputs, isEmpty);
       expect(_allPromptText(simplify), contains('current branch'));
     });
@@ -201,6 +208,8 @@ void main() {
 
       expect(simplify.provider, '@executor');
       expect(simplify.model, '@executor');
+      expect(simplify.onFailure, OnFailurePolicy.continueWorkflow);
+      expect(simplify.maxRetries, isNull);
       expect(simplify.inputs, ['spec_path']);
       expect(prompt, contains('{{context.spec_path}}'));
       expect(prompt, contains('live checkout'));
@@ -222,8 +231,47 @@ void main() {
       expect(simplify.provider, '@executor');
       expect(simplify.model, '@executor');
       expect(simplify.continueSession, '@previous');
+      expect(simplify.onFailure, OnFailurePolicy.continueWorkflow);
+      expect(simplify.maxRetries, isNull);
       expect(simplify.inputs, ['story_result']);
       expect(_allPromptText(simplify), contains('changes for this story'));
+    });
+
+    test('inline workflows run the full deterministic verification gate', () {
+      for (final file in const [
+        'spec-and-implement-inline.yaml',
+        'plan-and-implement-inline.yaml',
+        'review-and-remediate-inline.yaml',
+      ]) {
+        final def = _loadInline(file);
+        expect(
+          _flattenedSteps(
+            def,
+          ).where((step) => const {'verify-format', 'verify-analyze', 'verify-tests'}.contains(step.id)),
+          isEmpty,
+          reason: '$file should not keep the old split verification gates',
+        );
+        final verifyAll = def.steps.singleWhere((step) => step.id == 'verify-all');
+        expect(_allPromptText(verifyAll), contains('verify-gate.sh all'), reason: '$file initial gate');
+
+        final loop = def.loops.singleWhere((candidate) => candidate.id == 'verify-fix-loop');
+        expect(loop.entryGate, 'verify-all.result == fail', reason: '$file fix-loop entry gate');
+        final loopNode = def.nodes.whereType<LoopNode>().singleWhere((node) => node.loopId == 'verify-fix-loop');
+        expect(loopNode.stepIds, contains('verify-recheck'), reason: '$file fix-loop recheck step');
+
+        final recheck = _flattenedSteps(def).singleWhere((step) => step.id == 'verify-recheck');
+        expect(_allPromptText(recheck), contains('verify-gate.sh all'), reason: '$file recheck gate');
+      }
+    });
+
+    test('inline verification all gate does not require a clean working tree', () {
+      final dir = findAncestorDir(['dev/tools/dartclaw-workflows/custom-workflows']);
+      final script = File(p.join(dir, 'scripts/verify-gate.sh')).readAsStringSync();
+      final allCase = RegExp(r'all\)\n([\s\S]*?)\n    ;;').firstMatch(script)!.group(1)!;
+
+      expect(allCase, contains('run_gate whitespace'));
+      expect(allCase, isNot(contains('run_gate status')));
+      expect(script, contains('gate_status()'), reason: 'status remains available as an explicit operator gate');
     });
   });
 
@@ -323,6 +371,30 @@ void main() {
       expect(checked, greaterThan(0), reason: 'built-ins must include remediation steps');
     });
 
+    test('remediation steps fail loudly instead of retrying mutating work', () {
+      final files = <({String file, WorkflowDefinition definition})>[
+        for (final file in _builtInWorkflows) (file: file, definition: _load(file)),
+        for (final file in const [
+          'spec-and-implement-inline.yaml',
+          'plan-and-implement-inline.yaml',
+          'review-and-remediate-inline.yaml',
+        ])
+          (file: file, definition: _loadInline(file)),
+      ];
+      var checked = 0;
+
+      for (final entry in files) {
+        for (final step in _flattenedSteps(entry.definition)) {
+          if (step.skill != 'andthen:remediate-findings') continue;
+          checked++;
+          expect(step.onFailure, OnFailurePolicy.fail, reason: '${entry.file} → "${step.id}" retry policy');
+          expect(step.maxRetries, isNull, reason: '${entry.file} → "${step.id}" retry budget');
+        }
+      }
+
+      expect(checked, greaterThan(0), reason: 'workflows must include remediation steps');
+    });
+
     test('andthen:review report outputs direct writes into the runtime artifacts dir', () {
       var checked = 0;
       for (final file in _builtInWorkflows) {
@@ -359,7 +431,7 @@ void main() {
         'spec-and-implement.yaml': ['integrated-review', 'architecture-review'],
         'plan-and-implement.yaml': ['plan-review', 'architecture-review'],
         'spec-and-implement-inline.yaml': ['integrated-review', 'architecture-review'],
-        'plan-and-implement-inline.yaml': ['plan-review', 'architecture-review'],
+        'plan-and-implement-inline.yaml': ['plan-review', 'plan-review-council', 'architecture-review'],
       };
 
       for (final entry in expectedSources.entries) {
@@ -389,6 +461,31 @@ void main() {
         expect(reReview.outputKeys, containsAll(['review_findings', 'findings_count', 'gating_findings_count']));
         expect(reReview.outputKeys, isNot(contains('re-review.findings_count')), reason: file);
         expect(reReview.outputKeys, isNot(contains('re-review.gating_findings_count')), reason: file);
+      }
+    });
+
+    test('remediation loop gates use gating findings, not total findings', () {
+      final definitions = <String, WorkflowDefinition>{
+        for (final file in _builtInWorkflows) file: _load(file),
+        for (final file in const [
+          'spec-and-implement-inline.yaml',
+          'plan-and-implement-inline.yaml',
+          'review-and-remediate-inline.yaml',
+        ])
+          file: _loadInline(file),
+      };
+
+      for (final entry in definitions.entries) {
+        final loop = entry.value.loops.singleWhere((candidate) => candidate.id == 'remediation-loop');
+        expect(loop.entryGate, contains('gating_findings_count'), reason: '${entry.key} loop entry gate');
+        expect(loop.entryGate, isNot(matches(RegExp(r'(^|[^A-Za-z0-9_.-])findings_count\s*>'))));
+        expect(loop.exitGate, contains('gating_findings_count'), reason: '${entry.key} loop exit gate');
+        final remediate = _flattenedSteps(entry.value).singleWhere((step) => step.id == 'remediate');
+        expect(
+          remediate.entryGate,
+          anyOf(isNull, contains('gating_findings_count')),
+          reason: '${entry.key} remediate gate',
+        );
       }
     });
 

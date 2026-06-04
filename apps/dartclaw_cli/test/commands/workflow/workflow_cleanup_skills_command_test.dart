@@ -34,6 +34,7 @@ void main() {
             definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path, branch: 'main')},
           ),
         ),
+        linker: WorkspaceSkillLinker(gitDirResolver: (_) => p.join(projectDir.path, '.git')),
         writeLine: output.add,
         exitFn: (code) => exitCode = code,
       );

@@ -22,6 +22,7 @@ import 'advisor_config.dart';
 import 'alerts_config.dart';
 import 'auth_config.dart';
 import 'canvas_config.dart';
+import 'claude_provider_options.dart';
 import 'context_config.dart';
 import 'credentials_config.dart';
 import 'duration_parser.dart' show tryParseDuration;
@@ -30,8 +31,10 @@ import 'gateway_config.dart';
 import 'governance_config.dart';
 import 'history_config.dart';
 import 'identifier_preservation_mode.dart';
+import 'knowledge_config.dart';
 import 'logging_config.dart';
 import 'memory_config.dart';
+import 'onboarding_config.dart';
 import 'path_utils.dart';
 import 'project_config.dart';
 import 'provider_identity.dart';
@@ -87,6 +90,9 @@ class DartclawConfig {
   /// memory.
   final MemoryConfig memory;
 
+  /// Knowledge job scheduler settings.
+  final KnowledgeConfig knowledge;
+
   /// search.
   final SearchConfig search;
 
@@ -104,6 +110,9 @@ class DartclawConfig {
 
   /// workspace.
   final WorkspaceConfig workspace;
+
+  /// onboarding.
+  final OnboardingConfig onboarding;
 
   /// workflow.
   final WorkflowConfig workflow;
@@ -185,12 +194,14 @@ class DartclawConfig {
     this.context = const ContextConfig.defaults(),
     this.security = const SecurityConfig.defaults(),
     this.memory = const MemoryConfig.defaults(),
+    this.knowledge = const KnowledgeConfig.defaults(),
     this.search = const SearchConfig.defaults(),
     this.providers = const ProvidersConfig.defaults(),
     this.credentials = const CredentialsConfig.defaults(),
     this.tasks = const TaskConfig.defaults(),
     this.scheduling = const SchedulingConfig.defaults(),
     this.workspace = const WorkspaceConfig.defaults(),
+    this.onboarding = const OnboardingConfig.defaults(),
     this.workflow = const WorkflowConfig.defaults(),
     this.logging = const LoggingConfig.defaults(),
     this.usage = const UsageConfig.defaults(),
@@ -206,6 +217,76 @@ class DartclawConfig {
 
   /// All default values.
   const DartclawConfig.defaults() : this();
+
+  /// Returns a copy with the given sections replaced, preserving every other
+  /// section (including [warnings]).
+  ///
+  /// Prefer this over manually re-listing the constructor when replacing a
+  /// single section: a hand-rolled reconstruction silently drops any section it
+  /// forgets to copy when new top-level sections are added.
+  DartclawConfig copyWith({
+    ServerConfig? server,
+    AgentConfig? agent,
+    AdvisorConfig? advisor,
+    AuthConfig? auth,
+    CanvasConfig? canvas,
+    GatewayConfig? gateway,
+    SessionConfig? sessions,
+    ContextConfig? context,
+    SecurityConfig? security,
+    MemoryConfig? memory,
+    KnowledgeConfig? knowledge,
+    SearchConfig? search,
+    ProvidersConfig? providers,
+    CredentialsConfig? credentials,
+    TaskConfig? tasks,
+    SchedulingConfig? scheduling,
+    WorkspaceConfig? workspace,
+    OnboardingConfig? onboarding,
+    WorkflowConfig? workflow,
+    LoggingConfig? logging,
+    UsageConfig? usage,
+    ContainerConfig? container,
+    ChannelConfig? channels,
+    GovernanceConfig? governance,
+    FeaturesConfig? features,
+    ProjectConfig? projects,
+    AlertsConfig? alerts,
+    Map<String, Object?>? extensions,
+    List<String>? warnings,
+  }) {
+    return DartclawConfig(
+      server: server ?? this.server,
+      agent: agent ?? this.agent,
+      advisor: advisor ?? this.advisor,
+      auth: auth ?? this.auth,
+      canvas: canvas ?? this.canvas,
+      gateway: gateway ?? this.gateway,
+      sessions: sessions ?? this.sessions,
+      context: context ?? this.context,
+      security: security ?? this.security,
+      memory: memory ?? this.memory,
+      knowledge: knowledge ?? this.knowledge,
+      search: search ?? this.search,
+      providers: providers ?? this.providers,
+      credentials: credentials ?? this.credentials,
+      tasks: tasks ?? this.tasks,
+      scheduling: scheduling ?? this.scheduling,
+      workspace: workspace ?? this.workspace,
+      onboarding: onboarding ?? this.onboarding,
+      workflow: workflow ?? this.workflow,
+      logging: logging ?? this.logging,
+      usage: usage ?? this.usage,
+      container: container ?? this.container,
+      channels: channels ?? this.channels,
+      governance: governance ?? this.governance,
+      features: features ?? this.features,
+      projects: projects ?? this.projects,
+      alerts: alerts ?? this.alerts,
+      extensions: extensions ?? this.extensions,
+      warnings: warnings ?? this.warnings,
+    );
+  }
 
   /// Registers a parser for a channel config type that lives outside core.
   ///
@@ -238,6 +319,14 @@ class DartclawConfig {
   /// parser leakage.
   @visibleForTesting
   static void clearExtensionParsers() => _clearExtensionParsers();
+
+  /// Built-in top-level config keys known to the parser.
+  @visibleForTesting
+  static Set<String> knownTopLevelKeysForTesting() => _knownConfigKeys();
+
+  /// Registered extension parser keys.
+  @visibleForTesting
+  static Set<String> registeredExtensionKeysForTesting() => _registeredExtensionKeys();
 
   /// Returns the parsed extension section of type [T] registered under [name].
   ///
@@ -301,6 +390,7 @@ class DartclawConfig {
     final sessions = _parseSessions(yaml, const SessionConfig.defaults(), warns);
     final context = _parseContext(yaml, const ContextConfig.defaults(), warns);
     final workspace = _parseWorkspace(yaml, const WorkspaceConfig.defaults(), warns);
+    final onboarding = _parseOnboarding(yaml, const OnboardingConfig.defaults(), warns);
     final workflow = parseWorkflowConfig(_sectionMap('workflow', yaml, warns), warns, env: environment);
     final scheduling = _parseScheduling(yaml, const SchedulingConfig.defaults(), warns);
     final search = _parseSearch(yaml, environment, const SearchConfig.defaults(), warns);
@@ -309,6 +399,7 @@ class DartclawConfig {
     final security = _parseSecurity(yaml, const SecurityConfig.defaults(), warns);
     final usage = _parseUsage(yaml, const UsageConfig.defaults(), warns);
     final memory = _parseMemory(yaml, cli, const MemoryConfig.defaults(), warns);
+    final knowledge = _parseKnowledge(yaml, const KnowledgeConfig.defaults(), warns);
     final container = _parseContainer(yaml, warns);
     final channels = _parseChannels(yaml, warns);
     final tasks = _parseTasks(yaml, const TaskConfig.defaults(), warns);
@@ -330,12 +421,14 @@ class DartclawConfig {
       context: context,
       security: security,
       memory: memory,
+      knowledge: knowledge,
       search: search,
       providers: providers,
       credentials: credentials,
       tasks: tasks,
       scheduling: scheduling,
       workspace: workspace,
+      onboarding: onboarding,
       workflow: workflow,
       logging: logging,
       usage: usage,

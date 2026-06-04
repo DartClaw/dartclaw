@@ -98,7 +98,7 @@ void main() {
     expect(harnessWiring!.pool.size, 1);
     expect(harnessWiring!.onSpawnNeeded, isNotNull);
 
-    await harnessWiring!.onSpawnNeeded!();
+    await harnessWiring!.onSpawnNeeded!(null);
 
     expect(harnessWiring!.pool.size, 2);
     expect(recordedConfigs, hasLength(2));
@@ -123,5 +123,74 @@ void main() {
     expect(taskPrompt, isNot(contains('## Recent error')));
     expect(taskPrompt, isNot(contains('## Recent learning')));
     expect(taskPrompt.length, lessThan(primaryPrompt.length));
+  });
+
+  test('provider-specific lazy spawn consumes the requested provider entry', () async {
+    config = DartclawConfig(
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {
+          'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1),
+          'codex': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1),
+        },
+      ),
+      credentials: const CredentialsConfig(
+        entries: {
+          'anthropic': CredentialEntry(apiKey: 'anthropic-key'),
+          'openai': CredentialEntry(apiKey: 'openai-key'),
+        },
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      tasks: const TaskConfig(maxConcurrent: 2),
+    );
+
+    storage = StorageWiring(
+      config: config,
+      eventBus: eventBus,
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      exitFn: _unexpectedExit,
+    );
+    await storage!.wire();
+
+    security = SecurityWiring(config: config, dataDir: tempDir.path, eventBus: eventBus, exitFn: _unexpectedExit);
+    await security!.wire(
+      agentDefs: config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()],
+    );
+
+    final createdProviderIds = <String>[];
+    final factory = HarnessFactory();
+    for (final providerId in ['claude', 'codex']) {
+      factory.register(providerId, (factoryConfig) {
+        createdProviderIds.add(providerId);
+        recordedConfigs.add(factoryConfig);
+        final harness = FakeAgentHarness(promptStrategy: PromptStrategy.append);
+        createdHarnesses.add(harness);
+        return harness;
+      });
+    }
+
+    harnessWiring = HarnessWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3333,
+      harnessFactory: factory,
+      exitFn: _unexpectedExit,
+      storage: storage!,
+      security: security!,
+      messageRedactor: MessageRedactor(),
+      eventBus: eventBus,
+    );
+    await harnessWiring!.wire(serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called'));
+
+    await harnessWiring!.onSpawnNeeded!('codex');
+
+    expect(createdProviderIds, ['claude', 'codex']);
+    expect(harnessWiring!.pool.hasTaskRunnerForProvider('codex'), isTrue);
+    expect(harnessWiring!.pool.hasTaskRunnerForProvider('claude'), isFalse);
+
+    await harnessWiring!.onSpawnNeeded!('missing');
+    expect(createdProviderIds, ['claude', 'codex']);
   });
 }

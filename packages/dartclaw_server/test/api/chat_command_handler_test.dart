@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_server/src/api/chat_command_handler.dart';
+import 'package:dartclaw_server/src/auth/request_auth_context.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -76,11 +77,7 @@ void main() {
     final session = await sessions.createSession();
     final handler = ChatCommandHandler(workflows: workflows, definitions: definitions);
 
-    final response = await handler.handle(
-      Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/send')),
-      session,
-      '/workflow list',
-    );
+    final response = await handler.handle(_adminSendRequest(session.id), session, '/workflow list');
 
     expect(response, isNotNull);
     expect(response!.statusCode, 200);
@@ -92,7 +89,7 @@ void main() {
     final handler = ChatCommandHandler(workflows: workflows, definitions: definitions);
 
     final response = await handler.handle(
-      Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/send')),
+      _adminSendRequest(session.id),
       session,
       '/workflow run code-review PR_NUMBER=42 REPO=owner/repo',
     );
@@ -110,12 +107,12 @@ void main() {
     final handler = ChatCommandHandler(workflows: workflows, definitions: definitions, now: () => fakeNow.removeAt(0));
 
     final first = await handler.handle(
-      Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/send')),
+      _adminSendRequest(session.id),
       session,
       '/workflow run code-review PR_NUMBER=42 REPO=owner/repo',
     );
     final second = await handler.handle(
-      Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/send')),
+      _adminSendRequest(session.id),
       session,
       '/workflow run code-review PR_NUMBER=42 REPO=owner/repo',
     );
@@ -130,7 +127,7 @@ void main() {
     final handler = ChatCommandHandler(workflows: workflows, definitions: definitions);
 
     final response = await handler.handle(
-      Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/send')),
+      _adminSendRequest(session.id),
       session,
       '/workflow run code-review PR_NUMBER=42',
     );
@@ -143,6 +140,10 @@ void main() {
   });
 }
 
+Request _adminSendRequest(String sessionId) {
+  return withAdminAuthContext(Request('POST', Uri.parse('http://localhost/api/sessions/$sessionId/send')));
+}
+
 class _FakeWorkflowService extends WorkflowService {
   _FakeWorkflowService._super(
     SqliteWorkflowRunRepository repository,
@@ -151,7 +152,7 @@ class _FakeWorkflowService extends WorkflowService {
     EventBus eventBus,
     KvService kvService,
     String dataDir,
-  ) : super(
+  ) : super.lifecycleOnly(
         repository: repository,
         taskService: taskService,
         messageService: messageService,

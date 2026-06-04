@@ -42,6 +42,29 @@ void main() {
       final soulFile = File(p.join(tempDir.path, 'workspace', 'SOUL.md'));
       expect(soulFile.existsSync(), isTrue);
       expect(soulFile.readAsStringSync(), contains('helpful, capable AI assistant'));
+      expect(soulFile.readAsStringSync(), contains('Durable Behavior Updates'));
+      expect(soulFile.readAsStringSync(), contains('Proactivity'));
+    });
+
+    test('writes structured USER.md and wiki README bootstrap when missing', () async {
+      await service.scaffold();
+
+      final userContent = File(p.join(tempDir.path, 'workspace', 'USER.md')).readAsStringSync();
+      for (final section in [
+        'Identity',
+        'Goals',
+        'Current Challenges',
+        'Preferences',
+        'Proactivity Level',
+        'Not Relevant',
+      ]) {
+        expect(userContent, contains('## $section'));
+      }
+
+      final wikiReadme = File(p.join(tempDir.path, 'workspace', 'wiki', 'README.md'));
+      expect(wikiReadme.existsSync(), isTrue);
+      expect(wikiReadme.readAsStringSync(), contains('wiki/'));
+      expect(wikiReadme.readAsStringSync(), contains('MEMORY.md'));
     });
 
     test('is idempotent — does not overwrite existing files', () async {

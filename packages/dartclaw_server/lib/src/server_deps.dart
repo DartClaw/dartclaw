@@ -136,7 +136,6 @@ class ServerWebDeps {
   final CanvasService? canvasService;
   final WorkflowService? workflowService;
   final WorkflowDefinitionSource? workflowDefinitionSource;
-  final SkillRegistry? skillRegistry;
   final ContentGuardDisplayParams contentGuardDisplay;
   final HeartbeatDisplayParams heartbeatDisplay;
   final SchedulingDisplayParams schedulingDisplay;
@@ -147,7 +146,6 @@ class ServerWebDeps {
     required this.canvasService,
     required this.workflowService,
     required this.workflowDefinitionSource,
-    this.skillRegistry,
     required this.contentGuardDisplay,
     required this.heartbeatDisplay,
     required this.schedulingDisplay,

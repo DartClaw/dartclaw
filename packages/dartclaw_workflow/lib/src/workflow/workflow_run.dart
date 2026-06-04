@@ -89,6 +89,9 @@ class WorkflowExecutionCursor {
   /// Index-ordered map results; pending slots remain null.
   final List<dynamic> resultSlots;
 
+  /// Completed foreach child step IDs for in-flight iteration indices.
+  final Map<int, List<String>> completedSubStepIdsByIndex;
+
   /// Creates a [WorkflowExecutionCursor] value.
   const WorkflowExecutionCursor({
     required this.nodeType,
@@ -101,6 +104,7 @@ class WorkflowExecutionCursor {
     this.failedIndices = const [],
     this.cancelledIndices = const [],
     this.resultSlots = const [],
+    this.completedSubStepIdsByIndex = const {},
   });
 
   /// Creates a cursor for resuming a loop node.
@@ -126,6 +130,7 @@ class WorkflowExecutionCursor {
     List<int> failedIndices = const [],
     List<int> cancelledIndices = const [],
     List<dynamic> resultSlots = const [],
+    Map<int, List<String>> completedSubStepIdsByIndex = const {},
   }) => WorkflowExecutionCursor(
     nodeType: WorkflowExecutionCursorNodeType.map,
     nodeId: stepId,
@@ -135,6 +140,7 @@ class WorkflowExecutionCursor {
     failedIndices: List<int>.from(failedIndices),
     cancelledIndices: List<int>.from(cancelledIndices),
     resultSlots: List<dynamic>.from(resultSlots),
+    completedSubStepIdsByIndex: _copyCompletedSubSteps(completedSubStepIdsByIndex),
   );
 
   /// Creates a cursor for resuming a foreach/sub-pipeline node.
@@ -146,6 +152,7 @@ class WorkflowExecutionCursor {
     List<int> failedIndices = const [],
     List<int> cancelledIndices = const [],
     List<dynamic> resultSlots = const [],
+    Map<int, List<String>> completedSubStepIdsByIndex = const {},
   }) => WorkflowExecutionCursor(
     nodeType: WorkflowExecutionCursorNodeType.foreach,
     nodeId: stepId,
@@ -155,6 +162,7 @@ class WorkflowExecutionCursor {
     failedIndices: List<int>.from(failedIndices),
     cancelledIndices: List<int>.from(cancelledIndices),
     resultSlots: List<dynamic>.from(resultSlots),
+    completedSubStepIdsByIndex: _copyCompletedSubSteps(completedSubStepIdsByIndex),
   );
 
   /// Serializes this cursor to a JSON-ready map.
@@ -169,6 +177,8 @@ class WorkflowExecutionCursor {
     if (failedIndices.isNotEmpty) 'failedIndices': List<int>.from(failedIndices),
     if (cancelledIndices.isNotEmpty) 'cancelledIndices': List<int>.from(cancelledIndices),
     if (resultSlots.isNotEmpty) 'resultSlots': List<dynamic>.from(resultSlots),
+    if (completedSubStepIdsByIndex.isNotEmpty)
+      'completedSubStepIdsByIndex': completedSubStepIdsByIndex.map((key, value) => MapEntry('$key', value)),
   };
 
   /// Reconstructs a [WorkflowExecutionCursor] from its JSON representation.
@@ -183,6 +193,7 @@ class WorkflowExecutionCursor {
     failedIndices: _toIntList(json['failedIndices']),
     cancelledIndices: _toIntList(json['cancelledIndices']),
     resultSlots: _toDynamicList(json['resultSlots']),
+    completedSubStepIdsByIndex: _toCompletedSubSteps(json['completedSubStepIdsByIndex']),
   );
 }
 
@@ -362,6 +373,19 @@ List<int> _toIntList(Object? value) =>
     value == null ? const [] : (value as List).map((item) => (item as num).toInt()).toList(growable: false);
 
 List<dynamic> _toDynamicList(Object? value) => value == null ? const [] : List<dynamic>.from(value as List);
+
+Map<int, List<String>> _copyCompletedSubSteps(Map<int, List<String>> value) => {
+  for (final entry in value.entries) entry.key: List<String>.from(entry.value),
+};
+
+Map<int, List<String>> _toCompletedSubSteps(Object? value) {
+  if (value == null) return const {};
+  final raw = Map<String, dynamic>.from(value as Map);
+  return {
+    for (final entry in raw.entries)
+      int.parse(entry.key): (entry.value as List).whereType<String>().toList(growable: false),
+  };
+}
 
 WorkflowExecutionCursor? _toExecutionCursor(Object? value) =>
     value == null ? null : WorkflowExecutionCursor.fromJson(Map<String, dynamic>.from(value as Map));

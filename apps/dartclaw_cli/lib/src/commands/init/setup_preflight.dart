@@ -19,6 +19,7 @@ class SetupPreflight {
     required List<String> providers,
     required int port,
     required String instanceDir,
+    bool workflowTrack = false,
     Future<ProcessResult> Function(String, List<String>)? runProcess,
   }) async {
     final runner = runProcess ?? Process.run;
@@ -40,15 +41,17 @@ class SetupPreflight {
       }
     }
 
-    ServerSocket? socket;
-    try {
-      socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
-      await socket.close();
-    } on SocketException {
-      errors.add(
-        'Port $port is already in use. '
-        'Choose a different port with --port or stop the existing process.',
-      );
+    if (!workflowTrack) {
+      ServerSocket? socket;
+      try {
+        socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+        await socket.close();
+      } on SocketException {
+        errors.add(
+          'Port $port is already in use. '
+          'Choose a different port with --port or stop the existing process.',
+        );
+      }
     }
 
     try {

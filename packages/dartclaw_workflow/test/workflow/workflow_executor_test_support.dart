@@ -16,7 +16,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         GateEvaluator,
         KvService,
         MessageService,
+        OutputConfig,
         SessionService,
+        SkillIntrospector,
         StepExecutionContext,
         Task,
         TaskStatus,
@@ -26,8 +28,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowExecutor,
         WorkflowGitPort,
         WorkflowLoop,
+        WorkflowRoleDefaults,
         WorkflowRun,
         WorkflowRunStatus,
+        WorkflowSkillPreflightConfig,
         WorkflowStep,
         WorkflowStepOutputTransformer,
         WorkflowTurnAdapter;
@@ -42,6 +46,23 @@ import 'package:dartclaw_storage/dartclaw_storage.dart'
         SqliteWorkflowStepExecutionRepository;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
+
+/// A [ContextExtractor] whose [extract] always throws an unexpected (generic)
+/// exception — neither [MissingArtifactFailure] nor [StateError]. Used to
+/// exercise the dispatchers' generic extraction-failure handling, which must
+/// fail the step/item (not silently proceed) on both the single-step and map paths.
+final class ThrowingContextExtractor extends ContextExtractor {
+  ThrowingContextExtractor({
+    required super.taskService,
+    required super.messageService,
+    required super.dataDir,
+    super.workflowStepExecutionRepository,
+  });
+
+  @override
+  Future<Map<String, dynamic>> extract(WorkflowStep step, Task task, {Map<String, OutputConfig>? effectiveOutputs}) =>
+      throw const FormatException('simulated unexpected extraction failure');
+}
 
 /// Shared harness for WorkflowExecutor component tests.
 ///
@@ -109,6 +130,9 @@ final class WorkflowExecutorHarness {
     List<String>? bashStepEnvAllowlist,
     List<String>? bashStepExtraStripPatterns,
     WorkflowGitPort? workflowGitPort,
+    SkillIntrospector? skillIntrospector,
+    WorkflowSkillPreflightConfig skillPreflightConfig = const WorkflowSkillPreflightConfig(),
+    WorkflowRoleDefaults? roleDefaults,
   }) {
     final effectiveDataDir = dataDir ?? tempDir.path;
     return WorkflowExecutor(
@@ -128,6 +152,8 @@ final class WorkflowExecutorHarness {
             ),
         turnAdapter: turnAdapter,
         outputTransformer: outputTransformer,
+        skillIntrospector: skillIntrospector,
+        skillPreflightConfig: skillPreflightConfig,
         workflowGitPort: workflowGitPort ?? WorkflowGitPortProcess(),
         taskRepository: wirePersistence ? taskRepository : null,
         agentExecutionRepository: wirePersistence ? agentExecutionRepository : null,
@@ -136,6 +162,7 @@ final class WorkflowExecutorHarness {
         projectService: projectService,
       ),
       dataDir: effectiveDataDir,
+      roleDefaults: roleDefaults,
       bashStepPolicy: hostEnvironment != null || bashStepEnvAllowlist != null || bashStepExtraStripPatterns != null
           ? BashStepPolicy(
               hostEnvironment: hostEnvironment,

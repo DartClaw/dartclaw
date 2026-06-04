@@ -1,4 +1,5 @@
 import '../harness/harness_pool.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show PromptScope;
 import 'turn_outcome.dart';
 
 /// Manages agent turn lifecycle: start, stream, cancel, and drain.
@@ -30,6 +31,7 @@ abstract interface class TurnManager {
     String? effort,
     int? maxTurns,
     bool isHumanInput = false,
+    PromptScope? promptScope,
   });
 
   void executeTurn(
@@ -43,6 +45,9 @@ abstract interface class TurnManager {
 
   void releaseTurn(String sessionId, String turnId);
 
+  /// Clears runner-local and provider-side continuity for [sessionId].
+  Future<void> resetSessionContinuity(String sessionId);
+
   Future<String> startTurn(
     String sessionId,
     List<Map<String, dynamic>> messages, {
@@ -52,6 +57,8 @@ abstract interface class TurnManager {
     String? effort,
     int? maxTurns,
     bool isHumanInput = false,
+    List<String>? allowedTools,
+    bool readOnly = false,
   });
 
   Future<void> cancelTurn(String sessionId);

@@ -2,7 +2,7 @@
 
 How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
 
-**Current through**: 0.16.4
+**Current through**: 0.17
 
 ---
 
@@ -891,6 +891,8 @@ CREATE TABLE IF NOT EXISTS turn_state (
    interrupted turns
 
 Uses WAL journal mode for crash safety.
+
+The automated proof path is `packages/dartclaw_server/test/integration/crash_recovery_smoke_test.dart`. It exercises a real server restart boundary, not only the in-process `TurnManager` seam: start a turn, kill the process, restart with the same data directory, clean `TurnStateStore`, consume the one-time recovery notice, and render the `.msg-turn-failed` path.
 
 ### Atomic Writes
 

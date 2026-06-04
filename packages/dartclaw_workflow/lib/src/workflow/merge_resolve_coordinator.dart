@@ -220,12 +220,31 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
           id: skillStepId,
           name: 'merge-resolve (attempt $attemptNumber)',
           skill: 'dartclaw-merge-resolve',
+          prompts: const [
+            'Run dartclaw-merge-resolve to resolve any merge conflicts on this story branch against the '
+                'integration branch, verify the result, and commit all-or-nothing.',
+          ],
           emitsOwnOutcome: true,
           outputs: const {
-            'merge_resolve.outcome': OutputConfig(format: OutputFormat.text),
-            'merge_resolve.conflicted_files': OutputConfig(format: OutputFormat.lines),
-            'merge_resolve.resolution_summary': OutputConfig(format: OutputFormat.text),
-            'merge_resolve.error_message': OutputConfig(format: OutputFormat.text),
+            'merge_resolve.outcome': OutputConfig(
+              format: OutputFormat.text,
+              description:
+                  "Outcome of the merge resolution attempt. Enum-typed string: must be one of 'resolved', 'failed', or 'cancelled'.",
+            ),
+            'merge_resolve.conflicted_files': OutputConfig(
+              format: OutputFormat.json,
+              description: 'JSON array of relative file paths that had conflict markers, sorted lexicographically.',
+            ),
+            'merge_resolve.resolution_summary': OutputConfig(
+              format: OutputFormat.text,
+              description:
+                  'Prose summary of the resolution rationale and steps taken. Non-empty for all terminal outcomes.',
+            ),
+            'merge_resolve.error_message': OutputConfig(
+              format: OutputFormat.text,
+              description:
+                  "Error or cancellation message. Null (emit the literal string 'null') when outcome is 'resolved'; a non-empty string for 'failed' or 'cancelled'.",
+            ),
           },
           maxTokens: config.tokenCeiling,
         );

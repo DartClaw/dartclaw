@@ -1,0 +1,213 @@
+name: review-and-remediate-inline
+description: >-
+  Inline review + remediate for an already-implemented milestone, version, or
+  feature. Reviews all changes on the current branch (diffed against
+  BASE_BRANCH) with the same multi-lens depth as plan-and-implement
+  (mixed review + Claude council pass + architecture review), runs a bounded
+  remediation loop, then closes with the deterministic CI-equivalent
+  verification gate. Unlike the built-in single-methodology code-review, nothing
+  is implemented here – it only reviews existing changes and fixes what the
+  review surfaces, in the live checkout (no integration branch, no worktree,
+  no merge-back).
+variables:
+  TARGET:
+    required: true
+    description: >-
+      Free-text description of what is under review – the milestone, version,
+      or feature whose changes on the current branch should be reviewed.
+  BASE_BRANCH:
+    required: false
+    description: Base branch/ref to diff the current branch against for review scope.
+    default: "main"
+  BRANCH:
+    required: false
+    description: >-
+      Injected by run.sh from the operator's current branch. Used only to name
+      the branch under review in prompts; the review skills diff against
+      BASE_BRANCH.
+    default: ""
+  PROJECT:
+    required: false
+    description: Target project for review/remediation steps (omit for default project)
+
+project: "{{PROJECT}}"
+
+gitStrategy:
+  integrationBranch: false
+  worktree: inline
+  # Inline mode runs in the live checkout. Remediation and verification fixes
+  # mutate the working tree directly; the operator owns the commit boundary.
+  # No artifact auto-commit and no integration branch to abandon, so a
+  # mid-pipeline crash leaves remediation edits intermixed with operator state;
+  # recovery is manual (stage or discard, then re-run).
+  artifacts:
+    commit: false
+
+stepDefaults:
+  - match: "*review*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "remediate*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "*"
+    provider: "@workflow"
+    model: "@workflow"
+
+steps:
+  # mixed-review, review-council, and architecture-review form a parallel group:
+  # consecutive `parallel: true` steps run concurrently and merge outputs back
+  # into context before the workflow continues serially. Each writes distinct
+  # context keys so the merge is conflict-free. TARGET is operator-supplied and
+  # is meant to direct the review, so it is interpolated inline (same contract
+  # as the built-in code-review's review target).
+  - id: mixed-review
+    name: Mixed Review
+    skill: andthen:review
+    parallel: true
+    onFailure: retry
+    maxRetries: 1
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: >-
+      --mode mixed --auto
+      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      Review the implementation of: {{TARGET}}. Scope the review to all changes
+      on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}} – skip files and
+      packages untouched by these changes.
+    outputs:
+      review_findings: review_report_path
+      mixed-review.findings_count: findings_count
+      mixed-review.gating_findings_count: gating_findings_count
+
+  - id: review-council
+    name: Council Review
+    skill: andthen:review
+    parallel: true
+    onFailure: retry
+    maxRetries: 1
+    # Council pass pinned to Claude opus – a multi-perspective adversarial
+    # review that the @reviewer (codex) default cannot run. Requires Claude
+    # availability (inherit_user_settings: true in the maintainer profile).
+    provider: claude
+    model: opus[1m]
+    effort: xhigh
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: >-
+      --mode mixed --council --auto
+      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      Review the implementation of: {{TARGET}}. Scope the review to all changes
+      on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}} – skip files and
+      packages untouched by these changes.
+    outputs:
+      review-council.review_findings: review_report_path
+      review-council.findings_count: findings_count
+      review-council.gating_findings_count: gating_findings_count
+
+  - id: architecture-review
+    name: Architecture Review
+    skill: andthen:architecture
+    parallel: true
+    onFailure: retry
+    maxRetries: 1
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    prompt: >-
+      --mode review --auto Review the architecture of: {{TARGET}}. Scope the
+      review to changes on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}}
+      – skip packages untouched by these changes.
+    outputs:
+      architecture_review_findings: review_report_path
+      architecture-review.findings_count: findings_count
+      architecture-review.gating_findings_count: gating_findings_count
+
+  - id: review-aggregate
+    name: Aggregate Review Findings
+    type: aggregate-reviews
+    aggregateReviews: [mixed-review, review-council, architecture-review]
+    outputs:
+      review_findings: review_report_path
+      findings_count: findings_count
+      gating_findings_count: gating_findings_count
+
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 5
+    entryGate: "gating_findings_count > 0"
+    exitGate: "gating_findings_count == 0"
+    steps:
+      - id: remediate
+        name: Remediate Findings
+        skill: andthen:remediate-findings
+        entryGate: "gating_findings_count > 0"
+        inputs: [review_findings]
+        prompt: "--auto {{context.review_findings}}"
+        outputs:
+          remediation_summary: remediation_summary
+
+      # No session continuity – andthen:review reads the current workspace state
+      # on each iteration.
+      - id: re-review
+        name: Re-review After Remediation
+        skill: andthen:review
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        inputs: [remediation_summary]
+        prompt: >-
+          --mode mixed --auto
+          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          Review the implementation of: {{TARGET}}. Scope the review to all
+          changes on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}} –
+          skip files and packages untouched by these changes.
+        outputs:
+          review_findings: review_report_path
+          findings_count: findings_count
+          gating_findings_count: gating_findings_count
+
+  # --- Deterministic verification gate ----------------------------------------
+  # After the review/remediation loop, run the CI-equivalent gates as a
+  # deterministic bash step. Unlike the
+  # skill-driven steps above, these don't depend on an agent choosing to run
+  # verification: verify-gate.sh runs fixed commands, captures output under the
+  # run artifacts dir, and prints `pass`/`fail` that the fix loop branches on.
+  #
+  # Bash steps execute on the host with a sandboxed workdir (<dataDir>/workspace);
+  # verify-gate.sh is reached via the custom-workflows symlink at
+  # <dataDir>/workflows/custom and locates the repo itself.
+  - id: verify-all
+    name: Verify CI Gate
+    type: bash
+    timeout: 90m
+    script: >-
+      bash ../workflows/custom/scripts/verify-gate.sh all
+      {{workflow.runtime_artifacts_dir}}
+    outputs:
+      verify-all.result: text
+
+  - id: verify-fix-loop
+    name: Verification Fix Loop
+    type: loop
+    maxIterations: 3
+    entryGate: "verify-all.result == fail"
+    exitGate: "verify-recheck.result == pass"
+    steps:
+      - id: fix-verification
+        name: Fix Verification Failures
+        skill: andthen:triage
+        provider: "@executor"
+        model: "@executor"
+        prompt: >-
+          --auto The deterministic verification gate failed. Read the failure
+          logs under {{workflow.runtime_artifacts_dir}}/verify/ (format.log,
+          analyze.log, test.log, arch.log, fitness.log, whitespace.log) and
+          fix only the reported gate failures. Scope strictly to these failures
+          — preserve behavior and do not refactor unrelated code or touch other
+          operator work in the checkout.
+
+      - id: verify-recheck
+        name: Re-run Verification Gate
+        type: bash
+        timeout: 60m
+        script: >-
+          bash ../workflows/custom/scripts/verify-gate.sh all
+          {{workflow.runtime_artifacts_dir}}
+        outputs:
+          verify-recheck.result: text

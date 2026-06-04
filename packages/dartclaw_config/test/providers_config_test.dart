@@ -36,9 +36,36 @@ providers:
       expect(config.providers.entries.keys, containsAll(['claude', 'codex']));
       expect(config.providers['claude']?.executable, 'claude');
       expect(config.providers['claude']?.poolSize, 1);
+      expect(config.providers['claude']?.options, {'inherit_user_settings': true});
       expect(config.providers['codex']?.poolSize, 2);
       expect(config.providers['codex']?.options, {'sandbox': 'workspace-write', 'approval': 'on-request'});
       expect(config.warnings, isEmpty);
+    });
+
+    test('parses claude inherit_user_settings provider option', () {
+      final config = _loadYaml('''
+providers:
+  claude:
+    executable: claude
+    inherit_user_settings: false
+''');
+
+      expect(config.providers['claude']?.options['inherit_user_settings'], isFalse);
+      expect(ClaudeProviderOptions.inheritUserSettings(config.providers['claude']!.options), isFalse);
+      expect(ClaudeProviderOptions.useProjectSettingSources(config.providers['claude']!.options), isTrue);
+      expect(config.warnings, isEmpty);
+    });
+
+    test('warns and defaults claude inherit_user_settings to true on invalid type', () {
+      final config = _loadYaml('''
+providers:
+  claude:
+    executable: claude
+    inherit_user_settings: project
+''');
+
+      expect(config.providers['claude']?.options['inherit_user_settings'], isTrue);
+      expect(config.warnings, anyElement(contains('Invalid type for providers.claude.inherit_user_settings')));
     });
 
     test('defaults pool size to 0 when omitted', () {

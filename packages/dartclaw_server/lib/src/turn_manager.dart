@@ -55,6 +55,12 @@ class TurnContext {
   /// When null, [PromptScope.interactive] is used as the default.
   final PromptScope? promptScope;
 
+  /// Optional tool allowlist enforced only for this active turn.
+  final List<String>? allowedTools;
+
+  /// Whether this active turn should be evaluated as read-only.
+  final bool readOnly;
+
   TurnContext({
     required this.turnId,
     required this.sessionId,
@@ -66,6 +72,8 @@ class TurnContext {
     this.maxTurns,
     this.behaviorOverride,
     this.promptScope,
+    this.allowedTools,
+    this.readOnly = false,
   });
 }
 
@@ -203,6 +211,8 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     final runner = await _reserveRunnerForSession(sessionId);
     try {
@@ -216,6 +226,8 @@ class TurnManager implements core.TurnManager, Reconfigurable {
         isHumanInput: isHumanInput,
         behaviorOverride: behaviorOverride,
         promptScope: promptScope,
+        allowedTools: allowedTools,
+        readOnly: readOnly,
       );
       _reservedTurnRunners[turnId] = runner;
       return turnId;
@@ -259,6 +271,18 @@ class TurnManager implements core.TurnManager, Reconfigurable {
   }
 
   @override
+  Future<void> resetSessionContinuity(String sessionId) async {
+    if (isActive(sessionId)) {
+      throw BusyTurnException('Cannot reset: turn in progress', isSameSession: true);
+    }
+    for (final runner in _pool.runners) {
+      await runner.resetSessionContinuity(sessionId);
+    }
+    _providerSessionRunners.remove(sessionId);
+    _providerSessionReservations.remove(sessionId);
+  }
+
+  @override
   Future<String> startTurn(
     String sessionId,
     List<Map<String, dynamic>> messages, {
@@ -268,6 +292,8 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     String? effort,
     int? maxTurns,
     bool isHumanInput = false,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     final turnId = await reserveTurn(
       sessionId,
@@ -276,6 +302,8 @@ class TurnManager implements core.TurnManager, Reconfigurable {
       effort: effort,
       maxTurns: maxTurns,
       isHumanInput: isHumanInput,
+      allowedTools: allowedTools,
+      readOnly: readOnly,
     );
     try {
       executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);

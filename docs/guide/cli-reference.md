@@ -369,10 +369,24 @@ dartclaw deploy secrets
 ### `init`
 
 ```bash
-dartclaw init
+dartclaw init                  # interactive setup wizard
 dartclaw init --non-interactive
-dartclaw setup
+dartclaw init --workflow       # minimal standalone config for running workflows
+dartclaw init --personalize    # re-seed conversational onboarding (existing installs)
+dartclaw init --apply-drafts   # apply USER.md.draft / SOUL.md.draft from onboarding
+dartclaw setup                 # alias for `dartclaw init`
 ```
+
+Key flags:
+
+| Flag | Effect |
+|------|--------|
+| `--workflow` | Write a minimal standalone workflow config (default data dir `./dartclaw`); skips HTTP/channel/container setup. Prints the matching explicit-config `workflow run --standalone` command on completion. See [Workflows § Standalone CLI](workflows.md#standalone-cli-zero-server). |
+| `--personalize` | Re-seed first-run personalization without rerunning full setup. Reruns write `USER.md.draft` and `SOUL.md.draft` so curated behavior files are not overwritten; review them in web chat. |
+| `--apply-drafts` | Apply reviewed `USER.md.draft` / `SOUL.md.draft` from onboarding. Prompts before replacing `SOUL.md` in an interactive terminal. |
+| `--non-interactive` (`-n`) | Run without prompts; required inputs must come from flags or existing config. |
+
+The personalization flow is described in [Getting Started](getting-started.md) and [Customization](customization.md); the workspace files it scaffolds are documented in [Workspace](workspace.md).
 
 ### `service`
 

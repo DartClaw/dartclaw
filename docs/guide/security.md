@@ -53,6 +53,38 @@ guards:
 
 The **InputSanitizer** ships with built-in patterns for 4 injection categories and requires no configuration for baseline protection. Set `channels_only: false` to also scan web UI messages.
 
+### Guard Editor (Web UI)
+
+Admins can manage guard extensions from the **Settings** page instead of hand-editing YAML. The editor groups the command, file, network, and input-sanitizer guards and lets you list, add, edit, delete, and test their **extension** fields:
+
+| Guard | Editable extension field |
+|-------|--------------------------|
+| Command | `extra_blocked_patterns` |
+| File | `extra_rules` |
+| Network | `extra_allowed_domains` |
+| Input sanitizer | `extra_patterns` |
+
+Built-in default rules are shown as read-only context — 0.17 manages extension surfaces only, not the built-in defaults.
+
+How it behaves:
+
+- **Validation is fail-closed.** Malformed regex or conflicting entries are rejected at save time; the previously active guard chain stays in force until a valid change is applied. Saving never weakens the running chain.
+- **The tester mirrors the runtime.** Enter a sample command, file path, or URL and the tester evaluates it through the same guard semantics the runtime uses, returning the same verdict class and reason — no approximate preview.
+- **Activation is explicit.** A save response separates what became active immediately (hot-reloaded) from what is **pending restart**, and the UI surfaces the distinction so you know when a restart is still required.
+- **Admin-gated (fail closed).** Add, edit, delete, and test actions require admin access, enforced server-side. With gateway auth enabled every authenticated session has admin access and unauthenticated requests never reach these routes; with `gateway.auth_mode: none` the local instance acts as the single admin. Requests without admin context are rejected.
+
+Changes persist to the same YAML-backed config (`guards:` block above) that the file-based workflow uses — the editor is a safer authoring front end, not a separate store. Equivalent JSON endpoints back the UI for scripted use:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/config/guards` | Editable extension state plus read-only built-in summary and pending-restart status |
+| `POST /api/config/guards/<guard>/<field>` | Append an extension entry |
+| `PUT /api/config/guards/<guard>/<field>/<index>` | Replace an entry |
+| `DELETE /api/config/guards/<guard>/<field>/<index>` | Remove an entry |
+| `POST /api/config/guards/test` | Evaluate a sample input through real guard semantics |
+
+Mutation and test endpoints return `403` for requests without admin access.
+
 ## Container Isolation
 
 When Docker is available, DartClaw runs the claude binary inside a container with:

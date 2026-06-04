@@ -8,6 +8,7 @@ export 'src/agent_config.dart' show AgentConfig;
 export 'src/alerts_config.dart' show AlertsConfig, AlertTarget;
 export 'src/auth_config.dart' show AuthConfig;
 export 'src/canvas_config.dart' show CanvasConfig, CanvasShareConfig, CanvasWorkshopConfig;
+export 'src/claude_provider_options.dart' show ClaudeProviderOptions;
 export 'src/config_delta.dart' show ConfigDelta;
 export 'src/config_notifier.dart' show ConfigNotifier;
 export 'src/config_meta.dart' show ConfigMeta, ConfigMutability, ConfigFieldType, FieldMeta;
@@ -38,8 +39,10 @@ export 'src/governance_config.dart'
         LoopAction;
 export 'src/history_config.dart' show HistoryConfig;
 export 'src/identifier_preservation_mode.dart' show IdentifierPreservationMode;
+export 'src/knowledge_config.dart' show KnowledgeConfig, KnowledgeInboxConfig, KnowledgeWikiLintConfig;
 export 'src/logging_config.dart' show LoggingConfig;
 export 'src/memory_config.dart' show MemoryConfig;
+export 'src/onboarding_config.dart' show OnboardingConfig;
 export 'src/project_config.dart'
     show LocalProjectPathValidation, ProjectConfig, ProjectDefinition, parseProjectConfig, validateProjectLocalPath;
 export 'src/provider_identity.dart' show ProviderIdentity;

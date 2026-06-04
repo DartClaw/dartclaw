@@ -11,6 +11,9 @@ typedef FakeReserveTurnCallback =
       String? effort,
       int? maxTurns,
       bool isHumanInput,
+      PromptScope? promptScope,
+      List<String>? allowedTools,
+      bool readOnly,
     });
 
 typedef FakeExecuteTurnCallback =
@@ -32,6 +35,8 @@ typedef FakeStartTurnCallback =
       String? effort,
       int? maxTurns,
       bool isHumanInput,
+      List<String>? allowedTools,
+      bool readOnly,
     });
 
 typedef FakeWaitForCompletionCallback = Future<void> Function(String sessionId, {Duration timeout});
@@ -40,6 +45,7 @@ typedef FakeWaitForOutcomeCallback = Future<TurnOutcome> Function(String session
 
 typedef FakeCancelTurnCallback = Future<void> Function(String sessionId);
 typedef FakeReleaseTurnCallback = void Function(String sessionId, String turnId);
+typedef FakeResetSessionContinuityCallback = Future<void> Function(String sessionId);
 
 typedef RecordedReserveTurn = ({
   String sessionId,
@@ -49,6 +55,9 @@ typedef RecordedReserveTurn = ({
   String? effort,
   int? maxTurns,
   bool isHumanInput,
+  PromptScope? promptScope,
+  List<String>? allowedTools,
+  bool readOnly,
 });
 
 typedef RecordedExecuteTurn = ({
@@ -69,6 +78,8 @@ typedef RecordedStartTurn = ({
   String? effort,
   int? maxTurns,
   bool isHumanInput,
+  List<String>? allowedTools,
+  bool readOnly,
 });
 
 /// Flexible [TurnManager] fake for route, scheduling, and drain tests.
@@ -85,6 +96,7 @@ class FakeTurnManager implements TurnManager {
     this.onWaitForOutcome,
     this.onCancelTurn,
     this.onReleaseTurn,
+    this.onResetSessionContinuity,
     this.busyException,
     this.profileId = 'workspace',
     this.providerId = 'claude',
@@ -103,6 +115,7 @@ class FakeTurnManager implements TurnManager {
   final FakeWaitForOutcomeCallback? onWaitForOutcome;
   final FakeCancelTurnCallback? onCancelTurn;
   final FakeReleaseTurnCallback? onReleaseTurn;
+  final FakeResetSessionContinuityCallback? onResetSessionContinuity;
   final BusyTurnException? busyException;
   final String profileId;
   final String providerId;
@@ -119,15 +132,19 @@ class FakeTurnManager implements TurnManager {
   int executeTurnCallCount = 0;
   int startTurnCallCount = 0;
   int releaseTurnCallCount = 0;
+  int resetSessionContinuityCallCount = 0;
   int cancelTurnCallCount = 0;
   int waitForCompletionCallCount = 0;
   int waitForOutcomeCallCount = 0;
 
   final List<String> cancelledSessionIds = [];
+  final List<String> resetContinuitySessionIds = [];
   final List<String> waitedSessionIds = [];
   final List<RecordedReserveTurn> reservedTurns = [];
   final List<RecordedExecuteTurn> executedTurns = [];
   final List<RecordedStartTurn> startedTurns = [];
+  final List<List<String>?> taskToolFilterChanges = [];
+  final List<bool> taskReadOnlyChanges = [];
 
   bool isBusy = false;
   int _turnCounter = 0;
@@ -198,6 +215,9 @@ class FakeTurnManager implements TurnManager {
     String? effort,
     int? maxTurns,
     bool isHumanInput = false,
+    PromptScope? promptScope,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     reserveTurnCallCount += 1;
     reservedTurns.add((
@@ -208,6 +228,9 @@ class FakeTurnManager implements TurnManager {
       effort: effort,
       maxTurns: maxTurns,
       isHumanInput: isHumanInput,
+      promptScope: promptScope,
+      allowedTools: allowedTools == null ? null : List.unmodifiable(allowedTools),
+      readOnly: readOnly,
     ));
     final callback = onReserveTurn;
     if (callback != null) {
@@ -219,6 +242,9 @@ class FakeTurnManager implements TurnManager {
         effort: effort,
         maxTurns: maxTurns,
         isHumanInput: isHumanInput,
+        promptScope: promptScope,
+        allowedTools: allowedTools,
+        readOnly: readOnly,
       );
       addActiveSession(sessionId, turnId: turnId);
       return turnId;
@@ -264,6 +290,14 @@ class FakeTurnManager implements TurnManager {
   }
 
   @override
+  Future<void> resetSessionContinuity(String sessionId) async {
+    resetSessionContinuityCallCount += 1;
+    resetContinuitySessionIds.add(sessionId);
+    await onResetSessionContinuity?.call(sessionId);
+    _recentOutcomes.removeWhere((_, outcome) => outcome.sessionId == sessionId);
+  }
+
+  @override
   Future<String> startTurn(
     String sessionId,
     List<Map<String, dynamic>> messages, {
@@ -273,6 +307,8 @@ class FakeTurnManager implements TurnManager {
     String? effort,
     int? maxTurns,
     bool isHumanInput = false,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     startTurnCallCount += 1;
     startedTurns.add((
@@ -284,6 +320,8 @@ class FakeTurnManager implements TurnManager {
       effort: effort,
       maxTurns: maxTurns,
       isHumanInput: isHumanInput,
+      allowedTools: allowedTools == null ? null : List.unmodifiable(allowedTools),
+      readOnly: readOnly,
     ));
     final callback = onStartTurn;
     if (callback != null) {
@@ -296,6 +334,8 @@ class FakeTurnManager implements TurnManager {
         effort: effort,
         maxTurns: maxTurns,
         isHumanInput: isHumanInput,
+        allowedTools: allowedTools,
+        readOnly: readOnly,
       );
       addActiveSession(sessionId, turnId: turnId);
       return turnId;
@@ -307,6 +347,8 @@ class FakeTurnManager implements TurnManager {
       effort: effort,
       maxTurns: maxTurns,
       isHumanInput: isHumanInput,
+      allowedTools: allowedTools,
+      readOnly: readOnly,
     );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;
@@ -364,10 +406,14 @@ class FakeTurnManager implements TurnManager {
   bool consumeRecoveryNotice(String sessionId) => false;
 
   @override
-  void setTaskToolFilter(List<String>? allowedTools) {}
+  void setTaskToolFilter(List<String>? allowedTools) {
+    taskToolFilterChanges.add(allowedTools == null ? null : List.unmodifiable(allowedTools));
+  }
 
   @override
-  void setTaskReadOnly(bool readOnly) {}
+  void setTaskReadOnly(bool readOnly) {
+    taskReadOnlyChanges.add(readOnly);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -488,6 +534,9 @@ class _FakeTurnRunner implements TurnRunner {
 
   @override
   TurnOutcome? recentOutcome(String sessionId, String turnId) => _manager.recentOutcome(sessionId, turnId);
+
+  @override
+  Future<void> resetSessionContinuity(String sessionId) => _manager.resetSessionContinuity(sessionId);
 
   @override
   Future<void> cancelTurn(String sessionId) => _manager.cancelTurn(sessionId);

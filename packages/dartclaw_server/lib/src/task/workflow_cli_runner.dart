@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus;
+import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity, TurnProgressAction;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
@@ -36,6 +37,38 @@ class WorkflowCliProviderConfig {
     this.environment = const <String, String>{},
     this.options = const <String, dynamic>{},
   });
+}
+
+/// Base class for workflow CLI subprocess failures.
+sealed class WorkflowCliException implements Exception {
+  /// Workflow step name associated with the failed subprocess, if known.
+  final String? stepName;
+
+  const WorkflowCliException({required this.stepName});
+}
+
+/// Raised when a workflow CLI subprocess is silent for longer than configured.
+final class WorkflowCliStallException extends WorkflowCliException {
+  /// Configured silent duration that triggered the stall.
+  final Duration silentDuration;
+
+  const WorkflowCliStallException({required super.stepName, required this.silentDuration});
+
+  @override
+  String toString() =>
+      'WorkflowCliStallException(stepName: ${stepName ?? '<unknown>'}, silentDuration: $silentDuration)';
+}
+
+/// Raised when a workflow CLI subprocess exceeds its wall-clock timeout.
+final class WorkflowCliTimeoutException extends WorkflowCliException {
+  /// Configured wall-clock timeout.
+  final Duration configuredTimeout;
+
+  const WorkflowCliTimeoutException({required super.stepName, required this.configuredTimeout});
+
+  @override
+  String toString() =>
+      'WorkflowCliTimeoutException(stepName: ${stepName ?? '<unknown>'}, configuredTimeout: $configuredTimeout)';
 }
 
 /// Captures provider telemetry and decoded output from a single CLI turn.
@@ -108,7 +141,7 @@ class WorkflowCliRunner {
   }) : _processStarter = processStarter ?? _defaultProcessStarter,
        _eventBus = eventBus,
        _uuid = uuid ?? const Uuid(),
-       _providerImpls = providerImpls ?? const {'claude': ClaudeCliProvider(), 'codex': CodexCliProvider()};
+       _providerImpls = providerImpls ?? {'claude': ClaudeCliProvider(), 'codex': CodexCliProvider()};
 
   @visibleForTesting
   (String, List<String>) buildCodexCommandForTesting({
@@ -151,6 +184,10 @@ class WorkflowCliRunner {
     String? providerSessionId,
     String? model,
     String? effort,
+    String? stepName,
+    Duration stallTimeout = Duration.zero,
+    TurnProgressAction stallAction = TurnProgressAction.warn,
+    Duration? stepTimeout,
     List<String>? allowedTools,
     bool readOnly = false,
     int? maxTurns,
@@ -163,9 +200,16 @@ class WorkflowCliRunner {
     if (providerConfig == null) {
       throw StateError('No workflow CLI provider config for "$provider"');
     }
-    final impl = _providerImpls[provider];
+    final providerFamily = ProviderIdentity.resolveFamily(
+      provider,
+      options: providerConfig.options,
+      executable: providerConfig.executable,
+    );
+    final impl = _providerImpls[providerFamily];
     if (impl == null) {
-      throw UnsupportedError('Workflow one-shot CLI is not implemented for provider "$provider"');
+      throw UnsupportedError(
+        'Workflow one-shot CLI is not implemented for provider "$provider" (family "$providerFamily")',
+      );
     }
     final req = CliTurnRequest(
       prompt: prompt,
@@ -176,6 +220,10 @@ class WorkflowCliRunner {
       providerSessionId: providerSessionId,
       model: model,
       effort: effort,
+      stepName: stepName,
+      stallTimeout: stallTimeout,
+      stallAction: stallAction,
+      stepTimeout: stepTimeout,
       allowedTools: allowedTools,
       readOnly: readOnly,
       maxTurns: maxTurns,
@@ -191,6 +239,11 @@ class WorkflowCliRunner {
       log: Logger('WorkflowCliRunner'),
     );
     return impl.run(req);
+  }
+
+  /// Requests cancellation of all in-flight CLI subprocesses.
+  Future<void> cancelInflight() async {
+    await Future.wait(_providerImpls.values.map((provider) => provider.cancelInflight()), eagerError: false);
   }
 
   static Future<Process> _defaultProcessStarter(

@@ -14,6 +14,15 @@ import 'setup_state.dart';
 /// All mutations happen atomically at the end (atomic config write via tmp+rename).
 /// If [state] is null, no writes are made (dry-run).
 class SetupApply {
+  static const canonicalUserSections = [
+    'Identity',
+    'Goals',
+    'Current Challenges',
+    'Preferences',
+    'Proactivity Level',
+    'Not Relevant',
+  ];
+
   /// Applies [state] to disk. Idempotent on re-runs.
   ///
   /// Returns a list of files created or updated.
@@ -39,18 +48,24 @@ class SetupApply {
     }
 
     final editor = YamlEditor(configContent);
-    _set(editor, ['name'], state.instanceName);
-    _set(editor, ['port'], state.port);
-    _set(editor, ['host'], 'localhost');
-    _set(editor, ['data_dir'], state.instanceDir);
+    if (state.workflowTrack) {
+      _remove(editor, ['name']);
+      _remove(editor, ['port']);
+      _remove(editor, ['host']);
+      _remove(editor, ['gateway']);
+    } else {
+      _set(editor, ['name'], state.instanceName);
+      _set(editor, ['port'], state.port);
+      _set(editor, ['host'], 'localhost');
+      _set(editor, ['gateway', 'auth_mode'], state.gatewayAuthMode);
+    }
+    _set(editor, ['data_dir'], state.workflowTrack ? '.' : state.instanceDir);
     _set(editor, ['agent', 'provider'], state.provider);
     if (state.model != null && state.model!.trim().isNotEmpty) {
       _set(editor, ['agent', 'model'], state.model!.trim());
     } else {
       _remove(editor, ['agent', 'model']);
     }
-    _set(editor, ['gateway', 'auth_mode'], state.gatewayAuthMode);
-
     for (final providerId in const ['claude', 'codex']) {
       final selected = state.providers.contains(providerId);
       if (!selected) {
@@ -166,6 +181,10 @@ class SetupApply {
       created.add('$configPath (updated)');
     }
 
+    if (state.workflowTrack) {
+      return created;
+    }
+
     // --- Workspace scaffold ---
     final workspaceDir = p.join(state.instanceDir, 'workspace');
     Directory(workspaceDir).createSync(recursive: true);
@@ -177,9 +196,11 @@ class SetupApply {
       'AGENTS.md': WorkspaceService.defaultAgentsMd,
       'USER.md': WorkspaceService.defaultUserMd,
       'TOOLS.md': WorkspaceService.defaultToolsMd,
+      p.join('wiki', 'README.md'): WorkspaceService.defaultWikiReadmeMd,
     }.entries) {
       final file = File(p.join(workspaceDir, entry.key));
       if (!file.existsSync()) {
+        file.parent.createSync(recursive: true);
         file.writeAsStringSync(entry.value);
         created.add(file.path);
       }
@@ -225,6 +246,115 @@ class SetupApply {
     }
   }
 
+  /// Re-seeds ONBOARDING.md for a personalization rerun without touching curated behavior files.
+  static Future<List<String>> personalize(SetupState state) async {
+    final workspaceDir = p.join(state.instanceDir, 'workspace');
+    Directory(workspaceDir).createSync(recursive: true);
+
+    final onboardingPath = p.join(workspaceDir, 'ONBOARDING.md');
+    File(onboardingPath).writeAsStringSync(_buildOnboarding(state, personalize: true));
+    return [onboardingPath];
+  }
+
+  /// Applies accepted USER.md.draft and SOUL.md.draft files.
+  static Future<List<String>> applyDrafts(SetupState state, {required bool confirmSoulReplace}) async {
+    final workspaceDir = p.join(state.instanceDir, 'workspace');
+    final applied = <String>[];
+
+    final soulPath = p.join(workspaceDir, 'SOUL.md');
+    final soulDraftPath = '$soulPath.draft';
+    final soulDraft = File(soulDraftPath);
+
+    final userPath = p.join(workspaceDir, 'USER.md');
+    final userDraftPath = '$userPath.draft';
+    final userDraft = File(userDraftPath);
+    if (userDraft.existsSync()) {
+      final userFile = File(userPath);
+      final existing = userFile.existsSync() ? userFile.readAsStringSync() : WorkspaceService.defaultUserMd;
+      final draft = userDraft.readAsStringSync();
+      userFile.writeAsStringSync(_mergeUserSections(existing, draft));
+      userDraft.deleteSync();
+      applied.add(userPath);
+    }
+
+    if (soulDraft.existsSync() && confirmSoulReplace) {
+      File(soulPath).writeAsStringSync(soulDraft.readAsStringSync());
+      soulDraft.deleteSync();
+      applied.add(soulPath);
+    }
+
+    return applied;
+  }
+
+  static String _mergeUserSections(String existing, String draft) {
+    var merged = existing;
+    for (final section in canonicalUserSections) {
+      final draftSection = _extractSection(draft, section);
+      if (draftSection == null || draftSection.trim().isEmpty) continue;
+      merged = _replaceOrAppendSection(merged, section, draftSection.trimRight());
+    }
+    return merged.endsWith('\n') ? merged : '$merged\n';
+  }
+
+  static String? _extractSection(String content, String section) {
+    final ranges = _sectionRanges(content);
+    final range = ranges[section];
+    if (range == null) return null;
+    return content.substring(range.start, range.end).trim();
+  }
+
+  static String _replaceOrAppendSection(String content, String section, String body) {
+    final replacement = '## $section\n\n$body\n';
+    final ranges = _sectionRanges(content);
+    final range = ranges[section];
+    if (range != null) {
+      // Preserve user-added content that trails the section body but has no heading to act as a boundary.
+      // Sub-heading boundaries are already handled: _sectionRanges stops at the next heading, so content
+      // from range.end onwards is automatically preserved by replaceRange. The gap only occurs when the
+      // section is the last ## heading (range.end == content.length) and trailing content is plain text.
+      final userTail = _trailingUserContent(content, range);
+      return content.replaceRange(range.headingStart, range.end, '$replacement$userTail');
+    }
+    final separator = content.trimRight().isEmpty ? '' : '\n\n';
+    return '${content.trimRight()}$separator$replacement';
+  }
+
+  // Returns any trailing plain-text content within a section range that should be preserved when
+  // replacing the section body. Only applies to the last ## section (range.end == content.length),
+  // since for earlier sections the next heading already bounds the replacement range. Trailing content
+  // is detected as non-blank paragraphs appearing after the section's first body paragraph.
+  static String _trailingUserContent(String content, ({int headingStart, int start, int end}) range) {
+    if (range.end < content.length) return '';
+    final sectionBody = content.substring(range.start, range.end);
+    final trimmed = sectionBody.trimLeft();
+    if (trimmed.isEmpty) return '';
+    // Find the end of the first paragraph (first \n\n after actual content begins).
+    final contentStart = sectionBody.length - trimmed.length;
+    final firstParaBreak = sectionBody.indexOf('\n\n', contentStart);
+    if (firstParaBreak < 0) return '';
+    final tail = sectionBody.substring(firstParaBreak).trimLeft();
+    // Only preserve if tail is non-empty plain text (not another heading — those are handled separately).
+    if (tail.isEmpty || RegExp(r'^#{1,6}\s').hasMatch(tail)) return '';
+    return '\n$tail';
+  }
+
+  static Map<String, ({int headingStart, int start, int end})> _sectionRanges(String content) {
+    final headings = RegExp(r'^(#{1,6})\s+(.+?)\s*$', multiLine: true).allMatches(content).toList(growable: false);
+    final ranges = <String, ({int headingStart, int start, int end})>{};
+    for (var i = 0; i < headings.length; i++) {
+      final match = headings[i];
+      if (match.group(1) != '##') continue;
+      final title = match.group(2);
+      if (title == null) continue;
+      ranges[title] = (
+        headingStart: match.start,
+        start: match.end,
+        end: i + 1 < headings.length ? headings[i + 1].start : content.length,
+      );
+    }
+    return ranges;
+  }
+
   static String _credentialNameFor(String providerId) {
     return switch (providerId) {
       'codex' => 'openai',
@@ -239,7 +369,7 @@ class SetupApply {
     };
   }
 
-  static String _buildOnboarding(SetupState state) {
+  static String _buildOnboarding(SetupState state, {bool personalize = false}) {
     final buffer = StringBuffer();
     buffer.writeln('# DartClaw Onboarding');
     buffer.writeln('<!--');
@@ -254,6 +384,13 @@ class SetupApply {
     buffer.writeln('- Instance name: ${state.instanceName}');
     buffer.writeln('- Provider: ${state.provider}');
     buffer.writeln('- Port: ${state.port}');
+    if (personalize) {
+      buffer.writeln('- Rerun: true');
+      buffer.writeln('- Draft mode: write USER.md.draft and SOUL.md.draft instead of overwriting curated files');
+    } else {
+      buffer.writeln('- Rerun: false');
+      buffer.writeln('- Draft mode: first-run files may be updated directly');
+    }
     buffer.writeln();
     buffer.writeln('## Instructions for the Agent');
     buffer.writeln();
@@ -262,13 +399,18 @@ class SetupApply {
     buffer.writeln();
     buffer.writeln('1. Greet the user warmly and acknowledge this is a fresh setup.');
     buffer.writeln('2. If the user has a task, address it first, then offer to do onboarding.');
-    buffer.writeln('3. Ask about the user\'s name, how they\'d like to be addressed, timezone,');
-    buffer.writeln('   and what they mainly use this assistant for.');
-    buffer.writeln('4. Collaboratively decide on a name and personality for yourself. Update SOUL.md.');
-    buffer.writeln('5. Record user context in USER.md (identity, goals, preferences).');
-    buffer.writeln('6. When onboarding is complete, delete this file or call onboarding_complete.');
-    buffer.writeln('7. If the user says "skip" or "later", acknowledge and explain how to re-trigger');
-    buffer.writeln('   (run: dartclaw init --personalize).');
+    buffer.writeln('3. Ask only for information the user is willing to provide. Do not invent missing personal data.');
+    buffer.writeln('4. Populate USER.md using exactly these sections:');
+    buffer.writeln('   Identity, Goals, Current Challenges, Preferences, Proactivity Level, Not Relevant.');
+    buffer.writeln('5. Collaboratively decide on durable behavior and proactivity guidance for SOUL.md.');
+    buffer.writeln('6. On first run, write USER.md and SOUL.md directly. On reruns, read existing USER.md');
+    buffer.writeln('   and SOUL.md first, then write USER.md.draft and SOUL.md.draft for review.');
+    buffer.writeln('7. USER.md.draft should only update answered sections; leave unsupplied sections as');
+    buffer.writeln('   placeholders or preserve prior content.');
+    buffer.writeln('8. If the user says "skip" or "later", acknowledge the deferral and explain the rerun path:');
+    buffer.writeln('   dartclaw init --personalize.');
+    buffer.writeln('9. Drafts can be applied with dartclaw init --apply-drafts.');
+    buffer.writeln('10. When onboarding is complete, call onboarding_complete.');
     return buffer.toString();
   }
 }

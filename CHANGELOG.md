@@ -7,13 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.16.6] - 2026-05-27
+## [0.17.0] - 2026-06-04
 
-Web UI Stimulus Adoption – the browser interaction layer is now Stimulus-on-HTMX. Every page-global IIFE (`dartclaw.pages.*`) has been replaced by one Stimulus controller per surface; HTMX swap re-init is now handled by Stimulus `connect()`/`disconnect()` instead of the manual `initAfterSwapReinit()` path. Server rendering (Trellis + HTMX), CSP (`script-src` unchanged, no `unsafe-eval`), and the zero-Node toolchain are preserved – Stimulus 3.2.2 is vendored as a single `/static/stimulus.min.js` file. Milestone closed on 2026-05-26 across four stories: S01 foundation, S02 core migration, S04 special surfaces + legacy removal, S05 docs/spec sync + final UI smoke (all eight migrated surfaces verified). See `dev/specs/0.16.6/` in the private repo for the canonical PRD + plan + per-story FIS.
+Personal AI & Developer Experience – workspaces now scaffold and onboard a personalized agent, the durable knowledge loop (inbox → wiki → temporal knowledge graph) is in place, guards are editable from the UI, the SDK gains conceptual/architecture/security docs plus runnable examples, the chat composer is richer, and the workflow CLI gains a zero-friction standalone path. The milestone also hardens the workflow engine (stall detection, foreach resume, resume-aware dependency validation, and a single unified step-retry authority). Eight planned stories: S01 personalization foundation, S03 knowledge systems, S06 guard editor, S07 SDK docs phase 2, S08 chat composer, S11 milestone documentation & verification, S12 zero-friction workflow CLI, S13 WorkflowService dependency shape. See `docs/specs/0.17/prd.md` in the private repo for the canonical PRD (which also captures the post-plan workflow-engine reliability and release-hardening work as requirements).
 
 ### Added
 
-- **Stimulus runtime** vendored at `packages/dartclaw_server/lib/src/static/stimulus.min.js` (3.2.2, UMD bundle from `unpkg.com/@hotwired/stimulus@3.2.2/dist/stimulus.umd.js`) and loaded from `layout.html` with a `defer` `<script>` tag. `packages/dartclaw_server/lib/src/static/VENDORS.md` documents version and re-vendor procedure.
+- **Personalization foundation** (S01) – fresh workspaces scaffold structured `USER.md`, an updated `SOUL.md`, and `wiki/README.md`; web-only onboarding injects a personalization prompt and records `onboarding_complete`; `dartclaw init --personalize` and `--apply-drafts` drive the flow.
+- **Knowledge systems** (S03) – filesystem inbox ingestion, wiki provenance + search ranking, wiki lint categories, and temporal knowledge-graph MCP tools complete the durable knowledge loop.
+- **Guard editor** (S06) – settings expose YAML-backed guard-extension CRUD with validation, tester verdicts, pending-restart status, and admin-gated editing enforced server-side (single gateway-token admin identity; `gateway.auth_mode: none` runs as the local admin).
+- **SDK documentation phase 2** (S07) – SDK Concepts, Architecture, and Security guides link from the SDK entry points; runnable `custom_guard`, `multi_turn_cli`, and `shelf_server` examples run against local workspace packages.
+- **Chat composer** (S08) – richer composer shell with streaming stop/retry recovery, command-palette discovery, attachment chips, reference chips, and durable rich-input message metadata.
+- **Zero-friction workflow CLI** (S12) – `dartclaw init --workflow` writes a minimal standalone config, missing-standalone-config errors point to the workflow init path, and standalone workflow discovery includes `<data_dir>/workflows/`.
+
+### Changed
+
+- **WorkflowService dependency shape** (S13) – production wiring supplies typed `WorkflowPersistencePorts` and `WorkflowGitContext`; the default constructor requires persistence at compile time; lifecycle-only tests/fakes use the explicit lifecycle-only constructor.
+- **Workflow engine reliability** – stall detection, `foreach` resume, and lazy task spawn make long multi-story runs resilient to mid-flight interruption.
+- **Unified workflow step retry** – `onFailure: retry` + `maxRetries: N` now means at most `N` retries across single, `map`, and `foreach` steps (no more layer multiplication); workflow-spawned tasks opt out of task-runtime retry, repeated same-class failures short-circuit, and the built-in review steps retry transient failures instead of aborting the whole review block. Task-runtime retry is unchanged for non-workflow (channel/manual) tasks.
+- **Milestone documentation & verification** (S11) – milestone docs, public SDK/user references, wireframe deviations, and crash-recovery validation agree on the shipped 0.17 scope and the named future / pre-1.0 exclusions.
+
+### Fixed
+
+- **Resume-aware plan dependency validation** – resuming a partially-complete plan no longer fails discovery with `Unknown dependency IDs` when remaining stories depend on already-completed (`done`/`skipped`) stories; genuinely unknown dependency IDs are still rejected.
+- **Workflow one-shot Claude failures surface the real error** – a non-zero Claude one-shot exit now reports the stdout result JSON (`subtype` / `is_error` / `api_error_status` / `result`) instead of only the benign `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` stderr warning.
+
+---
+
+## [0.16.6] - 2026-05-27
+
+Web UI Stimulus Adoption – the browser interaction layer is now Stimulus-on-HTMX. Every page-global IIFE (`dartclaw.pages.*`) has been replaced by one Stimulus controller per surface; HTMX swap re-init is now handled by Stimulus `connect()`/`disconnect()` instead of the manual `initAfterSwapReinit()` path. Server rendering (Trellis + HTMX), CSP (`script-src` unchanged, no `unsafe-eval`), and the zero-Node toolchain are preserved – Stimulus 3.2.1 is vendored as a single `/static/stimulus.min.js` file. Milestone closed on 2026-05-26 across four stories: S01 foundation, S02 core migration, S04 special surfaces + legacy removal, S05 docs/spec sync + final UI smoke (all eight migrated surfaces verified). See `dev/specs/0.16.6/` in the private repo for the canonical PRD + plan + per-story FIS.
+
+### Added
+
+- **Stimulus runtime** vendored at `packages/dartclaw_server/lib/src/static/stimulus.min.js` (3.2.1, UMD bundle from `unpkg.com/@hotwired/stimulus@3.2.1/dist/stimulus.umd.js`) and loaded from `layout.html` with a `defer` `<script>` tag. `packages/dartclaw_server/lib/src/static/VENDORS.md` documents version and re-vendor procedure.
 - **Controller bootstrap** at `packages/dartclaw_server/lib/src/static/controllers/index.js` – calls `Application.start()` once and explicitly `application.register('dc-name', ControllerClass)` for every controller. No lazy/autoloader registration; available controllers are auditable in one file. The `Application` instance is exposed as `window.dartclaw.stimulus` for DevTools (`Stimulus.debug = true`).
 - **Controller conventions** at `packages/dartclaw_server/lib/src/static/controllers/CONVENTIONS.md` – locks the `dc-*` identifier prefix, `dc_*_controller.js` filename pattern, explicit `application.register()`, template attribute family (`data-controller`, `data-action="event->dc-name#method"`, `data-dc-name-target`, `data-dc-name-*-value`), Stimulus `connect()`/`disconnect()` lifecycle (replaces `runPageHook` / `initAfterSwapReinit`), and Trellis (`tl:attr`) integration patterns.
 - **14 Stimulus controllers** under `packages/dartclaw_server/lib/src/static/controllers/` covering every page surface with JS behaviour: `dc-shell` (global shell), `dc-chat`, `dc-tasks`, `dc-workflows`, `dc-projects`, `dc-settings`, `dc-scheduling`, `dc-memory`, `dc-health`, `dc-channel-detail`, `dc-whatsapp`, `dc-canvas-admin`, `dc-toast`, plus the `dc-hello` proof-of-concept that validated the connect/disconnect contract across load, HTMX swap, and removal.
@@ -64,7 +91,7 @@ Stabilisation & Hardening – consolidation sprint with zero new user-facing fea
 
 ### Changed
 
-- **Architecture / boundaries**: promoted the `WorkflowRunRepository` interface to `dartclaw_core`, removed the `dartclaw_workflow` production dependency on `dartclaw_storage`, and retyped `TaskExecutor`'s workflow-run repository dependency to the abstract interface (closes ADX-01)
+- **Architecture / boundaries**: kept the `WorkflowRunRepository` interface in `dartclaw_workflow`, removed the `dartclaw_workflow` production dependency on `dartclaw_storage`, and retyped `TaskExecutor`'s workflow-run repository dependency to the abstract interface (closes ADX-01)
 - **Governance ratchet**: raised `dev/tools/arch_check.dart` barrel export ceiling from 80 to 82 – +1 for `WorkflowRunRepository` (S12), +1 for `WorkflowTaskBindingCoordinator` (S33)
 - **Workflow API surface**: narrowed `dartclaw_workflow` public exports so every `export 'src/...'` in `dartclaw_workflow.dart` now uses explicit `show` clauses, and removed test-only helper exports from the public barrel (`DependencyGraph`, `MapStepContext`, `parseDuration`, `extractJson`, `extractLines`, `shellEscape`, `WorkflowTemplateEngine`)
 - **Process environment plan canonical types** (S32): `InlineProcessEnvironmentPlan` and `EmptyProcessEnvironmentPlan` are now public in `dartclaw_security` (`lib/src/process/inline_process_environment_plan.dart`), and `buildRemoteOverrideArgs` is a top-level helper in `packages/dartclaw_server/lib/src/task/git_credential_env.dart`. The two duplicated `_InlineProcessEnvironmentPlan` private adapters in `project_service_impl.dart` and `remote_push_service.dart` and their paired `_buildRemoteOverrideArgs` private methods are deleted; `GitCredentialPlan` (credential-carrying impl) stays in `dartclaw_server`

@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-/// Resolves the built-in workflow skills source tree.
-class WorkflowSkillSourceResolver {
-  const WorkflowSkillSourceResolver._();
+/// Resolves the built-in workflow asset source tree.
+class WorkflowAssetSourceResolver {
+  const WorkflowAssetSourceResolver._();
 
   /// Finds `packages/dartclaw_workflow/skills` in source checkouts and
   /// deterministic installed layouts.

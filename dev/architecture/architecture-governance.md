@@ -3,7 +3,7 @@
 Canonical reference for how DartClaw keeps package boundaries and structural
 constraints from drifting after a milestone ships.
 
-**Current through**: 0.16.4
+**Current through**: 0.17
 
 ---
 
@@ -57,7 +57,7 @@ tests. It is a boundary-governance layer that complements them.
 
 ## Current Fitness Functions
 
-[`arch_check.dart`](../../../dartclaw-public/dev/tools/arch_check.dart) enforces six
+[`arch_check.dart`](../../../dartclaw-public/dev/tools/arch_check.dart) enforces seven
 checks:
 
 ### L1: Fast Structural Boundaries
@@ -73,16 +73,24 @@ checks:
    Protects package public APIs and prevents boundary erosion through private
    internals.
 
+4. Claude provider option ownership
+   Keeps direct `inherit_user_settings` lookups centralized in `dartclaw_config`
+   instead of re-parsing provider options ad hoc.
+
 ### L2: Shape Constraints
 
-4. `dartclaw_core` LOC ceiling
+5. `dartclaw_core` LOC ceiling
    Guards against the core package returning to a god-module shape.
 
-5. Barrel export ceiling
+6. Barrel export ceiling
    Prevents public API surfaces from growing without deliberate review.
 
-6. Workspace package-count ceiling
+7. Workspace package-count ceiling
    Prevents premature decomposition and pubspec sprawl.
+
+`dev/tools/fitness/run_all.sh` is the broader CI fitness-suite entry point. It
+adds the workflow-private-config and task-executor boundary scripts plus the Dart
+fitness tests under `packages/dartclaw_testing/test/fitness/`.
 
 ## Current Thresholds
 
@@ -91,8 +99,8 @@ intent should remain documented here:
 
 | Constraint | Current value | Why it exists |
 |---|---:|---|
-| `dartclaw_core` LOC ceiling | `<= 12000` | Preserve a lightweight runtime core |
-| Barrel export ceiling | `<= 80` | Keep public package surfaces reviewable |
+| `dartclaw_core` LOC ceiling | `<= 12500` | Preserve a lightweight runtime core |
+| Barrel export ceiling | `<= 94` | Keep public package surfaces reviewable |
 | Workspace package count | `<= 14` | Avoid package proliferation without real need |
 
 If these thresholds change, update both this document and the script in the
@@ -187,4 +195,3 @@ useful, but not required for the governance model to be valid.
 - [Workflow Architecture](workflow-architecture.md)
 - [ADR-014: SDK Package Decomposition Strategy](../adrs/014-sdk-package-decomposition.md)
 - [ADR-020: Package Decomposition Phase 2](../adrs/020-package-decomposition-phase-2.md)
-- [Public Architecture Governance Guide](../../../dartclaw-public/dev/architecture-governance.md)

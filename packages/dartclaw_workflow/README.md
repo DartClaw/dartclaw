@@ -1,6 +1,6 @@
 # dartclaw_workflow
 
-Workflow control plane for the DartClaw agent runtime — YAML parsing, validation, registry, and execution.
+Workflow control plane for the DartClaw agent runtime — YAML parsing, validation, runtime skill preflight, registry, and execution.
 
 `dartclaw_workflow` owns the full lifecycle of declarative multi-step workflows: loading built-in and custom
 YAML definitions, validating their structure, executing steps (sequential, parallel, loop, foreach), managing
@@ -41,7 +41,7 @@ final found = registry.getByName('my-workflow');
 - `WorkflowDefinitionParser` — parses YAML workflow definitions into typed `WorkflowDefinition` models.
 - `WorkflowDefinitionValidator` — validates parsed definitions against structural and constraint rules.
 - `WorkflowRegistry` — manages available workflow definitions (built-in + custom); lookup by name.
-- `SkillRegistry` — provider-aware canonical skill reference resolution.
+- `SkillIntrospector` — probes the configured provider CLI for runtime-visible skill references before execution.
 - `SkillProvisioner` — copies DC-native skills into data-dir provider skill roots.
 - `WorkflowDefinition` — typed model for a workflow: name, description, variables, and ordered steps.
 - `WorkflowStep` — atomic unit of work within a workflow (types: `agent`, `bash`, `approval`, `foreach`, `loop`).

@@ -243,6 +243,59 @@ void main() {
       expect(harness.state, WorkerState.idle);
     });
 
+    test('stop-induced exit while busy does not increase crash backoff', () async {
+      final firstProcess = FakeCodexProcess(completeExitOnKill: true);
+      final secondProcess = FakeCodexProcess();
+      final thirdProcess = FakeCodexProcess();
+      final delays = <Duration>[];
+      final processes = <FakeCodexProcess>[firstProcess, secondProcess, thirdProcess];
+      var spawnIndex = 0;
+      final harness = _buildHarness(
+        processFactory: () => processes[spawnIndex++],
+        delayFactory: (duration) async {
+          delays.add(duration);
+        },
+      );
+      addTearDown(() async => harness.dispose());
+
+      await startHarness(harness, firstProcess);
+      final stoppedTurn = harness.turn(
+        sessionId: 'sess-stop',
+        messages: [
+          {'role': 'user', 'content': 'stop while busy'},
+        ],
+        systemPrompt: 'test',
+      );
+      await respondToLatestThreadStart(firstProcess, threadId: 'thread-stop');
+      firstProcess.emitTurnStarted();
+
+      final stoppedTurnExpectation = expectLater(stoppedTurn, throwsA(isA<StateError>()));
+      await harness.stop();
+      await stoppedTurnExpectation;
+      expect(harness.state, WorkerState.stopped);
+
+      await startHarness(harness, secondProcess);
+      secondProcess.exit(1);
+      await pumpEventLoop();
+      expect(harness.state, WorkerState.crashed);
+
+      final recoveryTurn = harness.turn(
+        sessionId: 'sess-stop',
+        messages: [
+          {'role': 'user', 'content': 'recover after one real crash'},
+        ],
+        systemPrompt: 'test',
+      );
+      await waitForSentMessage(thirdProcess, 'initialize');
+      thirdProcess.emitInitializeResponse(id: latestRequestId(thirdProcess, 'initialize'));
+      await respondToLatestThreadStart(thirdProcess, threadId: 'thread-after-stop');
+      thirdProcess.emitTurnStarted();
+      thirdProcess.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+
+      await recoveryTurn;
+      expect(delays.where((duration) => duration >= const Duration(seconds: 1)), [const Duration(seconds: 5)]);
+    });
+
     test('CodexHarness reports capability defaults', () {
       final harness = CodexHarness(cwd: '/tmp');
       final dynamic dynamicHarness = harness;

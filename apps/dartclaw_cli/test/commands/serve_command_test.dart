@@ -444,7 +444,7 @@ channels:
 
       await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
 
-      final response = await capturedHandler(Request('GET', Uri.parse('http://localhost/static/app.js')));
+      final response = await capturedHandler(Request('GET', Uri.parse('http://localhost/static/sse.js')));
       expect(response.statusCode, 200);
       expect(response.headers['cache-control'], 'public, max-age=86400');
     });

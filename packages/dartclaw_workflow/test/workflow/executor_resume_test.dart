@@ -63,7 +63,7 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
 
-    test('workflow waits through single task retry before applying workflow retry', () async {
+    test('workflow retry creates a fresh workflow task instead of relying on task-runtime retry', () async {
       final definition = h.makeDefinition(
         steps: [
           const WorkflowStep(
@@ -89,10 +89,7 @@ void main() {
         taskIds.add(e.taskId);
         queueCount++;
         if (queueCount == 1) {
-          await h.taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
-          await h.taskService.updateFields(e.taskId, retryCount: 1);
-          await h.taskService.transition(e.taskId, TaskStatus.failed, trigger: 'retry-in-progress');
-          await h.taskService.transition(e.taskId, TaskStatus.queued, trigger: 'retry');
+          await h.completeTask(e.taskId, status: TaskStatus.failed);
         } else {
           await h.completeTask(e.taskId);
         }
@@ -102,7 +99,7 @@ void main() {
       await sub.cancel();
 
       expect(queueCount, equals(2));
-      expect(taskIds.toSet(), hasLength(1), reason: 'task-level retry must not spawn a duplicate workflow step task');
+      expect(taskIds.toSet(), hasLength(2), reason: 'workflow retry dispatches a new workflow-owned task attempt');
       final finalRun = await h.repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });

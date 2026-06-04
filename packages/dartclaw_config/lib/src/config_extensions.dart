@@ -11,6 +11,10 @@ void _registerExtensionParser(String name, Object Function(Map<String, dynamic> 
 
 void _clearExtensionParsers() => _extensionParsers.clear();
 
+Set<String> _registeredExtensionKeys() => Set<String>.unmodifiable(_extensionParsers.keys);
+
+Set<String> _knownConfigKeys() => Set<String>.unmodifiable(_knownKeys);
+
 Map<String, Object?> _parseExtensions(Map<String, dynamic> yaml, List<String> warns) {
   final extensions = <String, Object?>{};
   for (final key in yaml.keys) {

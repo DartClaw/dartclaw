@@ -2,12 +2,16 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/canvas/canvas_service.dart';
 import 'package:dartclaw_server/src/canvas/canvas_tool_handler.dart';
 import 'package:dartclaw_server/src/mcp/brave_search_tool.dart';
+import 'package:dartclaw_server/src/mcp/kg_tools.dart';
 import 'package:dartclaw_server/src/mcp/memory_tools.dart';
+import 'package:dartclaw_server/src/mcp/onboarding_complete_tool.dart';
 import 'package:dartclaw_server/src/mcp/search_provider.dart';
 import 'package:dartclaw_server/src/mcp/sessions_send_tool.dart';
 import 'package:dartclaw_server/src/mcp/sessions_spawn_tool.dart';
 import 'package:dartclaw_server/src/mcp/tavily_search_tool.dart';
 import 'package:dartclaw_server/src/mcp/web_fetch_tool.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 /// Minimal [SearchProvider] stub for tool instantiation.
@@ -24,6 +28,9 @@ SessionDelegate _stubDelegate() => SessionDelegate(
 
 void main() {
   group('MCP tool schema compliance — additionalProperties: false', () {
+    final kgDb = sqlite3.openInMemory();
+    final kg = TemporalKnowledgeGraphService(kgDb);
+
     /// Verifies that an object-type tool inputSchema has additionalProperties: false.
     void expectCompliant(McpTool tool) {
       final schema = tool.inputSchema;
@@ -42,6 +49,8 @@ void main() {
 
     test('MemoryReadTool', () => expectCompliant(MemoryReadTool(handler: (args) async => {})));
 
+    test('OnboardingCompleteTool', () => expectCompliant(OnboardingCompleteTool(workspaceDir: '/tmp')));
+
     test('WebFetchTool', () => expectCompliant(WebFetchTool()));
 
     test('BraveSearchTool', () => expectCompliant(BraveSearchTool(provider: _StubSearchProvider())));
@@ -56,17 +65,31 @@ void main() {
       expectCompliant(CanvasTool(canvasService: CanvasService(), sessionKey: 'test-session'));
     });
 
-    test('all 9 registered object-type tools have additionalProperties: false (regression guard)', () {
+    test('KG tools', () {
+      expectCompliant(KgAddTool(kg: kg));
+      expectCompliant(KgQueryTool(kg: kg));
+      expectCompliant(KgTimelineTool(kg: kg));
+      expectCompliant(KgInvalidateTool(kg: kg));
+      expectCompliant(KgContradictionsTool(kg: kg));
+    });
+
+    test('all registered object-type tools have additionalProperties: false (regression guard)', () {
       final tools = <McpTool>[
         MemorySaveTool(handler: (args) async => {}),
         MemorySearchTool(handler: (args) async => {}),
         MemoryReadTool(handler: (args) async => {}),
+        OnboardingCompleteTool(workspaceDir: '/tmp'),
         WebFetchTool(),
         BraveSearchTool(provider: _StubSearchProvider()),
         TavilySearchTool(provider: _StubSearchProvider()),
         SessionsSpawnTool(delegate: _stubDelegate()),
         SessionsSendTool(delegate: _stubDelegate()),
         CanvasTool(canvasService: CanvasService(), sessionKey: 'test-session'),
+        KgAddTool(kg: kg),
+        KgQueryTool(kg: kg),
+        KgTimelineTool(kg: kg),
+        KgInvalidateTool(kg: kg),
+        KgContradictionsTool(kg: kg),
       ];
 
       for (final tool in tools) {

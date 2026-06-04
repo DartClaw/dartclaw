@@ -44,7 +44,7 @@ class TaskExecutor {
     required TaskExecutorServices services,
     required TaskExecutorRunners runners,
     TaskExecutorLimits limits = const TaskExecutorLimits(),
-    Future<void> Function()? onSpawnNeeded,
+    SpawnTaskRunner? onSpawnNeeded,
     Future<void> Function(String taskId)? onAutoAccept,
     String? workspaceRoot,
     String? dataDir,
@@ -74,6 +74,9 @@ class TaskExecutor {
        _identifierInstructions = limits.identifierInstructions,
        _kv = services.kvService,
        _budgetConfig = limits.budgetConfig,
+       _defaultProviderId = limits.defaultProviderId,
+       _stallTimeout = limits.stallTimeout,
+       _stallAction = limits.stallAction,
        _eventBus = services.eventBus,
        _dataDir = dataDir;
 
@@ -95,7 +98,7 @@ class TaskExecutor {
   final WorkflowCliRunner? _workflowCliRunner;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
   final WorkflowRunRepository? _workflowRunRepository;
-  final Future<void> Function()? _onSpawnNeeded;
+  final SpawnTaskRunner? _onSpawnNeeded;
   final Future<void> Function(String taskId)? _onAutoAccept;
   final ProjectService? _projectService;
   final String? _workspaceRoot;
@@ -105,6 +108,9 @@ class TaskExecutor {
   final String? _identifierInstructions;
   final KvService? _kv;
   final TaskBudgetConfig? _budgetConfig;
+  final String? _defaultProviderId;
+  final Duration _stallTimeout;
+  final TurnProgressAction _stallAction;
   final EventBus? _eventBus;
   final String? _dataDir;
   final Duration pollInterval;
@@ -187,13 +193,21 @@ class TaskExecutor {
       final queued = await _tasks.list(status: TaskStatus.queued);
       if (queued.isEmpty) return false;
 
-      _runnerPoolCoordinator.triggerSpawnIfNeeded();
-
       queued.sort((a, b) {
         final createdAtCompare = a.createdAt.compareTo(b.createdAt);
         if (createdAtCompare != 0) return createdAtCompare;
         return a.id.compareTo(b.id);
       });
+
+      String? requestedProviderId;
+      for (final task in queued) {
+        final effectiveProviderId = _effectivePoolProviderForTask(task);
+        if (effectiveProviderId != null) {
+          requestedProviderId = effectiveProviderId;
+          break;
+        }
+      }
+      _runnerPoolCoordinator.triggerSpawnIfNeeded(requestedProviderId);
 
       var didWork = false;
       for (final task in queued) {
@@ -207,7 +221,10 @@ class TaskExecutor {
         }
 
         final profile = resolveProfile(task.type);
-        final runner = _runnerPoolCoordinator.acquireRunnerForTask(task, profile) as TurnRunner?;
+        final effectiveProviderId = _effectivePoolProviderForTask(task);
+        final runner =
+            _runnerPoolCoordinator.acquireRunnerForTask(task, profile, effectiveProviderId: effectiveProviderId)
+                as TurnRunner?;
         if (runner == null) {
           continue;
         }
@@ -268,6 +285,16 @@ class TaskExecutor {
     }
 
     return didWork;
+  }
+
+  String? _effectivePoolProviderForTask(Task task) {
+    final provider = task.provider;
+    if (provider != null && provider.trim().isNotEmpty) return provider;
+    if (_isWorkflowOrchestrated(task)) {
+      final defaultProvider = _defaultProviderId;
+      if (defaultProvider != null && defaultProvider.trim().isNotEmpty) return defaultProvider;
+    }
+    return null;
   }
 
   /// Shared task execution logic for both pool-mode and single-harness paths.
@@ -506,11 +533,15 @@ class TaskExecutor {
       }
 
       if (_isWorkflowOrchestrated(task)) {
+        final workflowProvider = task.provider ?? _defaultProviderId;
+        if (workflowProvider == null || workflowProvider.trim().isEmpty) {
+          throw StateError('Workflow one-shot task ${task.id} has no provider and no configured default provider');
+        }
         final outcome = await _workflowOneShotRunner.execute(
           task,
           sessionId: session.id,
           pendingMessage: pendingMessage,
-          provider: provider ?? task.provider ?? 'claude',
+          provider: workflowProvider,
           profileId: runnerProfileId ?? resolveProfile(task.type),
           workingDirectory: worktreeInfo?.path ?? projectDirForTask,
           modelOverride: modelOverride,
@@ -518,6 +549,8 @@ class TaskExecutor {
           allowedTools: _allowedTools(task),
           readOnly: _isReadOnlyTask(task),
           sandboxOverride: null,
+          stallTimeout: _stallTimeout,
+          stallAction: _stallAction,
         );
         _observer?.recordTurn(
           runnerIndex,

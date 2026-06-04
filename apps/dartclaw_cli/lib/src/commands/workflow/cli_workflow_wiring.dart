@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show CredentialRegistry, DartclawConfig, ProviderIdentity;
+import 'package:dartclaw_config/dartclaw_config.dart' show CredentialRegistry, DartclawConfig;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         ArtifactKind,
@@ -11,8 +11,10 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         KvService,
         MessageService,
         SessionService,
-        Task;
-import 'package:dartclaw_security/dartclaw_security.dart' show SafeProcess, normalizeGitRefOperand;
+        Task,
+        claudeHardeningEnvVars;
+import 'package:dartclaw_security/dartclaw_security.dart'
+    show SafeProcess, defaultSensitivePatterns, normalizeGitRefOperand;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
         AssetResolver,
@@ -40,10 +42,11 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
-        SkillRegistryImpl,
+        CliSkillIntrospector,
         ProcessRunner,
         WorkspaceSkillInventory,
         WorkspaceSkillLinker,
+        SkillIntrospector,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRegistry,
@@ -52,9 +55,13 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowSource,
         WorkflowStepOutputTransformer,
         WorkflowService,
+        WorkflowGitContext,
         WorkflowGitIntegrationBranchResult,
+        WorkflowPersistencePorts,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
+        WorkflowServiceOptions,
+        WorkflowSkillPreflightConfig,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
@@ -75,12 +82,13 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' show Database;
 
 import '../workflow_materializer.dart';
-import '../workflow_skill_source_resolver.dart';
+import '../workflow_asset_source_resolver.dart';
 import 'andthen_skill_bootstrap.dart';
 import 'credential_preflight.dart';
 import 'project_definition_paths.dart';
 import 'workflow_git_support.dart';
 import 'workflow_local_path_preflight.dart';
+import 'workflow_skill_preflight_config.dart';
 
 part 'cli_workflow_wiring_adapter.dart';
 part 'cli_workflow_wiring_git.dart';
@@ -135,6 +143,7 @@ class CliWorkflowWiring {
   final WorkflowStepOutputTransformer? workflowStepOutputTransformer;
   final bool runAndthenSkillsBootstrap;
   final ProcessRunner? skillProvisionerProcessRunner;
+  final SkillIntrospector? skillIntrospector;
   final RemotePushService? remotePushServiceOverride;
 
   /// When true, the live source tree wins over the installed asset cache for
@@ -159,7 +168,6 @@ class CliWorkflowWiring {
   late final HarnessPool pool;
   late final TaskExecutor taskExecutor;
   late final TaskCancellationSubscriber taskCancellationSubscriber;
-  late final SkillRegistryImpl skillRegistry;
   late final WorkflowRegistry registry;
   late final WorkflowService workflowService;
   late final WorkflowCliRunner workflowCliRunner;
@@ -182,6 +190,7 @@ class CliWorkflowWiring {
     this.workflowStepOutputTransformer,
     this.runAndthenSkillsBootstrap = true,
     this.skillProvisionerProcessRunner,
+    this.skillIntrospector,
     this.remotePushServiceOverride,
     this.prCreator,
     this.preferSourceTreeAssets = false,
@@ -227,10 +236,9 @@ class CliWorkflowWiring {
     }
     eventBus = EventBus();
     final workspaceSkillLinker = WorkspaceSkillLinker();
-    final projectDirs = workflowSkillProjectDirs(config, fallbackCwd: runtimeCwd);
     final resolvedAssets = assetResolver.resolve();
     final assetSkillsDir = resolvedAssets?.skillsDir;
-    final sourceSkillsDir = WorkflowSkillSourceResolver.resolveBuiltInSkillsSourceDir();
+    final sourceSkillsDir = WorkflowAssetSourceResolver.resolveBuiltInSkillsSourceDir();
     final builtInSkillsSourceDir = preferSourceTreeAssets
         ? (sourceSkillsDir ?? assetSkillsDir)
         : (assetSkillsDir ?? sourceSkillsDir);
@@ -244,19 +252,6 @@ class CliWorkflowWiring {
         processRunner: skillProvisionerProcessRunner,
       );
     }
-    final dataDirSkillRoots = workflowDataDirSkillRoots(dataDir);
-    final userSkillRoots = workflowOptionalUserSkillRoots(environment);
-    skillRegistry = SkillRegistryImpl();
-    skillRegistry.discover(
-      projectDirs: projectDirs,
-      workspaceDir: config.workspaceDir,
-      dataDir: dataDir,
-      builtInSkillsDir: builtInSkillsSourceDir,
-      dataDirClaudeSkillsDir: dataDirSkillRoots.claudeSkillsDir,
-      dataDirAgentsSkillsDir: dataDirSkillRoots.agentsSkillsDir,
-      userClaudeSkillsDir: userSkillRoots?.claudeSkillsDir,
-      userAgentsSkillsDir: userSkillRoots?.agentsSkillsDir,
-    );
     _credentialRegistry = CredentialRegistry(credentials: config.credentials, env: environment);
     _harnessConfig = HarnessConfig(
       maxTurns: config.agent.maxTurns,
@@ -341,6 +336,7 @@ class CliWorkflowWiring {
     behavior = BehaviorFileService(
       workspaceDir: config.workspaceDir,
       maxMemoryBytes: config.memory.maxBytes,
+      onboardingExpiryDays: config.onboarding.expiryDays,
       compactInstructions: config.context.compactInstructions,
       identifierPreservation: config.context.identifierPreservation,
       identifierInstructions: config.context.identifierInstructions,
@@ -421,6 +417,9 @@ class CliWorkflowWiring {
         identifierPreservation: config.context.identifierPreservation,
         identifierInstructions: config.context.identifierInstructions,
         budgetConfig: config.tasks.budget,
+        defaultProviderId: config.agent.provider,
+        stallTimeout: config.governance.turnProgress.stallTimeout,
+        stallAction: config.governance.turnProgress.stallAction,
       ),
       dataDir: dataDir,
       workspaceRoot: config.workspaceDir,
@@ -454,29 +453,44 @@ class CliWorkflowWiring {
     );
   }
 
+  WorkflowSkillPreflightConfig _buildSkillPreflightConfig() {
+    return buildWorkflowSkillPreflightConfig(config);
+  }
+
   Future<void> _wireWorkflowService(_CliWorkflowWiringCtx ctx, _TaskHandles taskHandles) async {
     final workflowRoleDefaults = _buildWorkflowRoleDefaults();
     workflowService = WorkflowService(
       repository: taskHandles.workflowRunRepository,
       taskService: taskService,
       messageService: messageService,
-      bashStepEnvAllowlist: config.security.bashStep.envAllowlist,
-      bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
-      taskRepository: taskHandles.taskRepository,
-      agentExecutionRepository: taskHandles.agentExecutionRepository,
-      workflowStepExecutionRepository: taskHandles.workflowStepExecutionRepository,
-      executionRepositoryTransactor: taskHandles.executionRepositoryTransactor,
-      projectService: projectService,
-      workflowGitPort: WorkflowGitPortProcess(worktreeManager: worktreeManager),
-      roleDefaults: workflowRoleDefaults,
-      structuredOutputFallbackRecorder: taskHandles.taskEventRecorder.recordStructuredOutputFallbackUsed,
-      skillRegistry: skillRegistry,
-      hydrateWorkflowWorktreeBinding: taskExecutor.hydrateWorkflowSharedWorktreeBinding,
+      persistencePorts: WorkflowPersistencePorts(
+        taskRepository: taskHandles.taskRepository,
+        agentExecutionRepository: taskHandles.agentExecutionRepository,
+        workflowStepExecutionRepository: taskHandles.workflowStepExecutionRepository,
+        executionRepositoryTransactor: taskHandles.executionRepositoryTransactor,
+      ),
+      gitContext: WorkflowGitContext(
+        gitPort: WorkflowGitPortProcess(worktreeManager: worktreeManager),
+        projectService: projectService,
+        hydrateBinding: taskExecutor.hydrateWorkflowSharedWorktreeBinding,
+      ),
+      options: WorkflowServiceOptions(
+        bashStepEnvAllowlist: config.security.bashStep.envAllowlist,
+        bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
+        roleDefaults: workflowRoleDefaults,
+        structuredOutputFallbackRecorder: taskHandles.taskEventRecorder.recordStructuredOutputFallbackUsed,
+        skillIntrospector:
+            skillIntrospector ??
+            CliSkillIntrospector(
+              environmentForProvider: (providerId) => _providerEnvironment(providerId, _credentialRegistry),
+            ),
+        skillPreflightConfig: _buildSkillPreflightConfig(),
+        outputTransformer: workflowStepOutputTransformer,
+      ),
       turnAdapter: _buildWorkflowTurnAdapter(this, ctx),
       eventBus: eventBus,
       kvService: kvService,
       dataDir: dataDir,
-      outputTransformer: workflowStepOutputTransformer,
     );
   }
 
@@ -491,7 +505,6 @@ class CliWorkflowWiring {
       validator: WorkflowDefinitionValidator(roleDefaults: workflowRoleDefaults),
       continuityProviders: continuityProviders,
     );
-    registry.skillRegistry = skillRegistry;
     await WorkflowMaterializer.materialize(
       dataDir: dataDir,
       assetResolver: assetResolver,
@@ -499,6 +512,7 @@ class CliWorkflowWiring {
     );
     await registry.loadFromDirectory(WorkflowMaterializer.builtInDir(dataDir), source: WorkflowSource.materialized);
     await registry.loadFromDirectory(WorkflowMaterializer.customDir(dataDir));
+    await registry.loadFromDirectory(p.join(dataDir, 'workflows'));
     for (final projectDef in config.projects.definitions.values) {
       await registry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
     }
@@ -506,6 +520,7 @@ class CliWorkflowWiring {
 
   /// Tears down all services in reverse construction order.
   Future<void> dispose() async {
+    await workflowCliRunner.cancelInflight();
     await workflowService.dispose();
     await taskExecutor.stop();
     await _cleanupTrackedWorkflowGit(this);

@@ -17,6 +17,7 @@ SetupState _state({
   List<String>? providers,
   Map<String, String>? providerAuthMethods,
   Map<String, String>? providerModels,
+  bool workflowTrack = false,
 }) {
   return SetupState(
     instanceName: instanceName,
@@ -29,6 +30,7 @@ SetupState _state({
     providerModels: providerModels,
     port: port,
     gatewayAuthMode: gatewayAuthMode,
+    workflowTrack: workflowTrack,
   );
 }
 
@@ -56,6 +58,14 @@ void main() {
       expect(yaml['agent']['provider'], 'claude');
       expect(yaml['agent']['model'], 'sonnet');
       expect(yaml['data_dir'], tempDir.path);
+    });
+
+    test('workflow track keeps data_dir relative to the config folder', () async {
+      await SetupApply.apply(_state(instanceDir: tempDir.path, workflowTrack: true));
+
+      final yaml = loadYaml(File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync()) as Map;
+      expect(yaml['data_dir'], '.');
+      expect(File(p.join(tempDir.path, '.dartclaw-workflow-config')).existsSync(), isFalse);
     });
 
     test('writes per-provider config and indirect credentials', () async {
@@ -188,7 +198,167 @@ void main() {
       expect(Directory(p.join(tempDir.path, 'workspace')).existsSync(), isTrue);
       expect(File(p.join(tempDir.path, 'workspace', 'AGENTS.md')).existsSync(), isTrue);
       expect(File(p.join(tempDir.path, 'workspace', 'ONBOARDING.md')).existsSync(), isTrue);
+      expect(File(p.join(tempDir.path, 'workspace', 'wiki', 'README.md')).existsSync(), isTrue);
       expect(created.where((path) => path.endsWith('AGENTS.md')), isEmpty);
+    });
+
+    test('onboarding template names structured USER sections, rerun command, and draft semantics', () async {
+      await SetupApply.apply(state);
+
+      final onboarding = File(p.join(tempDir.path, 'workspace', 'ONBOARDING.md')).readAsStringSync();
+      for (final section in SetupApply.canonicalUserSections) {
+        expect(onboarding, contains(section));
+      }
+      expect(onboarding, contains('dartclaw init --personalize'));
+      expect(onboarding, contains('skip'));
+      expect(onboarding, contains('later'));
+      expect(onboarding, contains('.draft'));
+    });
+
+    test('personalize re-seeds onboarding without overwriting curated behavior files', () async {
+      await SetupApply.apply(state);
+      final userFile = File(p.join(tempDir.path, 'workspace', 'USER.md'))..writeAsStringSync('curated user');
+      final soulFile = File(p.join(tempDir.path, 'workspace', 'SOUL.md'))..writeAsStringSync('curated soul');
+      File(p.join(tempDir.path, 'workspace', 'ONBOARDING.md')).deleteSync();
+
+      await SetupApply.personalize(state);
+
+      expect(userFile.readAsStringSync(), 'curated user');
+      expect(soulFile.readAsStringSync(), 'curated soul');
+      final onboarding = File(p.join(tempDir.path, 'workspace', 'ONBOARDING.md')).readAsStringSync();
+      expect(onboarding, contains('Rerun: true'));
+      expect(onboarding, contains('USER.md.draft'));
+      expect(onboarding, contains('SOUL.md.draft'));
+    });
+
+    test('applyDrafts merges canonical USER sections and replaces SOUL after confirmation', () async {
+      await SetupApply.apply(state);
+      final workspace = p.join(tempDir.path, 'workspace');
+      File(p.join(workspace, 'USER.md')).writeAsStringSync('''
+# User Context
+
+## Identity
+
+Existing identity
+
+## Goals
+
+Existing goal
+
+### Personal notes
+
+Freeform footer
+''');
+      File(p.join(workspace, 'USER.md.draft')).writeAsStringSync('''
+# User Context
+
+## Identity
+
+Updated identity
+
+## Goals
+
+Updated goal
+
+## Preferences
+
+Concise answers
+''');
+      File(p.join(workspace, 'SOUL.md.draft')).writeAsStringSync('New soul\n');
+
+      final applied = await SetupApply.applyDrafts(state, confirmSoulReplace: true);
+
+      expect(applied, contains(p.join(workspace, 'USER.md')));
+      expect(applied, contains(p.join(workspace, 'SOUL.md')));
+      final user = File(p.join(workspace, 'USER.md')).readAsStringSync();
+      expect(user, contains('Updated identity'));
+      expect(user, contains('Updated goal'));
+      expect(user, isNot(contains('Existing goal')));
+      expect(user, contains('Concise answers'));
+      expect(user, contains('### Personal notes'));
+      expect(user, contains('Freeform footer'));
+      expect(File(p.join(workspace, 'SOUL.md')).readAsStringSync(), 'New soul\n');
+      expect(File(p.join(workspace, 'USER.md.draft')).existsSync(), isFalse);
+      expect(File(p.join(workspace, 'SOUL.md.draft')).existsSync(), isFalse);
+    });
+
+    test('applyDrafts applies USER and skips SOUL without explicit confirmation', () async {
+      await SetupApply.apply(state);
+      final workspace = p.join(tempDir.path, 'workspace');
+      File(p.join(workspace, 'USER.md')).writeAsStringSync('# User Context\n\n## Identity\n\nOld\n');
+      File(p.join(workspace, 'USER.md.draft')).writeAsStringSync('# User Context\n\n## Identity\n\nNew\n');
+      File(p.join(workspace, 'SOUL.md')).writeAsStringSync('Curated soul\n');
+      File(p.join(workspace, 'SOUL.md.draft')).writeAsStringSync('New soul\n');
+
+      final applied = await SetupApply.applyDrafts(state, confirmSoulReplace: false);
+
+      expect(applied, [p.join(workspace, 'USER.md')]);
+      expect(File(p.join(workspace, 'USER.md')).readAsStringSync(), contains('New'));
+      expect(File(p.join(workspace, 'USER.md.draft')).existsSync(), isFalse);
+      expect(File(p.join(workspace, 'SOUL.md')).readAsStringSync(), 'Curated soul\n');
+      expect(File(p.join(workspace, 'SOUL.md.draft')).existsSync(), isTrue);
+    });
+
+    test('applyDrafts preserves trailing freeform content after the last canonical section', () async {
+      await SetupApply.apply(state);
+      final workspace = p.join(tempDir.path, 'workspace');
+      // Preferences is the last canonical ## section present; plain-text footer follows with no heading.
+      File(p.join(workspace, 'USER.md')).writeAsStringSync('''
+# User Context
+
+## Identity
+
+Existing identity
+
+## Preferences
+
+Existing preference
+
+My personal notes added by the user, no heading
+''');
+      File(p.join(workspace, 'USER.md.draft')).writeAsStringSync('''
+# User Context
+
+## Identity
+
+Updated identity
+
+## Preferences
+
+New preference
+''');
+
+      await SetupApply.applyDrafts(state, confirmSoulReplace: false);
+
+      final user = File(p.join(workspace, 'USER.md')).readAsStringSync();
+      expect(user, contains('Updated identity'));
+      expect(user, contains('New preference'));
+      expect(user, isNot(contains('Existing preference')));
+      // Trailing user content must survive the update of the last canonical section.
+      expect(user, contains('My personal notes added by the user, no heading'));
+    });
+
+    test('workflow track writes minimal config and skips server scaffold', () async {
+      final workflowState = _state(
+        instanceDir: tempDir.path,
+        authMethod: 'oauth',
+        model: 'claude-sonnet-4-6',
+        workflowTrack: true,
+      );
+
+      await SetupApply.apply(workflowState);
+
+      final yaml = loadYaml(File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync()) as Map;
+      expect(yaml['data_dir'], '.');
+      expect(yaml['agent']['provider'], 'claude');
+      expect(yaml['agent']['model'], 'claude-sonnet-4-6');
+      expect(yaml['providers']['claude']['executable'], 'claude');
+      expect(yaml['providers']['claude']['auth_method'], 'oauth');
+      expect(yaml['port'], isNull);
+      expect(yaml['host'], isNull);
+      expect(yaml['gateway'], isNull);
+      expect(Directory(p.join(tempDir.path, 'workspace')).existsSync(), isFalse);
+      expect(File(p.join(tempDir.path, 'workspace', 'ONBOARDING.md')).existsSync(), isFalse);
     });
   });
 }

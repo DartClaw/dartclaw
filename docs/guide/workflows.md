@@ -149,7 +149,7 @@ steps:
     name: Discover Plan State
     skill: dartclaw-discover-andthen-plan
     workflowVariables: [FEATURE]
-    # prompt omitted – the skill's frontmatter default_prompt is used.
+    # prompt omitted – the skill activation line plus auto-framed variables forms the body.
     outputs:
       prd:
         format: path
@@ -190,7 +190,7 @@ Agent steps also receive a semantic step-outcome contract unless the step or ref
 <step-outcome>{"outcome":"succeeded|failed|needsInput","reason":"..."}</step-outcome>
 ```
 
-This is separate from `<workflow-context>`: the context block carries domain outputs, while `<step-outcome>` tells the engine what the step *meant*. `failed` can trigger `onFailure` handling (`fail`, `continue`, `retry`, `pause`), and `needsInput` always moves the run into an approval-style hold.
+This is separate from `<workflow-context>`: the context block carries domain outputs, while `<step-outcome>` tells the engine what the step *meant*. `failed` can trigger `onFailure` handling (`fail`, `continue`, `retry`, `pause`). `needsInput` normally moves the run into an approval-style hold; `onFailure: continue` is the explicit opt-in for best-effort advisory steps that should record the hold reason and advance.
 
 ### Reference Forms at a Glance
 
@@ -290,7 +290,7 @@ The aggregator's `outputs:` keys must be exactly `review_findings`, `findings_co
 Workflow runs now distinguish three operator-visible non-success states:
 
 - `Paused`: deliberately paused by an operator.
-- `Awaiting approval`: blocked on an explicit approval step or a step that emitted `needsInput`.
+- `Awaiting approval`: blocked on an explicit approval step or a step that emitted `needsInput` without `onFailure: continue`.
 - `Failed`: a step, gate, or runtime failure stopped execution.
 
 Only `Failed` shows the **Retry** action in the workflow detail UI and via `dartclaw workflow retry <runId>`. Retry clears the failing step's lifecycle/outcome markers and restarts from the stored resume cursor. `Awaiting approval` uses `resume`, not `retry`, because the run is waiting on a human decision rather than a broken execution.
@@ -732,34 +732,13 @@ Execution follows authored order: `analyze -> remediation-loop`.
 
 ### Skill-Aware Steps
 
-Add `skill:` when a step should lean on a native Claude Code skill or another installed skill registry entry.
+Add `skill:` when a step should lean on a provider-visible native skill.
 
 - If the step also has a prompt, the skill instruction is prefixed before the prompt.
-- If the step has no prompt, the workflow engine can still build a valid instruction from the resolved context.
-- Skill references are validated before execution.
+- If the step has no prompt, the skill activation line is still a valid body; declared inputs and workflow variables are rendered through the normal auto-framing path.
+- Skill references are validated at workflow-run preflight against the selected provider's visible skill list. The YAML can load before a provider is installed; a missing skill fails the run before any step dispatches.
 
-#### Skill Frontmatter `workflow:` Block
-
-A skill's `SKILL.md` may declare a neutral `workflow:` block in its YAML frontmatter. The engine uses these values as defaults whenever a workflow step references the skill and omits its own `prompt:` / `outputs:`:
-
-```yaml
----
-name: andthen:quick-review
-description: Lightweight, ad-hoc review of recent work with a fresh-context sub-agent for adversarial critique.
-workflow:
-  default_prompt: "Use the quick-review skill to run a fast fresh-context review of the recent changes."
-  default_outputs:
-    quick_review_summary:
-      format: text
-      description: Short assessment of whether the implementation meets its spec and acceptance criteria.
-    quick_review_findings_count:
-      format: json
-      schema: non_negative_integer
-      description: Number of issues flagged by the quick review; 0 means clean.
----
-```
-
-A workflow step can now be as thin as:
+`SKILL.md` frontmatter is not a workflow configuration surface. DartClaw does not read third-party skill metadata, and built-in workflow prompts and output schemas are authored directly in workflow YAML:
 
 ```yaml
 - id: quick-review
@@ -774,7 +753,7 @@ A workflow step can now be as thin as:
       schema: non_negative_integer
 ```
 
-The engine fills in `prompt` from `default_prompt` and `outputs` from `default_outputs`; the step still wins wherever it declares an explicit field. Authors are never forced to use defaults – declaring `prompt:` or `outputs:` on the step keeps the existing behavior.
+At runtime the provider loads the skill body through its own native skill mechanism. DartClaw only adds the provider-specific activation line and passes the authored prompt, inputs, variables, and output contract to the step.
 
 For DartClaw's built-in workflows, per-step prompts and output schemas are now inlined explicitly in the workflow YAML rather than relying on skill frontmatter defaults, so the resolved behavior is visible without inspecting each skill's `SKILL.md`.
 
@@ -816,7 +795,7 @@ To opt a single step out:
   prompt: "…"
 ```
 
-**Interaction summary** – what the agent actually sees depending on how the step is authored. The first four rows cover prompt-authoring combinations and flow directly from the Detection rules above. The last two rows cover skill-only steps, where the prompt body itself is derived (either from the skill's `default_prompt` or from a markdown summary of `inputs`) before auto-framing runs:
+**Interaction summary** – what the agent actually sees depending on how the step is authored. The first four rows cover prompt-authoring combinations and flow directly from the Detection rules above. The last two rows cover skill-only steps, where the prompt body is either the provider-native skill activation line alone or that line plus a markdown summary of declared `inputs`:
 
 | Authoring choice | What the agent sees |
 |---|---|
@@ -824,8 +803,8 @@ To opt a single step out:
 | `inputs: [plan]` + prompt contains `<plan>…</plan>` by hand | Manual block preserved; no auto-frame added |
 | `inputs: [plan]` + prompt never mentions `plan` | `<plan>\n{value}\n</plan>` auto-appended after the prompt body |
 | `inputs: [plan]` + `auto_frame_context: false` + no reference | Value not rendered – dependency is declared but silent |
-| `skill: foo` + no `prompt:` + skill has `workflow.default_prompt` | Skill's default prompt becomes the body; `inputs` auto-framed at the tail as `<key>…</key>` blocks |
-| `skill: foo` + no `prompt:` + skill has no `default_prompt` | Markdown `## Pretty Name` summary of each `inputs` entry becomes the prompt body; auto-framing skips those keys to avoid duplication (workflow `variables:` are still auto-framed) |
+| `skill: foo` + no `prompt:` + inputs declared | Markdown `## Pretty Name` summary of each `inputs` entry follows the skill activation line; auto-framing skips those keys to avoid duplication (workflow `variables:` are still auto-framed) |
+| `skill: foo` + no `prompt:` + no inputs | The skill activation line is the prompt body; workflow `variables:` are still auto-framed |
 
 ### Exit Gates and Finalizers
 
@@ -879,7 +858,7 @@ The first match wins. Explicit per-step values still override defaults.
 
 ### Inspecting Resolved Workflows
 
-`dartclaw workflow show <name>` prints the raw authored YAML. Add `--resolved` to emit the fully merged form – `stepDefaults` already applied to each step, skill `default_prompt` / `default_outputs` injected where the step omitted them, and any workflow-level `variables:` defaults substituted. The emitted YAML round-trips through the parser, so it is itself a valid workflow definition:
+`dartclaw workflow show <name>` prints the raw authored YAML. Add `--resolved` to emit the fully merged form – `stepDefaults` already applied to each step and any workflow-level `variables:` defaults substituted. The emitted YAML round-trips through the parser, so it is itself a valid workflow definition:
 
 ```bash
 dartclaw workflow show plan-and-implement --resolved
@@ -888,15 +867,28 @@ dartclaw workflow show plan-and-implement --resolved --json        # JSON wrappe
 dartclaw workflow show plan-and-implement --standalone              # bypass the server
 ```
 
-In standalone resolved mode, `show` reads skill defaults from the configured native skill roots. It does not install AndThen; install AndThen for the selected provider before validating or running workflows that reference `andthen:*` skills.
+`show` is an authoring-inspection command; it does not probe provider skill availability. Install AndThen or any other referenced skill provider-side before running workflows that reference those skills. Missing refs are reported by the run preflight before step dispatch.
 
-Use this whenever a step behaves differently than the authored YAML suggests: the resolved form is the source of truth for what the engine actually runs after defaults and skill-level injections are applied.
+Use this whenever a step behaves differently than the authored YAML suggests: the resolved form is the source of truth for what the engine actually runs after step defaults and variable substitution are applied.
 
 ---
 
 ## Workflow Triggers
 
-A workflow run is just an authored definition plus a set of variable values. DartClaw exposes three ways to start one: the web UI chat `/workflow` command, the web UI launch forms, and the GitHub pull-request webhook. All three converge on the same `WorkflowService.start(...)` entry point, so a definition that runs from chat behaves identically when triggered by a webhook.
+A workflow run is just an authored definition plus a set of variable values. DartClaw exposes three server-backed ways to start one: the web UI chat `/workflow` command, the web UI launch forms, and the GitHub pull-request webhook. All three converge on the same `WorkflowService.start(...)` entry point, so a definition that runs from chat behaves identically when triggered by a webhook. A fourth, server-free path — the [standalone CLI](#standalone-cli-zero-server) — runs the engine in-process for local and CI use.
+
+### Standalone CLI (zero-server)
+
+You can run a workflow from the command line without standing up the full server. This is the lowest-friction path for trying workflows, local iteration, and CI.
+
+```bash
+dartclaw init --workflow      # write a minimal standalone config (data dir: ./dartclaw)
+dartclaw workflow run --standalone --config ./dartclaw/dartclaw.yaml spec-and-implement --var FEATURE="Add search"
+```
+
+`dartclaw init --workflow` runs a short wizard (provider, auth method, model, config folder) and writes a minimal config tuned for workflow use — no HTTP port, channels, or container setup. Add `--non-interactive` with `--provider`, `--auth-claude`/`--auth-codex`, and `--model-claude`/`--model-codex` to script it. On completion it prints the exact `workflow run --standalone` command for your config location.
+
+`--standalone` runs the workflow engine in the current process and bypasses any running server (it does not call `WorkflowService.start(...)`). Pass `--config <path>/dartclaw.yaml` or set `DARTCLAW_CONFIG` for repo-local workflow configs; standalone mode does not auto-load checked-in config files. Standalone discovery also picks up custom definitions in `<data_dir>/workflows/`, so you can drop a `*.workflow.yaml` there and run it by name. Built-in definitions referencing `andthen:*` skills still require AndThen installed for the selected provider; a missing skill is reported by the run preflight before any step dispatches.
 
 ### Web chat `/workflow` command
 
@@ -907,7 +899,7 @@ The web UI chat input recognises a small `/workflow` command surface backed by `
 /workflow run <definition-name> KEY=value KEY=value ...
 ```
 
-`/workflow list` returns the names of every loaded definition. `/workflow run` launches the named definition with the given variable bindings and renders a card linking to `/workflows/<run-id>` for live progress.
+`/workflow list` returns the names of every loaded definition and is available to all users. `/workflow run` launches the named definition with the given variable bindings and renders a card linking to `/workflows/<run-id>` for live progress — it is only advertised and usable when the request carries admin permission.
 
 Notes:
 
@@ -984,7 +976,7 @@ Notable patterns:
 - **Inline prompts and schemas**: shipped built-ins carry per-step `prompts:` and `outputs:` explicitly in the workflow YAML – no reliance on skill frontmatter defaults for load-bearing behavior.
 - **Dedicated workflow workspace**: execution steps use the workflow workspace behavior files rather than the main interactive workspace.
 - **Runtime review reports**: `andthen:review` invocations use `--output-dir "{{workflow.runtime_artifacts_dir}}/reviews"`. The workflow engine injects an absolute per-run runtime-artifacts directory and pre-creates the `reviews/` subdirectory before prompt rendering, so report paths are deterministic without committing transient review artifacts.
-- **Review artifact convention**: review reports consumed only by remediation stay under the runtime-artifacts directory, while architecture-review reports that augment the integrated work remain worktree artifacts and can appear in the resulting diff.
+- **Review artifact convention**: review reports consumed only by remediation stay under the runtime-artifacts directory, while architecture-review reports that augment the integrated work remain worktree artifacts and can appear in the resulting diff. A clean review still produces a durable report path; if a zero-finding review omits or misclaims that path, DartClaw materializes a diagnostic clean-review artifact under the run's runtime artifacts.
 
 Role usage:
 - `@planner`: `spec`
@@ -999,9 +991,11 @@ Notable patterns:
 - **PRD / Plan / Exec altitudes**: `discover-plan-state` requires an existing PRD and does not re-emit `done` or `skipped` stories; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
 - **Single-step artifact producers**: `plan` and `spec` are expected to produce solid final artifacts themselves. Downstream steps consume emitted paths (`prd`, `plan`, `spec_path`) via `file_read` instead of inserting separate review-only altitude steps.
 - **Merged plan + specs**: `plan` emits `stories` and `story_specs` together in a single pass; downstream steps consume both directly.
+- **File-backed story specs**: every `story_specs.items[].spec_path` emitted by `plan` must exist on disk. Post-extraction validation checks the producing task worktree when one exists, falls back to the active workflow root otherwise, rejects missing FIS files, and sends that validation failure into the retry prompt.
 - **Cross-map binding**: implementation reads per-iteration data directly via `{{map.item.spec_path}}` (the FIS body is already on disk in the story's worktree, mounted by `gitStrategy.worktree.externalArtifactMount`), while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller. The `story_specs` records also carry `id` and `dependencies`, so the foreach runtime can gate later stories on prerequisite promotions without consulting a second graph output. The `{{context.key[map.index]}}` form is still available when a prior step produced a parallel list and you want to correlate by position.
 - **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.story_result}}` within the same story iteration, via the bare keys each child declares under `outputs:`.
 - **Dependency-aware story slices**: `story_specs` is the executable fan-out contract. Every item should carry `id`, `spec_path`, and `dependencies` (`[]` for roots). The foreach pipeline may run multiple ready stories concurrently, but stories with prerequisites remain undispatched until their dependencies are promoted successfully.
+- **Best-effort cleanup**: `simplify-code` runs after required implementation/review work and uses `onFailure: continue`; a red baseline or advisory blockage is recorded without preventing plan-level review.
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
 - **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
 - **Bounded remediation**: the batch follows the same remediation/re-review loop pattern as `code-review`, stopping on success or after `maxIterations: 3`.
@@ -1142,7 +1136,7 @@ variables:
 | `continueSession` | bool or string | `false` | Reuse the preceding agent step's resolved root session, or target an explicit earlier step ID |
 | `maxTokens` | int | none | Per-step token budget |
 | `maxCostUsd` | double | none | Per-step cost budget in USD |
-| `maxRetries` | int | none | Retry count on transient failure |
+| `maxRetries` | int | none | Workflow-owned retry budget used by `onFailure: retry` |
 | `allowedTools` | list | none | Restrict available agent tools |
 | `timeout` | int | 60 (bash), none | Step timeout in seconds. `timeoutSeconds` is accepted as a compatibility alias |
 | `parallel` | bool | `false` | Run concurrently with adjacent parallel steps (not valid for `approval`) |
@@ -1154,7 +1148,7 @@ variables:
 | `maxItems` (`max_items`) | int | none | Optional max items processed from the mapped array; omitted means uncapped |
 | `steps` | list | none | Inline child steps for `foreach` and inline `loop` containers |
 | `outputs` | map | none | Output format configs (see below) |
-| `onFailure` | string | `fail` | Modern step failure policy: `fail` (default), `continue`, `retry` (uses `maxRetries`), or `pause` (transitions to `awaitingApproval`). Drives the executor's outcome handling for any step type |
+| `onFailure` | string | `fail` | Modern step failure policy: `fail` (default), `continue`, `retry` (uses `maxRetries`), or `pause` (transitions to `awaitingApproval`). `continue` records failed or `needsInput` outcomes and advances. Drives the executor's outcome handling for any step type |
 | `onError` | string | `pause` | Legacy error policy still honored by the executor for any step type when set: `pause` (default) or `continue` (records `<stepId>.status == 'failed'` and advances). Primarily used by `bash` steps. Older YAMLs may also spell hard-stop as `fail` – treat as `pause`. Prefer `onFailure` for new authoring |
 | `workdir` | string | workspace root | Working directory for `bash` steps. Supports workflow-variable template references |
 | `finally` | string | none | Finalizer step ID for loop cleanup/handoff |
@@ -1331,11 +1325,15 @@ Step failure handling is split across two fields. `onFailure` is the modern poli
 | Value | Behavior |
 |-------|----------|
 | `fail` (default) | Workflow fails; `errorMessage` is recorded |
-| `continue` | Failure metadata is captured; execution advances with `step.<id>.outcome == 'failed'` in context |
-| `retry` | Re-attempts the step up to `maxRetries` times before falling through to `fail` |
+| `continue` | Failure metadata is captured; execution advances with `step.<id>.outcome == 'failed'` or `'needsInput'` in context |
+| `retry` | Re-attempts the workflow step up to `maxRetries` times before falling through to `fail` |
 | `pause` | Transitions the run to `awaitingApproval` (operator decides resume vs cancel) |
 
-`needsInput` outcomes (emitted via the `<step-outcome>` envelope) always transition to `awaitingApproval` regardless of `onFailure`.
+`needsInput` outcomes (emitted via the `<step-outcome>` envelope) transition to `awaitingApproval` by default. Use `onFailure: continue` only for optional cleanup/advisory steps where a blocked recommendation should be visible in the run context but should not park the workflow.
+
+`onFailure: retry` uses a single workflow-owned retry budget. A step with `maxRetries: N` can execute at most `N + 1` workflow task attempts total, including single steps, `mapOver` items, and `foreach` child steps. The retry decision is outcome-aware: a failed task, a failed `<step-outcome>`, post-task validation failure, or missing declared artifact all consume the same workflow retry path. Repeated failures with the same normalized error class may stop early to avoid burning the full budget on deterministic failures.
+
+The task-runtime retry path is separate and unchanged for non-workflow tasks, such as channel-triggered or manually created tasks. Workflow-spawned tasks opt out of task-runtime retry so `maxRetries` does not multiply across layers.
 
 **`onError`** (legacy; any step type, primarily bash):
 

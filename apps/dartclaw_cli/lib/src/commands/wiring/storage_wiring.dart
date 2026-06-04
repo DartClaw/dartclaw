@@ -49,6 +49,7 @@ class StorageWiring {
   late TurnStateStore _turnStateStore;
   late MemoryFileService _memoryFile;
   late MemoryService _memory;
+  late TemporalKnowledgeGraphService _kg;
   late KvService _kvService;
   late SqliteWorkflowRunRepository _workflowRunRepository;
   QmdManager? _qmdManager;
@@ -69,6 +70,7 @@ class StorageWiring {
   TurnStateStore get turnStateStore => _turnStateStore;
   MemoryFileService get memoryFile => _memoryFile;
   MemoryService get memory => _memory;
+  TemporalKnowledgeGraphService get kg => _kg;
   KvService get kvService => _kvService;
   SqliteWorkflowRunRepository get workflowRunRepository => _workflowRunRepository;
   QmdManager? get qmdManager => _qmdManager;
@@ -94,6 +96,7 @@ class StorageWiring {
       _workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskDb);
       _executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(taskDb);
       _taskRepository = SqliteTaskRepository(taskDb);
+      _kg = TemporalKnowledgeGraphService(taskDb);
       final goalRepository = SqliteGoalRepository(taskDb);
       _goalService = GoalService(goalRepository);
       _traceService = TurnTraceService(taskDb);
@@ -161,6 +164,7 @@ class StorageWiring {
       memoryService: _memory,
       qmdManager: _qmdManager,
       defaultDepth: config.search.defaultDepth,
+      workspaceDir: config.workspaceDir,
     );
 
     _kvService = KvService(filePath: config.kvPath);

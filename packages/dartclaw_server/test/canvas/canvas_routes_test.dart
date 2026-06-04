@@ -33,6 +33,8 @@ class _RecordingTurnManager extends TurnManager {
     String? effort,
     int? maxTurns,
     bool isHumanInput = false,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     calls.add(_TurnCall(sessionId: sessionId, messages: messages, source: source, isHumanInput: isHumanInput));
     return 'turn-${calls.length}';

@@ -15,9 +15,9 @@ class TokenCommand extends Command<void> {
   @override
   String get description => 'Manage gateway authentication token';
 
-  TokenCommand() {
-    addSubcommand(_TokenShowCommand());
-    addSubcommand(_TokenRotateCommand());
+  TokenCommand({TokenWriteLine? stdoutLine, TokenWriteLine? stderrLine}) {
+    addSubcommand(_TokenShowCommand(stdoutLine: stdoutLine, stderrLine: stderrLine));
+    addSubcommand(_TokenRotateCommand(stdoutLine: stdoutLine, stderrLine: stderrLine));
   }
 }
 
@@ -68,6 +68,12 @@ class _TokenRotateCommand extends Command<void> {
     final dataDir = config.server.dataDir;
     final newToken = TokenService.rotateToken(dataDir);
     _stdoutLine(newToken);
-    _stderrLine('Token rotated. All existing sessions invalidated.');
+    if (config.gateway.token != null) {
+      _stderrLine(
+        'Token file rotated, but this config uses gateway.token. Rotate the config value and restart any running server.',
+      );
+    } else {
+      _stderrLine('Token rotated. Restart any running DartClaw server to use the new token.');
+    }
   }
 }

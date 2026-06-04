@@ -5,23 +5,17 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
-        AgentExecutionRepository,
         EventBus,
-        ExecutionRepositoryTransactor,
         KvService,
         MessageService,
-        ProjectService,
-        TaskRepository,
         Task,
         TaskStatus,
-        WorkflowStepExecutionRepository,
         WorkflowApprovalResolvedEvent,
         WorkflowRunStatusChangedEvent,
         WorkflowTaskService,
         atomicWriteJson;
-import 'workflow_definition.dart' show WorkflowDefinition;
-import 'workflow_run.dart'
-    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowWorktreeBinding;
+import 'workflow_definition.dart' show WorkflowDefinition, WorkflowTaskType;
+import 'workflow_run.dart' show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun;
 import 'workflow_run_repository.dart' show WorkflowRunRepository;
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
@@ -29,11 +23,11 @@ import 'package:uuid/uuid.dart';
 import 'workflow_context.dart';
 import 'context_extractor.dart';
 import 'gate_evaluator.dart';
-import 'skill_registry.dart';
+import 'skill_introspector.dart';
 import 'step_config_resolver.dart';
 import 'workflow_executor.dart';
-import 'workflow_git_port.dart';
 import 'workflow_run_paths.dart';
+import 'workflow_service_deps.dart';
 import 'workflow_turn_adapter.dart';
 
 /// Public API facade for workflow lifecycle management.
@@ -49,7 +43,7 @@ class WorkflowService {
   final WorkflowTaskService _taskService;
   final MessageService _messageService;
   final WorkflowTurnAdapter? _turnAdapter;
-  final WorkflowGitPort? _workflowGitPort;
+  final WorkflowGitContext? _gitContext;
   final EventBus _eventBus;
   final KvService _kvService;
   final String _dataDir;
@@ -57,13 +51,9 @@ class WorkflowService {
   final WorkflowRoleDefaults _roleDefaults;
   final WorkflowStepOutputTransformer? _outputTransformer;
   final StructuredOutputFallbackRecorder? _structuredOutputFallbackRecorder;
-  final SkillRegistry? _skillRegistry;
-  final TaskRepository? _taskRepository;
-  final AgentExecutionRepository? _agentExecutionRepository;
-  final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
-  final ExecutionRepositoryTransactor? _executionRepositoryTransactor;
-  final ProjectService? _projectService;
-  final FutureOr<void> Function(WorkflowWorktreeBinding binding)? _hydrateWorkflowWorktreeBinding;
+  final SkillIntrospector? _skillIntrospector;
+  final WorkflowSkillPreflightConfig _skillPreflightConfig;
+  final WorkflowPersistencePorts? _persistencePorts;
   final Map<String, String>? _hostEnvironment;
   final List<String>? _bashStepEnvAllowlist;
   final List<String>? _bashStepExtraStripPatterns;
@@ -81,47 +71,77 @@ class WorkflowService {
     required WorkflowRunRepository repository,
     required WorkflowTaskService taskService,
     required MessageService messageService,
+    required WorkflowPersistencePorts persistencePorts,
     WorkflowTurnAdapter? turnAdapter,
-    WorkflowGitPort? workflowGitPort,
+    WorkflowGitContext? gitContext,
     required EventBus eventBus,
     required KvService kvService,
     required String dataDir,
-    WorkflowRoleDefaults? roleDefaults,
-    WorkflowStepOutputTransformer? outputTransformer,
-    StructuredOutputFallbackRecorder? structuredOutputFallbackRecorder,
-    SkillRegistry? skillRegistry,
-    TaskRepository? taskRepository,
-    AgentExecutionRepository? agentExecutionRepository,
-    WorkflowStepExecutionRepository? workflowStepExecutionRepository,
-    ExecutionRepositoryTransactor? executionRepositoryTransactor,
-    ProjectService? projectService,
-    FutureOr<void> Function(WorkflowWorktreeBinding binding)? hydrateWorkflowWorktreeBinding,
-    Map<String, String>? hostEnvironment,
-    List<String>? bashStepEnvAllowlist,
-    List<String>? bashStepExtraStripPatterns,
-    Uuid? uuid,
+    WorkflowServiceOptions options = const WorkflowServiceOptions(),
+  }) : this._(
+         repository: repository,
+         taskService: taskService,
+         messageService: messageService,
+         turnAdapter: turnAdapter,
+         gitContext: gitContext,
+         eventBus: eventBus,
+         kvService: kvService,
+         dataDir: dataDir,
+         persistencePorts: persistencePorts,
+         options: options,
+       );
+
+  WorkflowService.lifecycleOnly({
+    required WorkflowRunRepository repository,
+    required WorkflowTaskService taskService,
+    required MessageService messageService,
+    WorkflowTurnAdapter? turnAdapter,
+    WorkflowGitContext? gitContext,
+    required EventBus eventBus,
+    required KvService kvService,
+    required String dataDir,
+    WorkflowServiceOptions options = const WorkflowServiceOptions(),
+  }) : this._(
+         repository: repository,
+         taskService: taskService,
+         messageService: messageService,
+         turnAdapter: turnAdapter,
+         gitContext: gitContext,
+         eventBus: eventBus,
+         kvService: kvService,
+         dataDir: dataDir,
+         options: options,
+       );
+
+  WorkflowService._({
+    required WorkflowRunRepository repository,
+    required WorkflowTaskService taskService,
+    required MessageService messageService,
+    WorkflowTurnAdapter? turnAdapter,
+    WorkflowGitContext? gitContext,
+    required EventBus eventBus,
+    required KvService kvService,
+    required String dataDir,
+    WorkflowPersistencePorts? persistencePorts,
+    required WorkflowServiceOptions options,
   }) : _repository = repository,
        _taskService = taskService,
        _messageService = messageService,
        _turnAdapter = turnAdapter,
-       _workflowGitPort = workflowGitPort,
+       _gitContext = gitContext,
        _eventBus = eventBus,
        _kvService = kvService,
        _dataDir = dataDir,
-       _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
-       _outputTransformer = outputTransformer,
-       _structuredOutputFallbackRecorder = structuredOutputFallbackRecorder,
-       _skillRegistry = skillRegistry,
-       _taskRepository = taskRepository,
-       _agentExecutionRepository = agentExecutionRepository,
-       _workflowStepExecutionRepository = workflowStepExecutionRepository,
-       _executionRepositoryTransactor = executionRepositoryTransactor,
-       _projectService = projectService,
-       _hydrateWorkflowWorktreeBinding = hydrateWorkflowWorktreeBinding,
-       _hostEnvironment = hostEnvironment,
-       _bashStepEnvAllowlist = bashStepEnvAllowlist,
-       _bashStepExtraStripPatterns = bashStepExtraStripPatterns,
-       _uuid = uuid ?? const Uuid();
+       _roleDefaults = options.roleDefaults,
+       _outputTransformer = options.outputTransformer,
+       _structuredOutputFallbackRecorder = options.structuredOutputFallbackRecorder,
+       _skillIntrospector = options.skillIntrospector,
+       _skillPreflightConfig = options.skillPreflightConfig,
+       _persistencePorts = persistencePorts,
+       _hostEnvironment = options.hostEnvironment,
+       _bashStepEnvAllowlist = options.bashStepEnvAllowlist,
+       _bashStepExtraStripPatterns = options.bashStepExtraStripPatterns,
+       _uuid = options.uuid ?? const Uuid();
 
   /// Starts a new workflow run from a parsed definition.
   ///
@@ -181,6 +201,7 @@ class WorkflowService {
 
     // Apply headless mode: override all step review modes to auto-accept.
     final effectiveDefinition = headless ? _applyHeadlessMode(definition) : definition;
+    _ensureTaskPersistenceAvailable(_persistencePorts, effectiveDefinition);
 
     // Create run in pending status.
     var run = WorkflowRun(
@@ -285,11 +306,10 @@ class WorkflowService {
 
     // Load definition from snapshot.
     final definition = WorkflowDefinition.fromJson(run.definitionJson);
-
-    // Load context from disk.
-    final context = await _loadContext(runId) ?? WorkflowContext.fromJson(run.contextJson);
+    _ensureTaskPersistenceAvailable(_persistencePorts, definition);
 
     final executionCursor = _resumeCursor(run, definition);
+    final context = await _loadResumeContext(run, executionCursor);
     final resumeStepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
     _logResumeCursor(run, executionCursor, action: 'Resuming');
     await _rehydrateWorkflowWorktreeBinding(run);
@@ -319,8 +339,9 @@ class WorkflowService {
     }
 
     final definition = WorkflowDefinition.fromJson(run.definitionJson);
-    final context = await _loadContext(runId) ?? WorkflowContext.fromJson(run.contextJson);
+    _ensureTaskPersistenceAvailable(_persistencePorts, definition);
     final executionCursor = _resumeCursor(run, definition);
+    final context = await _loadResumeContext(run, executionCursor);
     final retryStepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
     _logResumeCursor(run, executionCursor, action: 'Retrying');
     await _rehydrateWorkflowWorktreeBinding(run);
@@ -488,12 +509,11 @@ class WorkflowService {
       _log.warning('Cannot recover workflow ${run.id}: failed to parse definition JSON: $e');
       return;
     }
-
-    // Load context from disk (fall back to SQLite snapshot).
-    final context = await _loadContext(run.id) ?? WorkflowContext.fromJson(run.contextJson);
-    await _rehydrateWorkflowWorktreeBinding(run);
+    _ensureTaskPersistenceAvailable(_persistencePorts, definition);
 
     final executionCursor = _resumeCursor(run, definition);
+    final context = await _loadResumeContext(run, executionCursor);
+    await _rehydrateWorkflowWorktreeBinding(run);
     if (executionCursor != null) {
       _logResumeCursor(run, executionCursor, action: 'Recovering');
       _cancelFlags.remove(run.id);
@@ -648,19 +668,20 @@ class WorkflowService {
           taskService: _taskService,
           messageService: _messageService,
           dataDir: _dataDir,
-          workflowStepExecutionRepository: _workflowStepExecutionRepository,
-          workflowGitPort: _workflowGitPort,
+          workflowStepExecutionRepository: _persistencePorts?.workflowStepExecutionRepository,
+          workflowGitPort: _gitContext?.gitPort,
           structuredOutputFallbackRecorder: _structuredOutputFallbackRecorder,
         ),
         turnAdapter: _turnAdapter,
-        workflowGitPort: _workflowGitPort,
+        workflowGitPort: _gitContext?.gitPort,
         outputTransformer: _outputTransformer,
-        skillRegistry: _skillRegistry,
-        taskRepository: _taskRepository,
-        agentExecutionRepository: _agentExecutionRepository,
-        workflowStepExecutionRepository: _workflowStepExecutionRepository,
-        executionTransactor: _executionRepositoryTransactor,
-        projectService: _projectService,
+        skillIntrospector: _skillIntrospector,
+        skillPreflightConfig: _skillPreflightConfig,
+        taskRepository: _persistencePorts?.taskRepository,
+        agentExecutionRepository: _persistencePorts?.agentExecutionRepository,
+        workflowStepExecutionRepository: _persistencePorts?.workflowStepExecutionRepository,
+        executionTransactor: _persistencePorts?.executionRepositoryTransactor,
+        projectService: _gitContext?.projectService,
       ),
       promptConfiguration: StepPromptConfiguration(),
       dataDir: _dataDir,
@@ -742,7 +763,7 @@ class WorkflowService {
         );
       }
     }
-    final hydrate = _hydrateWorkflowWorktreeBinding;
+    final hydrate = _gitContext?.hydrateBinding;
     if (hydrate == null) return;
     for (final binding in bindings) {
       await hydrate(binding);
@@ -812,6 +833,13 @@ class WorkflowService {
       _log.warning('Failed to load context for workflow $runId: $e');
       return null;
     }
+  }
+
+  Future<WorkflowContext> _loadResumeContext(WorkflowRun run, WorkflowExecutionCursor? executionCursor) async {
+    if (executionCursor != null) {
+      return WorkflowContext.fromJson(run.contextJson);
+    }
+    return await _loadContext(run.id) ?? WorkflowContext.fromJson(run.contextJson);
   }
 
   void _fireStatusChanged({
@@ -931,3 +959,13 @@ class WorkflowService {
     };
   }
 }
+
+void _ensureTaskPersistenceAvailable(WorkflowPersistencePorts? persistencePorts, WorkflowDefinition definition) {
+  if (persistencePorts != null || !definition.steps.any((step) => step.taskType == WorkflowTaskType.agent)) return;
+  _throwLifecycleOnlyAgentWorkflowError();
+}
+
+Never _throwLifecycleOnlyAgentWorkflowError() => throw StateError(
+  'WorkflowService.lifecycleOnly cannot execute workflows with agent steps; '
+  'construct WorkflowService with WorkflowPersistencePorts for task-spawning workflows.',
+);

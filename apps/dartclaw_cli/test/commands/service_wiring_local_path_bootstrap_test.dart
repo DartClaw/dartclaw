@@ -146,6 +146,17 @@ steps:
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
       ),
       gateway: const GatewayConfig(authMode: 'none'),
+      knowledge: const KnowledgeConfig(
+        inbox: KnowledgeInboxConfig(
+          enabled: true,
+          intervalMinutes: 5,
+          maxBytes: 1024 * 1024,
+          retryAttempts: 2,
+          processedRetentionDays: 30,
+          deliveryMode: 'announce',
+        ),
+        wikiLint: KnowledgeWikiLintConfig(enabled: true, intervalMinutes: 60, deliveryMode: 'announce'),
+      ),
       server: ServerConfig(
         dataDir: tempDir.path,
         staticDir: _staticDirPath,
@@ -222,5 +233,89 @@ steps:
     final parts = refs.single.split(' ');
     expect(parts.first, startsWith('dartclaw/workflow/'));
     expect(parts.last, headCommit);
+  });
+
+  test('service wiring registers knowledge inbox and wiki lint scheduled jobs', () async {
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      knowledge: const KnowledgeConfig(
+        inbox: KnowledgeInboxConfig(
+          enabled: true,
+          intervalMinutes: 5,
+          maxBytes: 1024 * 1024,
+          retryAttempts: 2,
+          processedRetentionDays: 30,
+          deliveryMode: 'announce',
+        ),
+        wikiLint: KnowledgeWikiLintConfig(enabled: true, intervalMinutes: 60, deliveryMode: 'announce'),
+      ),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDirPath,
+        templatesDir: _templatesDirPath,
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+    final workspace = Directory(config.workspaceDir)..createSync(recursive: true);
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'release-notes.md')).writeAsStringSync('DartClaw release notes.');
+
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      runAndthenSkillsBootstrap: false,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService));
+
+    final jobs = result.scheduleService!.jobsForTesting;
+    expect(jobs.map((job) => job.id), containsAll(['knowledge-inbox', 'knowledge-wiki-lint']));
+    final run = result.scheduleService!.executeJobForTesting(jobs.singleWhere((job) => job.id == 'knowledge-inbox'));
+    await worker.turnInvoked;
+    worker.emit(
+      DeltaEvent('''
+<workflow-context>{
+  "memory_findings": [{"text": "DartClaw release notes synthesized into durable knowledge."}],
+  "wiki_page": {
+    "slug": "release-notes",
+    "title": "Release Notes",
+    "body": "Release notes summarize DartClaw changes.",
+    "confidence": "medium"
+  },
+  "facts": [
+    {
+      "entity": "DartClaw",
+      "predicate": "release-notes",
+      "value": "available",
+      "valid_from": "2026-05-01T00:00:00Z",
+      "valid_to": null
+    }
+  ]
+}</workflow-context>
+'''),
+    );
+    worker.completeSuccess({'stop_reason': 'end_turn', 'input_tokens': 1, 'output_tokens': 1, 'model': 'test'});
+    await run;
+
+    final memory = File(p.join(config.workspaceDir, 'MEMORY.md')).readAsStringSync();
+    expect(memory, contains('DartClaw release notes synthesized into durable knowledge'));
+    expect(File(p.join(config.workspaceDir, 'wiki', 'release-notes.md')).existsSync(), isTrue);
+    expect(File(p.join(config.workspaceDir, 'processed', 'release-notes.md')).existsSync(), isTrue);
   });
 }

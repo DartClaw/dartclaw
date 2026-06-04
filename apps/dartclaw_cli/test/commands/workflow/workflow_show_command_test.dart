@@ -90,88 +90,42 @@ steps:
       expect(output, contains('steps:'));
     });
 
-    test('standalone resolved mode injects defaults from data-dir native skill roots', () async {
-      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
-      File(p.join(workflowsDir.path, 'resolved-skill-demo.yaml')).writeAsStringSync('''
-name: resolved-skill-demo
-description: Demo workflow
+    test('standalone raw mode prefers cwd-local workflow config', () async {
+      final workspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+      final configDir = Directory(p.join(workspace.path, 'dartclaw'))..createSync();
+      final dataDir = Directory(p.join(tempDir.path, 'local-data'))..createSync();
+      File(p.join(configDir.path, 'dartclaw.yaml')).writeAsStringSync('''
+data_dir: ${dataDir.path}
+agent:
+  provider: claude
+''');
+      final workflowsDir = Directory(p.join(dataDir.path, 'workflows', 'custom'))..createSync(recursive: true);
+      File(p.join(workflowsDir.path, 'local-show.yaml')).writeAsStringSync('''
+name: local-show
+description: Cwd local workflow
 steps:
   - id: demo
     name: Demo
-    skill: dartclaw-default-demo
-''');
-
-      final skillDir = Directory(p.join(config.server.dataDir, '.agents', 'skills', 'dartclaw-default-demo'))
-        ..createSync(recursive: true);
-      File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('''
----
-name: dartclaw-default-demo
-description: Default demo
-workflow:
-  default_prompt: default prompt from data-dir native skill
-  default_outputs:
-    result:
-      format: text
-      description: Result from default skill.
----
-
-# Demo
+    prompt: hi
 ''');
 
       final runner = CommandRunner<void>('dartclaw', 'test')
-        ..addCommand(
-          WorkflowShowCommand(config: config, write: stdoutBuffer.write, writeLine: (_) {}, exitFn: _fakeExit),
-        );
-
-      await runner.run(['show', 'resolved-skill-demo', '--standalone', '--resolved']);
-
-      final output = stdoutBuffer.toString();
-      expect(output, contains('prompt: default prompt from data-dir native skill'));
-      expect(output, contains('outputs:'));
-      expect(output, contains('result:'));
-      expect(output, contains('description: Result from default skill.'));
-    });
-
-    test('standalone resolved mode uses the current project skill roots when no projects are configured', () async {
-      final projectDir = Directory(p.join(tempDir.path, 'project'))..createSync();
-
-      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
-      File(p.join(workflowsDir.path, 'project-skill-demo.yaml')).writeAsStringSync('''
-name: project-skill-demo
-description: Demo workflow
-steps:
-  - id: demo
-    name: Demo
-    skill: dartclaw-project-default-demo
-''');
-
-      final skillDir = Directory(p.join(projectDir.path, '.agents', 'skills', 'dartclaw-project-default-demo'))
-        ..createSync(recursive: true);
-      File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('''
----
-name: dartclaw-project-default-demo
-description: Project default demo
-workflow:
-  default_prompt: default prompt from project skill
----
-
-# Demo
-''');
-
-      final runner = CommandRunner<void>('dartclaw', 'test')
+        ..argParser.addOption('config')
         ..addCommand(
           WorkflowShowCommand(
-            config: config,
-            projectFallbackCwd: projectDir.path,
+            environment: {'HOME': p.join(tempDir.path, 'home')},
+            projectFallbackCwd: workspace.path,
             write: stdoutBuffer.write,
             writeLine: (_) {},
             exitFn: _fakeExit,
           ),
         );
 
-      await runner.run(['show', 'project-skill-demo', '--standalone', '--resolved']);
+      await runner.run(['show', 'local-show', '--standalone']);
 
-      expect(stdoutBuffer.toString(), contains('prompt: default prompt from project skill'));
+      final output = stdoutBuffer.toString();
+      expect(output, startsWith('name: local-show'));
+      expect(output, contains('description: Cwd local workflow'));
     });
   });
 }

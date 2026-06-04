@@ -887,6 +887,19 @@ void main() {
       expect(html, contains('Hello &lt;world&gt;'));
     });
 
+    test('userMessage renders rich input chips when provided', () async {
+      final html = await engine.renderFileFragment(
+        'chat',
+        fragment: 'userMessage',
+        context: {
+          'content': 'Review this',
+          'richInputHtml': '<div class="msg-rich-input"><span class="composer-chip">notes.md</span></div>',
+        },
+      );
+      expect(html, contains('msg-rich-input'));
+      expect(html, contains('notes.md'));
+    });
+
     test('assistantMessage renders with data-markdown', () async {
       final html = await engine.renderFileFragment(
         'chat',
@@ -945,6 +958,8 @@ void main() {
       expect(html, isNot(contains('sse-container')));
       expect(html, contains('hx-target="#messages"'));
       expect(html, contains('hx-swap="beforeend"'));
+      expect(html, contains('name="attachments"'));
+      expect(html, contains('data-dc-chat-target="commandPalette"'));
     });
 
     test('sendResponse renders user message and SSE connector', () async {

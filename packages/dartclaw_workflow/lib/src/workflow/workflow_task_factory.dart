@@ -29,23 +29,19 @@ Future<void> createWorkflowTaskTriple({
   required String? provider,
   required String? projectId,
   required int? maxTokens,
-  required int maxRetries,
   required Map<String, dynamic> taskConfig,
 }) async {
-  final taskRepository = ctx.taskRepository;
-  final agentExecutionRepository = ctx.agentExecutionRepository;
-  final workflowStepExecutionRepository = ctx.workflowStepExecutionRepository;
-  final executionTransactor = ctx.executionTransactor;
-  if (taskRepository == null ||
-      agentExecutionRepository == null ||
-      workflowStepExecutionRepository == null ||
-      executionTransactor == null) {
-    throw StateError(
-      'Workflow task spawn requires AgentExecution + WorkflowStepExecution persistence. '
-      'Wire taskRepository, agentExecutionRepository, workflowStepExecutionRepository, and '
-      'executionTransactor into WorkflowExecutor before executing workflows.',
-    );
-  }
+  assert(
+    ctx.taskRepository != null &&
+        ctx.agentExecutionRepository != null &&
+        ctx.workflowStepExecutionRepository != null &&
+        ctx.executionTransactor != null,
+    'Workflow task persistence ports must be present',
+  );
+  final taskRepository = ctx.taskRepository!;
+  final agentExecutionRepository = ctx.agentExecutionRepository!;
+  final workflowStepExecutionRepository = ctx.workflowStepExecutionRepository!;
+  final executionTransactor = ctx.executionTransactor!;
 
   final timestamp = DateTime.now();
   final agentExecutionId = ctx.uuid.v4();
@@ -83,7 +79,7 @@ Future<void> createWorkflowTaskTriple({
     workflowRunId: run.id,
     stepIndex: stepIndex,
     workflowStepExecution: workflowStepExecution,
-    maxRetries: maxRetries > 0 ? maxRetries : 0,
+    maxRetries: 0,
   );
 
   await executionTransactor.transaction(() async {

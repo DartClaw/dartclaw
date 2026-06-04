@@ -111,7 +111,7 @@ class _FakeWorkflowService extends WorkflowService {
     EventBus eventBus,
     KvService kvService,
     String dataDir,
-  ) : super(
+  ) : super.lifecycleOnly(
         repository: repository,
         taskService: taskService,
         messageService: messageService,

@@ -20,6 +20,7 @@ ClaudeCodeHarness _buildHarness({
   ProcessFactory? processFactory,
   CommandProbe? commandProbe,
   HarnessConfig harnessConfig = const HarnessConfig(),
+  Map<String, dynamic>? providerOptions,
 }) {
   return ClaudeCodeHarness(
     cwd: '/tmp',
@@ -35,6 +36,7 @@ ClaudeCodeHarness _buildHarness({
     commandProbe: commandProbe ?? (exe, args) async => ProcessResult(0, 0, '1.0.0', ''),
     environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
     harnessConfig: harnessConfig,
+    providerOptions: providerOptions,
   );
 }
 
@@ -46,7 +48,7 @@ void addTeardownAsync(Future<void> Function() fn) => addTearDown(fn);
 
 void main() {
   group('harness startup isolation (--setting-sources)', () {
-    test('non-containerized spawn passes --setting-sources project in args', () async {
+    test('default non-containerized spawn omits --setting-sources project', () async {
       List<String>? capturedArgs;
 
       final h = _buildHarness(
@@ -64,15 +66,15 @@ void main() {
       await h.start();
 
       expect(capturedArgs, isNotNull);
-      final idx = capturedArgs!.indexOf('--setting-sources');
-      expect(idx, isNot(-1), reason: '--setting-sources flag must be present');
-      expect(capturedArgs![idx + 1], 'project', reason: '--setting-sources value must be "project"');
+      expect(capturedArgs, isNot(contains('--setting-sources')));
+      expect(capturedArgs, isNot(contains('project')));
     });
 
-    test('--setting-sources appears before --model', () async {
+    test('inherit_user_settings false passes --setting-sources project before --model', () async {
       List<String>? capturedArgs;
 
       final h = _buildHarness(
+        providerOptions: const {'inherit_user_settings': false},
         processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
           capturedArgs = args;
           final fake = _makeProcess();
@@ -92,6 +94,7 @@ void main() {
       expect(settingIdx, isNot(-1));
       expect(modelIdx, isNot(-1));
       expect(settingIdx, lessThan(modelIdx));
+      expect(capturedArgs![settingIdx + 1], 'project');
     });
 
     test('--print and --output-format stream-json are also present (baseline)', () async {

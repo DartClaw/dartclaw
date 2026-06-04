@@ -318,6 +318,17 @@ Future<Object?> resolveFileSystemOutput(
       );
     }
     final safeClaims = existingClaims.values.toList()..sort();
+    if (safeClaims.isEmpty && rap.allowsMissingCleanReviewArtifact(outputKey, step, resolver, workflowContextPayload)) {
+      final fallback = rap.materializeUnclaimedCleanReviewArtifact(
+        outputKey: outputKey,
+        step: step,
+        task: task,
+        resolver: resolver,
+        workflowContextPayload: workflowContextPayload,
+        dataDir: dataDir,
+      );
+      if (fallback != null) return resolver.listMode ? <String>[fallback] : fallback;
+    }
     if (resolver.listMode) return safeClaims;
     return safeClaims.isEmpty ? '' : safeClaims.single;
   }
@@ -394,7 +405,20 @@ Future<Object?> resolveFileSystemOutput(
     throw StateError('Multiple filesystem artifacts were explicitly claimed for "$outputKey": $safeClaims');
   }
   if (resolver.listMode) return changedMatches;
-  if (changedMatches.isEmpty) return '';
+  if (changedMatches.isEmpty) {
+    if (rap.allowsMissingCleanReviewArtifact(outputKey, step, resolver, workflowContextPayload)) {
+      final fallback = rap.materializeUnclaimedCleanReviewArtifact(
+        outputKey: outputKey,
+        step: step,
+        task: task,
+        resolver: resolver,
+        workflowContextPayload: workflowContextPayload,
+        dataDir: dataDir,
+      );
+      if (fallback != null) return fallback;
+    }
+    return '';
+  }
   if (changedMatches.length == 1) return changedMatches.single;
   final preferredMatch = _preferredSingularMatch(outputKey, changedMatches);
   if (preferredMatch != null) return preferredMatch;

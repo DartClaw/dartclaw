@@ -5,6 +5,7 @@ import 'package:shelf/shelf.dart';
 
 import 'auth_rate_limiter.dart';
 import 'auth_utils.dart';
+import 'request_auth_context.dart';
 import 'session_token.dart';
 import 'token_service.dart';
 
@@ -29,8 +30,7 @@ const _publicPrefixes = ['/webhook/', '/static/'];
 /// 1. Public path -> pass through
 /// 2. Valid session cookie (HMAC-signed) -> pass through
 /// 3. Valid Bearer token -> pass through
-/// 4. GET with `?token=<valid>` -> set cookie, redirect back to same route
-/// 5. Else -> browser? redirect /login : 401 JSON
+/// 4. Else -> browser? redirect /login : 401 JSON
 Middleware authMiddleware({
   required TokenService tokenService,
   required String gatewayToken,
@@ -61,7 +61,7 @@ Middleware authMiddleware({
       final token = _parseCookie(cookieHeader, sessionCookieName);
       if (token != null && validateSessionToken(token, gatewayToken)) {
         rateLimiter?.reset(remoteKey);
-        return inner(request);
+        return inner(withCookieAuthContext(request));
       }
     }
 
@@ -71,24 +71,11 @@ Middleware authMiddleware({
       final candidate = authHeader.substring(7);
       if (tokenService.validateToken(candidate)) {
         rateLimiter?.reset(remoteKey);
-        return inner(request);
+        return inner(withAdminAuthContext(request));
       }
     }
 
-    // 4. Token bootstrap: any GET with ?token=<valid>
-    if (request.method == 'GET') {
-      final tokenParam = request.url.queryParameters['token'];
-      if (tokenParam != null && tokenService.validateToken(tokenParam)) {
-        rateLimiter?.reset(remoteKey);
-        final sessionToken = createSessionToken(gatewayToken);
-        return Response.found(
-          _locationWithoutToken(request),
-          headers: {'set-cookie': sessionCookieHeader(sessionToken, secure: cookieSecure)},
-        );
-      }
-    }
-
-    // 5. Unauthorized
+    // 4. Unauthorized
     final limited = rateLimiter?.shouldLimit(remoteKey) ?? false;
     if (!limited) {
       rateLimiter?.recordFailure(remoteKey);
@@ -120,6 +107,16 @@ Middleware authMiddleware({
     );
   };
 }
+
+/// Middleware that grants admin context to every request.
+///
+/// Used when gateway auth is disabled (`auth_mode: none`): DartClaw then runs
+/// as a single-user local instance, so every request acts as the local admin.
+/// Without it, admin-gated routes (config and guard editing) would fail closed
+/// and reject all requests — see [requestHasAdminAccess].
+Middleware localAdminMiddleware() =>
+    (Handler inner) =>
+        (Request request) => inner(withAdminAuthContext(request));
 
 String _failureReason(Request request) {
   final cookieHeader = request.headers['cookie'];

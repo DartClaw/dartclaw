@@ -141,6 +141,21 @@ class ConfigSerializer {
           'schedule': config.memory.pruningSchedule,
         },
       },
+      'knowledge': {
+        'inbox': {
+          'enabled': config.knowledge.inbox.enabled,
+          'intervalMinutes': config.knowledge.inbox.intervalMinutes,
+          'maxBytes': config.knowledge.inbox.maxBytes,
+          'retryAttempts': config.knowledge.inbox.retryAttempts,
+          'processedRetentionDays': config.knowledge.inbox.processedRetentionDays,
+          'deliveryMode': config.knowledge.inbox.deliveryMode,
+        },
+        'wikiLint': {
+          'enabled': config.knowledge.wikiLint.enabled,
+          'intervalMinutes': config.knowledge.wikiLint.intervalMinutes,
+          'deliveryMode': config.knowledge.wikiLint.deliveryMode,
+        },
+      },
       'usage': {
         'budgetWarningTokens': config.usage.budgetWarningTokens,
         'maxFileSizeBytes': config.usage.maxFileSizeBytes,

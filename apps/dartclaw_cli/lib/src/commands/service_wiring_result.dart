@@ -39,12 +39,11 @@ WiringResult _assembleWiringResult(
     containerManagers: security.containerManagers,
     projectService: project.projectService,
     configNotifier: ctx.configNotifier,
-    skillRegistry: ctx.skillRegistry,
     workflowRegistry: workflowRegistry,
     shutdownExtras: () async {
       lifecycleManager?.dispose();
-      await workflowService.dispose();
       await task.dispose();
+      await workflowService.dispose();
       await alertRouter.cancel();
       await channel.taskNotificationSubscriber?.dispose();
       await security.dispose();

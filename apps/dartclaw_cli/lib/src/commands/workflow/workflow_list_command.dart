@@ -26,7 +26,9 @@ class WorkflowListCommand extends Command<void> {
     : _config = config,
       _assetResolver = assetResolver ?? AssetResolver(),
       _writeLine = writeLine ?? stdout.writeln {
-    argParser.addFlag('json', negatable: false, help: 'Output as JSON');
+    argParser
+      ..addFlag('json', negatable: false, help: 'Output as JSON')
+      ..addFlag('standalone', negatable: false, hide: true);
   }
 
   @override
@@ -37,7 +39,13 @@ class WorkflowListCommand extends Command<void> {
 
   @override
   Future<void> run() async {
-    final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
+    final globalConfigPath = globalResults?.options.contains('config') ?? false
+        ? globalResults!['config'] as String?
+        : null;
+    final configPath = argResults!['standalone'] as bool
+        ? resolveStandaloneWorkflowConfigPath(configPath: globalConfigPath)
+        : resolveCliConfigPath(configPath: globalConfigPath);
+    final config = _config ?? loadCliConfig(configPath: configPath);
     final registry = await buildWorkflowRegistry(config, assetResolver: _assetResolver);
 
     final definitions = registry.listAll();
@@ -135,6 +143,7 @@ Future<WorkflowRegistry> buildWorkflowRegistry(DartclawConfig config, {AssetReso
     source: WorkflowSource.materialized,
   );
   await registry.loadFromDirectory(WorkflowMaterializer.customDir(config.server.dataDir));
+  await registry.loadFromDirectory(p.join(config.server.dataDir, 'workflows'));
   for (final projectDef in config.projects.definitions.values) {
     await registry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
   }

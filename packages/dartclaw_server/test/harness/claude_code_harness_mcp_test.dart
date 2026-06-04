@@ -467,7 +467,7 @@ void main() {
       await harness.dispose();
     });
 
-    test('direct execution preserves setting-sources and hardened env vars', () async {
+    test('direct execution uses default setting sources and hardened env vars', () async {
       Map<String, String>? capturedEnvironment;
       List<String>? capturedArgs;
       final fake = _bufferedFakeProcess();
@@ -497,8 +497,8 @@ void main() {
 
       await harness.start();
 
-      expect(capturedArgs, contains('--setting-sources'));
-      expect(capturedArgs, contains('project'));
+      expect(capturedArgs, isNot(contains('--setting-sources')));
+      expect(capturedArgs, isNot(contains('project')));
       expect(capturedArgs, isNot(contains('--bare')));
       _expectSecurityEnvironment(capturedEnvironment);
       expect(capturedEnvironment, isNotNull);

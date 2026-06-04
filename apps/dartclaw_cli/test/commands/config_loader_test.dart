@@ -3,6 +3,46 @@ import 'package:dartclaw_cli/src/commands/config_loader.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('standalone workflow config resolution prefers the cwd-local ./dartclaw/dartclaw.yaml', () {
+    final resolved = resolveStandaloneWorkflowConfigPath(
+      env: const {'HOME': '/home/testuser'},
+      currentDirectory: '/repo',
+      exists: (path) => path == '/repo/dartclaw/dartclaw.yaml',
+    );
+
+    expect(resolved, '/repo/dartclaw/dartclaw.yaml');
+  });
+
+  test('standalone workflow config resolution falls back to home default when no cwd-local config exists', () {
+    final resolved = resolveStandaloneWorkflowConfigPath(
+      env: const {'HOME': '/home/testuser'},
+      currentDirectory: '/repo',
+      exists: (_) => false,
+    );
+
+    expect(resolved, '/home/testuser/.dartclaw/dartclaw.yaml');
+  });
+
+  test('standalone workflow config resolution keeps explicit and env overrides authoritative', () {
+    expect(
+      resolveStandaloneWorkflowConfigPath(
+        configPath: '/tmp/explicit.yaml',
+        env: const {'HOME': '/home/testuser'},
+        currentDirectory: '/repo',
+        exists: (_) => true,
+      ),
+      '/tmp/explicit.yaml',
+    );
+    expect(
+      resolveStandaloneWorkflowConfigPath(
+        env: const {'HOME': '/home/testuser', 'DARTCLAW_CONFIG': '/tmp/env.yaml'},
+        currentDirectory: '/repo',
+        exists: (_) => true,
+      ),
+      '/tmp/env.yaml',
+    );
+  });
+
   test('loadCliConfig makes bundled channel parsers available before config load', () {
     final config = loadCliConfig(
       configPath: '/tmp/dartclaw.yaml',

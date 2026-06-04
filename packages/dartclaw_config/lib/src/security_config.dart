@@ -78,6 +78,33 @@ class SecurityConfig {
   /// Default configuration.
   const SecurityConfig.defaults() : this();
 
+  /// Returns a copy with the given fields replaced.
+  SecurityConfig copyWith({
+    GuardConfig? guards,
+    Map<String, dynamic>? guardsYaml,
+    SecurityBashStepConfig? bashStep,
+    bool? contentGuardEnabled,
+    String? contentGuardClassifier,
+    String? contentGuardModel,
+    int? contentGuardMaxBytes,
+    bool? inputSanitizerEnabled,
+    bool? inputSanitizerChannelsOnly,
+    int? guardAuditMaxRetentionDays,
+  }) {
+    return SecurityConfig(
+      guards: guards ?? this.guards,
+      guardsYaml: guardsYaml ?? this.guardsYaml,
+      bashStep: bashStep ?? this.bashStep,
+      contentGuardEnabled: contentGuardEnabled ?? this.contentGuardEnabled,
+      contentGuardClassifier: contentGuardClassifier ?? this.contentGuardClassifier,
+      contentGuardModel: contentGuardModel ?? this.contentGuardModel,
+      contentGuardMaxBytes: contentGuardMaxBytes ?? this.contentGuardMaxBytes,
+      inputSanitizerEnabled: inputSanitizerEnabled ?? this.inputSanitizerEnabled,
+      inputSanitizerChannelsOnly: inputSanitizerChannelsOnly ?? this.inputSanitizerChannelsOnly,
+      guardAuditMaxRetentionDays: guardAuditMaxRetentionDays ?? this.guardAuditMaxRetentionDays,
+    );
+  }
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||

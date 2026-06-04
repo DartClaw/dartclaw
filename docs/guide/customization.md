@@ -17,9 +17,12 @@ Edit markdown files in `~/.dartclaw/workspace/`. Changes take effect on the next
 |------|------------------|
 | `SOUL.md` | Agent personality, expertise, communication style |
 | `AGENTS.md` | Safety rules and operational boundaries |
-| `USER.md` | Your name, timezone, preferences |
+| `USER.md` | Structured identity, goals, challenges, preferences, proactivity level, and relevance exclusions |
 | `TOOLS.md` | Environment notes (servers, endpoints, credentials reference) |
 | `HEARTBEAT.md` | Periodic tasks the agent should perform |
+
+Rerun conversational personalization with `dartclaw init --personalize`. On reruns, the agent writes `USER.md.draft` and
+`SOUL.md.draft`; apply reviewed drafts with `dartclaw init --apply-drafts`.
 
 **Example**: Make the agent a Dart expert:
 ```markdown
@@ -113,4 +116,4 @@ class BusinessHoursGuard extends Guard {
 }
 ```
 
-For comprehensive SDK documentation, see the [SDK Guide](../sdk/quick-start.md) for Quick Start and package selection, plus the [SDK examples](../../examples/sdk/) for runnable reference projects.
+For comprehensive SDK documentation, see the [SDK Quick Start](../sdk/quick-start.md), [Concepts](../sdk/concepts.md), [Architecture](../sdk/architecture.md), [Security](../sdk/security.md), [Package Guide](../sdk/packages.md), and [SDK examples](../../examples/sdk/) for runnable reference projects.

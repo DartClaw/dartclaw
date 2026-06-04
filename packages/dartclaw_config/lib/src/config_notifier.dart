@@ -71,6 +71,7 @@ class ConfigNotifier {
     _detectChangedSimple('tasks', old.tasks, newConfig.tasks, changedKeys);
     _detectChangedSimple('scheduling', old.scheduling, newConfig.scheduling, changedKeys);
     _detectChangedSimple('workspace', old.workspace, newConfig.workspace, changedKeys);
+    _detectChangedSimple('onboarding', old.onboarding, newConfig.onboarding, changedKeys);
     _detectChangedSimple('logging', old.logging, newConfig.logging, changedKeys);
     _detectChangedSimple('usage', old.usage, newConfig.usage, changedKeys);
     _detectChangedSimple('container', old.container, newConfig.container, changedKeys);

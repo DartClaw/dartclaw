@@ -2,6 +2,66 @@
 
 Open items only. Resolved or obsolete historical entries were removed during backlog cleanup; milestone docs, specs, and CHANGELOG entries are the historical record.
 
+## TD-109 – Inbox extraction turn runs tool-capable over untrusted source (least-privilege / excessive agency)
+
+**Severity**: High (security – OWASP LLM06 excessive agency over untrusted input)
+**Found**: 2026-05-30 0.17 S03 knowledge-systems remediation (codex review)
+**Affects**: `packages/dartclaw_server/lib/src/knowledge/knowledge_inbox_service.dart` (`_runExtractionTurn`); `packages/dartclaw_core/lib/src/turn/turn_manager.dart` (`startTurn`); `packages/dartclaw_security/lib/src/task_tool_filter_guard.dart`
+**Target**: 0.18
+
+**Context**: The bounded cron-session extraction turn over an untrusted dropped-in file is dispatched through `TurnManager.startTurn` with no per-turn tool allowlist or read-only constraint, so a prompt-injected source could induce tool use (OWASP LLM06 excessive agency). The parser-side forgery vector (markdown fence escape) was fixed in this pass by JSON-encoding the source; this entry covers the remaining tool-agency aspect only.
+
+**Blocker**: Caller API change required – `TurnManager.startTurn` exposes no per-turn tool scoping; the only levers (`setTaskToolFilter`/`setTaskReadOnly`) are process-level mutable state on the shared `_primary` TurnRunner. Mutating that state from the cron inbox path would apply tool restrictions to concurrent user turns running on the same runner. A safe fix needs a per-turn tool-scope/structured-output dispatch capability that does not exist today.
+
+**Fix**: Add a per-turn tool-scope (or toolless structured-output) dispatch path and route inbox extraction through it.
+
+**Trigger**: Per-turn tool scoping is added to the turn-dispatch API, or untrusted-source ingestion is enabled in a multi-session deployment.
+
+**References**: `dev/bundle/docs/specs/0.17/0.17-mixed-review-codex-2026-05-30-7.md` (HIGH "Untrusted inbox files run as unrestricted agent turns").
+
+Last reviewed: 2026-05-31
+
+---
+
+## TD-110 – KG MCP write tools sit outside the guard pipeline with no audit trail; `kg_invalidate` id is unscoped
+
+**Severity**: Medium (security / auditability – decision needed)
+**Found**: 2026-05-30 0.17 S03 knowledge-systems remediation (claude review S-1)
+**Affects**: `packages/dartclaw_server/lib/src/mcp/kg_tools.dart`; `service_wiring_mcp_tools.dart`
+**Target**: 0.18
+
+**Context**: `kg_add`/`kg_invalidate` are registered with no `contentGuard` and no audit logging, and MCP `tools/call` dispatch does not traverse `GuardChain`; `kg_invalidate` accepts an arbitrary integer id with no session/ownership check. The PRD claims KG writes are logged via existing audit infrastructure, which is not wired.
+
+**Decision required**: whether MCP write tools should traverse `GuardChain` and which audit sink KG writes/invalidations should use is an architecture decision, not a local defect fix.
+
+**Fix**: Decide guard scope for MCP write tools; at minimum wire audit logging for KG writes/invalidations and an ownership/scope check for `kg_invalidate`.
+
+**Trigger**: MCP tool dispatch is brought under the guard pipeline, or a multi-operator deployment needs auditable KG mutations.
+
+**References**: `dev/bundle/docs/specs/0.17/0.17-mixed-review-claude-2026-05-30-9.md` (S-1, MEDIUM).
+
+Last reviewed: 2026-05-31
+
+---
+
+## TD-108 – Slash-command discovery is session-type aware, not permission/capability aware
+
+**Severity**: Medium (decision needed – no differentiated command-permission model exists in 0.17)
+**Found**: 2026-05-30 0.17 mixed review (codex F-009)
+**Affects**: `packages/dartclaw_server/lib/src/api/session_routes.dart` (`_availableCommands`); `Session` model; S08 chat composer FIS
+
+**Context**: `GET /api/sessions/<id>/commands` (`_availableCommands`) returns a constant workflow command list gated only on session type (empty for archive/task) and handler presence. The `Session` model has no permission field; command gating is enforced at execution time via guards, not at discovery time. The S08 FIS (`dev/bundle/docs/specs/0.17/fis/s08-chat-composer.md` lines 25, 220) requires command availability to "vary by permissions", which the current discovery path cannot satisfy.
+
+**Decision required**: either build a session/user command-permission model that `_availableCommands` consults, or narrow the S08 FIS to drop the per-permission availability requirement. Cannot be resolved without that product/requirements decision.
+
+**Trigger**: S08 chat composer implementation needs permission-varying command lists, or a differentiated command-permission model is introduced.
+
+**References**: `dev/bundle/docs/specs/0.17/0.17-mixed-review-codex-2026-05-30-5.md` finding F-009.
+
+Last reviewed: 2026-05-30
+
+---
+
 ## TD-106 – Investigate deeper Codex restriction surface
 
 **Severity**: Medium (security hardening; provider capability gap)
@@ -13,46 +73,6 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 **Fix**: Research Codex-supported restriction levers, choose a minimal enforceable mapping for DartClaw workflow tool categories, and add contract tests for the selected behavior.
 
 **Trigger**: Need to run non-read-only Codex workflow steps with a narrowed tool surface, or upstream Codex adds a stable per-tool allowlist/profile capability.
-
-Last reviewed: 2026-05-18
-
----
-
-## TD-103 – Refactor server-side `_workflow*` task-config reads behind a typed accessor
-
-**Severity**: Low (architectural boundary; not blocking – fitness allowlist absorbs it)
-**Found**: 2026-05-02 0.16.4 restructure release-prep (split off from TD-100)
-**Affects**: `packages/dartclaw_server/lib/src/task/{workflow_one_shot_runner,task_config_view}.dart`
-
-**Context**: The 2026-05-02 widening of `check_no_workflow_private_config.sh` accepted that `_workflowNeedsWorktree` and `_workflowMergeResolveEnv` are intentionally persisted in `task.configJson` and read by server-side code (`task_config_view.dart:52,54`, `workflow_one_shot_runner.dart:77`). That was the pragmatic call to clear CI; the cleaner shape is for those server reads to go through a typed accessor on `TaskConfigView` (or an equivalent typed view object) so the raw `_workflow*` literal stays scoped to the workflow package.
-
-**Current state**: Allowlisted, not blocking. The boundary remains soft but the surface is enumerated and documented.
-
-**Fix**: Add a typed view (e.g. `TaskConfigView.workflowNeedsWorktree`, `TaskConfigView.workflowMergeResolveEnv`) and migrate the two server call sites. Then drop those two entries from `ALLOWED_FILES` in the fitness script.
-
-**Trigger**: 0.16.5 S34 (workflow task-config accessors/constants) – that story already enumerates `_workflowFollowUpPrompts`, `_workflowStructuredSchema`, `_workflowMergeResolveEnv`, `_dartclaw.internal.validationFailure`, and the token-metric keys for centralisation through a typed/constant surface. Adding `_workflowNeedsWorktree` to the same surface and migrating the two server reads is the natural extension.
-
-**References**: Fitness function `dev/tools/fitness/check_no_workflow_private_config.sh`; allowlist comment header tracks the same follow-up.
-
-Last reviewed: 2026-05-18
-
----
-
-## TD-097 – Re-run live workflow e2e under the S80 runtime-artifacts path scheme
-
-**Severity**: Medium (release-gate verification freshness)
-**Found**: 2026-04-30 S80 mixed-review remediation
-**Affects**: `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart`
-
-**Context**: S80 moved runtime review reports to `<data_dir>/workflows/runs/<runId>/runtime-artifacts/reviews/`, but the live `plan-and-implement` e2e and explicit cross-harness suites were not re-run after that path move. Component and integration tests cover the path contract, and the live e2e assertions are currently path-agnostic, so this is a release-gate freshness gap rather than a known failing behavior.
-
-**Current state**: Acceptable for completing S80 remediation; not acceptable as a final "still green" release-gate signal unless the live e2e is re-run or consciously waived for the release.
-
-**Fix**: Before tagging the next 0.16.4 release candidate, run the live `plan-and-implement` e2e against the `workflows-dartclaw` profile and the explicit Codex/Claude cross-harness suites. If the live e2e remains path-agnostic, either strengthen it to assert the runtime-artifacts path or record why the broader e2e signal is sufficient.
-
-**Trigger**: 0.16.4 tag preparation, release-gate sign-off, or any future change to workflow runtime artifact paths.
-
-**References**: `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30-3.md` M1.
 
 Last reviewed: 2026-05-18
 
@@ -135,27 +155,6 @@ Last reviewed: 2026-05-18
 **References**: `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30.md` L3.
 
 Last reviewed: 2026-05-18
-
----
-
-## TD-089 – `WorkflowService` god-shaped constructor + nullable-but-required dependencies
-
-Promoted: 0.17 planning candidate
-Last reviewed: 2026-05-18
-
-**0.16.5 disposition**: **Deferred to 0.17 stabilization (S23 triage decision).** Changing the 18-collaborator constructor requires updating all callers in `dartclaw_server` wiring and test harnesses – a cross-cutting refactor beyond housekeeping scope. The nullable-but-required `StateError` path is harmless in the current single-deployment model where all deps are always wired in production.
-
-**Severity**: Medium (DX/maintainability – runtime `StateError` for what should be compile-time required deps)
-**Found**: 2026-04-30 deeper code review of `dartclaw_workflow` (H25)
-**Affects**: `workflow_service.dart:83-128`; `workflow_task_factory.dart:48-57`
-
-**Context**: `WorkflowService` constructor takes 18 collaborators, ~10 of them nullable (`taskRepository?`, `agentExecutionRepository?`, `workflowStepExecutionRepository?`, `executionRepositoryTransactor?`, `projectService?`, …). The "optional" deps then throw runtime `StateError` deep in `workflow_task_factory.dart:48-57` ("Workflow task spawn requires AgentExecution + WorkflowStepExecution persistence …") – meaning they're required in practice, just smuggled in as `?`. Either make them required at the type level or extract a `WorkflowExecutionDependencies` value object so the contract is compile-time visible.
-
-**Fix shape**: introduce `WorkflowExecutionDependencies` (or split into `WorkflowExecutionServices` + `WorkflowExecutionRepositories` + `WorkflowExecutionGitPort`) value objects; bind required vs optional explicitly; constructor signature collapses to ≤6 args; `StateError` smuggling sites become unreachable.
-
-**Trigger**: 0.17 stabilization pass.
-
-**References**: 2026-04-30 deeper code review consolidated report (H25). Sibling to 0.16.5 S16 (task_executor ctor reduction) but a different file – not in S16 scope.
 
 ---
 
@@ -343,21 +342,18 @@ Last reviewed: 2026-05-18
 
 ---
 
-## TD-070 – Workflow boundary residuals (open surface)
+## TD-070 – `WorkflowCliRunner` lives in `dartclaw_server` despite being workflow/task boundary infrastructure
 
 **Severity**: Medium (maintainability)
-**Found**: 0.16.4 final baseline review remediation (2026-04-30 05:20 CEST); narrowed 2026-05-16 after the LOC/race/resume sub-items closed in S15
-**Affects**: `packages/dartclaw_server/lib/src/task/workflow_cli_runner.dart`, workflow-created `task.configJson` keys
+**Found**: 0.16.4 final baseline review remediation (2026-04-30 05:20 CEST); narrowed 2026-05-16 (LOC/race/resume closed in S15) and 2026-05-28 (S34-tracked typed-config surface closed; only the S31-tracked runner location remains)
+**Affects**: `packages/dartclaw_server/lib/src/task/workflow_cli_runner.dart`
 
-**Context**: Two of the three original carry-overs are closed (executor LOC decomposition – S15; `_waitForTaskCompletion` race – S15; map/foreach resume cursor – S15). Two open residuals remain, both targeted by mapped 0.16.5 stories:
+**Context**: Of the original carry-overs, three closed in S15 (executor LOC decomposition, `_waitForTaskCompletion` race, map/foreach resume cursor) and the typed `_workflow*` task-config surface closed in S34 (`WorkflowTaskConfig` constants + `readMergeResolveEnv`, with the two server-side reads now routing through it). The remaining residual is structural: `WorkflowCliRunner` still lives in `dartclaw_server` despite acting as workflow/task boundary infrastructure. The seam decision is owned by S31.
 
-- `WorkflowCliRunner` still lives in `dartclaw_server` despite acting as workflow/task boundary infrastructure. The seam decision is owned by S31.
-- Several inter-package workflow task-config keys remain stringly typed (`_workflowFollowUpPrompts`, `_dartclaw.internal.validationFailure`, etc.). Centralisation behind a typed/constant surface is owned by S34. Closely related to TD-103 (the server-side `_workflow*` task-config reads), which would land on the same typed accessor.
+**Fix**: Complete S31. Drop this entry when it ships.
 
-**Fix**: Complete S31 and S34. Drop this entry when both ship; if either slips past 0.16.5, narrow further to the specific remaining surface.
-
-**Trigger**: any new workflow runner type; any change that adds another `_workflow*` / `_dartclaw.internal.*` task-config key.
+**Trigger**: any new workflow runner type; any cross-package wiring change that re-opens the seam question.
 
 **References**: `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline.md` §"Open Requirement Mismatches In Latest Review Material" · `workflow-requirements-baseline-gap-review-claude-2026-04-29.md` LOW advisory-carry-over finding.
 
-Last reviewed: 2026-05-18
+Last reviewed: 2026-05-28

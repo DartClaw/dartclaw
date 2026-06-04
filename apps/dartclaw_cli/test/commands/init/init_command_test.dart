@@ -13,6 +13,7 @@ Future<SetupPreflight> _passingPreflight({
   required List<String> providers,
   required int port,
   required String instanceDir,
+  bool workflowTrack = false,
   Future<ProcessResult> Function(String, List<String>)? runProcess,
 }) async => const SetupPreflight(errors: [], warnings: []);
 
@@ -20,6 +21,7 @@ Future<SetupPreflight> _failingPreflight({
   required List<String> providers,
   required int port,
   required String instanceDir,
+  bool workflowTrack = false,
   Future<ProcessResult> Function(String, List<String>)? runProcess,
 }) async => const SetupPreflight(errors: ['Provider binary not found'], warnings: []);
 
@@ -56,6 +58,7 @@ InitCommand _nonInteractiveCmd({
     required List<String> providers,
     required int port,
     required String instanceDir,
+    bool workflowTrack,
     Future<ProcessResult> Function(String, List<String>)? runProcess,
   })?
   runPreflight,
@@ -95,6 +98,7 @@ class _RecordingVerifier extends SetupVerifier {
     required String instanceDir,
     required int port,
     bool skipNetwork = false,
+    bool skipPortCheck = false,
   }) {
     configCalls.add(configPath);
     providerCalls.add(providerIds);
@@ -104,6 +108,7 @@ class _RecordingVerifier extends SetupVerifier {
       instanceDir: instanceDir,
       port: port,
       skipNetwork: skipNetwork,
+      skipPortCheck: skipPortCheck,
     );
   }
 }
@@ -149,7 +154,195 @@ void main() {
   group('InitCommand', () {
     test('registers the expected command surface', () {
       final options = InitCommand().argParser.options.keys;
-      expect(options, containsAll(['provider', 'primary-provider', 'auth-claude', 'auth-codex', 'model-claude']));
+      expect(
+        options,
+        containsAll([
+          'workflow',
+          'personalize',
+          'apply-drafts',
+          'provider',
+          'primary-provider',
+          'auth-claude',
+          'auth-codex',
+          'model-claude',
+        ]),
+      );
+    });
+
+    test('personalize re-seeds onboarding without running setup preflight', () async {
+      final tempDir = Directory.systemTemp.createTempSync('init_personalize_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+      var preflightCalled = false;
+      final output = <String>[];
+      final cmd = _nonInteractiveCmd(
+        outputCapture: output,
+        runPreflight:
+            ({
+              required List<String> providers,
+              required int port,
+              required String instanceDir,
+              bool workflowTrack = false,
+              Future<ProcessResult> Function(String, List<String>)? runProcess,
+            }) async {
+              preflightCalled = true;
+              return const SetupPreflight(errors: [], warnings: []);
+            },
+      );
+      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+
+      await runner.run(['init', '--personalize', '--instance-dir', tempDir.path]);
+
+      expect(preflightCalled, isFalse);
+      final onboarding = File('${tempDir.path}/workspace/ONBOARDING.md');
+      expect(onboarding.existsSync(), isTrue);
+      expect(onboarding.readAsStringSync(), contains('Rerun: true'));
+      expect(output, contains('Onboarding re-seeded for ${tempDir.path}'));
+    });
+
+    test('apply-drafts applies onboarding drafts without running full setup', () async {
+      final tempDir = Directory.systemTemp.createTempSync('init_apply_drafts_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+      final workspace = Directory('${tempDir.path}/workspace')..createSync(recursive: true);
+      File('${workspace.path}/USER.md').writeAsStringSync('# User Context\n\n## Identity\n\nOld\n');
+      File('${workspace.path}/USER.md.draft').writeAsStringSync('# User Context\n\n## Identity\n\nNew\n');
+      var preflightCalled = false;
+      final output = <String>[];
+      final cmd = _nonInteractiveCmd(
+        outputCapture: output,
+        runPreflight:
+            ({
+              required List<String> providers,
+              required int port,
+              required String instanceDir,
+              bool workflowTrack = false,
+              Future<ProcessResult> Function(String, List<String>)? runProcess,
+            }) async {
+              preflightCalled = true;
+              return const SetupPreflight(errors: [], warnings: []);
+            },
+      );
+      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+
+      await runner.run(['init', '--apply-drafts', '--instance-dir', tempDir.path]);
+
+      expect(preflightCalled, isFalse);
+      expect(File('${workspace.path}/USER.md').readAsStringSync(), contains('New'));
+      expect(File('${workspace.path}/USER.md.draft').existsSync(), isFalse);
+      expect(output, contains('Applied onboarding drafts:'));
+    });
+
+    test('apply-drafts leaves SOUL draft in non-interactive mode', () async {
+      final tempDir = Directory.systemTemp.createTempSync('init_apply_soul_drafts_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+      final workspace = Directory('${tempDir.path}/workspace')..createSync(recursive: true);
+      File('${workspace.path}/SOUL.md').writeAsStringSync('Curated soul\n');
+      File('${workspace.path}/SOUL.md.draft').writeAsStringSync('New soul\n');
+      final output = <String>[];
+      final cmd = _nonInteractiveCmd(outputCapture: output);
+      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+
+      await runner.run(['init', '--apply-drafts', '--instance-dir', tempDir.path]);
+
+      expect(File('${workspace.path}/SOUL.md').readAsStringSync(), 'Curated soul\n');
+      expect(File('${workspace.path}/SOUL.md.draft').existsSync(), isTrue);
+      expect(output, contains('SOUL.md.draft requires interactive confirmation; left unchanged.'));
+    });
+
+    test('workflow non-interactive flow resolves minimal standalone setup state', () async {
+      final captured = <SetupState>[];
+      final output = <String>[];
+      bool? preflightWorkflowTrack;
+      final verifier = _RecordingVerifier(providerVerified: (_, _, _) async => true);
+      final cmd = _nonInteractiveCmd(
+        captureInto: captured,
+        outputCapture: output,
+        verifier: verifier,
+        runPreflight:
+            ({
+              required List<String> providers,
+              required int port,
+              required String instanceDir,
+              bool workflowTrack = false,
+              Future<ProcessResult> Function(String, List<String>)? runProcess,
+            }) async {
+              preflightWorkflowTrack = workflowTrack;
+              return const SetupPreflight(errors: [], warnings: []);
+            },
+      );
+      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+
+      await runner.run([
+        'init',
+        '--workflow',
+        '--non-interactive',
+        '--provider',
+        'claude',
+        '--auth-claude',
+        'oauth',
+        '--model-claude',
+        'sonnet',
+      ]);
+
+      final state = captured.single;
+      expect(state.workflowTrack, isTrue);
+      expect(state.instanceDir, './dartclaw');
+      expect(state.configPath, './dartclaw/dartclaw.yaml');
+      expect(state.provider, 'claude');
+      expect(state.providers, ['claude']);
+      expect(state.authMethod, 'oauth');
+      expect(state.model, 'sonnet');
+      expect(preflightWorkflowTrack, isTrue);
+      expect(output, contains('Run a workflow: dartclaw workflow run --standalone code-review'));
+      expect(output.any((line) => line.contains('Start the server')), isFalse);
+    });
+
+    test('workflow track with a custom instance dir prints the --config next-step form', () async {
+      final captured = <SetupState>[];
+      final output = <String>[];
+      final verifier = _RecordingVerifier(providerVerified: (_, _, _) async => true);
+      final cmd = _nonInteractiveCmd(
+        captureInto: captured,
+        outputCapture: output,
+        verifier: verifier,
+        runPreflight:
+            ({
+              required List<String> providers,
+              required int port,
+              required String instanceDir,
+              bool workflowTrack = false,
+              Future<ProcessResult> Function(String, List<String>)? runProcess,
+            }) async => const SetupPreflight(errors: [], warnings: []),
+      );
+      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+
+      await runner.run([
+        'init',
+        '--workflow',
+        '--non-interactive',
+        '--instance-dir',
+        '/tmp/custom-dc',
+        '--provider',
+        'claude',
+        '--auth-claude',
+        'oauth',
+        '--model-claude',
+        'sonnet',
+      ]);
+
+      // A non-default config folder is not found by the bare standalone resolver,
+      // so the next step must carry --config pointing at the written config.
+      expect(
+        output,
+        contains(
+          'Run a workflow: dartclaw workflow run --standalone --config /tmp/custom-dc/dartclaw.yaml code-review',
+        ),
+      );
     });
 
     test('non-interactive single-provider flow resolves setup state from flags', () async {

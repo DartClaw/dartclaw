@@ -359,7 +359,7 @@ void main() {
         expect(capturedArgs, contains('--print'));
         expect(capturedArgs, contains('--output-format'));
         expect(capturedArgs, contains('stream-json'));
-        expect(capturedArgs, contains('--setting-sources'));
+        expect(capturedArgs, isNot(contains('--setting-sources')));
         expect(capturedArgs, contains('--dangerously-skip-permissions'));
         expect(capturedArgs, isNot(contains('--permission-prompt-tool')));
         // Nesting-detection env vars should be stripped.
@@ -368,6 +368,32 @@ void main() {
         // Regular env vars should remain.
         expect(capturedEnv?['HOME'], '/home/user');
         expect(capturedEnv?['ANTHROPIC_API_KEY'], 'sk-test');
+      });
+
+      test('writes MCP config with owner-only permissions', () async {
+        List<String>? capturedArgs;
+
+        final h = _buildHarness(
+          harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3333/mcp', mcpGatewayToken: 'test-token'),
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
+            final fake = _makeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        final configPath = capturedArgs![capturedArgs!.indexOf('--mcp-config') + 1];
+        final configFile = File(configPath);
+        expect(configFile.readAsStringSync(), contains('Bearer test-token'));
+        if (!Platform.isWindows) {
+          expect((configFile.statSync().mode & 0x1ff).toRadixString(8), '600');
+        }
       });
 
       test('uses native --permission-mode when configured via provider options', () async {
@@ -747,6 +773,33 @@ void main() {
         await h.stop();
         expect(h.state, WorkerState.stopped);
       });
+
+      test('resetSessionContinuity stops the warm provider process', () async {
+        final processes = <FakeProcess>[];
+        final h = _buildHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            final fake = FakeProcess(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
+            processes.add(fake);
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        expect(h.state, WorkerState.idle);
+
+        await h.resetSessionContinuity('sess-reset');
+
+        expect(h.state, WorkerState.stopped);
+        expect(processes.single.killCalled, isTrue);
+
+        await h.start();
+        expect(processes, hasLength(2));
+        expect(h.state, WorkerState.idle);
+      });
     });
 
     // ----- dispose() -----------------------------------------------------
@@ -972,7 +1025,7 @@ void main() {
         addTeardownAsync(() => h.dispose());
 
         await h.start();
-        expect(capturedArgs, contains('--setting-sources'));
+        expect(capturedArgs, isNot(contains('--setting-sources')));
         fake.emitStdout(
           jsonEncode({
             'type': 'control_request',

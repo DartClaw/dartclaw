@@ -1,13 +1,10 @@
-import '../skills/skill_info.dart' show SkillInfo;
 import 'workflow_definition.dart';
 
-import 'skill_registry.dart';
 import 'step_config_resolver.dart' show globMatchStepId;
 
 /// Resolves a [WorkflowDefinition] into the fully-merged form the engine
 /// executes: per-step fields concretized from pattern-based `stepDefaults`,
-/// skill defaults (`workflow.default_prompt`, `workflow.default_outputs`)
-/// filled in when a step omits its own declaration, and workflow-level
+/// and workflow-level
 /// `{{VAR}}` bindings substituted in step prompts when a binding is
 /// available. Runtime-only references (`{{context.key}}` and unbound
 /// `{{VAR}}`) are preserved verbatim so the resolved YAML is still a
@@ -17,12 +14,9 @@ import 'step_config_resolver.dart' show globMatchStepId;
 /// Outputs round-trip through [WorkflowDefinitionParser] (by design — it
 /// is the observability surface for the `workflow show --resolved` CLI).
 class WorkflowDefinitionResolver {
-  final SkillRegistry? _skillRegistry;
+  const WorkflowDefinitionResolver();
 
-  const WorkflowDefinitionResolver({SkillRegistry? skillRegistry}) : _skillRegistry = skillRegistry;
-
-  /// Returns a new [WorkflowDefinition] with `stepDefaults` applied, skill
-  /// defaults filled in, and `{{VAR}}` references in prompts substituted
+  /// Returns a new [WorkflowDefinition] with `stepDefaults` applied and `{{VAR}}` references in prompts substituted
   /// when [variableBindings] contains the key.
   ///
   /// The emitted definition no longer carries `stepDefaults` (already
@@ -91,29 +85,13 @@ class WorkflowDefinitionResolver {
       }
     }
 
-    // 2. Skill default_prompt / default_outputs from frontmatter.
-    final skill = step.skill;
     final resolvedProvider = step.provider ?? matched?.provider;
-    final skillInfo = (skill != null) ? _skillInfoFor(skill, resolvedProvider) : null;
-    final skillDefaultPrompt = skillInfo?.defaultPrompt;
-    final skillDefaultOutputs = skillInfo?.defaultOutputs;
 
     List<String>? resolvedPrompts = step.prompts;
-    if ((resolvedPrompts == null || resolvedPrompts.isEmpty) && skillDefaultPrompt != null) {
-      resolvedPrompts = [skillDefaultPrompt];
-    }
     if (resolvedPrompts != null && variableBindings != null && variableBindings.isNotEmpty) {
       resolvedPrompts = resolvedPrompts
           .map((prompt) => _substituteVariables(prompt, variableBindings))
           .toList(growable: false);
-    }
-
-    Map<String, OutputConfig>? resolvedOutputs = step.outputs;
-    if ((resolvedOutputs == null || resolvedOutputs.isEmpty) && skillDefaultOutputs != null) {
-      resolvedOutputs = skillDefaultOutputs;
-    } else if (skillDefaultOutputs != null && resolvedOutputs != null) {
-      // Shallow merge — explicit keys win over skill defaults.
-      resolvedOutputs = {...skillDefaultOutputs, ...resolvedOutputs};
     }
 
     return step.copyWith(
@@ -121,24 +99,13 @@ class WorkflowDefinitionResolver {
       provider: resolvedProvider,
       model: step.model ?? matched?.model,
       effort: step.effort ?? matched?.effort,
-      outputs: resolvedOutputs,
+      outputs: step.outputs,
       maxTokens: step.maxTokens ?? matched?.maxTokens,
       maxCostUsd: step.maxCostUsd ?? matched?.maxCostUsd,
       maxRetries: step.maxRetries ?? matched?.maxRetries,
       allowedTools: step.allowedTools ?? matched?.allowedTools,
-      emitsOwnOutcome: step.emitsOwnOutcome || (skillInfo?.emitsOwnOutcome ?? false),
+      emitsOwnOutcome: step.emitsOwnOutcome,
     );
-  }
-
-  SkillInfo? _skillInfoFor(String skill, String? provider) {
-    final registry = _skillRegistry;
-    if (registry == null) return null;
-    if (provider != null) {
-      return registry.resolveRef(skill, provider)?.skill ?? registry.getByName(skill);
-    }
-    return registry.getByName(skill) ??
-        registry.resolveRef(skill, 'codex')?.skill ??
-        registry.resolveRef(skill, 'claude')?.skill;
   }
 
   /// Replaces `{{KEY}}` occurrences in [input] with the corresponding value

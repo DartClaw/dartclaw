@@ -9,7 +9,7 @@ _Agentic powers. No dependency black holes. Secure by design._
 > [!NOTE]
 > Welcome to DartClaw – An **experimental**, security-conscious AI agent runtime built with Dart.
 >
-> _Status_: `v0.16.4` – connected-by-default CLI workflow execution, operational command groups, and workflow trigger surfaces (web launch forms, `/workflow` chat commands, and GitHub PR webhooks). See [CHANGELOG](CHANGELOG.md).
+> _Status_: 0.17 milestone closure candidate – personal workspace scaffolding, knowledge ingestion/wiki/KG, guard editor, SDK documentation Phase 2, richer chat composer, standalone workflow init, and crash-recovery validation are implemented in this checkout. See [CHANGELOG](CHANGELOG.md).
 
 <p align="center">
   <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI — Task Dashboard" width="720">
@@ -140,11 +140,14 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 ### SDK Guide
 - **[Quick Start](docs/sdk/quick-start.md)** -- build your first agent in under 30 lines
 - **[Package Guide](docs/sdk/packages.md)** -- which package to depend on
+- **[Concepts](docs/sdk/concepts.md)** -- harnesses, turns, events, sessions, guards, storage, and channels
+- **[Architecture](docs/sdk/architecture.md)** -- the SDK-facing 2-layer model and extension seams
+- **[Security](docs/sdk/security.md)** -- guard chains, isolation expectations, credentials, and audit hooks
 - **[Examples](examples/sdk/)** -- runnable SDK example projects
 
 ### Architecture & Specs
 - **[Architecture](docs/guide/architecture.md)** -- 2-layer model, multi-provider, design decisions
-- **[Architecture Governance](dev/architecture-governance.md)** -- contributor-facing executable boundary checks via `dev/tools/arch_check.dart`
+- **[Architecture Governance](dev/architecture/architecture-governance.md)** -- contributor-facing executable boundary checks via `dev/tools/arch_check.dart`
 - **[Web UI & API](docs/guide/web-ui-and-api.md)** -- interface features, REST endpoints, provider status API
 
 ## Security Model

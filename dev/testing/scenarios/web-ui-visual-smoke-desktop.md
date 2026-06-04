@@ -30,7 +30,7 @@ This sub-scenario checks both auth entry points and the first authenticated rend
 - The login page includes a token input and sign-in action
 - The app loads without showing the login form
 - The desktop layout shows a persistent left sidebar rather than a hidden overlay-only navigation pattern
-- The sidebar includes a visible `+ New Session` control
+- The sidebar includes a visible `New Chat` control for starting a new session
 - The sidebar includes the major `SYSTEM` navigation links for `Health`, `Settings`, `Memory`, `Scheduling`, `Tasks`, `Projects`, `Workflows`, and `Canvas`
 - The topbar and main content render as a coherent desktop shell without obvious clipping, overlap, or unreadable text
 
@@ -200,3 +200,48 @@ This sub-scenario checks that missing routes still render a themed, user-facing 
 - The 404 page uses the same themed visual language as the rest of the app rather than a browser-default error surface
 - Activating the recovery action returns the browser to a valid authenticated page
 - The desktop layout of the 404 page is deliberate and readable rather than sparse, broken, or obviously unstyled
+
+
+## S9: Verify The Rich Chat Composer
+
+This sub-scenario checks the rich composer shell (command palette, reference palette, attachment chips, send/stop) on a seeded chat session. It uses the dedicated active `user`-type session `c0117005-0000-4000-8000-000000000009` ("Composer Smoke E2E") rather than the `main` session used in `S2`: keyed `main`/`channel`/`cron` sessions are rotated to archive by the daily reset, so the seeded `main` session (`f59ce127…`) renders read-only with no composer, while the rotated active `main` session has a non-deterministic id. The seeded `user` session is exempt from rotation and from age pruning (default `sessions.maintenance.mode: warn`), so it reliably exposes the composer at a stable id.
+
+### Steps
+
+1. Navigate to `http://localhost:3338/sessions/c0117005-0000-4000-8000-000000000009`
+2. Run `agent-browser snapshot -i` to capture the composer
+3. Focus the composer input and type `/`
+4. Run `agent-browser snapshot -i` to capture the command palette, then press `Escape` to dismiss it
+5. Type `@` in the composer
+6. Run `agent-browser snapshot -i` to capture the reference palette, then press `Escape` to dismiss it
+
+### Expected
+
+- The composer renders as the rich shell (toolbar/affordances around the input), not a bare textarea-only form
+- Typing `/` opens a command palette with keyboard-selectable command rows; `Escape` dismisses it cleanly with focus returned to the input
+- Typing `@` opens a reference palette with selectable context rows; `Escape` dismisses it cleanly
+- No palette leaves an orphaned overlay, and the composer does not overflow or break the desktop chat layout
+- No error banner or raw stack trace appears while opening or dismissing the palettes
+
+
+## S10: Verify The Settings Guard Editor
+
+This sub-scenario checks the guard editor on the Settings page. The `visual` profile authenticates via token; DartClaw grants every authenticated session admin access (there is no separate non-admin web-UI role), so the editable controls and tester are expected to be present. The runtime-only read-only guard view is not reachable from the web UI and is not exercised here.
+
+### Steps
+
+1. Navigate to `http://localhost:3338/settings`
+2. Run `agent-browser snapshot -i` to capture the settings page
+3. Scroll to locate the guard editor / security guard section
+4. Run `agent-browser snapshot -i` to capture the guard editor surface
+5. Locate the guard tester input, enter a clearly dangerous command such as `rm -rf /`, and submit it to the tester
+6. Run `agent-browser snapshot -i` to capture the tester verdict
+
+### Expected
+
+- The settings page renders a guard editor section grouping the command, file, network, and input-sanitizer guards
+- Built-in default rules are shown as read-only context, visually distinct from editable extension entries
+- Editable extension affordances are present for an admin session — add/edit/delete controls on the extension fields and a guard tester panel
+- Submitting a sample through the tester returns a structured verdict (an allowed/blocked result with a guard family and reason), not an error; a clearly dangerous command surfaces a blocked verdict
+- Running the tester does not mutate the persisted guard config or require a restart
+- No error banner, raw stack trace, or unstyled fallback appears in the guard editor or tester area

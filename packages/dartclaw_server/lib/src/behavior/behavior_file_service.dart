@@ -30,6 +30,7 @@ class BehaviorFileService {
   final String workspaceDir;
   final String? projectDir;
   final int? maxMemoryBytes;
+  final int onboardingExpiryDays;
 
   /// Custom compact instructions to include in system prompts for long-running sessions.
   ///
@@ -49,6 +50,7 @@ class BehaviorFileService {
     required this.workspaceDir,
     this.projectDir,
     this.maxMemoryBytes,
+    this.onboardingExpiryDays = 14,
     this.compactInstructions,
     this.identifierPreservation = IdentifierPreservationMode.strict,
     this.identifierInstructions,
@@ -58,6 +60,7 @@ class BehaviorFileService {
   ///
   /// Files included per scope:
   /// - [PromptScope.interactive]: SOUL + USER + TOOLS + errors + learnings + MEMORY + compact instructions
+  /// - [PromptScope.webInteractive]: interactive + fresh ONBOARDING.md
   /// - [PromptScope.task]: SOUL (workspace) + TOOLS
   /// - [PromptScope.restricted]: TOOLS only
   /// - [PromptScope.evaluator]: default prompt only
@@ -88,7 +91,7 @@ class BehaviorFileService {
     }
 
     // interactive and task scopes: SOUL → USER (interactive only) → TOOLS → ...
-    if (scope == PromptScope.interactive) {
+    if (_includesInteractiveContext(scope)) {
       // USER.md — workspace only (agent-updatable user context)
       await _addSection(parts, 'USER.md', '## User Context');
     }
@@ -96,7 +99,7 @@ class BehaviorFileService {
     // TOOLS.md — workspace only (interactive and task scopes)
     await _addSection(parts, 'TOOLS.md', '## Environment Notes');
 
-    if (scope == PromptScope.interactive) {
+    if (_includesInteractiveContext(scope)) {
       // errors.md — auto-populated on failures
       await _addSection(parts, 'errors.md', '## Recent Errors');
       // learnings.md — agent-written via memory_save category='learning'
@@ -125,6 +128,8 @@ class BehaviorFileService {
       };
       final fullInstructions = identifierText != null ? '$instructions\n$identifierText' : instructions;
       parts.add('# Compact instructions\n$fullInstructions');
+
+      await _addOnboardingSection(parts, scope: scope);
     }
 
     return parts.join('\n\n');
@@ -134,6 +139,7 @@ class BehaviorFileService {
   ///
   /// Scope controls which workspace files are included at spawn time:
   /// - [PromptScope.interactive]: SOUL + USER + TOOLS + errors + learnings + AGENTS + memory hint
+  /// - [PromptScope.webInteractive]: interactive + fresh ONBOARDING.md
   /// - [PromptScope.task]: SOUL + TOOLS + AGENTS + memory hint
   /// - [PromptScope.restricted]: TOOLS + memory hint
   /// - [PromptScope.evaluator]: default prompt + memory hint
@@ -156,7 +162,7 @@ class BehaviorFileService {
         parts.add(defaultPrompt);
       }
 
-      if (scope == PromptScope.interactive) {
+      if (_includesInteractiveContext(scope)) {
         // USER.md — workspace only (agent-updatable user context)
         await _addSection(parts, 'USER.md', '## User Context');
       }
@@ -164,7 +170,7 @@ class BehaviorFileService {
       // TOOLS.md — workspace only (human-maintained environment notes)
       await _addSection(parts, 'TOOLS.md', '## Environment Notes');
 
-      if (scope == PromptScope.interactive) {
+      if (_includesInteractiveContext(scope)) {
         // errors.md — auto-populated on failures
         await _addSection(parts, 'errors.md', '## Recent Errors');
         // learnings.md — agent-written via memory_save category='learning'
@@ -172,16 +178,33 @@ class BehaviorFileService {
       }
     }
 
+    await _addOnboardingSection(parts, scope: scope);
+
     // AGENTS.md
     final agentsMd = await composeAppendPrompt(scope: scope);
     if (agentsMd.isNotEmpty) {
       parts.add(agentsMd);
     }
 
-    // Memory hint (agent uses MCP tools for dynamic memory access)
-    parts.add('## Memory\nUse the memory_read tool to check for relevant context before responding.');
+    parts.add(
+      '## Memory\n'
+      'Use the memory_read tool for relevant durable context. For questions about entities, dates, timelines, or '
+      'changing facts, query the temporal knowledge graph with kg_query or kg_timeline before answering.',
+    );
 
     return parts.join('\n\n');
+  }
+
+  /// Whether a fresh onboarding sentinel is available for web prompt injection.
+  bool hasFreshOnboardingSentinel({bool logStale = false}) {
+    final onboardingFile = File(p.join(workspaceDir, 'ONBOARDING.md'));
+    if (!onboardingFile.existsSync()) return false;
+    final age = DateTime.now().difference(onboardingFile.statSync().modified);
+    final isFresh = age.inDays < onboardingExpiryDays;
+    if (!isFresh && logStale) {
+      _logStaleOnboarding(age);
+    }
+    return isFresh;
   }
 
   /// Returns AGENTS.md content for appending to the system prompt.
@@ -201,6 +224,35 @@ class BehaviorFileService {
     if (content != null && content.trim().isNotEmpty) {
       parts.add('$header\n$content');
     }
+  }
+
+  bool _includesInteractiveContext(PromptScope scope) {
+    return scope == PromptScope.interactive || scope == PromptScope.webInteractive;
+  }
+
+  Future<void> _addOnboardingSection(List<String> parts, {PromptScope scope = PromptScope.webInteractive}) async {
+    if (scope != PromptScope.webInteractive) return;
+    final onboardingFile = File(p.join(workspaceDir, 'ONBOARDING.md'));
+    if (!onboardingFile.existsSync()) return;
+
+    final stat = onboardingFile.statSync();
+    final age = DateTime.now().difference(stat.modified);
+    if (age.inDays >= onboardingExpiryDays) {
+      _logStaleOnboarding(age);
+      return;
+    }
+
+    final content = await _readFile(onboardingFile.path);
+    if (content != null && content.trim().isNotEmpty) {
+      parts.add('## Onboarding\n$content');
+    }
+  }
+
+  void _logStaleOnboarding(Duration age) {
+    _log.warning(
+      'Skipping stale ONBOARDING.md (${age.inDays} days old). '
+      'Run dartclaw init --personalize to restart onboarding.',
+    );
   }
 
   /// Logs a one-shot deprecation warning if project SOUL.md exists.

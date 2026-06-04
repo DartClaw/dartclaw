@@ -25,6 +25,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRoleDefaults,
         WorkflowRun,
         WorkflowService,
+        SkillIntrospector,
         WorkflowStep,
         WorkflowTaskType,
         resolveStepConfig;
@@ -51,6 +52,7 @@ class WorkflowRunCommand extends Command<void> {
   final ExitFn _exitFn;
   final Stream<void> Function() _interrupts;
   final bool _runAndthenSkillsBootstrap;
+  final SkillIntrospector? _skillIntrospector;
 
   WorkflowRunCommand({
     DartclawConfig? config,
@@ -64,6 +66,7 @@ class WorkflowRunCommand extends Command<void> {
     ExitFn? exitFn,
     Stream<void> Function()? interrupts,
     bool runAndthenSkillsBootstrap = true,
+    SkillIntrospector? skillIntrospector,
   }) : _config = config,
        _searchDbFactory = searchDbFactory,
        _taskDbFactory = taskDbFactory,
@@ -74,7 +77,8 @@ class WorkflowRunCommand extends Command<void> {
        _stderrLine = stderrLine ?? stderr.writeln,
        _exitFn = exitFn ?? exit,
        _interrupts = interrupts ?? (() => ProcessSignal.sigint.watch().map((_) {})),
-       _runAndthenSkillsBootstrap = runAndthenSkillsBootstrap {
+       _runAndthenSkillsBootstrap = runAndthenSkillsBootstrap,
+       _skillIntrospector = skillIntrospector {
     argParser
       ..addMultiOption('var', abbr: 'v', help: 'Variable (KEY=VALUE)', valueHelp: 'KEY=VALUE', splitCommas: false)
       ..addOption('project', abbr: 'p', help: 'Project ID for project-scoped steps')
@@ -126,8 +130,8 @@ class WorkflowRunCommand extends Command<void> {
       throw UsageException('--no-skill-bootstrap can only be used together with --standalone', usage);
     }
 
-    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
     if (standalone) {
+      final config = _config ?? _loadStandaloneConfigOrExit();
       await _runStandaloneWithSafety(
         config: config,
         workflowName: workflowName,
@@ -142,6 +146,7 @@ class WorkflowRunCommand extends Command<void> {
       return;
     }
 
+    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
     final apiClient =
         _apiClient ??
         DartclawApiClient.fromConfig(
@@ -162,6 +167,18 @@ class WorkflowRunCommand extends Command<void> {
       _stderrLine(_connectedErrorMessage(error));
       _exitFn(1);
     }
+  }
+
+  DartclawConfig _loadStandaloneConfigOrExit() {
+    final configPath = resolveStandaloneWorkflowConfigPath(
+      configPath: globalOptionString(globalResults, 'config'),
+      env: _environment,
+    );
+    if (!File(configPath).existsSync()) {
+      _stderrLine('No config found at $configPath. Run: dartclaw init --workflow');
+      _exitFn(1);
+    }
+    return loadCliConfig(configPath: configPath, env: _environment);
   }
 
   Future<void> _runStandaloneWithSafety({
@@ -205,6 +222,7 @@ class WorkflowRunCommand extends Command<void> {
       taskDbFactory: _taskDbFactory,
       runAndthenSkillsBootstrap: runAndthenSkillsBootstrap,
       preferSourceTreeAssets: preferSourceTreeAssets,
+      skillIntrospector: _skillIntrospector,
     );
     var wired = false;
     try {
@@ -274,19 +292,6 @@ class WorkflowRunCommand extends Command<void> {
           );
         }
         _exitFn(1);
-      }
-      if (!runAndthenSkillsBootstrap) {
-        final missing = _missingNativeSkillInstalls(definition: definition, wiring: wiring, config: config);
-        if (missing.isNotEmpty) {
-          _stderrLine(
-            '--no-skill-bootstrap was set but workflow skills referenced by "$workflowName" '
-            'are not installed in native harness skill roots for their execution providers: '
-            '${_formatMissingNativeSkillInstalls(missing)}. '
-            'Install AndThen separately for AndThen-owned skills; omit --no-skill-bootstrap only provisions '
-            'DartClaw-native skills.',
-          );
-          _exitFn(1);
-        }
       }
       await wiring.ensureTaskRunnersForProviders(_requiredWorkflowProviders(definition, config));
 
@@ -862,53 +867,6 @@ String _progressStartKey({required int stepIndex, String? taskId, String? displa
 
 extension<T> on T {
   R let<R>(R Function(T value) fn) => fn(this);
-}
-
-List<_MissingNativeSkillInstall> _missingNativeSkillInstalls({
-  required WorkflowDefinition definition,
-  required CliWorkflowWiring wiring,
-  required DartclawConfig config,
-}) {
-  final roleDefaults = _workflowRoleDefaults(config);
-  final missing = <_MissingNativeSkillInstall>[];
-  for (final step in definition.steps) {
-    final skillName = step.skill;
-    if (skillName == null) continue;
-
-    final provider = _effectiveStepProvider(definition, step, config, roleDefaults);
-    final resolved = wiring.skillRegistry.resolveRef(skillName, provider);
-    if (resolved == null || !resolved.skill.nativeHarnesses.contains(provider)) {
-      missing.add(
-        _MissingNativeSkillInstall(
-          canonicalRef: skillName,
-          provider: provider,
-          searchedName: _providerSkillAlias(skillName, provider),
-        ),
-      );
-    }
-  }
-  return missing;
-}
-
-String _formatMissingNativeSkillInstalls(List<_MissingNativeSkillInstall> missing) =>
-    (missing.toList()..sort((a, b) => a.sortKey.compareTo(b.sortKey)))
-        .map((item) => '${item.canonicalRef} (provider ${item.provider}, searched ${item.searchedName})')
-        .join(', ');
-
-String _providerSkillAlias(String skillName, String provider) {
-  if (!skillName.startsWith('andthen:')) return skillName;
-  final suffix = skillName.substring('andthen:'.length);
-  return provider == 'codex' ? 'andthen-$suffix' : skillName;
-}
-
-final class _MissingNativeSkillInstall {
-  final String canonicalRef;
-  final String provider;
-  final String searchedName;
-
-  const _MissingNativeSkillInstall({required this.canonicalRef, required this.provider, required this.searchedName});
-
-  String get sortKey => '$canonicalRef\x00$provider\x00$searchedName';
 }
 
 Set<String> _requiredWorkflowProviders(WorkflowDefinition definition, DartclawConfig config) {

@@ -4,10 +4,10 @@ Scenario files are AI-native acceptance tests — "Layer 5" above the test pyram
 
 Scenario files live in `dev/testing/scenarios/`. They are harness-neutral markdown — the `/test-scenario` Claude Code command is the primary runner, but the format is compatible with any agent that can read markdown and drive browser + HTTP tools.
 
-Workflow-specific scenario files use the `workflows` testing profile. Keep three lanes:
-- smoke scenarios must verify full workflow completion with the tiniest possible implementation scope, plus cleanup of any published PR
-- publish scenarios add stricter mid-run worktree and publication assertions against the dedicated workflow-test-todo-app repository
-- cancellation scenarios are explicit interruption/operator-control tests and should be named accordingly instead of being the default smoke path
+Workflow-specific scenario files use the `workflows` testing profile. Scope them to the operator-facing surface that automated tests cannot reach — the Web UI and the connected CLI → server → SSE path under a real harness run:
+- one live scenario per built-in workflow (`workflow-<name>-publish.md`) drives a real run to a clean `completed` state with the tiniest possible implementation scope, verifies the workflows list, run detail page, live progress and completion state, and cleans up any published PR
+- do NOT re-assert engine mechanics (per-task/per-story worktree creation, branch push, GitHub PR creation, PR diff contents) — those are owned by the automated integration test `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart`, which runs the same workflows against the same `workflow-test-todo-app` repository with a real harness, real `gh pr create`, and automatic cleanup
+- cancellation scenarios are explicit interruption/operator-control tests and should be named accordingly instead of being folded into the live completion scenario
 
 
 ## YAML Frontmatter

@@ -100,6 +100,13 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.bool_,
       mutability: ConfigMutability.live,
     ),
+    'onboarding.expiry_days': FieldMeta(
+      yamlPath: 'onboarding.expiry_days',
+      jsonKey: 'onboarding.expiryDays',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 1,
+    ),
 
     // --- Restart-required fields ---
 
@@ -638,6 +645,69 @@ abstract final class ConfigMeta {
       jsonKey: 'memory.pruning.schedule',
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
+    ),
+
+    // Knowledge jobs
+    'knowledge.inbox.enabled': FieldMeta(
+      yamlPath: 'knowledge.inbox.enabled',
+      jsonKey: 'knowledge.inbox.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'knowledge.inbox.interval_minutes': FieldMeta(
+      yamlPath: 'knowledge.inbox.interval_minutes',
+      jsonKey: 'knowledge.inbox.intervalMinutes',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 1,
+    ),
+    'knowledge.inbox.max_bytes': FieldMeta(
+      yamlPath: 'knowledge.inbox.max_bytes',
+      jsonKey: 'knowledge.inbox.maxBytes',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 1,
+    ),
+    'knowledge.inbox.retry_attempts': FieldMeta(
+      yamlPath: 'knowledge.inbox.retry_attempts',
+      jsonKey: 'knowledge.inbox.retryAttempts',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 0,
+    ),
+    'knowledge.inbox.processed_retention_days': FieldMeta(
+      yamlPath: 'knowledge.inbox.processed_retention_days',
+      jsonKey: 'knowledge.inbox.processedRetentionDays',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 0,
+    ),
+    'knowledge.inbox.delivery_mode': FieldMeta(
+      yamlPath: 'knowledge.inbox.delivery_mode',
+      jsonKey: 'knowledge.inbox.deliveryMode',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['none', 'announce', 'webhook'],
+    ),
+    'knowledge.wiki_lint.enabled': FieldMeta(
+      yamlPath: 'knowledge.wiki_lint.enabled',
+      jsonKey: 'knowledge.wikiLint.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'knowledge.wiki_lint.interval_minutes': FieldMeta(
+      yamlPath: 'knowledge.wiki_lint.interval_minutes',
+      jsonKey: 'knowledge.wikiLint.intervalMinutes',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 1,
+    ),
+    'knowledge.wiki_lint.delivery_mode': FieldMeta(
+      yamlPath: 'knowledge.wiki_lint.delivery_mode',
+      jsonKey: 'knowledge.wikiLint.deliveryMode',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['none', 'announce', 'webhook'],
     ),
 
     // Usage

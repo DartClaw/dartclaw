@@ -113,6 +113,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     final mapCtx = MapStepContext(collection: collection, maxParallel: maxParallel, maxItems: maxItems);
     final completedIds = <String>{};
     _restoreForeachProgress(mapCtx, completedIds, resumeCursor, collectionLength: collection.length);
+    if (resumeCursor?.completedSubStepIdsByIndex.isNotEmpty == true) {
+      context['_foreach.${controllerStep.id}.completedSubStepIdsByIndex'] = resumeCursor!.completedSubStepIdsByIndex
+          .map((key, value) => MapEntry('$key', value));
+    }
     await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
     final inFlight = <int, Future<void>>{};
     // Maps in-flight iteration index → task id for drain cancellation.
@@ -385,6 +389,11 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
 
       final refreshedRun = await _repository.getById(run.id) ?? run;
       run = refreshedRun;
+      if (run.status == WorkflowRunStatus.awaitingApproval ||
+          run.status == WorkflowRunStatus.paused ||
+          run.status == WorkflowRunStatus.cancelled) {
+        return null;
+      }
       if (_workflowBudgetExceeded(run, definition)) {
         mapCtx.budgetExhausted = true;
         controllerFailureMessage ??= "foreach-controller-failure: foreach step '${controllerStep.id}' budget exhausted";
@@ -492,24 +501,33 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     int iterTokens = 0;
     Map<String, dynamic> iterResult = {};
     String? firstTaskId;
+    final completedSubStepIds = _completedForeachSubStepIds(context, controllerStep.id, iterIndex);
 
     Future<void> persistProgress() =>
         _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
 
-    Future<void> failAndReturn(String message, String? taskId) => recordIterationFailureAndDecrement(
-      _eventBus,
-      mapCtx: mapCtx,
-      iterIndex: iterIndex,
-      failureMessage: message,
-      taskId: taskId,
-      run: run,
-      step: controllerStep,
-      iterTokens: iterTokens,
-      persistProgress: persistProgress,
-    );
+    Future<void> failAndReturn(String message, String? taskId) {
+      _clearCompletedForeachSubStepIds(context, controllerStep.id, iterIndex);
+      return recordIterationFailureAndDecrement(
+        _eventBus,
+        mapCtx: mapCtx,
+        iterIndex: iterIndex,
+        failureMessage: message,
+        taskId: taskId,
+        run: run,
+        step: controllerStep,
+        iterTokens: iterTokens,
+        persistProgress: persistProgress,
+      );
+    }
 
     for (var childIndex = 0; childIndex < childSteps.length; childIndex++) {
       final childStep = childSteps[childIndex];
+      if (completedSubStepIds.contains(childStep.id)) {
+        _restoreCompletedForeachSubStep(context, iterContext, childStep.id, iterIndex);
+        iterResult[childStep.id] = _restoredForeachSubStepOutputs(context, childStep, iterIndex);
+        continue;
+      }
       final childStepIndex = definition.steps.indexOf(childStep);
       final skippedRun = await _skipDueToEntryGate(run, childStep, childStepIndex, iterContext);
       if (skippedRun != null) {
@@ -542,12 +560,45 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         for (final entry in result.outputs.entries) {
           context['${childStep.id}[$iterIndex].${entry.key}'] = entry.value;
         }
+        _persistForeachSubStepSessionKeys(context, iterContext, childStep.id, iterIndex);
         context['${childStep.id}[$iterIndex].status'] = iterContext['${childStep.id}.status'];
         if (result.outcome != null) {
           context['step.${childStep.id}[$iterIndex].outcome'] = result.outcome!;
         }
         if (result.outcomeReason != null && result.outcomeReason!.isNotEmpty) {
           context['step.${childStep.id}[$iterIndex].outcome.reason'] = result.outcomeReason!;
+        }
+        if (result.awaitingApproval &&
+            controllerStep.onFailure != OnFailurePolicy.continueWorkflow &&
+            !_hasPriorForeachFailures(mapCtx, iterIndex)) {
+          iterResult[childStep.id] = Map<String, dynamic>.from(result.outputs);
+          completedSubStepIds.add(childStep.id);
+          _writeCompletedForeachSubStepIds(context, controllerStep.id, iterIndex, completedSubStepIds);
+          await persistProgress();
+          _eventBus.fire(
+            WorkflowStepCompletedEvent(
+              runId: run.id,
+              stepId: childStep.id,
+              stepName: childStep.name,
+              stepIndex: childStepIndex,
+              totalSteps: definition.steps.length,
+              taskId: result.task?.id ?? '',
+              success: false,
+              tokenCount: tokenCount,
+              timestamp: DateTime.now(),
+              displayScope: _mapItemDisplayScope(mapContext),
+            ),
+          );
+          final refreshedRun = await _repository.getById(run.id) ?? run;
+          run = refreshedRun;
+          await _transitionStepAwaitingApproval(
+            run,
+            childStep,
+            context,
+            stepIndex: childStepIndex,
+            reason: result.outcomeReason ?? "Foreach child step '${childStep.id}' requires input",
+          );
+          return;
         }
         await failAndReturn("Foreach child step '${childStep.id}' failed", result.task?.id);
         _eventBus.fire(
@@ -564,23 +615,13 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             displayScope: _mapItemDisplayScope(mapContext),
           ),
         );
-        if (result.awaitingApproval &&
-            controllerStep.onFailure != OnFailurePolicy.continueWorkflow &&
-            !_hasPriorForeachFailures(mapCtx, iterIndex)) {
-          await _transitionStepAwaitingApproval(
-            run,
-            childStep,
-            context,
-            stepIndex: childStepIndex,
-            reason: result.outcomeReason ?? "Foreach child step '${childStep.id}' requires input",
-          );
-        }
         return;
       }
       _mergeStepResultIntoContext(iterContext, result, fallbackStatus: result.task?.status.name ?? 'completed');
       for (final entry in result.outputs.entries) {
         context['${childStep.id}[$iterIndex].${entry.key}'] = entry.value;
       }
+      _persistForeachSubStepSessionKeys(context, iterContext, childStep.id, iterIndex);
       context['${childStep.id}[$iterIndex].status'] = iterContext['${childStep.id}.status'];
       context['${childStep.id}[$iterIndex].tokenCount'] = tokenCount;
       if (result.outcome != null) {
@@ -590,6 +631,9 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         context['step.${childStep.id}[$iterIndex].outcome.reason'] = result.outcomeReason!;
       }
       iterResult[childStep.id] = Map<String, dynamic>.from(result.outputs);
+      completedSubStepIds.add(childStep.id);
+      _writeCompletedForeachSubStepIds(context, controllerStep.id, iterIndex, completedSubStepIds);
+      await persistProgress();
       _eventBus.fire(
         WorkflowStepCompletedEvent(
           runId: run.id,
@@ -684,6 +728,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
                 context['${controllerStep.id}[$iterIndex].promotion_sha'] = commitSha;
               case WorkflowGitPromotionSerializeRemaining():
                 // Outer loop detects serializing_iter_index and drains siblings.
+                _clearCompletedForeachSubStepIds(context, controllerStep.id, iterIndex);
                 mapCtx.inFlightCount--;
                 return;
               case WorkflowGitPromotionConflict():
@@ -711,6 +756,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           return;
         case PromotionSerializeRemaining():
           // Direct promote() never returns this sentinel; only merge-resolve does.
+          _clearCompletedForeachSubStepIds(context, controllerStep.id, iterIndex);
           mapCtx.inFlightCount--;
           return;
         case PromotionNotConfigured():
@@ -795,6 +841,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       failedIndices: mapCtx.failedIndices.toList()..sort(),
       cancelledIndices: mapCtx.cancelledIndices.toList()..sort(),
       resultSlots: List<dynamic>.from(mapCtx.results),
+      completedSubStepIdsByIndex: _completedForeachSubStepsByIndex(context, step.id),
     );
     final updatedRun = refreshedRun.copyWith(
       executionCursor: cursor,
@@ -806,13 +853,104 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         '_foreach.current.completedIndices': cursor.completedIndices,
         '_foreach.current.failedIndices': cursor.failedIndices,
         '_foreach.current.cancelledIndices': cursor.cancelledIndices,
+        '_foreach.${step.id}.completedSubStepIdsByIndex': cursor.completedSubStepIdsByIndex.map(
+          (key, value) => MapEntry('$key', value),
+        ),
         '_map.${step.id}.promotedIds': context['_map.${step.id}.promotedIds'],
       },
       updatedAt: DateTime.now(),
     );
+    await _persistContext(run.id, context);
     await _repository.update(updatedRun);
   }
 }
 
 bool _hasPriorForeachFailures(MapStepContext mapCtx, int currentIndex) =>
     mapCtx.failedIndices.any((index) => index != currentIndex);
+
+Set<String> _completedForeachSubStepIds(WorkflowContext context, String stepId, int iterIndex) {
+  final byIndex = _completedForeachSubStepsByIndex(context, stepId);
+  return byIndex[iterIndex]?.toSet() ?? <String>{};
+}
+
+Map<int, List<String>> _completedForeachSubStepsByIndex(WorkflowContext context, String stepId) {
+  final raw = context['_foreach.$stepId.completedSubStepIdsByIndex'];
+  if (raw is! Map) return const {};
+  return {
+    for (final entry in raw.entries)
+      int.parse('${entry.key}'):
+          (entry.value as List?)?.whereType<String>().toList(growable: false) ?? const <String>[],
+  };
+}
+
+void _writeCompletedForeachSubStepIds(WorkflowContext context, String stepId, int iterIndex, Set<String> completed) {
+  final byIndex = _completedForeachSubStepsByIndex(context, stepId);
+  context['_foreach.$stepId.completedSubStepIdsByIndex'] = {
+    for (final entry in byIndex.entries) '${entry.key}': entry.value,
+    '$iterIndex': (completed.toList()..sort()),
+  };
+}
+
+void _clearCompletedForeachSubStepIds(WorkflowContext context, String stepId, int iterIndex) {
+  final byIndex = Map<int, List<String>>.from(_completedForeachSubStepsByIndex(context, stepId))..remove(iterIndex);
+  context['_foreach.$stepId.completedSubStepIdsByIndex'] = {
+    for (final entry in byIndex.entries) '${entry.key}': entry.value,
+  };
+}
+
+void _restoreCompletedForeachSubStep(
+  WorkflowContext source,
+  WorkflowContext target,
+  String childStepId,
+  int iterIndex,
+) {
+  final prefix = '$childStepId[$iterIndex].';
+  for (final entry in source.data.entries) {
+    if (!entry.key.startsWith(prefix)) continue;
+    final restoredKey = entry.key.substring(prefix.length);
+    if (_isForeachSubStepContextMetadataKey(restoredKey)) {
+      target['$childStepId.$restoredKey'] = entry.value;
+    } else if (restoredKey.startsWith('$childStepId.')) {
+      target[restoredKey] = entry.value;
+    } else {
+      target[restoredKey] = entry.value;
+    }
+  }
+  final status = source['$childStepId[$iterIndex].status'];
+  if (status != null) {
+    target['$childStepId.status'] = status;
+  }
+}
+
+Map<String, dynamic> _restoredForeachSubStepOutputs(WorkflowContext source, WorkflowStep childStep, int iterIndex) {
+  final prefix = '${childStep.id}[$iterIndex].';
+  return {
+    for (final entry in source.data.entries)
+      if (entry.key.startsWith(prefix) && !_isForeachSubStepMetadataKey(entry.key.substring(prefix.length)))
+        entry.key.substring(prefix.length): entry.value,
+  };
+}
+
+bool _isForeachSubStepMetadataKey(String key) =>
+    key == 'status' ||
+    key == 'tokenCount' ||
+    key == 'sessionId' ||
+    key == 'providerSessionId' ||
+    key.endsWith('.providerSessionId');
+
+bool _isForeachSubStepContextMetadataKey(String key) =>
+    key == 'status' || key == 'tokenCount' || key == 'sessionId' || key == 'providerSessionId';
+
+void _persistForeachSubStepSessionKeys(
+  WorkflowContext target,
+  WorkflowContext source,
+  String childStepId,
+  int iterIndex,
+) {
+  for (final key in const ['sessionId', 'providerSessionId']) {
+    final value = source['$childStepId.$key'];
+    if (value is String && value.isNotEmpty) {
+      target['$childStepId[$iterIndex].$key'] = value;
+    }
+  }
+}

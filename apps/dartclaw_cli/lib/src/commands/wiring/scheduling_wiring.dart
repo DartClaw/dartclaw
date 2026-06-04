@@ -78,6 +78,11 @@ class SchedulingWiring {
     final taskService = _storage.taskService;
     final kvService = _storage.kvService;
     final memory = _storage.memory;
+    final memoryHandlers = createMemoryHandlers(
+      memory: memory,
+      memoryFile: _storage.memoryFile,
+      searchBackend: _storage.searchBackend,
+    );
 
     // Mutable display list for scheduling UI. Starts as a copy of raw config
     // maps, excluding task-type entries (those appear in scheduledTasks section).
@@ -135,6 +140,58 @@ class SchedulingWiring {
         'Memory pruner scheduled (${config.memory.pruningSchedule}, '
         'archive after ${config.memory.archiveAfterDays}d)',
       );
+    }
+
+    final wiki = WikiPageStore(workspaceDir: config.workspaceDir);
+    final inboxConfig = config.knowledge.inbox;
+    if (inboxConfig.enabled) {
+      final knowledgeInbox = KnowledgeInboxService(
+        workspaceDir: config.workspaceDir,
+        onMemorySave: memoryHandlers.onSave,
+        wiki: wiki,
+        turns: turns,
+        sessions: sessions,
+        kg: _storage.kg,
+        maxBytes: inboxConfig.maxBytes,
+        retryAttempts: inboxConfig.retryAttempts,
+        processedRetentionDays: inboxConfig.processedRetentionDays,
+      );
+      _scheduledJobs.add(
+        knowledgeInbox.scheduledJob(
+          intervalMinutes: inboxConfig.intervalMinutes,
+          deliveryMode: _knowledgeDeliveryMode(inboxConfig.deliveryMode),
+        ),
+      );
+      _displayJobs.add({
+        'name': 'knowledge-inbox',
+        'schedule': 'every ${inboxConfig.intervalMinutes} minutes',
+        'delivery': inboxConfig.deliveryMode,
+        'status': 'active',
+      });
+      _systemJobNames.add('knowledge-inbox');
+    }
+
+    final wikiLintConfig = config.knowledge.wikiLint;
+    if (wikiLintConfig.enabled) {
+      _scheduledJobs.add(
+        ScheduledJob(
+          id: 'knowledge-wiki-lint',
+          scheduleType: ScheduleType.interval,
+          intervalMinutes: wikiLintConfig.intervalMinutes,
+          deliveryMode: _knowledgeDeliveryMode(wikiLintConfig.deliveryMode),
+          onExecute: () async => wiki.lint(kg: _storage.kg).summary(),
+        ),
+      );
+      _displayJobs.add({
+        'name': 'knowledge-wiki-lint',
+        'schedule': 'every ${wikiLintConfig.intervalMinutes} minutes',
+        'delivery': wikiLintConfig.deliveryMode,
+        'status': 'active',
+      });
+      _systemJobNames.add('knowledge-wiki-lint');
+    }
+    if (inboxConfig.enabled || wikiLintConfig.enabled) {
+      _log.info('Knowledge inbox/wiki jobs scheduled');
     }
 
     // Register session maintenance as a built-in scheduled job.
@@ -368,6 +425,12 @@ class SchedulingWiring {
     await kv.set('prune_history', jsonEncode(history));
   }
 }
+
+DeliveryMode _knowledgeDeliveryMode(String value) => switch (value) {
+  'announce' => DeliveryMode.announce,
+  'webhook' => DeliveryMode.webhook,
+  _ => DeliveryMode.none,
+};
 
 String _formatBytes(int bytes) {
   if (bytes < 1024) return '$bytes B';

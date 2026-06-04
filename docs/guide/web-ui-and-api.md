@@ -2,7 +2,7 @@
 
 ## Web Interface
 
-DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HTMX SSE extension, and server-rendered HTML fragments. No JavaScript build step — everything runs from vendored libraries plus a coarse static module split (`app.js`, `tasks.js`, `workflows.js`, and page-specific modules such as `settings.js` and `scheduling.js`).
+DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HTMX SSE extension, Trellis-rendered HTML fragments, and vendored Stimulus controllers. No JavaScript build step is required. Browser behavior lives under `packages/dartclaw_server/lib/src/static/controllers/` and is registered explicitly from `controllers/index.js`.
 
 ### Layout
 
@@ -18,7 +18,7 @@ The interface has three main areas:
 │          │                                   │
 │ + New    │                                   │
 │          ├──────────────────────────────────┤
-│          │  Input (textarea + send)          │
+│          │  Rich composer + context tray      │
 └──────────┴──────────────────────────────────┘
 ```
 
@@ -34,8 +34,12 @@ The interface has three main areas:
 - **Workflow chat commands**: Web chat supports `/workflow list` and `/workflow run <name> VAR=value` without creating a normal agent turn
 
 **Chat**
-- **Send**: Type in the textarea, press **Ctrl+Enter** (or **Cmd+Enter** on macOS)
+- **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the circular send button. During streaming the button changes to stop.
 - **Streaming**: Responses appear in real-time as the agent generates them
+- **Interrupted turns**: Failed or recovered turns render inline retry guidance through the `turn_error` stream path and persisted turn-failed messages.
+- **Command palette**: Type `/` or use the command button to discover available slash commands. Availability is filtered by session type and request permissions.
+- **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
+- **Context references**: Type `@` to resolve sessions, projects, files, tools, and memory into explicit removable chips.
 - **Markdown**: Agent responses are rendered with full markdown support (headings, lists, code blocks, links)
 - **Syntax highlighting**: Code blocks are highlighted via highlight.js
 - **Tool indicators**: When the agent uses tools, you see status lines:
@@ -56,6 +60,12 @@ The interface has three main areas:
 - **Validation**: Required workflow variables are validated inline before a run starts
 - **Redirect**: Successful launches navigate directly to `/workflows/<runId>`
 - **Other trigger surfaces**: Chat `/workflow run` commands and the GitHub PR webhook share the same launch path — see [Workflow Triggers](workflows.md#workflow-triggers) for the full surface
+
+**Guard Editor** (Settings page)
+- **Manage guard extensions**: Admins list, add, edit, delete, and test command/file/network/input-sanitizer guard extensions without hand-editing YAML
+- **In-UI tester**: Evaluate a sample command, path, or URL through the real runtime guard semantics
+- **Fail-closed + activation status**: Invalid changes are rejected before save; responses separate immediately-active from pending-restart changes
+- **Admin-gated**: Editing and testing require admin access, enforced server-side — see [Security § Guard Editor](security.md#guard-editor-web-ui)
 
 ### Keyboard Shortcuts
 
@@ -135,16 +145,43 @@ Cancels any active turn on the session, then deletes the session and all its mes
 
 ### Messages
 
+#### Discover session commands
+
+```
+GET /api/sessions/:id/commands
+```
+
+Returns slash commands available for the session context. Archive and task sessions return an empty list. Workflow commands require the workflow handler; `/workflow run` is advertised only when the request has admin permission.
+
+#### Upload an attachment
+
+```
+POST /api/sessions/:id/attachments
+Content-Type: application/json
+
+{"filename":"notes.md","mediaType":"text/markdown","size":8,"contentBase64":"IyBOb3Rlcwo="}
+```
+
+Stores an attachment under the session and returns structured metadata for the composer chip. Size and payload limits are enforced before storage.
+
+#### Lookup context references
+
+```
+GET /api/sessions/:id/references?q=<query>
+```
+
+Returns typed reference suggestions for sessions, projects, files, tools, and memory. Submitted references must resolve before the message is accepted.
+
 #### Send message and start turn
 
 ```
 POST /api/sessions/:id/send
 Content-Type: application/x-www-form-urlencoded
 
-message=Help+me+write+a+test
+message=Help+me+write+a+test&attachments=[]&references=[]
 ```
 
-Stores the user message, composes the system prompt, and starts an agent turn. Returns an HTML fragment (for HTMX) containing an `sse-connect` attribute that connects to the SSE stream via the HTMX SSE extension.
+Stores the user message, validates rich input metadata, composes the system prompt, and starts an agent turn. Attachments and references are persisted with the message and appended to the turn payload as a JSON-fenced `rich_input_context` block marked as untrusted data. Returns an HTML fragment (for HTMX) containing an `sse-connect` attribute that connects to the SSE stream via the HTMX SSE extension.
 
 **Error responses**:
 - `400` — empty message
@@ -213,6 +250,7 @@ Content-Type: application/json
 ```
 
 Validates and applies configuration changes. Fields requiring restart are flagged in the response metadata. Returns `422` with field-level errors on validation failure.
+Requires admin access. Non-admin or unauthenticated requests receive `403`.
 
 ### Scheduling
 
@@ -555,3 +593,17 @@ These tools are available to the agent during conversations. They're exposed via
 | `memory_read` | — | Read the full contents of MEMORY.md |
 
 The agent decides when to use these tools based on the conversation context. Memory persists across sessions.
+
+## Temporal Knowledge Graph MCP Tools
+
+The temporal knowledge graph stores source-linked facts with validity windows. It is used for dated recall, timelines, and contradiction pre-screening before new facts are written.
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `kg_add` | `entity`, `predicate`, `value`, `valid_from`, `source`, optional `valid_to` | Add a source-linked temporal fact. Returns `status: contradiction` instead of writing when an open fact with the same entity and predicate has a different value. |
+| `kg_query` | `entity`, optional `predicate`, `as_of`, `include_invalidated` | Query facts valid at `as_of`, or currently valid facts when omitted. Returns `status: no_result` with an empty fact list when nothing matches. |
+| `kg_timeline` | `entity`, optional `predicate` | Return the full timeline for an entity, including invalidation metadata. |
+| `kg_invalidate` | `id`, `invalidated_at`, `reason` | Close a fact without deleting its history. |
+| `kg_contradictions` | `entity`, `predicate`, `value` | Check whether an incoming fact conflicts with existing open facts. |
+
+Temporal fields must be ISO-8601 dates or timestamps. Date-only values are interpreted as UTC midnight; timestamps must include `Z` or an explicit offset.

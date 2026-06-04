@@ -88,6 +88,17 @@ Setup reports one of two completion states:
 
 Use `--launch foreground`, `--launch background`, or `--launch service` to start immediately after setup, or accept the default `--launch skip` to configure only.
 
+`dartclaw init` also creates the 0.17 workspace personalization structure:
+
+- `USER.md` with six stable sections: Identity, Goals, Current Challenges, Preferences, Proactivity Level, Not Relevant.
+- `SOUL.md` with durable behavior-update and proactivity guidance.
+- `wiki/README.md` for curated synthesized knowledge pages, distinct from the chronological `MEMORY.md` stream.
+- `ONBOARDING.md`, a web-chat-only sentinel that guides first-run personalization.
+
+Existing installs can adopt the structure by running `dartclaw init --personalize`, then completing onboarding in web chat.
+Reruns write `USER.md.draft` and `SOUL.md.draft` so curated behavior files are not overwritten. Review the drafts and apply
+them with `dartclaw init --apply-drafts`.
+
 **Important**: Standalone binaries produced by `bash dev/tools/build.sh` ship the `dartclaw` executable plus companion assets. Packaged installs discover those assets from the filesystem (`../share/dartclaw/` in Homebrew, or `~/.dartclaw/assets/v{VERSION}/` after the first-run download fallback) rather than embedding web UI, static assets, skills, or workflows in the binary. When you run from a clone with `dart run` or `--dev`, DartClaw still reads templates, static assets, skills, and workflows from the source tree, and `dartclaw service install` keeps `--source-dir` in checkout-backed service units. For those clone-based runs, see [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
 
 If you install only the bare binary, the first `dartclaw serve` run downloads the matching asset archive unless you pass `--offline`.

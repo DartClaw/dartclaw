@@ -7,7 +7,7 @@ import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:dartclaw_config/dartclaw_config.dart' show HistoryConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show ClaudeProviderOptions, HistoryConfig;
 import '../container/container_executor.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
@@ -21,10 +21,7 @@ import 'harness_config.dart';
 import 'protocol_message.dart' as proto;
 import 'process_types.dart';
 import 'tool_policy.dart';
-
-// ---------------------------------------------------------------------------
 // Claude CLI configuration
-// ---------------------------------------------------------------------------
 
 List<String> _buildClaudeArgs({
   String? model,
@@ -63,10 +60,7 @@ List<String> _buildClaudeArgs({
 /// Env var forwarded from [_environment] to containerized spawns when present.
 /// Set at the wiring layer for task runners only.
 const _subagentModelEnvVar = 'CLAUDE_CODE_SUBAGENT_MODEL';
-
-// ---------------------------------------------------------------------------
 // ClaudeCodeHarness
-// ---------------------------------------------------------------------------
 
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
@@ -181,10 +175,7 @@ class ClaudeCodeHarness extends BaseHarness {
 
   /// Session ID assigned by the claude binary after init.
   String? get sessionId => _sessionId;
-
-  // -------------------------------------------------------------------------
   // Lifecycle
-  // -------------------------------------------------------------------------
 
   @override
   Future<void> start() => startLifecycle(
@@ -208,6 +199,16 @@ class ClaudeCodeHarness extends BaseHarness {
     // distinguish intentional shutdown from unexpected process exit.
     isStopping = true;
     return withLock(_stopInternal);
+  }
+
+  @override
+  Future<void> resetSessionContinuity(String sessionId) async {
+    if (currentState == WorkerState.busy) {
+      throw StateError('Cannot reset session continuity while a turn is in progress');
+    }
+    await stop();
+    _sessionId = null;
+    _turnsSinceStart = 0;
   }
 
   Future<void> _stopInternal() async {
@@ -249,10 +250,7 @@ class ClaudeCodeHarness extends BaseHarness {
       _mcpConfigPath = null;
     }
   }
-
-  // -------------------------------------------------------------------------
   // turn()
-  // -------------------------------------------------------------------------
 
   @override
   Future<Map<String, dynamic>> turn({
@@ -366,10 +364,7 @@ class ClaudeCodeHarness extends BaseHarness {
       rethrow;
     }
   }
-
-  // -------------------------------------------------------------------------
   // Internal: start, auth, handshake
-  // -------------------------------------------------------------------------
 
   Future<void> _startInternal() async {
     _turnsSinceStart = 0;
@@ -416,9 +411,17 @@ class ClaudeCodeHarness extends BaseHarness {
           },
         },
       });
+      await configFile.create(exclusive: true);
+      if (!Platform.isWindows) {
+        final result = await Process.run('chmod', ['600', configFile.path]);
+        if (result.exitCode != 0) {
+          final stderr = (result.stderr as String).trim();
+          throw StateError(
+            'Failed to secure MCP config permissions: ${stderr.isEmpty ? 'chmod exited ${result.exitCode}' : stderr}',
+          );
+        }
+      }
       await configFile.writeAsString(configJson, flush: true);
-      // Set 0600 permissions (owner read/write only).
-      await Process.run('chmod', ['600', configFile.path]);
       mcpConfigPath = configFile.path;
       _mcpConfigPath = mcpConfigPath;
       _log.fine('Wrote MCP config to $mcpConfigPath');
@@ -454,7 +457,7 @@ class ClaudeCodeHarness extends BaseHarness {
       mcpConfigPath: mcpConfigArgPath,
       permissionMode: nativePermissionMode,
       settings: nativeSettings,
-      settingSourcesProject: cm == null,
+      settingSourcesProject: cm == null && ClaudeProviderOptions.useProjectSettingSources(providerOptions),
       // Restricted containers keep native permission prompts enabled so tool
       // requests still flow through the provider permission channel.
       skipNativePermissions: nativePermissionMode == null && cm?.profileId != 'restricted',
@@ -729,10 +732,7 @@ class ClaudeCodeHarness extends BaseHarness {
       },
     };
   }
-
-  // -------------------------------------------------------------------------
   // JSONL message routing
-  // -------------------------------------------------------------------------
 
   @override
   void handleProcessStdoutLine(String line) {
@@ -825,10 +825,7 @@ class ClaudeCodeHarness extends BaseHarness {
       turnCompleter.completeError(StateError('Claude process exited with code $exitCode'));
     }
   }
-
-  // -------------------------------------------------------------------------
   // Control request handling
-  // -------------------------------------------------------------------------
 
   void _handleControlRequest(String requestId, String subtype, Map<String, dynamic> data) {
     switch (subtype) {
@@ -960,10 +957,7 @@ class ClaudeCodeHarness extends BaseHarness {
     }
     return <String, dynamic>{};
   }
-
-  // -------------------------------------------------------------------------
   // Helpers
-  // -------------------------------------------------------------------------
 
   void _writeLine(Map<String, dynamic> json) {
     writeJsonLine(json);

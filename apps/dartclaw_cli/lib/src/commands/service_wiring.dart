@@ -9,7 +9,7 @@ import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ProcessRunner,
-        SkillRegistryImpl,
+        CliSkillIntrospector,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRegistry,
@@ -17,12 +17,16 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRoleDefaults,
         WorkflowSource,
         WorkflowService,
+        WorkflowGitContext,
         WorkflowGitIntegrationBranchResult,
+        WorkflowPersistencePorts,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionError,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
+        WorkflowServiceOptions,
+        WorkflowSkillPreflightConfig,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
@@ -38,7 +42,8 @@ import 'workflow/andthen_skill_bootstrap.dart';
 import 'workflow/project_definition_paths.dart';
 import 'workflow/workflow_git_support.dart';
 import 'workflow/workflow_local_path_preflight.dart';
-import 'workflow_skill_source_resolver.dart';
+import 'workflow/workflow_skill_preflight_config.dart';
+import 'workflow_asset_source_resolver.dart';
 import 'wiring/scheduling_wiring.dart';
 import 'wiring/security_wiring.dart';
 import 'wiring/storage_wiring.dart';
@@ -78,10 +83,6 @@ class WiringResult {
   final ProjectService projectService;
   final ConfigNotifier configNotifier;
 
-  /// Skill registry populated by [ServiceWiring.wire]. Exposed so tests can
-  /// assert that workflow skills resolve through the production discovery path.
-  final SkillRegistryImpl skillRegistry;
-
   /// Workflow registry populated by [ServiceWiring.wire]. Exposed so tests can
   /// assert that the shipped built-in workflow definitions (`plan-and-implement`,
   /// `spec-and-implement`, `code-review`) register against the runtime skill
@@ -109,7 +110,6 @@ class WiringResult {
     required this.shutdownExtras,
     required this.projectService,
     required this.configNotifier,
-    required this.skillRegistry,
     required this.workflowRegistry,
   });
 }
@@ -127,7 +127,6 @@ final class _WiringContext {
   final AssetResolver assetResolver;
   final ResolvedAssetPaths? resolvedAssets;
   final String? builtInSkillsSourceDir;
-  final SkillRegistryImpl skillRegistry;
   final MessageRedactor messageRedactor;
 
   late DartclawServerBuilder builder;
@@ -142,7 +141,6 @@ final class _WiringContext {
     required this.assetResolver,
     required this.resolvedAssets,
     required this.builtInSkillsSourceDir,
-    required this.skillRegistry,
     required this.messageRedactor,
   });
 
@@ -222,12 +220,11 @@ class ServiceWiring {
 
     final resolvedAssets = assetResolver.resolve();
     final builtInSkillsSourceDir =
-        resolvedAssets?.skillsDir ?? WorkflowSkillSourceResolver.resolveBuiltInSkillsSourceDir();
+        resolvedAssets?.skillsDir ?? WorkflowAssetSourceResolver.resolveBuiltInSkillsSourceDir();
 
-    // 0.5. Skill bootstrap – must run before registry discovery so native
-    // DartClaw skills are on disk.
+    // 0.5. Skill bootstrap – must run before workflow execution so native
+    // DartClaw skills are on disk for provider introspection and invocation.
     await _wireAndthenSkillsBootstrap(builtInSkillsSourceDir);
-    final skillRegistry = _buildSkillRegistry(builtInSkillsSourceDir);
     final ctx = _WiringContext(
       eventBus: EventBus(),
       configNotifier: ConfigNotifier(config),
@@ -236,7 +233,6 @@ class ServiceWiring {
       assetResolver: assetResolver,
       resolvedAssets: resolvedAssets,
       builtInSkillsSourceDir: builtInSkillsSourceDir,
-      skillRegistry: skillRegistry,
       messageRedactor: messageRedactor,
     );
 
@@ -322,24 +318,6 @@ class ServiceWiring {
       workshopSubscriber,
       advisorSubscriber,
     );
-  }
-
-  SkillRegistryImpl _buildSkillRegistry(String? builtInSkillsSourceDir) {
-    final projectDirs = workflowSkillProjectDirs(config, fallbackCwd: Directory.current.path);
-    final dataDirSkillRoots = workflowDataDirSkillRoots(dataDir);
-    final userSkillRoots = workflowOptionalUserSkillRoots(skillProvisionerEnvironment);
-    final registry = SkillRegistryImpl();
-    registry.discover(
-      projectDirs: projectDirs,
-      workspaceDir: config.workspaceDir,
-      dataDir: dataDir,
-      builtInSkillsDir: builtInSkillsSourceDir,
-      dataDirClaudeSkillsDir: dataDirSkillRoots.claudeSkillsDir,
-      dataDirAgentsSkillsDir: dataDirSkillRoots.agentsSkillsDir,
-      userClaudeSkillsDir: userSkillRoots?.claudeSkillsDir,
-      userAgentsSkillsDir: userSkillRoots?.agentsSkillsDir,
-    );
-    return registry;
   }
 
   Future<ProjectWiring> _wireProjects(_WiringContext ctx) async {
@@ -535,6 +513,25 @@ class ServiceWiring {
     );
   }
 
+  WorkflowSkillPreflightConfig _buildSkillPreflightConfig() {
+    return buildWorkflowSkillPreflightConfig(config);
+  }
+
+  Map<String, String> _providerProbeEnvironment(String providerId, config_tools.CredentialRegistry registry) {
+    final environment = SafeProcess.sanitize(
+      baseEnvironment: Platform.environment,
+      sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
+      extraEnvironment: claudeHardeningEnvVars,
+    );
+    final apiKey = registry.getApiKey(providerId);
+    if (apiKey != null) {
+      for (final envVar in config_tools.CredentialRegistry.envVarsFor(providerId)) {
+        environment[envVar] = apiKey;
+      }
+    }
+    return environment;
+  }
+
   Future<WorkflowService> _wireWorkflowService(
     _WiringContext ctx,
     StorageWiring storage,
@@ -542,26 +539,39 @@ class ServiceWiring {
     ProjectWiring project,
     WorkflowRoleDefaults workflowRoleDefaults,
   ) async {
+    final credentialRegistry = config_tools.CredentialRegistry(
+      credentials: config.credentials,
+      env: Platform.environment,
+    );
     final workflowService = WorkflowService(
       repository: storage.workflowRunRepository,
       taskService: storage.taskService,
       messageService: storage.messages,
-      bashStepEnvAllowlist: config.security.bashStep.envAllowlist,
-      bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
-      roleDefaults: workflowRoleDefaults,
-      workflowGitPort: WorkflowGitPortProcess(
-        worktreeManager: task.worktreeManager,
-        remotePushService: task.remotePushService,
+      persistencePorts: WorkflowPersistencePorts(
+        taskRepository: storage.taskRepository,
+        agentExecutionRepository: storage.agentExecutionRepository,
+        workflowStepExecutionRepository: storage.workflowStepExecutionRepository,
+        executionRepositoryTransactor: storage.executionRepositoryTransactor,
+      ),
+      gitContext: WorkflowGitContext(
+        gitPort: WorkflowGitPortProcess(
+          worktreeManager: task.worktreeManager,
+          remotePushService: task.remotePushService,
+        ),
+        projectService: project.projectService,
+        hydrateBinding: task.taskExecutor.hydrateWorkflowSharedWorktreeBinding,
+      ),
+      options: WorkflowServiceOptions(
+        bashStepEnvAllowlist: config.security.bashStep.envAllowlist,
+        bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
+        roleDefaults: workflowRoleDefaults,
+        structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
+        skillIntrospector: CliSkillIntrospector(
+          environmentForProvider: (providerId) => _providerProbeEnvironment(providerId, credentialRegistry),
+        ),
+        skillPreflightConfig: _buildSkillPreflightConfig(),
       ),
       turnAdapter: _buildWorkflowTurnAdapter(config, ctx, storage, task, project),
-      structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
-      hydrateWorkflowWorktreeBinding: task.taskExecutor.hydrateWorkflowSharedWorktreeBinding,
-      skillRegistry: ctx.skillRegistry,
-      taskRepository: storage.taskRepository,
-      agentExecutionRepository: storage.agentExecutionRepository,
-      workflowStepExecutionRepository: storage.workflowStepExecutionRepository,
-      executionRepositoryTransactor: storage.executionRepositoryTransactor,
-      projectService: project.projectService,
       eventBus: ctx.eventBus,
       kvService: storage.kvService,
       dataDir: ctx.dataDir,
@@ -585,12 +595,12 @@ class ServiceWiring {
       validator: WorkflowDefinitionValidator(roleDefaults: workflowRoleDefaults),
       continuityProviders: continuityProviders,
     );
-    workflowRegistry.skillRegistry = ctx.skillRegistry;
     await workflowRegistry.loadFromDirectory(
       WorkflowMaterializer.builtInDir(ctx.dataDir),
       source: WorkflowSource.materialized,
     );
     await workflowRegistry.loadFromDirectory(WorkflowMaterializer.customDir(ctx.dataDir));
+    await workflowRegistry.loadFromDirectory(p.join(ctx.dataDir, 'workflows'));
     for (final projectDef in config.projects.definitions.values) {
       await workflowRegistry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
     }

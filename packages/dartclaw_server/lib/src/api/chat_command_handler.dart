@@ -5,6 +5,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitio
 import 'package:meta/meta.dart';
 import 'package:shelf/shelf.dart';
 
+import '../auth/request_auth_context.dart';
+
 /// Handles inbound chat slash-commands by dispatching them to the workflow runtime.
 class ChatCommandHandler {
   final WorkflowService workflows;
@@ -34,7 +36,10 @@ class ChatCommandHandler {
 
     return switch (tokens[1]) {
       'list' => _htmlResponse(_workflowCardHtml('Available workflows', _definitionsList(), error: false)),
-      'run' => _handleRun(tokens, session),
+      'run' =>
+        requestHasAdminAccess(request)
+            ? _handleRun(tokens, session)
+            : _htmlResponse(_workflowCardHtml('Workflow command', 'Workflow run requires admin access.', error: true)),
       _ => _htmlResponse(_workflowCardHtml('Workflow command', 'Unknown subcommand: ${tokens[1]}', error: true)),
     };
   }

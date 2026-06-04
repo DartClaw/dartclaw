@@ -611,7 +611,54 @@ void main() {
 
     expect(outputs['review_findings'], claimedReportPath);
     expect(File(claimedReportPath).existsSync(), isTrue);
-    expect(File(claimedReportPath).readAsStringSync(), contains('did not leave the claimed markdown report on disk'));
+    expect(File(claimedReportPath).readAsStringSync(), contains('did not leave a markdown report on disk'));
+  });
+
+  test('materializes diagnostic clean review artifact when report claim is omitted', () async {
+    const runId = 'run-runtime-unclaimed-clean';
+    final runtimeReviewsDir = Directory(
+      p.join(tempDir.path, 'workflows', 'runs', runId, 'runtime-artifacts', 'reviews'),
+    )..createSync(recursive: true);
+    final session = await sessionService.getOrCreateMainSession();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Review completed with no findings.\n\n'
+          '<workflow-context>${jsonEncode({'integrated-review.findings_count': 0, 'integrated-review.gating_findings_count': 0})}</workflow-context>\n'
+          '<step-outcome>{"status":"passed"}</step-outcome>',
+    );
+
+    await taskService.create(
+      id: 'task-runtime-artifacts-unclaimed-clean-review-report',
+      title: 'Review',
+      description: 'Review',
+      type: TaskType.research,
+      autoStart: true,
+      sessionId: session.id,
+      projectId: 'workflow-test-todo-app',
+      workflowRunId: runId,
+    );
+    final task = (await taskService.get('task-runtime-artifacts-unclaimed-clean-review-report'))!;
+    final step = makeStep(
+      id: 'integrated-review',
+      outputs: const {
+        'review_findings': OutputConfig(format: OutputFormat.path),
+        'integrated-review.findings_count': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
+        'integrated-review.gating_findings_count': OutputConfig(
+          format: OutputFormat.json,
+          schema: 'non_negative_integer',
+        ),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+    final reportPath = outputs['review_findings'] as String;
+
+    expect(reportPath, startsWith(runtimeReviewsDir.path));
+    expect(reportPath, endsWith('.md'));
+    expect(File(reportPath).existsSync(), isTrue);
+    expect(File(reportPath).readAsStringSync(), contains('did not leave a markdown report on disk'));
   });
 
   test('does not materialize clean review artifact through runtime artifact symlink', () async {

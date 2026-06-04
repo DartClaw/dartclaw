@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
+import '../auth/request_auth_context.dart';
 import '../config/config_serializer.dart';
 import '../restart_service.dart';
 import '../runtime_config.dart';
@@ -19,9 +20,11 @@ import '../scheduling/cron_parser.dart';
 import '../scheduling/schedule_service.dart';
 import 'allowlist_validator.dart';
 import 'api_helpers.dart';
+import 'guard_editor_service.dart';
 import 'sse_broadcast.dart';
 
 final _log = Logger('ConfigApiRoutes');
+const _maxConfigJsonBodyBytes = 128 * 1024;
 
 /// Config read/write API endpoints.
 ///
@@ -42,6 +45,7 @@ Router configApiRoutes({
   GoogleChatChannel? googleChatChannel,
   EventBus? eventBus,
   ConfigNotifier? configNotifier,
+  GuardChain? guardChain,
 }) {
   ensureDartclawGoogleChatRegistered();
   ensureDartclawWhatsappRegistered();
@@ -100,9 +104,132 @@ Router configApiRoutes({
     }
   });
 
+  final guardEditor = GuardEditorService(
+    writer: writer,
+    dataDir: dataDir,
+    configNotifier: configNotifier,
+    guardChain: guardChain,
+  );
+
+  // GET /api/config/guards — editable extension state.
+  router.get('/api/config/guards', (Request request) {
+    return jsonResponse(200, guardEditor.readState());
+  });
+
+  // POST /api/config/guards/<guard>/<field> — append an editable extension.
+  router.post('/api/config/guards/<guard>/<field>', (Request request, String guard, String field) async {
+    if (!_guardEditorCanMutate(request)) {
+      return errorResponse(403, 'FORBIDDEN', 'Guard editing requires an admin user');
+    }
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
+    if (body == null) {
+      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
+    }
+    try {
+      final result = await guardEditor.createEntry(guard, field, body.containsKey('value') ? body['value'] : body);
+      return jsonResponse(201, result.toJson());
+    } on GuardEditorValidationException catch (e) {
+      return _guardEditorValidationResponse(e);
+    } on StateError catch (e) {
+      return errorResponse(500, 'BACKUP_FAILED', e.message);
+    } on FileSystemException catch (e) {
+      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
+    }
+  });
+
+  // PUT /api/config/guards/<guard>/<field>/<index> — replace an editable extension.
+  router.put('/api/config/guards/<guard>/<field>/<index>', (
+    Request request,
+    String guard,
+    String field,
+    String index,
+  ) async {
+    if (!_guardEditorCanMutate(request)) {
+      return errorResponse(403, 'FORBIDDEN', 'Guard editing requires an admin user');
+    }
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
+    final parsedIndex = int.tryParse(index);
+    if (body == null || parsedIndex == null) {
+      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON and index must be numeric');
+    }
+    try {
+      final result = await guardEditor.updateEntry(
+        guard,
+        field,
+        parsedIndex,
+        body.containsKey('value') ? body['value'] : body,
+      );
+      return jsonResponse(200, result.toJson());
+    } on GuardEditorValidationException catch (e) {
+      return _guardEditorValidationResponse(e);
+    } on StateError catch (e) {
+      return errorResponse(500, 'BACKUP_FAILED', e.message);
+    } on FileSystemException catch (e) {
+      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
+    }
+  });
+
+  // DELETE /api/config/guards/<guard>/<field>/<index> — remove an editable extension.
+  router.delete('/api/config/guards/<guard>/<field>/<index>', (
+    Request request,
+    String guard,
+    String field,
+    String index,
+  ) async {
+    if (!_guardEditorCanMutate(request)) {
+      return errorResponse(403, 'FORBIDDEN', 'Guard editing requires an admin user');
+    }
+    final parsedIndex = int.tryParse(index);
+    if (parsedIndex == null) {
+      return errorResponse(400, 'INVALID_INPUT', 'Index must be numeric');
+    }
+    try {
+      final result = await guardEditor.deleteEntry(guard, field, parsedIndex);
+      return jsonResponse(200, result.toJson());
+    } on GuardEditorValidationException catch (e) {
+      return _guardEditorValidationResponse(e);
+    } on StateError catch (e) {
+      return errorResponse(500, 'BACKUP_FAILED', e.message);
+    } on FileSystemException catch (e) {
+      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
+    }
+  });
+
+  // POST /api/config/guards/test — evaluate a sample through real guard semantics.
+  router.post('/api/config/guards/test', (Request request) async {
+    if (!_guardEditorCanMutate(request)) {
+      return errorResponse(403, 'FORBIDDEN', 'Guard testing requires an admin user');
+    }
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
+    if (body == null) {
+      return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
+    }
+    final guard = body['guard'];
+    if (guard is! String || !guardEditorFamilies.contains(guard)) {
+      return errorResponse(400, 'INVALID_INPUT', '"guard" must be one of ${guardEditorFamilies.join(', ')}');
+    }
+    try {
+      final result = await guardEditor.testInput(guard, body);
+      return jsonResponse(200, result);
+    } on GuardEditorValidationException catch (e) {
+      return _guardEditorValidationResponse(e);
+    }
+  });
+
   // PATCH /api/config — validate, write, apply
   router.patch('/api/config', (Request request) async {
-    final body = await _parseJsonBody(request);
+    if (!requestHasAdminAccess(request)) {
+      return errorResponse(403, 'FORBIDDEN', 'Config changes require an admin user');
+    }
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
     }
@@ -218,7 +345,9 @@ Router configApiRoutes({
 
   // POST /api/scheduling/jobs — create a new job
   router.post('/api/scheduling/jobs', (Request request) async {
-    final body = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null || body.isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
     }
@@ -311,7 +440,9 @@ Router configApiRoutes({
 
   // PUT /api/scheduling/jobs/<name> — update existing job
   router.put('/api/scheduling/jobs/<name>', (Request request, String name) async {
-    final body = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null || body.isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
     }
@@ -414,7 +545,9 @@ Router configApiRoutes({
 
   // POST /api/scheduling/tasks — create a new scheduled task
   router.post('/api/scheduling/tasks', (Request request) async {
-    final body = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null || body.isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
     }
@@ -486,7 +619,9 @@ Router configApiRoutes({
 
   // PUT /api/scheduling/tasks/<id> — update existing scheduled task
   router.put('/api/scheduling/tasks/<id>', (Request request, String id) async {
-    final body = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null || body.isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
     }
@@ -633,7 +768,9 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
-    final body = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
     }
@@ -675,7 +812,9 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
-    final body = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
     }
@@ -739,7 +878,9 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
-    final body = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
     }
@@ -792,7 +933,9 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
-    final body = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
     }
@@ -854,7 +997,9 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
-    final body = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
     }
@@ -898,7 +1043,9 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
-    final body = await _parseJsonBody(request);
+    final parsedBody = await _parseJsonBody(request);
+    if (parsedBody.error != null) return parsedBody.error;
+    final body = parsedBody.body;
     if (body == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
     }
@@ -1003,17 +1150,31 @@ Map<String, dynamic>? readRestartPending(String dataDir) {
 
 // --- HTTP helpers ---
 
-Future<Map<String, dynamic>?> _parseJsonBody(Request request) async {
-  final body = await request.readAsString();
-  if (body.isEmpty) return null;
+Future<({Map<String, dynamic>? body, Response? error})> _parseJsonBody(Request request) async {
+  final bodyResult = await readRequestBody(request, maxBytes: _maxConfigJsonBodyBytes);
+  if (bodyResult.error != null) return (body: null, error: bodyResult.error);
+  final body = bodyResult.body!;
+  if (body.isEmpty) return (body: null, error: null);
   try {
     final parsed = jsonDecode(body);
-    if (parsed is Map<String, dynamic>) return parsed;
-    return null;
+    if (parsed is Map<String, dynamic>) return (body: parsed, error: null);
+    return (body: null, error: null);
   } catch (e) {
     _log.fine('Failed to parse JSON request body: $e');
-    return null;
+    return (body: null, error: null);
   }
+}
+
+Response _guardEditorValidationResponse(GuardEditorValidationException exception) {
+  return jsonResponse(400, {
+    'applied': <String>[],
+    'pendingRestart': <String>[],
+    'errors': exception.errors.map((message) => {'field': 'guards', 'message': message}).toList(),
+  });
+}
+
+bool _guardEditorCanMutate(Request request) {
+  return requestHasAdminAccess(request);
 }
 
 Map<String, dynamic> _normalizeConfigPatch(Map<String, dynamic> body) {

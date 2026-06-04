@@ -143,11 +143,17 @@ final class WorkspaceSkillLinker {
     } else if (destination != FileSystemEntityType.notFound) {
       final marker = _readManagedMarker(destinationPath);
       if (marker == null) {
-        _log.fine('Preserving unmanaged workspace skill payload at $destinationPath');
-        return;
+        if (!_isReservedDartClawPayload(destinationPath)) {
+          _log.fine('Preserving unmanaged workspace skill payload at $destinationPath');
+          return;
+        }
+        _log.warning('Replacing unmanaged reserved DartClaw workspace skill payload at $destinationPath');
+        _deleteExisting(destinationPath);
       }
-      if (marker.fingerprint == fingerprint) return;
-      _deleteExisting(destinationPath);
+      if (marker != null) {
+        if (marker.fingerprint == fingerprint) return;
+        _deleteExisting(destinationPath);
+      }
     }
 
     Directory(p.dirname(destinationPath)).createSync(recursive: true);
@@ -200,6 +206,8 @@ final class WorkspaceSkillLinker {
     if (destination.existsSync()) destination.deleteSync();
     tempFile.renameSync(destination.path);
   }
+
+  static bool _isReservedDartClawPayload(String path) => p.basenameWithoutExtension(path).startsWith('dartclaw-');
 
   void _writeGitExclude(String workspaceDir) {
     final gitDir = _gitDirResolver(workspaceDir);
@@ -302,21 +310,18 @@ void _defaultLinkFactory({required String targetPath, required String linkPath})
 }
 
 String? _defaultGitDirResolver(String workspaceDir) {
-  final gitPath = p.join(workspaceDir, '.git');
-  final type = FileSystemEntity.typeSync(gitPath, followLinks: false);
-  if (type == FileSystemEntityType.directory) return gitPath;
-  if (type != FileSystemEntityType.file) return null;
-
-  final content = File(gitPath).readAsStringSync().trim();
-  const prefix = 'gitdir:';
-  if (!content.toLowerCase().startsWith(prefix)) return null;
-  final gitDir = content.substring(prefix.length).trim();
-  final resolvedGitDir = p.isAbsolute(gitDir) ? p.normalize(gitDir) : p.normalize(p.join(workspaceDir, gitDir));
-  final commonDirFile = File(p.join(resolvedGitDir, 'commondir'));
-  if (!commonDirFile.existsSync()) return resolvedGitDir;
-  final commonDir = commonDirFile.readAsStringSync().trim();
-  if (commonDir.isEmpty) return resolvedGitDir;
-  return p.isAbsolute(commonDir) ? p.normalize(commonDir) : p.normalize(p.join(resolvedGitDir, commonDir));
+  final result = Process.runSync('git', ['-C', workspaceDir, 'rev-parse', '--git-common-dir']);
+  if (result.exitCode != 0) return null;
+  final raw = (result.stdout as String).trim();
+  if (raw.isEmpty) return null;
+  final resolved = p.isAbsolute(raw) ? p.normalize(raw) : p.normalize(p.join(workspaceDir, raw));
+  final type = FileSystemEntity.typeSync(resolved, followLinks: true);
+  if (type != FileSystemEntityType.directory) return null;
+  try {
+    return Directory(resolved).resolveSymbolicLinksSync();
+  } on FileSystemException {
+    return resolved;
+  }
 }
 
 void _copyDirectorySync(Directory source, Directory destination) {

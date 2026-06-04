@@ -16,7 +16,7 @@ Five principles shape every architectural decision:
 | **Dart as host** | AOT-compiled native binary, complete built-in toolchain (formatter, analyzer, linter, test runner), capable stdlib. No external toolchain dependencies |
 | **Direct control protocol** | Dart spawns the native `claude` and `codex` binaries directly, no intermediate runtime. All state/storage/security lives in Dart |
 | **Outpost pattern** | Purpose-built CLI tools in the best language for the job (Go for WhatsApp, Python for ML/NLP), invoked as subprocesses with structured JSON I/O. No shared runtime, no dependency contamination |
-| **Auditable** | Codebase fits in a context window; dependencies stay minimal. ~104,000 LOC across ~610 Dart files |
+| **Auditable** | Codebase fits in a context window; dependencies stay minimal. On the order of ~100K production LOC across ~600 `lib/` Dart files (excluding tests and tooling) |
 
 See also: [Roadmap — Core Philosophy](../ROADMAP.md)
 
@@ -126,7 +126,7 @@ Provider-specific credential and interception details live in [Security Architec
 │  │ WorkflowExecutor          │  │ CanvasService                        │  │
 │  │ WorkflowRegistry          │  │ CanvasRoutes · ShareMiddleware       │  │
 │  │ DefinitionParser          │  │ WorkshopCanvasSubscriber             │  │
-│  │ SkillRegistry             │  │ CanvasAdminRoutes · QR               │  │
+│  │ SkillIntrospector         │  │ CanvasAdminRoutes · QR               │  │
 │  └──────────────────────────┘  └──────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────────────────┘
                            │
@@ -325,6 +325,7 @@ Multi-step agent pipelines defined in YAML. Added in 0.15, then extended increme
 | `PromptAugmenter` | `workflow/prompt_augmenter.dart` | Appends `schema` preset instructions to step prompts |
 | `SchemaValidator` | `workflow/schema_validator.dart` | Validates step output against JSON Schema (preset or inline) |
 | `StepConfigResolver` | `workflow/step_config_resolver.dart` | Resolves per-step config from `stepDefaults` patterns and per-step overrides |
+| `SkillIntrospector` | `workflow/skill_introspector.dart` | Runtime skill preflight seam: checks authored `skill:` refs against the selected provider's visible skill list before dispatch |
 | `WorkflowCliRunner` | `task/workflow_cli_runner.dart` | Workflow-only one-shot CLI execution path for all workflow agent steps plus structured extraction turns |
 | `WorkflowMaterializer` | `apps/dartclaw_cli/lib/src/commands/workflow_materializer.dart` | Copies shipped workflow YAML files into `<workspaceDir>/workflows/` before registry load; preserves user edits and materialized precedence |
 | `shellEscape` | `workflow/shell_escape.dart` | Single-quote shell escaping for `{{context.*}}` values in bash commands — prevents injection |
@@ -341,7 +342,7 @@ The default system model remains a long-lived streaming harness per active runne
 Key workflow-engine extensions:
 - **Output format system**: `outputs:` map per step, `format: text/json/lines`, `schema: preset_name` or inline JSON Schema. Multi-strategy JSON extraction (raw → code blocks → pattern scan). 5 built-in schema presets: `verdict`, `remediation_result`, `story_plan`, `file_list`, `checklist`.
 - **Step config defaults**: `stepDefaults:` list with glob `match` patterns. First match wins. Covers provider, model, maxTokens, maxCostUsd, maxRetries, allowedTools.
-- **Skill-aware steps**: Optional `skill:` field on steps. When present, step delegates to an Agent Skills-compatible skill. Validated at workflow load time via `SkillRegistry`.
+- **Skill-aware steps**: Optional `skill:` field on steps. When present, step delegates to an Agent Skills-compatible skill. Authored refs are checked at workflow-run preflight through `SkillIntrospector`, using the effective provider's visible skill list rather than a local metadata registry.
 - **Map/fan-out**: `map_over:` references a JSON array in context; the step runs once per element. `max_parallel:` (int, `"unlimited"`, or template), optional `max_items:` (omitted means uncapped). Template engine resolves `{{map.item}}`, `{{map.item.field}}`, `{{map.index}}`, `{{map.length}}`, `{{context.key[map.index]}}`.
 - **Workflow workspace isolation**: workflow steps receive behavior files from a dedicated workflow workspace (`workflow.workspace_dir` or the built-in `<dataDir>/workflow-workspace/`), not the main interactive workspace.
 
@@ -354,7 +355,7 @@ Key 0.16.1 extensions:
 - **`onError` policy**: `onError: pause` (default) pauses the run on failure. `onError: continue` records failed-step metadata and continues to the next step. Applies uniformly to bash steps and agent steps.
 - **Summary-first discovery contract**: workflow listing surfaces now consume a summary projection (`name`, `description`, `stepCount`, `hasLoops`, `maxTokens`, variables) from `WorkflowDefinitionSource.listSummaries()`. Full prompt-bearing definitions are fetched separately by name for detail pages and execution. This keeps picker/browser flows lightweight while preserving a single source of truth in the registry.
 
-**Package**: `dartclaw_workflow` (parser, validator, registry, executor), `dartclaw_models` (workflow DTOs), `dartclaw_server` (workflow HTTP routes and web presentation)
+**Package**: `dartclaw_workflow` (parser, validator, workflow registry, executor, skill preflight, workflow DTOs), `dartclaw_server` (workflow HTTP routes and web presentation)
 
 #### Security
 
@@ -381,7 +382,7 @@ Layer 1:  Credential isolation (API keys never in agent env)
 | `ContainerManager` | `container/container_manager.dart` | Docker lifecycle: create, start, exec, stop. Per-security-profile containers |
 | `ContentClassifier` | `security/content_classifier.dart` | Pluggable backends: `ClaudeBinaryClassifier` (default) or `AnthropicApiClassifier` |
 
-Container naming: `dartclaw-<sha256(dataDir)[0:8]>-<profileId>` — deterministic, collision-free across installs.
+Container naming: `dartclaw-<fnv1a8(dataDir)>-<profileId>` — deterministic 8-char FNV-1a digest of the data directory (Docker-safe local identifier, not a cryptographic hash), collision-free across installs.
 
 | Security Profile | Container | Mounts | Used By |
 |------------------|-----------|--------|---------|
@@ -684,11 +685,11 @@ dartclaw_core       (dartclaw_models + dartclaw_security + no sqlite3)
              (dartclaw_core +             │
               googleapis_auth + http)     │
                                           │
-dartclaw_storage    (dartclaw_core + sqlite3)
+dartclaw_storage    (dartclaw_core + dartclaw_workflow + sqlite3)
        ▲
        │
 dartclaw_workflow   (dartclaw_config + dartclaw_core +
-                     dartclaw_models + dartclaw_storage)
+                     dartclaw_models + dartclaw_security)
        ▲
 dartclaw            (umbrella — re-exports: core, storage,
                      whatsapp, signal, google_chat)
@@ -709,7 +710,7 @@ The `dartclaw` umbrella package re-exports `dartclaw_core`, `dartclaw_storage`, 
 | `dartclaw_security` | `Guard`, `GuardChain`, concrete guards, content classification interfaces, message redaction, guard audit primitives | Isolated security surface — no EventBus or server wiring |
 | `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file-based services (`SessionService`, `MessageService`, `KvService`, `MemoryFileService`), `EventBus`, workflow/task seams | **No sqlite3, no config parsing, no container orchestration** — shareable with future Flutter app |
 | `dartclaw_config` | `DartclawConfig`, typed config sections, `ConfigMeta`, `ConfigValidator`, `ConfigWriter` | Config loading/authoring isolated below core |
-| `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, registry, workflow materialization, `SkillRegistry`, schema presets | Workflow definition + execution package shared by server and CLI. Depends on config + core + models + storage |
+| `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, workflow registry, workflow materialization, `WorkflowDefinition`/`WorkflowRun` models, `SkillIntrospector`, schema presets | Workflow definition + execution package shared by server and CLI. Prod deps: config + core + models + security (storage is a dev-only/test dependency) |
 | `dartclaw_whatsapp` | `WhatsAppChannel`, `GowaManager`, media extraction, WhatsApp config registration | Depends only on core — WhatsApp-specific logic isolated |
 | `dartclaw_signal` | `SignalChannel`, `SignalCliManager`, sender mapping, Signal config registration | Depends only on core — Signal-specific logic isolated |
 | `dartclaw_google_chat` | `GoogleChatChannel`, REST client, GCP auth, Google Chat config registration | Google auth + HTTP deps isolated from core |
@@ -1006,8 +1007,7 @@ All services are single-instance, single-threaded. Isolates are avoided unless p
 | Feature comparison | [`docs/specs/feature-comparison.md`](../specs/feature-comparison.md) | OpenClaw vs NanoClaw vs DartClaw |
 | Product Backlog | [`docs/PRODUCT-BACKLOG.md`](../PRODUCT-BACKLOG.md) | Deferred/future features with rationale |
 | Learnings | [`dartclaw-public/dev/state/LEARNINGS.md`](../../../dartclaw-public/dev/state/LEARNINGS.md) | Traps, gotchas, non-obvious patterns |
-| Public architecture guide | [`../dartclaw-public/docs/guide/architecture.md`](../../../dartclaw-public/docs/guide/architecture.md) | User-facing architecture overview |
-| Public architecture governance guide | [`../dartclaw-public/dev/architecture-governance.md`](../../../dartclaw-public/dev/architecture-governance.md) | Contributor-facing explanation of `dev/tools/arch_check.dart` and what it protects |
+| User-facing architecture overview | [`docs/guide/architecture.md`](../../docs/guide/architecture.md) | Operator-oriented 2-layer overview |
 
 ### Key ADRs
 

@@ -1,4 +1,7 @@
 name: Release Binaries
+# Action-update process: to bump a pinned action, re-resolve the tag to its current SHA with
+#   gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
+# then update both the SHA and the trailing # vX comment on the uses: line.
 
 on:
   push:
@@ -26,10 +29,10 @@ jobs:
             publish_assets: false
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Dart
-        uses: dart-lang/setup-dart@v1
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: 3.12.0
 
@@ -48,7 +51,7 @@ jobs:
         run: bash dev/tools/build.sh
 
       - name: Publish platform release asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             build/dartclaw-v${{ env.DARTCLAW_VERSION }}-${{ matrix.os_name }}-${{ matrix.arch_name }}.tar.gz
@@ -56,7 +59,7 @@ jobs:
 
       - name: Publish shared asset release files
         if: matrix.publish_assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             build/dartclaw-assets-v${{ env.DARTCLAW_VERSION }}.tar.gz

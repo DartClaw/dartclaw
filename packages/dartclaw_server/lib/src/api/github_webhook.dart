@@ -2,7 +2,8 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show WebhookDeliveryReservation, WebhookDeliveryStore;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowRun, WorkflowService;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
@@ -20,6 +21,7 @@ class GitHubWebhookHandler {
   final ProjectService? projects;
   final EventBus? eventBus;
   final List<String> trustedProxies;
+  final WebhookDeliveryStore? deliveryStore;
 
   GitHubWebhookHandler({
     required this.config,
@@ -28,6 +30,7 @@ class GitHubWebhookHandler {
     this.projects,
     this.eventBus,
     this.trustedProxies = const [],
+    this.deliveryStore,
   });
 
   Future<Response> handle(Request request) async {
@@ -48,7 +51,23 @@ class GitHubWebhookHandler {
       return Response.forbidden('');
     }
 
-    final payload = jsonDecode(body) as Map<String, dynamic>;
+    final deliveryId = request.headers['x-github-delivery'];
+    if (deliveryId == null || deliveryId.trim().isEmpty) {
+      _log.warning('GitHub webhook missing x-github-delivery header');
+      return errorResponse(400, 'MISSING_DELIVERY_ID', 'Missing x-github-delivery header');
+    }
+
+    final Map<String, dynamic> payload;
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) {
+        return errorResponse(400, 'INVALID_INPUT', 'GitHub webhook payload must be a JSON object');
+      }
+      payload = decoded;
+    } on FormatException {
+      return errorResponse(400, 'INVALID_INPUT', 'Invalid GitHub webhook JSON payload');
+    }
+
     final eventName = request.headers['x-github-event'] ?? '';
     if (eventName != 'pull_request') {
       return jsonResponse(200, {'ignored': true});
@@ -103,6 +122,25 @@ class GitHubWebhookHandler {
       return jsonResponse(200, {'ok': true, 'deduped': true});
     }
 
+    final store = deliveryStore;
+    final reservation = store?.reservePending(deliveryId);
+    if (store != null && reservation == WebhookDeliveryReservation.duplicate) {
+      _log.fine('GitHub webhook delivery $deliveryId already processed or pending — ignoring replay');
+      return jsonResponse(200, {'ok': true, 'deduped': true});
+    }
+    if (store != null &&
+        reservation == WebhookDeliveryReservation.reservedReclaimed &&
+        await _isDuplicate(
+          trigger.workflow,
+          prNumber,
+          projectId: projectId,
+          repoSlug: repoSlug,
+          includeTerminal: true,
+        )) {
+      _markProcessedBestEffort(store, deliveryId);
+      return jsonResponse(200, {'ok': true, 'deduped': true});
+    }
+
     final head = pullRequest['head'] as Map<String, dynamic>?;
     final base = pullRequest['base'] as Map<String, dynamic>?;
     final variables = <String, String>{
@@ -116,7 +154,17 @@ class GitHubWebhookHandler {
       variables['PROJECT'] = projectId;
     }
 
-    final run = await workflows.start(definition, variables, projectId: projectId);
+    final WorkflowRun run;
+    try {
+      run = await workflows.start(definition, variables, projectId: projectId);
+    } catch (_) {
+      if (reservation != null && reservation != WebhookDeliveryReservation.duplicate) {
+        store?.releasePending(deliveryId);
+      }
+      rethrow;
+    }
+
+    store?.commitProcessed(deliveryId);
     return jsonResponse(200, {'ok': true, 'runId': run.id});
   }
 
@@ -132,10 +180,24 @@ class GitHubWebhookHandler {
     return constantTimeEquals(signatureHeader, 'sha256=$digest');
   }
 
-  Future<bool> _isDuplicate(String workflowName, String prNumber, {String? projectId, required String repoSlug}) async {
+  void _markProcessedBestEffort(WebhookDeliveryStore store, String deliveryId) {
+    try {
+      store.commitProcessed(deliveryId);
+    } catch (e, st) {
+      _log.warning('Failed to mark deduped GitHub webhook delivery $deliveryId as processed', e, st);
+    }
+  }
+
+  Future<bool> _isDuplicate(
+    String workflowName,
+    String prNumber, {
+    String? projectId,
+    required String repoSlug,
+    bool includeTerminal = false,
+  }) async {
     final runs = await workflows.list(definitionName: workflowName);
     return runs.any((run) {
-      if (run.status.terminal || run.variablesJson['PR_NUMBER'] != prNumber) return false;
+      if ((!includeTerminal && run.status.terminal) || run.variablesJson['PR_NUMBER'] != prNumber) return false;
       if (projectId != null) {
         return run.variablesJson['PROJECT'] == projectId;
       }

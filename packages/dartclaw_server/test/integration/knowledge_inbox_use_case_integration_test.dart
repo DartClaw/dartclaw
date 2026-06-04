@@ -150,6 +150,9 @@ class _KnowledgeInboxWorker implements AgentHarness {
   }
 
   @override
+  Future<void> resetSessionContinuity(String sessionId) async {}
+
+  @override
   Future<void> cancel() async {}
 
   @override

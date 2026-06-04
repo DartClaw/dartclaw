@@ -34,6 +34,7 @@ void main() {
         expect(config.server.workerTimeout, 600);
         expect(config.server.claudeExecutable, 'claude');
         expect(config.server.staticDir, 'packages/dartclaw_server/lib/src/static');
+        expect(config.onboarding.expiryDays, 14);
         expect(config.warnings, isEmpty);
       });
 
@@ -45,6 +46,34 @@ void main() {
         expect(config.credentials, const CredentialsConfig.defaults());
         expect(config.credentials.isEmpty, isTrue);
         expect(config.agent.provider, 'claude');
+      });
+    });
+
+    group('copyWith', () {
+      test('replaces only the named section and preserves all others', () {
+        final base = DartclawConfig(
+          server: ServerConfig(dataDir: '/data'),
+          knowledge: const KnowledgeConfig(
+            inbox: KnowledgeInboxConfig(
+              enabled: true,
+              intervalMinutes: 15,
+              maxBytes: 4096,
+              retryAttempts: 5,
+              processedRetentionDays: 7,
+              deliveryMode: 'announce',
+            ),
+          ),
+        );
+
+        final updated = base.copyWith(security: base.security.copyWith(guardsYaml: const {'command': true}));
+
+        // The replaced section carries the new value.
+        expect(updated.security.guardsYaml, const {'command': true});
+        // Every other section — including 0.17 additions like knowledge — survives.
+        expect(updated.knowledge, base.knowledge);
+        expect(updated.server, base.server);
+        expect(updated.onboarding, base.onboarding);
+        expect(updated.security.contentGuardEnabled, base.security.contentGuardEnabled);
       });
     });
 
@@ -124,6 +153,51 @@ void main() {
         expect(config.server.dataDir, '/custom/data');
         expect(config.server.workerTimeout, 300);
         expect(config.gateway.hsts, isTrue);
+      });
+
+      test('minimal workflow config loads with safe defaults', () {
+        final config = DartclawConfig.load(
+          configPath: '/workspace/dartclaw/dartclaw.yaml',
+          fileReader: (path) {
+            if (path == '/workspace/dartclaw/dartclaw.yaml') {
+              return '''
+data_dir: ./dartclaw
+agent:
+  provider: claude
+  model: claude-sonnet-4-6
+providers:
+  claude:
+    executable: claude
+''';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.server.port, 3333);
+        expect(config.server.name, 'DartClaw');
+        expect(config.server.dataDir, p.normalize('/workspace/dartclaw/dartclaw'));
+        expect(config.gateway.authMode, 'token');
+        expect(config.tasks.maxConcurrent, 3);
+        expect(config.governance.rateLimits.perSender.messages, 0);
+        expect(config.workflow.defaults.workflow.provider, 'claude');
+      });
+
+      test('onboarding expiry defaults and parses override', () {
+        final defaults = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(defaults.onboarding.expiryDays, 14);
+
+        final configured = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
+              return 'onboarding:\n  expiry_days: 3\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(configured.onboarding.expiryDays, 3);
       });
 
       test('google chat parser works after explicit package registration', () {

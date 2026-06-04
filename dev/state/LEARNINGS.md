@@ -25,6 +25,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Per-turn `system_prompt` *replaces* spawn-time `--append-system-prompt`.** Don't inject conversation history via system prompt for `PromptStrategy.append`. Inject as `<conversation_history>` XML in the user message on cold-process turns only.
 - **`_buildClaudeArgs()` is process-level, not per-task.** `HarnessPool` reuses long-lived runners; per-task flags require new processes or pool segmentation.
 - **Container mode: skip host probes.** No `claude --version` / auth probes from inside the container.
+- **Direct Claude setting sources default to inherited user scope.** Omit `--setting-sources` unless `providers.claude.inherit_user_settings: false`; workflow skill preflight must use the same policy as execution or `andthen:*` skills disappear before dispatch.
 
 ### Codex
 - **Codex reads `config.toml` only at app-server startup.** Write `CODEX_HOME/config.toml` before spawning; later changes have no effect.
@@ -42,6 +43,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 ### Turn Routing
 - **Provider-routed sessions need turn-reservation bookkeeping in `TurnManager`.** When provider selection happens at reserve time, all of `executeTurn` / `waitForOutcome` / `releaseTurn` must hit the same runner.
 - **`_dispatchChannelTurn` must load full session history before `startTurn()`** to match the web UI path.
+- **Append-mode harnesses need explicit per-turn prompt exceptions for scoped behavior.** `PromptStrategy.append` normally returns an empty per-turn system prompt to avoid replacing the spawn prompt. Scoped web-only behavior such as onboarding must opt into a full scoped static prompt for that turn; changing the default would leak behavior into non-web callers.
 
 ## HTMX / SSE
 
@@ -52,6 +54,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **SSE `error` event triggers `onerror`, never named-event handlers.** Rename to e.g. `turn_error` for HTMX `sse-swap`.
 - **`hx-swap="none"` doesn't insert HTML into DOM.** Use a hidden swap target with `innerHTML` instead.
 - **HTMX-replaced containers lose direct event listeners.** Use document-level event delegation.
+- **Chat form success does not always mean SSE starts.** Command-intercept responses append ordinary HTML and never create `#streaming-msg`; composer controllers must reset on successful non-streaming form responses instead of waiting for `htmx:sseClose`.
 
 ## Trellis Templates
 
@@ -96,6 +99,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Harness capability differences belong on the base `AgentHarness` contract.** Expose via capability getters; consumers branch on flags. Unsupported telemetry → omission/null, never fake zero or provider-name conditionals.
 - **Auto-accept callbacks must translate non-success `ReviewResult`s into thrown errors.** `TaskReviewService.review()` reports merge conflicts as typed results, not exceptions; callers wiring `Future<void>` callbacks otherwise lose the warning path.
 - **Typedef-vs-class name collisions across packages need `hide` on the import.** e.g. `ReservedCommandHandler` typedef in `dartclaw_core` vs class in `dartclaw_cli`.
+- **Green tests can mask unwired features.** Direct-call tests don't prove a service is registered in ServiceWiring/ScheduleService — verify wiring via integration test + grep for non-test refs.
 
 ## Channel Integration
 
@@ -125,6 +129,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 
 ## Workflow Engine
 
+- **Strict task-spawn dependencies need a lifecycle-only construction path.** `WorkflowService`'s default constructor can require task persistence ports so production wiring fails at compile time when task-spawn persistence is missing, but route/view tests and webhook fakes that only exercise pause/resume/cancel/list behavior should use an explicit lifecycle-only constructor instead of fabricating persistence ports.
 - **Shared worktree caches need both persisted bindings and per-key mutexes.** In-memory map alone fails on retry/restart; same-key fanout needs a `finally`-released waiter/completer guard.
 - **Validator file splits must preserve diagnostic ordering.** `workflow validate` output order is observable, so rule-group moves need either the original call sequence in the composer or explicit golden coverage for ordering.
 - **`git worktree list` automation must use `--porcelain`.** Human-format output is not stable for reconciliation.
@@ -143,6 +148,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Partial inline structured payloads must not satisfy a structured-output schema.** If any required narrative key is missing, run the extraction turn and let context extraction preserve inline precedence per field.
 - **Artifact commit must use output resolver semantics, not raw output formats.** List-shaped filesystem outputs can be represented as `lines` in the current model but are still load-bearing artifacts.
 - **Dependency-aware fan-out is explicit, not inferred from object shape.** The shared map/foreach scheduler only engages when items declare `dependencies`; root records in that mode still need `dependencies: []`, or validation correctly treats the collection as malformed.
+- **Resume `story_specs` legitimately carry deps on completed stories; prune by completion status in the contract layer, not in `DependencyGraph`.** On resume, `dartclaw-discover-andthen-plan` excludes done/skipped stories but their IDs still appear in the remaining stories' `dependsOn`. `validateStorySpecsContract(completedStoryIds:)` prunes a dependency only when it names a `done`/`skipped` plan story (read from `plan.json` `stories[].status` in `story_spec_output_validator._readCompletedStoryIds`) absent from the emitted set — an already-satisfied prerequisite. Crucial subtlety: prune by *completion status*, not by mere absence from the emitted set — a story can be absent for non-completion reasons (no `fis`, `blocked`, dropped by discovery), and pruning those would silently treat an unsatisfied prerequisite as met. Deps on non-completed/unknown ids are kept so `DependencyGraph` rejects them (typos / hallucinated text like `Blocks A-G complete`, or real-but-incomplete prerequisites). Null catalog → strict. `DependencyGraph` itself is untouched, so map/foreach fan-out keeps its strict unknown-dependency detection.
 - **Promotion-conflict retries need the iteration cursor preserved on failure.** If a dependency-aware `mapOver` / `foreach` clears `executionCursor` after a blocked promotion, downstream items become permanently undispatchable and `workflow retry` cannot resume the ready-set correctly.
 - **`map_iteration_dispatcher` and `step_dispatcher` share the same async-listener / SQLite-teardown race.** Both need the synchronous-listener pattern: filter `failed + retry-in-progress` and `queued|running` re-emissions, then fire-and-forget `_taskService.get` for terminal events. Fixing only one leaves the other ticking.
 - **Foreach-vs-mapOver routing is a real footgun for skill tests.** The merge-resolve retry loop and `serialize-remaining` drain live in `_executeForeachStep` (ForeachNode), not `_executeMapStep` (MapNode). Tests using a plain `mapOver` step silently take the wrong code path; they must use a foreach controller (`type: foreach`, `foreachSteps: [...]`) for the new state machines to fire.
@@ -155,14 +161,20 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Workflow validators that compare provider roles need runtime role defaults.** Alias equality such as `@executor` vs a concrete provider is only meaningful after resolving through `WorkflowRoleDefaults`; CLI validation and server wiring must construct validators with the same configured defaults the runtime will use.
 - **Use task-level `maxRetries` for harness crashes, not `onFailure: retry` for story steps.** `onFailure: retry` retries explicit failed `<step-outcome>` results too, which can re-enter a per-story worktree containing the prior semantic failure's partial diff. Resilient story fan-out should record failed slots and let later review/summary steps consume the aggregate.
 - **Standalone workflow teardown must preserve non-terminal workflow git state.** Approval-held, paused, and running workflows still need their integration branch and per-map worktrees for resume. Cleanup on process dispose should only reap terminal runs; otherwise the next task attaches to a deleted workflow-owned ref.
+- **Best-effort workflow cleanup should use `onFailure: continue`, not a cleanup-specific branch.** Optional steps such as `simplify-code` may emit `needsInput` on red baselines; treating `continue` as "record and advance" for both `failed` and `needsInput` keeps required producer/review semantics strict while avoiding workflow-specific special cases.
+- **Post-step artifact validation must follow the producing task worktree.** A workflow can resolve its active root before later git isolation binds a task worktree; validating `story_specs.spec_path` against the stale root rejects files the step actually wrote. Prefer `task.worktreeJson.path` for path-bearing outputs, with the active root only as the no-worktree fallback.
+- **Live workflow step-isolation tests must cancel provider turns before deleting sessions.** Dart test timeouts can fire while a Codex subprocess is still returning; teardown must call the runner cancellation seam before disposing message storage or removing the temp session directory.
 
 ## Storage / Data Model
 
+- **Durable knowledge graph facts belong in `tasks.db`, not `search.db`.** `search.db` is rebuildable from MEMORY.md and can be deleted/rebuilt; temporal KG facts are authoritative source-linked records and must use the durable task database connection.
 - **Tail-window pagination is a parse-window optimization.** Scan NDJSON from the end; materialize only the requested window. Cursor semantics stay 1-based line numbers.
 - **Task sessions have multi-layer protection from maintenance pruning.** `_isProtected()`, `_pruneStale()` skip, `protectedTypes` set, `deleteSession()` throws, `listSessions()` excludes by default.
 - **FTS5 MATCH has special operators.** Wrap user input in double quotes for literal matching.
 - **Task persistence is schema-backed, not generic-JSON-backed.** New `Task` fields require schema, migrations, insert/update, hydration — not just `toJson()`/`fromJson()`.
 - **Legacy task-table migrations must guard missing columns at every SQL touch point.** Branching only the backfill INSERT is insufficient; index creation and `INSERT ... SELECT` also need conditional column references.
+- **Validate untrusted-ingestion payloads before the first durable write, and never treat LLM text as a control boundary.** Order all checks before any sink (else retries re-run committed writes); parse structured output from a delimiter-safe channel, not free text that source-embedded fences can forge.
+- **Webhook pending-state TTL must move forward on successful commit.** Reclaiming an old pending row and then marking it processed without refreshing the TTL anchor lets the next purge delete the dedupe marker immediately.
 
 ## Container / Deployment
 
@@ -187,3 +199,5 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Testing-profile smoke runs should bypass stale CLI snapshots after schema changes.** `dev/testing/profiles/*/run.sh` prefers cached `.dart_tool/pub/bin` snapshots; rebuild after storage migrations or you'll debug old code.
 - **Nested architecture-doc links resolve relative to the nested doc, not the repo root.** Run a scoped markdown link check after architecture-doc edits — silent drift otherwise.
 - **Mechanical file-split refactors silently change behavior via fallback differences.** Verify shared utility functions have identical fallback behavior to the inlined original — `null` vs fallback-object, empty-string vs error-summary, etc.
+- **Green unit suites hide wiring gaps.** Tests injecting absolute paths/null deps prove units, not the product. Require ≥1 test driving the real composition root + path discovery.
+- **Bounded filesystem traversal must stream entries.** `Directory.list().toList()` defeats traversal budgets in large flat directories even if callers later cap result counts.

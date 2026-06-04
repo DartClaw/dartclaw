@@ -38,7 +38,7 @@ Precondition: browser is on the newly created session page from S1.
 
 1. Run `agent-browser snapshot -i` to identify interactive elements
 2. Fill the chat message input (@ref for input field) with `Hello, what is 2 + 2?`
-3. Click the send button (@ref for send button) or press Enter to submit
+3. Click the send button (@ref for send button) or press Ctrl+Enter (Cmd+Enter on macOS) to submit
 4. Observe the message appearing in the conversation
 5. Wait for the response streaming to begin (first tokens appear)
 6. Wait for the streaming response to complete (send button re-enables or spinner disappears)

@@ -16,7 +16,6 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
-        SkillRegistry,
         WorkflowDefinition,
         WorkflowDefinitionResolver,
         WorkflowDefinitionSource,
@@ -34,6 +33,8 @@ import '../task/task_service.dart';
 import 'api_helpers.dart';
 
 final _log = Logger('WorkflowRoutes');
+const _maxWorkflowJsonBodyBytes = 256 * 1024;
+const _maxWorkflowFormBodyBytes = 256 * 1024;
 
 /// Creates a [Router] exposing workflow lifecycle API endpoints.
 ///
@@ -45,10 +46,9 @@ Router workflowRoutes(
   TaskService tasks,
   WorkflowDefinitionSource definitions, {
   EventBus? eventBus,
-  SkillRegistry? skillRegistry,
 }) {
   final router = Router();
-  final resolver = WorkflowDefinitionResolver(skillRegistry: skillRegistry);
+  final resolver = WorkflowDefinitionResolver();
 
   // POST /api/workflows/run
   router.post('/api/workflows/run', (Request request) async {
@@ -162,7 +162,8 @@ Router workflowRoutes(
       String? feedback;
       final contentType = request.headers['content-type'] ?? '';
       if (contentType.contains('application/json')) {
-        final body = await readJsonObject(request);
+        final body = await readJsonObject(request, maxBytes: _maxWorkflowJsonBodyBytes);
+        if (body.error != null) return body.error;
         if (body.value != null) {
           final feedbackField = body.value!['feedback'];
           if (feedbackField is String && feedbackField.trim().isNotEmpty) {
@@ -191,7 +192,7 @@ Router workflowRoutes(
 
   // GET /api/workflows/definitions/<name>
   // Query params:
-  //   resolve=true         → returns YAML with stepDefaults/skill-defaults merged
+  //   resolve=true         → returns YAML with stepDefaults applied
   //   step=<id>            → (with resolve=true) slices to a single resolved step
   router.get('/api/workflows/definitions/<name>', (Request request, String name) async {
     try {
@@ -248,7 +249,7 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
   Request request,
   WorkflowDefinitionSource definitions,
 ) async {
-  final body = await readJsonObject(request);
+  final body = await readJsonObject(request, maxBytes: _maxWorkflowJsonBodyBytes);
   if (body.error != null) {
     return (
       definition: null,
@@ -324,7 +325,17 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
   Request request,
   WorkflowDefinitionSource definitions,
 ) async {
-  final body = Uri.splitQueryString(await request.readAsString());
+  final bodyResult = await readRequestBody(request, maxBytes: _maxWorkflowFormBodyBytes);
+  if (bodyResult.error != null) {
+    return (
+      definition: null,
+      variables: const <String, String>{},
+      projectId: null,
+      allowDirtyLocalPath: false,
+      error: bodyResult.error,
+    );
+  }
+  final body = Uri.splitQueryString(bodyResult.body!);
   final definitionName = body['definition']?.trim();
   if (definitionName == null || definitionName.isEmpty) {
     return (

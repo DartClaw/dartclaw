@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -87,6 +89,60 @@ void main() {
     expect(await response.readAsString(), contains('Missing required variable'));
   });
 
+  test('POST /api/workflows/run rejects oversized streamed JSON body', () async {
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/workflows/run'),
+        headers: {'content-type': 'application/json'},
+        body: Stream<List<int>>.fromIterable([
+          utf8.encode('{"definition":"spec-and-implement","variables":{"FEATURE":"'),
+          utf8.encode('x' * (256 * 1024)),
+          utf8.encode('"}}'),
+        ]),
+      ),
+    );
+
+    expect(response.statusCode, 413);
+    expect(await response.readAsString(), contains('REQUEST_TOO_LARGE'));
+    expect(workflows.startCalls, isZero);
+  });
+
+  test('POST /api/workflows/run-form rejects oversized streamed form body', () async {
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/workflows/run-form'),
+        headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
+        body: Stream<List<int>>.fromIterable([
+          utf8.encode('definition=spec-and-implement&var_FEATURE='),
+          utf8.encode('x' * (256 * 1024)),
+        ]),
+      ),
+    );
+
+    expect(response.statusCode, 413);
+    expect(await response.readAsString(), contains('REQUEST_TOO_LARGE'));
+    expect(workflows.startCalls, isZero);
+  });
+
+  test('POST /api/workflows/run-form rejects malformed UTF-8 body', () async {
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/workflows/run-form'),
+        headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
+        body: Stream<List<int>>.fromIterable([
+          [0xff],
+        ]),
+      ),
+    );
+
+    expect(response.statusCode, 400);
+    expect(await response.readAsString(), contains('valid UTF-8'));
+    expect(workflows.startCalls, isZero);
+  });
+
   test('POST /api/workflows/run-form returns 409 for workflow precondition failures', () async {
     workflows.startError = StateError(
       'Local-path project "alpha" is not safe to mutate: observed branch "feature/local", expected "main", dirty path count 1. Re-run with --allow-dirty-localpath to override.',
@@ -132,7 +188,7 @@ class _FakeWorkflowService extends WorkflowService {
     EventBus eventBus,
     KvService kvService,
     String dataDir,
-  ) : super(
+  ) : super.lifecycleOnly(
         repository: repository,
         taskService: taskService,
         messageService: messageService,
@@ -155,6 +211,7 @@ class _FakeWorkflowService extends WorkflowService {
 
   WorkflowRun? startResult;
   Object? startError;
+  int startCalls = 0;
 
   @override
   Future<WorkflowRun> start(
@@ -164,6 +221,7 @@ class _FakeWorkflowService extends WorkflowService {
     bool allowDirtyLocalPath = false,
     bool headless = false,
   }) async {
+    startCalls++;
     if (startError != null) {
       throw startError!;
     }

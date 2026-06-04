@@ -8,6 +8,7 @@ import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillIntrospector;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -31,6 +32,21 @@ HarnessFactory _harnessFactoryForProviders(Iterable<String> providers, AgentHarn
     factory.register(provider, (_) => builder());
   }
   return factory;
+}
+
+final class _FakeSkillIntrospector implements SkillIntrospector {
+  final Map<String, Set<String>> skillsByProvider;
+
+  const _FakeSkillIntrospector(this.skillsByProvider);
+
+  @override
+  Future<Set<String>> listAvailable({
+    required String provider,
+    String? executable,
+    Map<String, dynamic> providerOptions = const <String, dynamic>{},
+  }) async {
+    return skillsByProvider[provider] ?? const <String>{};
+  }
 }
 
 void main() {
@@ -75,6 +91,7 @@ steps:
         stderrLine: output.add,
         exitFn: _fakeExit,
         runAndthenSkillsBootstrap: false,
+        skillIntrospector: const _FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -87,6 +104,24 @@ steps:
       expect(output.any((line) => line.contains('"type":"workflow_step_completed"')), isTrue);
       expect(output.last, contains('"type":"workflow_status_changed"'));
       expect(output.last, contains('"newStatus":"completed"'));
+    });
+
+    test('standalone run with no config exits with init workflow guidance', () async {
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        environment: {'HOME': tempDir.path},
+        stderrLine: output.add,
+        exitFn: _fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'code-review', '--standalone']),
+        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+
+      expect(output.single, contains('No config found at ${p.join(tempDir.path, '.dartclaw', 'dartclaw.yaml')}'));
+      expect(output.single, contains('dartclaw init --workflow'));
     });
 
     test('standalone run aborts early when a referenced credential resolves empty', () async {
@@ -118,6 +153,7 @@ steps:
         stderrLine: output.add,
         exitFn: _fakeExit,
         runAndthenSkillsBootstrap: false,
+        skillIntrospector: const _FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -150,8 +186,10 @@ steps:
         harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
+        stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: _fakeExit,
+        skillIntrospector: const _FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -161,11 +199,9 @@ steps:
       );
 
       expect(output, [
-        '--no-skill-bootstrap was set but workflow skills referenced by "source-only-skill" '
-            'are not installed in native harness skill roots for their execution providers: '
-            'dartclaw-discover-andthen-spec (provider claude, searched dartclaw-discover-andthen-spec). '
-            'Install AndThen separately for AndThen-owned skills; omit --no-skill-bootstrap only provisions '
-            'DartClaw-native skills.',
+        '[workflow] Starting: source-only-skill (1 steps)',
+        '[workflow] Failed at step 1/1: Missing skills for provider "claude": '
+            'dartclaw-discover-andthen-spec. Available: 0 skills.',
       ]);
     });
 
@@ -194,8 +230,13 @@ steps:
         harnessFactory: _harnessFactoryForProviders(['codex', 'claude'], () => FakeAgentHarness()),
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
+        stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: _fakeExit,
+        skillIntrospector: const _FakeSkillIntrospector({
+          'claude': {'dartclaw-discover-andthen-spec'},
+          'codex': {},
+        }),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -205,11 +246,9 @@ steps:
       );
 
       expect(output, [
-        '--no-skill-bootstrap was set but workflow skills referenced by "provider-mismatch" '
-            'are not installed in native harness skill roots for their execution providers: '
-            'dartclaw-discover-andthen-spec (provider codex, searched dartclaw-discover-andthen-spec). '
-            'Install AndThen separately for AndThen-owned skills; omit --no-skill-bootstrap only provisions '
-            'DartClaw-native skills.',
+        '[workflow] Starting: provider-mismatch (1 steps)',
+        '[workflow] Failed at step 1/1: Missing skills for provider "codex": '
+            'dartclaw-discover-andthen-spec. Available: 0 skills.',
       ]);
     });
 
@@ -238,6 +277,7 @@ steps:
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
         exitFn: _fakeExit,
+        skillIntrospector: const _FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -270,6 +310,7 @@ steps:
         stderrLine: output.add,
         exitFn: _fakeExit,
         runAndthenSkillsBootstrap: false,
+        skillIntrospector: const _FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -284,19 +325,11 @@ steps:
     });
 
     test('surfaces other-name exclusions even when some workflows did load', () async {
-      // ci-demo loads cleanly. A sibling YAML fails validation – when the
+      // ci-demo loads cleanly. A sibling YAML fails to parse – when the
       // operator types a different unknown name, the CLI should still mention
       // the failed sibling so the operator can see partial registry damage.
       final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
-      File(p.join(workflowsDir.path, 'broken-sibling.yaml')).writeAsStringSync('''
-name: broken-sibling
-description: Excluded by validation.
-steps:
-  - id: gate
-    name: Gate
-    type: approval
-    parallel: true
-''');
+      File(p.join(workflowsDir.path, 'broken-sibling.yaml')).writeAsStringSync('name: : broken syntax {{{');
 
       final output = <String>[];
       final command = WorkflowRunCommand(
@@ -307,6 +340,7 @@ steps:
         stderrLine: output.add,
         exitFn: _fakeExit,
         runAndthenSkillsBootstrap: false,
+        skillIntrospector: const _FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
@@ -315,10 +349,15 @@ steps:
         throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
-      expect(output.any((line) => line.startsWith('Unknown workflow:')), isTrue);
-      expect(output.any((line) => line.contains('Available: ci-demo')), isTrue);
-      expect(output.any((line) => line.contains('Other workflows excluded')), isTrue);
-      expect(output.any((line) => line.contains('broken-sibling')), isTrue);
+      final renderedOutput = output.join('\n');
+      expect(output.any((line) => line.startsWith('Unknown workflow:')), isTrue, reason: renderedOutput);
+      expect(
+        output.any((line) => line.startsWith('Available:') && line.contains('ci-demo')),
+        isTrue,
+        reason: renderedOutput,
+      );
+      expect(output.any((line) => line.contains('Other workflows excluded')), isTrue, reason: renderedOutput);
+      expect(output.any((line) => line.contains('broken-sibling')), isTrue, reason: renderedOutput);
     });
 
     test('surfaces validation errors when a requested workflow was excluded at load time', () async {
@@ -344,6 +383,7 @@ steps:
         stderrLine: output.add,
         exitFn: _fakeExit,
         runAndthenSkillsBootstrap: false,
+        skillIntrospector: const _FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 

@@ -120,6 +120,68 @@ void main() {
     expect(result, contains('Timezone: UTC+2'));
   });
 
+  test('injects ONBOARDING.md only for webInteractive scope', () async {
+    File('${globalDir.path}/SOUL.md').writeAsStringSync('Soul');
+    File('${globalDir.path}/ONBOARDING.md').writeAsStringSync('Onboarding instructions');
+    final service = BehaviorFileService(workspaceDir: globalDir.path);
+
+    final webPrompt = await service.composeSystemPrompt(scope: PromptScope.webInteractive);
+    final interactivePrompt = await service.composeSystemPrompt();
+    final taskPrompt = await service.composeSystemPrompt(scope: PromptScope.task);
+
+    expect(webPrompt, contains('## Onboarding'));
+    expect(webPrompt, contains('Onboarding instructions'));
+    expect(interactivePrompt, isNot(contains('Onboarding instructions')));
+    expect(taskPrompt, isNot(contains('Onboarding instructions')));
+  });
+
+  test('skips stale ONBOARDING.md and logs restart path', () async {
+    final sentinel = File('${globalDir.path}/ONBOARDING.md')..writeAsStringSync('Old onboarding');
+    final old = DateTime.now().subtract(const Duration(days: 3));
+    sentinel.setLastModifiedSync(old);
+    final warnings = <String>[];
+    final previousLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final sub = Logger('BehaviorFileService').onRecord.listen((record) {
+      if (record.level >= Level.WARNING) {
+        warnings.add(record.message);
+      }
+    });
+    addTearDown(() async {
+      await sub.cancel();
+      Logger.root.level = previousLevel;
+    });
+
+    final service = BehaviorFileService(workspaceDir: globalDir.path, onboardingExpiryDays: 2);
+    final result = await service.composeSystemPrompt(scope: PromptScope.webInteractive);
+
+    expect(result, isNot(contains('Old onboarding')));
+    expect(warnings, anyElement(contains('dartclaw init --personalize')));
+  });
+
+  test('freshness probe logs stale onboarding when requested', () {
+    final sentinel = File('${globalDir.path}/ONBOARDING.md')..writeAsStringSync('Old onboarding');
+    final old = DateTime.now().subtract(const Duration(days: 3));
+    sentinel.setLastModifiedSync(old);
+    final warnings = <String>[];
+    final previousLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final sub = Logger('BehaviorFileService').onRecord.listen((record) {
+      if (record.level >= Level.WARNING) {
+        warnings.add(record.message);
+      }
+    });
+    addTearDown(() async {
+      await sub.cancel();
+      Logger.root.level = previousLevel;
+    });
+
+    final service = BehaviorFileService(workspaceDir: globalDir.path, onboardingExpiryDays: 2);
+
+    expect(service.hasFreshOnboardingSentinel(logStale: true), isFalse);
+    expect(warnings, anyElement(contains('dartclaw init --personalize')));
+  });
+
   test('includes TOOLS.md in prompt when present', () async {
     File('${globalDir.path}/SOUL.md').writeAsStringSync('Soul');
     File('${globalDir.path}/TOOLS.md').writeAsStringSync('SSH: server.local');

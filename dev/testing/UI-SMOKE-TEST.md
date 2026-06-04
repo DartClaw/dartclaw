@@ -8,7 +8,7 @@ See `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for tooling conventions and s
 deeper visual/UX validation lives in feature-specific test plans. Channel pairing flows are out of
 scope (separate channel-E2E test suite).
 
-**Last refreshed for**: DartClaw 0.16.4
+**Last refreshed for**: DartClaw 0.17
 
 ---
 
@@ -148,6 +148,27 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 - Send button enabled when textarea has content
 
 **Fail:** Messages unstyled; markdown not rendered; layout broken at mobile
+
+---
+
+### TC-07A: Chat Page — Rich Composer
+**Steps:**
+1. Open a session at `/sessions/<id>`
+2. Focus the composer
+3. Type `/`, then dismiss the command palette
+4. Type `@`, then dismiss the reference palette
+5. Drag or paste a small text file into the composer
+6. Start a send, then observe the streaming state
+
+**Pass:**
+- Composer renders as the rich shell, not a plain textarea-only form
+- Slash palette opens with keyboard-selectable command rows and dismisses cleanly
+- Reference palette opens with selectable context rows and dismisses cleanly
+- Attachment chip appears with filename/status and can be removed before send
+- Send/stop control switches state during streaming without layout shift
+- No horizontal overflow or iOS-scale input at mobile width
+
+**Fail:** Palette inaccessible by keyboard; chips missing or stuck; send/stop state ambiguous; composer overflows on mobile
 
 ---
 
@@ -333,7 +354,7 @@ content directly (NDJSON file or SQLite).
 
 ### TC-19: Turn Failed Message
 **Prerequisite:** A session with content `[Turn failed]` or `[Turn failed: reason]`.
-**Creating test data:** Kill the server mid-turn, or insert a synthetic assistant message.
+**Creating test data:** Kill the server mid-turn, insert a synthetic assistant message, or use the automated crash-recovery smoke path as the behavioral proof before doing this visual check.
 
 **Steps:**
 1. Open the session
@@ -343,6 +364,8 @@ content directly (NDJSON file or SQLite).
 - ⚠ icon, "TURN FAILED" label in amber uppercase, optional detail below
 
 **Fail:** Indistinguishable from a successful assistant message
+
+**Automated proof:** `dart test --run-skipped -t integration packages/dartclaw_server/test/integration/crash_recovery_smoke_test.dart` verifies orphaned turn cleanup across a real restart boundary and asserts the recovered session renders `.msg-turn-failed`.
 
 ---
 

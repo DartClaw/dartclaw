@@ -1,8 +1,7 @@
 import 'dart:io';
 
-import 'package:dartclaw_cli/src/commands/wiring/security_wiring.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:test/test.dart';
 
 const _cascade = ToolPolicyCascade();
@@ -182,6 +181,78 @@ void main() {
         expect(failure.errors, hasLength(1));
         expect(failure.errors.single, contains('/tmp/secret'));
         expect(failure.errors.single, contains('conflicting'));
+      });
+    });
+
+    group('file rule structural validation', () {
+      test('non-list file.extra_rules returns GuardBuildFailure', () {
+        final result = buildGuardsFromConfig(
+          securityConfig: _configFromYaml({
+            'file': {'extra_rules': 'not-a-list'},
+          }),
+          dataDir: dataDir,
+          toolPolicyCascade: _cascade,
+        );
+
+        expect(result, isA<GuardBuildFailure>());
+        final failure = result as GuardBuildFailure;
+        expect(failure.errors.single, contains('must be a list'));
+      });
+
+      test('non-map file.extra_rules entry returns GuardBuildFailure', () {
+        final result = buildGuardsFromConfig(
+          securityConfig: _configFromYaml({
+            'file': {
+              'extra_rules': ['**/secret/**'],
+            },
+          }),
+          dataDir: dataDir,
+          toolPolicyCascade: _cascade,
+        );
+
+        expect(result, isA<GuardBuildFailure>());
+        final failure = result as GuardBuildFailure;
+        expect(failure.errors.single, contains('rule must be an object'));
+      });
+
+      test('missing or empty pattern returns GuardBuildFailure', () {
+        final result = buildGuardsFromConfig(
+          securityConfig: _configFromYaml({
+            'file': {
+              'extra_rules': [
+                {'level': 'no_access'},
+                {'pattern': ' ', 'level': 'read_only'},
+              ],
+            },
+          }),
+          dataDir: dataDir,
+          toolPolicyCascade: _cascade,
+        );
+
+        expect(result, isA<GuardBuildFailure>());
+        final failure = result as GuardBuildFailure;
+        expect(failure.errors, hasLength(2));
+        expect(failure.errors.join('\n'), contains('pattern must be a non-empty string'));
+      });
+
+      test('missing or invalid level returns GuardBuildFailure', () {
+        final result = buildGuardsFromConfig(
+          securityConfig: _configFromYaml({
+            'file': {
+              'extra_rules': [
+                {'pattern': '**/missing-level/**'},
+                {'pattern': '**/bad-level/**', 'level': 'write_only'},
+              ],
+            },
+          }),
+          dataDir: dataDir,
+          toolPolicyCascade: _cascade,
+        );
+
+        expect(result, isA<GuardBuildFailure>());
+        final failure = result as GuardBuildFailure;
+        expect(failure.errors, hasLength(2));
+        expect(failure.errors.join('\n'), contains('must be one of'));
       });
     });
 

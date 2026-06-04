@@ -1,56 +1,6 @@
 part of '../workflow_definition_validator.dart';
 
 extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
-  void _validateSkillReferences(WorkflowDefinition definition, List<ValidationError> errors) {
-    if (skillRegistry == null) return;
-
-    for (final step in definition.steps) {
-      if (step.skill == null) continue;
-
-      final resolvedStep = resolveStepConfig(step, definition.stepDefaults, roleDefaults: roleDefaults);
-      final effectiveProvider = resolvedStep.provider;
-      final error = skillRegistry!.validateRef(step.skill!, provider: effectiveProvider);
-      if (error != null) {
-        errors.add(_refErr(step.id, 'Step "${step.id}": $error'));
-        continue; // Skip harness checks if skill doesn't exist.
-      }
-
-      final stepProvider = effectiveProvider;
-      if (stepProvider != null) {
-        // Explicit provider: hard error if skill not native for that harness.
-        if (!stepProvider.startsWith('@') && !skillRegistry!.isNativeFor(step.skill!, stepProvider)) {
-          final resolvedSkill = skillRegistry!.resolveRef(step.skill!, stepProvider);
-          final available = resolvedSkill?.skill.nativeHarnesses.join(', ') ?? 'none';
-          final searched = resolvedSkill?.invocationName ?? step.skill!;
-          errors.add(
-            _refErr(
-              step.id,
-              'Step "${step.id}": skill "${step.skill}" not available '
-              'for provider "$stepProvider" (searched "$searched"). '
-              'Skill is native for: $available. '
-              'Install it in the provider\'s skill directory or remove the '
-              'explicit provider.',
-            ),
-          );
-        }
-      }
-
-      if (step.provider == null || workflowRoleDefaultAliases.contains(step.provider)) {
-        // Default provider: warn if skill only found in one harness.
-        final skill = effectiveProvider == null
-            ? skillRegistry!.getByName(step.skill!)
-            : skillRegistry!.resolveRef(step.skill!, effectiveProvider)?.skill;
-        if (skill != null && skill.nativeHarnesses.length == 1) {
-          WorkflowDefinitionValidator._log.warning(
-            'Step "${step.id}": skill "${step.skill}" found only in '
-            '${skill.nativeHarnesses.first} harness. If the default provider '
-            'changes, the skill may not be available.',
-          );
-        }
-      }
-    }
-  }
-
   void _validateVariableReferences(WorkflowDefinition definition, List<ValidationError> errors) {
     final declaredVars = definition.variables.keys.toSet();
     if (definition.project != null) {

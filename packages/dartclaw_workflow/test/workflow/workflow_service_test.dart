@@ -29,13 +29,15 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowWorktreeBinding,
         WorkflowStep,
         WorkflowVariable,
+        WorkflowGitContext,
+        WorkflowPersistencePorts,
         WorkflowStartResolution,
         WorkflowTurnOutcome,
         WorkflowTurnAdapter;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskCancellationSubscriber, TaskService;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeTurnManager;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeTurnManager;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -75,13 +77,15 @@ void main() {
       repository: repository,
       taskService: taskService,
       messageService: messageService,
+      persistencePorts: WorkflowPersistencePorts(
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionRepositoryTransactor: executionTransactor,
+      ),
       eventBus: eventBus,
       kvService: kvService,
       dataDir: tempDir.path,
-      taskRepository: taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      workflowStepExecutionRepository: workflowStepExecutionRepository,
-      executionRepositoryTransactor: executionTransactor,
     );
   });
 
@@ -124,6 +128,16 @@ void main() {
         // Ignore invalid transition errors if task already moved.
       }
     });
+  }
+
+  Future<void> waitForRunStatus(String runId, WorkflowRunStatus expected) async {
+    for (var i = 0; i < 200; i++) {
+      final stored = await repository.getById(runId);
+      if (stored?.status == expected) return;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    final stored = await repository.getById(runId);
+    fail('Expected workflow $runId to reach ${expected.name}, found ${stored?.status.name}');
   }
 
   test('start() creates run in pending→running, fires status events', () async {
@@ -195,7 +209,7 @@ void main() {
       },
     );
 
-    workflowService = WorkflowService(
+    workflowService = WorkflowService.lifecycleOnly(
       repository: repository,
       taskService: taskService,
       messageService: messageService,
@@ -224,6 +238,9 @@ void main() {
         'PROJECT': WorkflowVariable(required: false),
         'BRANCH': WorkflowVariable(required: false, defaultValue: 'main'),
       },
+      steps: const [
+        WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+      ],
     );
     final run = await workflowService.start(definition, const {});
 
@@ -232,7 +249,7 @@ void main() {
   });
 
   test('start() fails preflight before creating run or coding task', () async {
-    workflowService = WorkflowService(
+    workflowService = WorkflowService.lifecycleOnly(
       repository: repository,
       taskService: taskService,
       messageService: messageService,
@@ -258,6 +275,29 @@ void main() {
     await expectLater(
       workflowService.start(definition, const {'PROJECT': 'my-app', 'BRANCH': 'missing/ref'}),
       throwsA(isA<ArgumentError>()),
+    );
+    expect(await workflowService.list(), isEmpty);
+    expect(await taskService.list(), isEmpty);
+  });
+
+  test('lifecycleOnly start() rejects agent workflows before creating run or task', () async {
+    workflowService = WorkflowService.lifecycleOnly(
+      repository: repository,
+      taskService: taskService,
+      messageService: messageService,
+      eventBus: eventBus,
+      kvService: kvService,
+      dataDir: tempDir.path,
+    );
+    final definition = makeDefinition(
+      steps: const [
+        WorkflowStep(id: 'coding-step', name: 'Coding', type: WorkflowTaskType.agent, prompts: ['Implement']),
+      ],
+    );
+
+    await expectLater(
+      workflowService.start(definition, const {}),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('WorkflowPersistencePorts'))),
     );
     expect(await workflowService.list(), isEmpty);
     expect(await taskService.list(), isEmpty);
@@ -294,8 +334,7 @@ void main() {
     final definition = makeDefinition();
     autoCompleteNewTasks();
     final run = await workflowService.start(definition, {});
-    // Wait for run to complete.
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await waitForRunStatus(run.id, WorkflowRunStatus.completed);
 
     expect(() => workflowService.pause(run.id), throwsA(isA<StateError>()));
   });
@@ -320,7 +359,11 @@ void main() {
         status: WorkflowRunStatus.running,
         startedAt: now,
         updatedAt: now,
-        definitionJson: makeDefinition().toJson(),
+        definitionJson: makeDefinition(
+          steps: const [
+            WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          ],
+        ).toJson(),
       ),
     );
     const binding = WorkflowWorktreeBinding(
@@ -340,17 +383,20 @@ void main() {
 
   test('resume() hydrates persisted workflow worktree binding before respawn', () async {
     final hydrated = <WorkflowWorktreeBinding>[];
-    workflowService = WorkflowService(
+    workflowService = WorkflowService.lifecycleOnly(
       repository: repository,
       taskService: taskService,
       messageService: messageService,
       eventBus: eventBus,
       kvService: kvService,
       dataDir: tempDir.path,
-      hydrateWorkflowWorktreeBinding: (binding) {
-        expect(binding.workflowRunId, 'run-hydrate');
-        hydrated.add(binding);
-      },
+      gitContext: WorkflowGitContext(
+        gitPort: FakeGitGateway(),
+        hydrateBinding: (binding) {
+          expect(binding.workflowRunId, 'run-hydrate');
+          hydrated.add(binding);
+        },
+      ),
     );
 
     final now = DateTime.now();
@@ -361,7 +407,11 @@ void main() {
         status: WorkflowRunStatus.paused,
         startedAt: now,
         updatedAt: now,
-        definitionJson: makeDefinition().toJson(),
+        definitionJson: makeDefinition(
+          steps: const [
+            WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          ],
+        ).toJson(),
         workflowWorktree: const WorkflowWorktreeBinding(
           key: 'run-hydrate',
           path: '/tmp/worktrees/wf-run-hydrate',
@@ -381,17 +431,20 @@ void main() {
 
   test('resume() hydrates every persisted workflow worktree binding for the run', () async {
     final hydrated = <WorkflowWorktreeBinding>[];
-    workflowService = WorkflowService(
+    workflowService = WorkflowService.lifecycleOnly(
       repository: repository,
       taskService: taskService,
       messageService: messageService,
       eventBus: eventBus,
       kvService: kvService,
       dataDir: tempDir.path,
-      hydrateWorkflowWorktreeBinding: (binding) {
-        expect(binding.workflowRunId, 'run-hydrate-many');
-        hydrated.add(binding);
-      },
+      gitContext: WorkflowGitContext(
+        gitPort: FakeGitGateway(),
+        hydrateBinding: (binding) {
+          expect(binding.workflowRunId, 'run-hydrate-many');
+          hydrated.add(binding);
+        },
+      ),
     );
 
     final now = DateTime.now();
@@ -402,7 +455,11 @@ void main() {
         status: WorkflowRunStatus.paused,
         startedAt: now,
         updatedAt: now,
-        definitionJson: makeDefinition().toJson(),
+        definitionJson: makeDefinition(
+          steps: const [
+            WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+          ],
+        ).toJson(),
       ),
     );
     await repository.setWorktreeBinding(
@@ -483,7 +540,7 @@ void main() {
 
   test('cancel() invokes workflow git cleanup after child tasks are cancelled', () async {
     final cleanupObservedNonTerminalCounts = <int>[];
-    workflowService = WorkflowService(
+    workflowService = WorkflowService.lifecycleOnly(
       repository: repository,
       taskService: taskService,
       messageService: messageService,
@@ -531,7 +588,7 @@ void main() {
   group('cancel() cleanup honors gitStrategy.cleanup', () {
     Future<bool?> cancelAndCapturePreserve(WorkflowGitStrategy? strategy) async {
       bool? observed;
-      workflowService = WorkflowService(
+      workflowService = WorkflowService.lifecycleOnly(
         repository: repository,
         taskService: taskService,
         messageService: messageService,
@@ -1004,7 +1061,7 @@ void main() {
 
     test('recoverIncompleteRuns() cleans workflow git after expired approval deadline', () async {
       final cleanupStatuses = <({String runId, String projectId, String status, bool preserveWorktrees})>[];
-      workflowService = WorkflowService(
+      workflowService = WorkflowService.lifecycleOnly(
         repository: repository,
         taskService: taskService,
         messageService: messageService,
@@ -1134,6 +1191,35 @@ void main() {
       expect(updated?.contextJson.containsKey('step.step1.outcome'), isFalse);
       expect(updated?.contextJson.containsKey('step.step1.outcome.reason'), isFalse);
     });
+
+    test('retry with execution cursor prefers DB context over divergent disk snapshot', () async {
+      final base = buildFailedRun();
+      final run = base.copyWith(
+        executionCursor: WorkflowExecutionCursor.foreach(
+          stepId: 'step1',
+          stepIndex: 0,
+          totalItems: 2,
+          completedIndices: [0],
+        ),
+        contextJson: {
+          ...base.contextJson,
+          'story_results': ['db-completed'],
+        },
+      );
+      await repository.insert(run);
+      final ctxDir = Directory(p.join(tempDir.path, 'workflows', 'runs', run.id))..createSync(recursive: true);
+      File(p.join(ctxDir.path, 'context.json')).writeAsStringSync(
+        jsonEncode({
+          ...run.contextJson,
+          'story_results': ['stale-disk'],
+        }),
+      );
+
+      final retried = await workflowService.retry(run.id);
+
+      expect(retried.contextJson['story_results'], ['db-completed']);
+      expect(retried.contextJson['story_results'], isNot(['stale-disk']));
+    });
   });
 
   // Restart, idempotency, and operator race hardening ─────────────────
@@ -1164,7 +1250,7 @@ void main() {
       final definition = makeDefinition(
         steps: [
           const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
-          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', type: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
       final now = DateTime.now();
@@ -1199,7 +1285,7 @@ void main() {
       final definition = makeDefinition(
         steps: [
           const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
-          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', type: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
       final now = DateTime.now();
@@ -1496,21 +1582,24 @@ void main() {
       // APPROVAL-HOLD: worktree binding created before the approval hold must survive
       // through hold and still be present when resume() rehydrates it.
       final hydrated = <WorkflowWorktreeBinding>[];
-      workflowService = WorkflowService(
+      workflowService = WorkflowService.lifecycleOnly(
         repository: repository,
         taskService: taskService,
         messageService: messageService,
         eventBus: eventBus,
         kvService: kvService,
         dataDir: tempDir.path,
-        hydrateWorkflowWorktreeBinding: (binding) {
-          hydrated.add(binding);
-        },
+        gitContext: WorkflowGitContext(
+          gitPort: FakeGitGateway(),
+          hydrateBinding: (binding) {
+            hydrated.add(binding);
+          },
+        ),
       );
       final definition = makeDefinition(
         steps: [
           const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
-          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', type: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
       final now = DateTime.now();
@@ -1686,7 +1775,7 @@ void main() {
     test('WorkflowService start() propagates preflight dirty-path rejection', () async {
       // FR3-AC4: start() surfaces preflight errors (including dirty-tree rejection)
       // before creating any run or task. This is the protected boundary.
-      workflowService = WorkflowService(
+      workflowService = WorkflowService.lifecycleOnly(
         repository: repository,
         taskService: taskService,
         messageService: messageService,

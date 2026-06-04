@@ -122,3 +122,24 @@ This sub-scenario checks that missing routes still render a themed, user-facing 
 - The 404 page uses the same themed visual language as the rest of the app rather than a browser-default error surface
 - Activating the recovery action returns the browser to a valid authenticated page
 - The mobile layout of the 404 page is readable and visually deliberate rather than cramped or broken
+
+
+## S6: Verify The Rich Composer At Mobile Width
+
+This sub-scenario checks that the rich chat composer (command/reference palettes, attachment affordances) stays usable and contained at mobile width.
+
+### Steps
+
+1. Navigate to `http://localhost:3338/sessions/f59ce127-1705-43d6-97c7-2a03fd711bab`
+2. Run `agent-browser snapshot -i` to capture the composer at mobile width
+3. Focus the composer input and type `/`
+4. Run `agent-browser snapshot -i` to capture the command palette, then press `Escape` to dismiss it
+5. Type `@`, capture the reference palette with `agent-browser snapshot -i`, then press `Escape` to dismiss it
+
+### Expected
+
+- The composer renders within the mobile viewport without horizontal overflow or controls running off the right edge
+- The command palette (`/`) and reference palette (`@`) open as overlays that stay within the viewport rather than forcing the page to scroll sideways, and each dismisses cleanly with `Escape`
+- The composer input does not trigger iOS zoom-on-focus (input font size is not below the mobile-safe threshold)
+- The send/stop control remains reachable and is not overlapped by the palettes or clipped at the screen edge
+- No error banner or raw stack trace appears while opening or dismissing the palettes

@@ -1,4 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus;
+import 'package:dartclaw_config/dartclaw_config.dart' show TurnProgressAction;
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
@@ -11,6 +12,9 @@ import 'workflow_cli_runner.dart';
 abstract class CliProvider {
   /// Runs a one-shot turn described by [request] and returns the parsed result.
   Future<WorkflowCliTurnResult> run(CliTurnRequest request);
+
+  /// Requests termination of any subprocesses currently owned by this provider.
+  Future<void> cancelInflight();
 }
 
 /// Value object bundling all per-turn inputs a [CliProvider] implementation needs.
@@ -42,6 +46,18 @@ final class CliTurnRequest {
 
   /// Effort level override, when provided by the workflow step.
   final String? effort;
+
+  /// Workflow step name used in timeout and stall diagnostics.
+  final String? stepName;
+
+  /// Maximum silent period before the CLI process is considered stalled.
+  final Duration stallTimeout;
+
+  /// Action to apply when [stallTimeout] elapses without parsed output.
+  final TurnProgressAction stallAction;
+
+  /// Wall-clock timeout for the CLI process.
+  final Duration? stepTimeout;
 
   /// Task-specific tool allowlist carried from workflow step config.
   ///
@@ -97,6 +113,10 @@ final class CliTurnRequest {
     this.providerSessionId,
     this.model,
     this.effort,
+    this.stepName,
+    this.stallTimeout = Duration.zero,
+    this.stallAction = TurnProgressAction.warn,
+    this.stepTimeout,
     this.allowedTools,
     this.readOnly = false,
     this.maxTurns,

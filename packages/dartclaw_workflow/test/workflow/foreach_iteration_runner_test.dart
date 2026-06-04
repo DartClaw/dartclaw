@@ -39,6 +39,17 @@ void main() {
   setUp(h.setUp);
   tearDown(h.tearDown);
 
+  Future<void> completeTaskWithOutcome(
+    String taskId, {
+    required String outcomeContent,
+    TaskStatus finalStatus = TaskStatus.accepted,
+  }) async {
+    final session = await h.sessionService.createSession(type: SessionType.task);
+    await h.taskService.updateFields(taskId, sessionId: session.id);
+    await h.messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
+    await h.completeTask(taskId, status: finalStatus);
+  }
+
   test('empty collection succeeds with zero tasks', () async {
     final definition = h.makeDefinition(
       steps: [
@@ -64,6 +75,139 @@ void main() {
     expect(taskCount, equals(0));
     final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('S03 foreach inner step retries completed-task failed outcome exactly once with maxRetries 1', () async {
+    final definition = h.makeDefinition(
+      steps: [
+        const WorkflowStep(
+          id: 'controller',
+          name: 'Controller',
+          type: WorkflowTaskType.foreach,
+          mapOver: 'items',
+          foreachSteps: ['inner'],
+        ),
+        const WorkflowStep(
+          id: 'inner',
+          name: 'Inner',
+          prompts: ['Process {{map.item}}'],
+          onFailure: OnFailurePolicy.retry,
+          maxRetries: 1,
+        ),
+      ],
+    );
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    final context = WorkflowContext()..['items'] = ['alpha'];
+
+    var taskCount = 0;
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      taskCount++;
+      await completeTaskWithOutcome(
+        e.taskId,
+        outcomeContent: taskCount == 1
+            ? '<step-outcome>{"outcome":"failed","reason":"missing artifact"}</step-outcome>'
+            : '<step-outcome>{"outcome":"succeeded","reason":"artifact found"}</step-outcome>',
+      );
+    });
+
+    await h.executor.execute(run, definition, context);
+    await sub.cancel();
+
+    expect(taskCount, equals(2));
+    final finalRun = await h.repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('S03 foreach inner step retries terminal task failure exactly once with maxRetries 1', () async {
+    final definition = h.makeDefinition(
+      steps: [
+        const WorkflowStep(
+          id: 'controller',
+          name: 'Controller',
+          type: WorkflowTaskType.foreach,
+          mapOver: 'items',
+          foreachSteps: ['inner'],
+        ),
+        const WorkflowStep(
+          id: 'inner',
+          name: 'Inner',
+          prompts: ['Process {{map.item}}'],
+          onFailure: OnFailurePolicy.retry,
+          maxRetries: 1,
+        ),
+      ],
+    );
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    final context = WorkflowContext()..['items'] = ['alpha'];
+
+    var taskCount = 0;
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      taskCount++;
+      if (taskCount == 1) {
+        await h.completeTask(e.taskId, status: TaskStatus.failed);
+      } else {
+        await completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"task recovered"}</step-outcome>',
+        );
+      }
+    });
+
+    await h.executor.execute(run, definition, context);
+    await sub.cancel();
+
+    expect(taskCount, equals(2));
+    final finalRun = await h.repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('S03 foreach inner step exhausts persistent terminal task failures after N plus 1 attempts', () async {
+    final definition = h.makeDefinition(
+      steps: [
+        const WorkflowStep(
+          id: 'controller',
+          name: 'Controller',
+          type: WorkflowTaskType.foreach,
+          mapOver: 'items',
+          foreachSteps: ['inner'],
+        ),
+        const WorkflowStep(
+          id: 'inner',
+          name: 'Inner',
+          prompts: ['Process {{map.item}}'],
+          onFailure: OnFailurePolicy.retry,
+          maxRetries: 1,
+        ),
+      ],
+    );
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    final context = WorkflowContext()..['items'] = ['alpha'];
+
+    var taskCount = 0;
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      taskCount++;
+      await h.completeTask(e.taskId, status: TaskStatus.failed);
+    });
+
+    await h.executor.execute(run, definition, context);
+    await sub.cancel();
+
+    expect(taskCount, equals(2));
+    final finalRun = await h.repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    expect(finalRun?.errorMessage, contains("Foreach step 'controller'"));
   });
 
   test('single-item collection spawns exactly one task', () async {

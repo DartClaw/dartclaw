@@ -1,0 +1,29 @@
+name: shelf_server
+description: Minimal DartClaw SDK example for an HTTP-hosted agent.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  dartclaw: ^0.16.6
+  shelf: ^1.4.2
+
+dependency_overrides:
+  dartclaw:
+    path: ../../../packages/dartclaw
+  dartclaw_core:
+    path: ../../../packages/dartclaw_core
+  dartclaw_models:
+    path: ../../../packages/dartclaw_models
+  dartclaw_storage:
+    path: ../../../packages/dartclaw_storage
+  dartclaw_security:
+    path: ../../../packages/dartclaw_security
+  dartclaw_whatsapp:
+    path: ../../../packages/dartclaw_whatsapp
+  dartclaw_signal:
+    path: ../../../packages/dartclaw_signal
+  dartclaw_google_chat:
+    path: ../../../packages/dartclaw_google_chat

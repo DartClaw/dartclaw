@@ -9,37 +9,6 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     return perDefinition.putIfAbsent(cacheKey, () => SkillPromptBuilder.collectInputConfigs(definition.steps, keys));
   }
 
-  /// Returns the `workflow.default_prompt` declared in the step's skill
-  /// frontmatter, or null when no registry is wired, the step has no skill,
-  /// or the skill declares no default.
-  String? _skillDefaultPromptFor(WorkflowStep step, ResolvedSkillRef? resolvedSkill) {
-    final skill = step.skill;
-    if (skill == null) return null;
-    return resolvedSkill?.skill.defaultPrompt ?? _skillRegistry?.getByName(skill)?.defaultPrompt;
-  }
-
-  /// Returns the effective `outputs:` for a step, shallow-merging the skill's
-  /// `workflow.default_outputs` (keys only in the skill default are added;
-  /// keys on the step win).
-  Map<String, OutputConfig>? _effectiveOutputsFor(WorkflowStep step, {ResolvedSkillRef? resolvedSkill}) {
-    final explicit = step.outputs;
-    final skill = step.skill;
-    if (skill == null || _skillRegistry == null) return explicit;
-    final defaults = resolvedSkill?.skill.defaultOutputs ?? _skillRegistry.getByName(skill)?.defaultOutputs;
-    if (defaults == null || defaults.isEmpty) return explicit;
-    if (explicit == null || explicit.isEmpty) return defaults;
-    return {...defaults, ...explicit};
-  }
-
-  List<String> _effectiveOutputKeysFor(WorkflowStep step, Map<String, OutputConfig>? effectiveOutputs) =>
-      effectiveOutputs?.keys.toList(growable: false) ?? step.outputKeys;
-
-  ResolvedSkillRef? _resolvedSkillFor(WorkflowStep step, String? provider) {
-    final skill = step.skill;
-    if (skill == null || _skillRegistry == null || provider == null) return null;
-    return _skillRegistry.resolveRef(skill, provider);
-  }
-
   /// Resolved values for a step's inputs plus workflow variables used
   /// by auto-framing.
   ///
@@ -119,7 +88,6 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     required String? provider,
     required String? projectId,
     required int? maxTokens,
-    required int maxRetries,
     required Map<String, dynamic> taskConfig,
   }) => workflow_task_factory.createWorkflowTaskTriple(
     ctx: StepExecutionContext(
@@ -131,7 +99,8 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
       contextExtractor: _contextExtractor,
       turnAdapter: _turnAdapter,
       outputTransformer: _outputTransformer,
-      skillRegistry: _skillRegistry,
+      skillIntrospector: _skillIntrospector,
+      skillPreflightConfig: _skillPreflightConfig,
       taskRepository: _taskRepository,
       agentExecutionRepository: _agentExecutionRepository,
       workflowStepExecutionRepository: _workflowStepExecutionRepository,
@@ -151,7 +120,6 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     provider: provider,
     projectId: projectId,
     maxTokens: maxTokens,
-    maxRetries: maxRetries,
     taskConfig: taskConfig,
   );
 

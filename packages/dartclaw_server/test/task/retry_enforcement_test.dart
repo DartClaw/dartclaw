@@ -410,6 +410,9 @@ class _CountingWorker implements AgentHarness {
   @override
   Future<void> start() async {}
   @override
+  Future<void> resetSessionContinuity(String sessionId) async {}
+
+  @override
   Future<void> cancel() async {}
   @override
   Future<void> stop() async {}

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/auth/request_auth_context.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -123,11 +124,13 @@ channels:
   }
 
   Future<Response> patch(Router router, String path, Map<String, dynamic> body) {
-    final request = Request(
-      'PATCH',
-      Uri.parse('http://localhost$path'),
-      body: jsonEncode(body),
-      headers: {'content-type': 'application/json'},
+    final request = withAdminAuthContext(
+      Request(
+        'PATCH',
+        Uri.parse('http://localhost$path'),
+        body: jsonEncode(body),
+        headers: {'content-type': 'application/json'},
+      ),
     );
     return router.call(request);
   }

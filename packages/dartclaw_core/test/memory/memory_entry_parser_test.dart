@@ -1,4 +1,5 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show parseMemoryEntries;
+import 'package:dartclaw_core/src/memory/memory_entry_parser.dart' show memoryTimestampRe;
 import 'package:test/test.dart';
 
 void main() {

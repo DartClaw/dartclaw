@@ -308,6 +308,9 @@ class _FakeHarness implements AgentHarness {
   }) async => {};
 
   @override
+  Future<void> resetSessionContinuity(String sessionId) async {}
+
+  @override
   Future<void> cancel() async {}
 
   @override

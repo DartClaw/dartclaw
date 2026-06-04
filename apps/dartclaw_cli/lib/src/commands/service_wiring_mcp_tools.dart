@@ -18,6 +18,21 @@ final _mcpToolsLog = Logger('ServiceWiring');
   server.registerTool(MemorySaveTool(handler: handlers.onSave));
   server.registerTool(MemorySearchTool(handler: handlers.onSearch));
   server.registerTool(MemoryReadTool(handler: handlers.onRead));
+  final auditLogger = security.auditLogger;
+  // Register onboarding_complete only when onboarding is active at startup.
+  // The single global MCP surface is shared with task/cron/channel agents;
+  // the tool's onboardingActive flag refuses calls from non-onboarding contexts
+  // even if registration were to occur (belt-and-suspenders).
+  final onboardingFile = File('${config.workspaceDir}/ONBOARDING.md');
+  final onboardingActive = onboardingFile.existsSync();
+  if (onboardingActive) {
+    server.registerTool(OnboardingCompleteTool(workspaceDir: config.workspaceDir, onboardingActive: true));
+  }
+  server.registerTool(KgAddTool(kg: storage.kg, auditLogger: auditLogger));
+  server.registerTool(KgQueryTool(kg: storage.kg));
+  server.registerTool(KgTimelineTool(kg: storage.kg));
+  server.registerTool(KgInvalidateTool(kg: storage.kg, auditLogger: auditLogger));
+  server.registerTool(KgContradictionsTool(kg: storage.kg));
   server.registerTool(
     WebFetchTool(classifier: security.contentClassifier, failOpenOnClassification: security.contentGuardFailOpen),
   );

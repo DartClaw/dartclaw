@@ -83,6 +83,21 @@ void main() {
       });
     });
 
+    group('OnboardingConfig', () {
+      test('equal instances match', () {
+        const a = OnboardingConfig(expiryDays: 7);
+        const b = OnboardingConfig(expiryDays: 7);
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      });
+
+      test('different expiryDays are not equal', () {
+        const a = OnboardingConfig(expiryDays: 7);
+        const b = OnboardingConfig(expiryDays: 14);
+        expect(a, isNot(equals(b)));
+      });
+    });
+
     group('ContextConfig', () {
       test('equal instances match', () {
         const a = ContextConfig(reserveTokens: 10000, warningThreshold: 90);
@@ -96,6 +111,30 @@ void main() {
         const a = MemoryConfig(maxBytes: 64 * 1024);
         const b = MemoryConfig(maxBytes: 64 * 1024);
         expect(a, equals(b));
+      });
+    });
+
+    group('KnowledgeConfig', () {
+      test('equal instances match', () {
+        const a = KnowledgeConfig.defaults();
+        const b = KnowledgeConfig.defaults();
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      });
+
+      test('different inbox config is not equal', () {
+        const a = KnowledgeConfig.defaults();
+        const b = KnowledgeConfig(
+          inbox: KnowledgeInboxConfig(
+            enabled: true,
+            intervalMinutes: 5,
+            maxBytes: 1024 * 1024,
+            retryAttempts: 2,
+            processedRetentionDays: 30,
+            deliveryMode: 'announce',
+          ),
+        );
+        expect(a, isNot(equals(b)));
       });
     });
 

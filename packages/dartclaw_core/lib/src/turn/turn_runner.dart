@@ -53,6 +53,9 @@ abstract interface class TurnRunner {
   /// Rolls back a [reserveTurn] reservation without executing.
   void releaseTurn(String sessionId, String turnId);
 
+  /// Clears runner-local and provider-side continuity for [sessionId].
+  Future<void> resetSessionContinuity(String sessionId);
+
   Future<void> cancelTurn(String sessionId);
 
   Future<void> waitForCompletion(String sessionId, {Duration timeout = const Duration(seconds: 10)});

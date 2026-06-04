@@ -4,6 +4,9 @@ import 'package:test/test.dart';
 void main() {
   group('ConfigMeta', () {
     group('registry completeness', () {
+      setUp(DartclawConfig.clearExtensionParsers);
+      tearDown(DartclawConfig.clearExtensionParsers);
+
       test('fields map is non-empty', () {
         expect(ConfigMeta.fields, isNotEmpty);
       });
@@ -144,6 +147,18 @@ void main() {
         expect(ConfigMeta.fields, contains('gateway.auth_mode'));
         expect(ConfigMeta.fields, contains('gateway.token'));
         expect(ConfigMeta.fields, contains('gateway.hsts'));
+      });
+
+      test('field metadata roots are backed by built-in keys or registered extension parsers', () {
+        ensureGitHubWebhookConfigRegistered();
+        final metadataRoots = ConfigMeta.fields.keys.map((path) => path.split('.').first).toSet();
+        final parserRoots = {
+          ...DartclawConfig.knownTopLevelKeysForTesting(),
+          ...DartclawConfig.registeredExtensionKeysForTesting(),
+        };
+
+        expect(metadataRoots.difference(parserRoots), isEmpty);
+        expect(DartclawConfig.registeredExtensionKeysForTesting(), contains('github'));
       });
     });
 

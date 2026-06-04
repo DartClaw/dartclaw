@@ -233,13 +233,15 @@ class ScheduleService implements Reconfigurable {
   }
 
   Future<String> _runJobTurn(ScheduledJob job) async {
+    final sessionKey = SessionKey.cronSession(jobId: job.id);
+
     // Built-in callback jobs run directly — no agent turn needed.
     if (job.onExecute != null) {
+      await _sessions.getOrCreateByKey(sessionKey, type: SessionType.cron);
       return job.onExecute!();
     }
 
     // Create isolated session for this cron job
-    final sessionKey = SessionKey.cronSession(jobId: job.id);
     final session = await _sessions.getOrCreateByKey(sessionKey, type: SessionType.cron);
 
     final userMessage = <String, dynamic>{'role': 'user', 'content': job.prompt};
@@ -271,6 +273,9 @@ class ScheduleService implements Reconfigurable {
 
   // Exposed for testing only — do not call from production code.
   Future<void> executeJobForTesting(ScheduledJob job) => _executeJob(job);
+
+  // Exposed for wiring tests that need to assert composition-root jobs.
+  List<ScheduledJob> get jobsForTesting => List.unmodifiable(_jobs);
 
   void _reschedule(ScheduledJob job) {
     if (!_started || _paused.contains(job.id)) return;

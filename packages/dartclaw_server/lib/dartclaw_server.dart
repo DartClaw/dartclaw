@@ -12,7 +12,7 @@ library;
 export 'package:dartclaw_config/dartclaw_config.dart';
 export 'package:dartclaw_core/dartclaw_core.dart' show BusyTurnException, PromptScope, TurnOutcome, TurnStatus;
 export 'src/harness_pool.dart' show HarnessPool;
-export 'src/security/google_jwt_verifier.dart' show GoogleJwtVerifier;
+export 'src/security/security_exports.dart' show GoogleJwtVerifier, buildGuardsFromConfig;
 export 'src/turn_manager.dart' show TurnManager;
 export 'src/turn_runner.dart' show TurnRunner;
 
@@ -29,6 +29,7 @@ export 'src/container/container_exports.dart';
 export 'src/governance/governance_exports.dart';
 export 'src/health/health_exports.dart';
 export 'src/host_exports.dart';
+export 'src/knowledge/knowledge_exports.dart';
 export 'src/logging/logging_exports.dart';
 export 'src/mcp/mcp_exports.dart';
 export 'src/memory/memory_exports.dart';

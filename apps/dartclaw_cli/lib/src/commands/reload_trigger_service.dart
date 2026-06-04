@@ -16,7 +16,9 @@ final _log = Logger('ReloadTriggerService');
 /// - `'off'`: no triggers registered.
 ///
 /// File-watch uses parent directory watching (not direct file watching) to
-/// handle atomic writes (temp + rename) correctly on macOS kqueue.
+/// handle atomic writes (temp + rename) correctly. The rename surfaces as a
+/// create/modify event on macOS kqueue but as a move event on Linux inotify,
+/// so all three event types are watched.
 ///
 /// Debounce coalesces rapid file-system events into a single reload call.
 class ReloadTriggerService {
@@ -64,15 +66,23 @@ class ReloadTriggerService {
     final configFilename = p.basename(_configPath);
 
     try {
-      _watchSub = Directory(parentDir).watch(events: FileSystemEvent.create | FileSystemEvent.modify).listen((event) {
-        if (p.basename(event.path) != configFilename) return;
-        _log.info('ReloadTriggerService: config file change detected — debouncing');
-        _debounceTimer?.cancel();
-        _debounceTimer = Timer(Duration(milliseconds: _reloadConfig.debounceMs), () {
-          _log.info('ReloadTriggerService: debounce elapsed — triggering config reload');
-          unawaited(_doReload());
-        });
-      });
+      _watchSub = Directory(parentDir)
+          .watch(events: FileSystemEvent.create | FileSystemEvent.modify | FileSystemEvent.move)
+          .listen((event) {
+            // Atomic saves (write temp + rename over target) surface as a move on
+            // Linux inotify, where the destination — not the source path — carries
+            // the config filename.
+            final changedName = event is FileSystemMoveEvent && event.destination != null
+                ? p.basename(event.destination!)
+                : p.basename(event.path);
+            if (changedName != configFilename) return;
+            _log.info('ReloadTriggerService: config file change detected — debouncing');
+            _debounceTimer?.cancel();
+            _debounceTimer = Timer(Duration(milliseconds: _reloadConfig.debounceMs), () {
+              _log.info('ReloadTriggerService: debounce elapsed — triggering config reload');
+              unawaited(_doReload());
+            });
+          });
     } on FileSystemException catch (e) {
       _log.warning(
         'ReloadTriggerService: file-watch setup failed for $parentDir — '

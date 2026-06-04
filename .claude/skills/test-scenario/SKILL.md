@@ -313,6 +313,7 @@ If the server had to be auto-started in Step 2, include that in **Errors & Obser
 
 - Always derive the results directory timestamp once at the start (Step 1), and reuse it throughout the run — do not generate a new timestamp per sub-scenario.
 - `@ref` values from `agent-browser snapshot -i` are ephemeral: they are only valid for the current DOM state. Re-snapshot after navigation or significant page changes.
+- Before clicking a control that may be below the fold (tabs, accordions, footers), re-snapshot for a fresh `@ref` and run `agent-browser scrollintoview @ref` first. A click on a stale ref or an off-screen element can silently no-op, which looks like a broken feature — confirm a non-interaction is a real defect (e.g. inspect state via `agent-browser eval`) before reporting it as a failure.
 - Evaluate Expected outcomes semantically — focus on whether the system's observable behavior matches the described intent, not on exact text matching.
 - Do not abort the run on sub-scenario failure — execute all sub-scenarios and report aggregate results.
 - If the server is not running, attempt to start `dev/testing/profiles/{profile}/run.sh` once, wait for health, and only stop if the profile still does not become healthy.

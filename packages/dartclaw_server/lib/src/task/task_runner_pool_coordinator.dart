@@ -3,30 +3,36 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
+/// Provisions a task runner for the requested provider, when supplied.
+typedef SpawnTaskRunner = Future<void> Function(String? requestedProviderId);
+
 /// Coordinates task-runner acquisition from the harness pool.
 final class TaskRunnerPoolCoordinator {
-  TaskRunnerPoolCoordinator({required HarnessPool pool, Future<void> Function()? onSpawnNeeded, Logger? log})
+  TaskRunnerPoolCoordinator({required HarnessPool pool, SpawnTaskRunner? onSpawnNeeded, Logger? log})
     : _pool = pool,
       _onSpawnNeeded = onSpawnNeeded,
       _log = log ?? Logger('TaskRunnerPoolCoordinator');
 
   final HarnessPool _pool;
-  final Future<void> Function()? _onSpawnNeeded;
+  final SpawnTaskRunner? _onSpawnNeeded;
   final Logger _log;
   final Set<String> _runnerWaitLoggedTaskIds = <String>{};
   bool _isSpawning = false;
 
-  void triggerSpawnIfNeeded() {
+  void triggerSpawnIfNeeded([String? requestedProviderId]) {
     if (_pool.availableCount == 0 && _pool.spawnableCount > 0 && !_isSpawning) {
-      triggerSpawn();
+      triggerSpawn(requestedProviderId);
     }
   }
 
-  TurnRunner? acquireRunnerForTask(Task task, String profile) {
-    final provider = task.provider;
+  TurnRunner? acquireRunnerForTask(Task task, String profile, {String? effectiveProviderId}) {
+    final provider = effectiveProviderId ?? task.provider;
     if (provider != null) {
       if (!_pool.hasTaskRunnerForProvider(provider)) {
         final provisioning = _isSpawning || _pool.spawnableCount > 0;
+        if (!_isSpawning && _pool.spawnableCount > 0) {
+          triggerSpawn(provider);
+        }
         _logRunnerWaitOnce(
           task,
           provisioning
@@ -77,12 +83,12 @@ final class TaskRunnerPoolCoordinator {
     _runnerWaitLoggedTaskIds.remove(taskId);
   }
 
-  void triggerSpawn() {
+  void triggerSpawn([String? requestedProviderId]) {
     final callback = _onSpawnNeeded;
     if (callback == null) return;
     _isSpawning = true;
     unawaited(
-      callback().whenComplete(() {
+      callback(requestedProviderId).whenComplete(() {
         _isSpawning = false;
       }),
     );

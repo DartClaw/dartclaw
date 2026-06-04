@@ -5,7 +5,7 @@
 ## Architecture
 - **HTTP layer** — `DartclawServer` + `ServerBuilder` (composition root); shelf middleware (auth, security headers); `lib/src/api/*_routes.dart` (one router per domain); `sse_broadcast.dart` + `stream_handler.dart` for streaming.
 - **Web UI** — `PageRegistry` (registration with reserved-prefix guard) + `lib/src/web/pages/`; Trellis templates under `lib/src/templates/` (paired `.html` + `.dart`, manifest in `expectedTemplates`); vendored static assets in `lib/src/static/`.
-- **Turn orchestration** — `TurnManager` (session lock + `BusyTurnException`), `TurnRunner` (prompt composition + harness drive + guard wiring + event emission), `HarnessPool` (per-session harness reuse), `TurnGovernanceEnforcer` (turn-level limits).
+- **Turn orchestration** — `TurnManager` (session lock + `BusyTurnException` + provider-side continuity reset), `TurnRunner` (prompt composition + harness drive + guard wiring + event emission), `HarnessPool` (per-session harness reuse), `TurnGovernanceEnforcer` (turn-level limits).
 - **Task runtime** — `TaskService` (CRUD), `TaskExecutor` (queue consumer), `WorktreeManager`, `MergeExecutor` / `RemotePushService` / `PrCreator` (git ops; injected into `WorkflowGitPort`), `task_*_subscriber.dart` (`EventBus` side effects).
 - **Container orchestration** — `ContainerManager`, `DockerValidator`, `SecurityProfile`, `CredentialProxy` (API-key isolation for Claude harness execution).
 - **Workflow glue** — `lib/src/task/workflow_*.dart` injects `WorkflowGitPort` + `WorkflowTurnAdapter` impls into `dartclaw_workflow`; reads workflow runtime state from the hydrated `WorkflowStepExecution` row.
@@ -31,6 +31,7 @@
 - Routes go under `lib/src/api/*_routes.dart` (one shelf router per domain) with helpers from `api_helpers.dart`. SSE streams use `sse_broadcast.dart` / `stream_handler.dart` — don't roll new SSE plumbing.
 - Auth resolution and base-URL handling belong in middleware/`auth/`, never inline in routes. Use `AllowlistValidator` for outbound URL gating.
 - Turn lifecycle: callers go through `TurnManager.reserve` → `TurnRunner.execute` → outcome. `BusyTurnException` is the public busy signal. Don't construct `TurnRunner` directly in routes — go through `TurnManager`.
+- Session reset lifecycle: clear provider-side continuity through `TurnManager.resetSessionContinuity(sessionId)` before persisted messages/attachments are reset. If continuity reset reports busy, return the same `BusyTurnException`/409 path rather than clearing visible state first.
 
 ## Gotchas
 - `pubspec.yaml` carries `hooks.user_defines.sqlite3.source: system` — required for local sqlite3 codesigning on macOS. Don't remove it without verifying CI builds the bundled asset.

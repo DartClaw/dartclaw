@@ -105,10 +105,11 @@ export 'src/workflow/schema_presets.dart'
         validationSummaryPreset,
         verdictPreset;
 export 'src/workflow/schema_validator.dart' show SchemaValidator;
+export 'src/skills/cli_skill_introspector.dart'
+    show CliSkillIntrospector, SkillProbeEnvironmentBuilder, SkillProbeRunner;
+export 'src/workflow/skill_introspector.dart'
+    show SkillIntrospector, WorkflowPreflightException, WorkflowSkillPreflightConfig, skillIntrospectionPrompt;
 export 'src/workflow/skill_prompt_builder.dart' show SkillPromptBuilder;
-export 'src/workflow/skill_registry.dart' show ResolvedSkillRef, SkillRegistry;
-export 'src/workflow/skill_registry_impl.dart'
-    show SkillRegistryImpl; // retained: used by CLI/service wiring and server tests
 export 'src/workflow/step_config_resolver.dart'
     show
         ResolvedStepConfig,
@@ -162,6 +163,8 @@ export 'src/workflow/workflow_runner_types.dart'
         isSupportedWorkflowRunnerNode;
 export 'src/workflow/workflow_task_config.dart' show WorkflowTaskConfig;
 export 'src/workflow/workflow_service.dart' show WorkflowService;
+export 'src/workflow/workflow_service_deps.dart'
+    show WorkflowGitContext, WorkflowPersistencePorts, WorkflowServiceOptions;
 export 'src/workflow/workflow_turn_adapter.dart'
     show
         WorkflowExecuteTurn,
@@ -189,7 +192,6 @@ export 'src/workflow/workflow_view_helpers.dart'
         workflowStatusBadgeClass,
         workflowStatusLabel;
 
-export 'src/skills/skill_info.dart' show SkillInfo, SkillSource;
 export 'src/skills/skill_provisioner.dart'
     show
         DirectoryCopier,

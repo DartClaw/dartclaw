@@ -73,6 +73,21 @@ void main() {
       expect(result.errors.join('\n'), contains('already in use'));
     });
 
+    test('workflow track skips the server port check', () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(server.close);
+
+      final result = await SetupPreflight.run(
+        providers: const ['claude'],
+        port: server.port,
+        instanceDir: tempDir.path,
+        workflowTrack: true,
+        runProcess: (exe, args) async => ProcessResult(0, 0, '', ''),
+      );
+
+      expect(result.passed, isTrue);
+    });
+
     test('fails when instance path exists as a file', () async {
       final filePath = '${tempDir.path}/not-a-dir';
       File(filePath).writeAsStringSync('x');

@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 /// Manages session reset policies: daily timer + per-session idle timeout.
 ///
@@ -17,6 +19,7 @@ class SessionResetService implements Reconfigurable {
   final MessageService _messages;
   int _resetHour;
   int _idleTimeoutMinutes;
+  Future<void> Function(String sessionId)? _resetSessionContinuity;
 
   Timer? _dailyTimer;
   final Map<String, Timer> _idleTimers = {};
@@ -60,13 +63,21 @@ class SessionResetService implements Reconfigurable {
     _idleTimers[sessionId] = Timer(Duration(minutes: _idleTimeoutMinutes), () => unawaited(_onIdleTimeout(sessionId)));
   }
 
+  /// Connects reset orchestration to the turn layer after services are wired.
+  void bindSessionContinuityResetter(Future<void> Function(String sessionId)? resetter) {
+    _resetSessionContinuity = resetter;
+  }
+
   /// Resets a session. For keyed sessions (main/channel/cron), the old session
   /// becomes an archive and a fresh session is created with the same key.
   /// For user sessions, messages are cleared in place.
-  Future<void> resetSession(String sessionId) async {
+  Future<void> resetSession(String sessionId, {bool resetContinuity = true}) async {
     _log.info('Resetting session $sessionId');
     final session = await _sessions.getSession(sessionId);
     if (session == null) return;
+    if (resetContinuity) {
+      await _resetSessionContinuity?.call(sessionId);
+    }
 
     if (session.channelKey != null && _resettableTypes.contains(session.type)) {
       // Keyed session: convert to archive, create fresh replacement
@@ -84,6 +95,7 @@ class SessionResetService implements Reconfigurable {
     } else {
       // User/unkeyed session: clear messages in place
       await _messages.clearMessages(sessionId);
+      await _deleteAttachmentFiles(sessionId);
     }
 
     _idleTimers.remove(sessionId)?.cancel();
@@ -115,6 +127,13 @@ class SessionResetService implements Reconfigurable {
   /// Types subject to automatic reset (daily + idle) and key-based reset
   /// (archive old, create fresh).
   static const _resettableTypes = {SessionType.main, SessionType.channel, SessionType.cron};
+
+  Future<void> _deleteAttachmentFiles(String sessionId) async {
+    final attachmentDir = Directory(p.join(_messages.baseDir, sessionId, 'attachments'));
+    if (await attachmentDir.exists()) {
+      await attachmentDir.delete(recursive: true);
+    }
+  }
 
   Future<void> _onDailyReset() async {
     _log.info('Daily reset triggered');

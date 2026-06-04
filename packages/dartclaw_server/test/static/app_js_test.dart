@@ -90,7 +90,7 @@ void main() {
       expect(shellSource, contains('initInlineRename()'));
       expect(chatSource, contains('handleBeforeRequest(event)'));
       expect(chatSource, contains('handleTurnError()'));
-      expect(chatSource, contains('finalizeTurn()'));
+      expect(chatSource, contains('finalizeTurn(options = {})'));
     });
 
     test('projects controller owns project actions on direct page load', () {

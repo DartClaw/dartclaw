@@ -35,8 +35,8 @@ WorkflowDefinition _makeDefinition({String name = 'spec-and-implement'}) {
     description: 'test',
     variables: const {},
     steps: const [
-      WorkflowStep(id: 'research', name: 'Research', prompts: ['research']),
-      WorkflowStep(id: 'implement', name: 'Implement', prompts: ['implement']),
+      WorkflowStep(id: 'research', name: 'Research', taskType: WorkflowTaskType.approval, prompts: ['research']),
+      WorkflowStep(id: 'implement', name: 'Implement', taskType: WorkflowTaskType.approval, prompts: ['implement']),
     ],
   );
 }
@@ -108,7 +108,7 @@ void main() {
     workflowRepo = SqliteWorkflowRunRepository(workflowDb);
     final messages = MessageService(baseDir: p.join(tempDir.path, 'sessions'));
     final kv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
-    workflows = WorkflowService(
+    workflows = WorkflowService.lifecycleOnly(
       repository: workflowRepo,
       taskService: tasks,
       messageService: messages,

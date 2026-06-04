@@ -7,7 +7,6 @@ import 'package:path/path.dart' as p;
 import 'workflow_definition_source.dart';
 import 'workflow_definition_resolver.dart';
 import 'workflow_definition_parser.dart';
-import 'skill_registry.dart';
 import 'workflow_definition_validator.dart' show ValidationReport, WorkflowDefinitionValidator;
 
 /// Source type for a registered workflow definition.
@@ -77,8 +76,6 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
        _validator = validator,
        _continuityProviders = continuityProviders,
        _log = log ?? Logger('WorkflowRegistry');
-
-  set skillRegistry(SkillRegistry? registry) => _validator.skillRegistry = registry;
 
   /// Workflow YAML files the registry could not load.
   ///

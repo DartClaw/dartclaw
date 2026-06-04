@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 /// Fake search backend that records calls and returns canned results.
@@ -97,6 +98,48 @@ void main() {
 
       // Should not throw
       await backend.indexAfterWrite();
+    });
+
+    test('wiki outranks raw QMD rows and higher-relevance raw rows sort first', () async {
+      final workspace = Directory.systemTemp.createTempSync('dartclaw_qmd_wiki_rank_');
+      addTearDown(() => workspace.deleteSync(recursive: true));
+      Directory(p.join(workspace.path, 'wiki')).createSync(recursive: true);
+      File(p.join(workspace.path, 'wiki', 'dart-async.md')).writeAsStringSync('''
+---
+provenance: llm-authored
+sources:
+  - "inbox/dart.md"
+confidence: medium
+last_updated: 2026-05-01T00:00:00.000Z
+last_updated_by: "test"
+contradicts: []
+related: []
+---
+# Dart Async
+
+Dart async programming synthesized from source.
+''');
+
+      final fts5 = FakeFts5Backend();
+      final qmd = FakeQmdManager();
+      // QMD relevance is higher-is-better; the more relevant row must rank first.
+      qmd.nextQueryResult = [
+        {'text': 'Less relevant raw', 'source': 'm-low.md', 'score': 0.5},
+        {'text': 'More relevant raw', 'source': 'm-high.md', 'score': 0.9},
+      ];
+
+      final backend = QmdSearchBackend(
+        manager: qmd,
+        fallback: fts5,
+        wikiSearch: WikiSearchSource(workspaceDir: workspace.path),
+      );
+      final results = await backend.search('dart async');
+
+      expect(results.map((r) => r.text).toList(), [
+        contains('Dart async programming synthesized'),
+        'More relevant raw',
+        'Less relevant raw',
+      ]);
     });
 
     test('search depth options', () {

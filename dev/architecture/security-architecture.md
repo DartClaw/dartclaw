@@ -381,7 +381,7 @@ Different security profiles get separate containers. Multiple tasks of the same 
 | **workspace** | `dartclaw-<hash>-workspace` | `/workspace:rw`, `/projects:ro`, `/project:ro` (legacy alias) | Main chat, coding tasks, cron jobs |
 | **restricted** | `dartclaw-<hash>-restricted` | No workspace or project mounts | Search agent, research tasks |
 
-**Container naming**: `dartclaw-<sha256(dataDir)[0:8]>-<profileId>` — deterministic, collision-free across multiple DartClaw installs on the same Docker daemon.
+**Container naming**: `dartclaw-<fnv1a8(dataDir)>-<profileId>` — deterministic 8-char FNV-1a digest of the data directory (Docker-safe local identifier, not cryptographic), collision-free across multiple DartClaw installs on the same Docker daemon.
 
 **Dispatch routing**: `ContainerDispatcher` maps task types to security profiles:
 
@@ -940,6 +940,8 @@ With `--permission-prompt-tool stdio`, the binary sends `can_use_tool` control r
 ### Environment Isolation
 
 The `claude` binary is spawned with `includeParentEnvironment: false` and a filtered copy of `Platform.environment`. Critical environment variables are cleared to prevent nesting detection errors: `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`.
+
+Direct host-side Claude spawns inherit Claude's user, project, and local setting sources by default. This intentionally exposes user-scope plugins and skills to spawned sessions and workflow one-shots. Security-conscious deployments that require project-only settings can set `providers.claude.inherit_user_settings: false`, which adds `--setting-sources project` to direct Claude invocations. Containerized spawns remain unchanged; their isolation comes from container mounts, environment, and network policy rather than the Claude settings-source flag.
 
 **Source**: `packages/dartclaw_core/lib/src/harness/tool_policy.dart`, ADR-001 Addendum
 

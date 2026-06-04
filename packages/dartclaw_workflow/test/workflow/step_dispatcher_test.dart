@@ -96,6 +96,56 @@ void main() {
     expect(handoff.outputs.keys.where((key) => key.startsWith('_dartclaw.internal')), isEmpty);
   });
 
+  test('dispatchStep validates story spec artifacts against the task worktree', () async {
+    final harness = await ScenarioTaskHarness.create();
+    addTearDown(harness.dispose);
+
+    final activeRoot = harness.createTempProjectRoot('active-root');
+    final taskWorktree = harness.createTempProjectRoot('task-worktree');
+    harness.writeProjectFile(taskWorktree, 'fis/s01-a.md', '# Story 1\n');
+    harness.writeProjectFile(taskWorktree, 'fis/s02-b.md', '# Story 2\n');
+
+    final definition = const WorkflowDefinition(
+      name: 'plan-dispatch-worktree',
+      description: 'Plan step worktree validation test',
+      steps: [
+        WorkflowStep(
+          id: 'plan',
+          name: 'Plan',
+          type: WorkflowTaskType.agent,
+          prompts: ['Plan the work'],
+          outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs')},
+        ),
+      ],
+    );
+    final run = _makeRun(definition).copyWith(
+      workflowWorktree: WorkflowWorktreeBinding(
+        key: 'run-worktree',
+        path: activeRoot,
+        branch: 'test',
+        workflowRunId: 'run-worktree',
+      ),
+    );
+    final context = WorkflowContext(data: const {});
+    await harness.workflowRuns.insert(run);
+
+    final completionSub = await _completeQueuedTasks(
+      harness,
+      worktreeJson: {'path': taskWorktree},
+      assistantMessageFor: (_, _) =>
+          'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","dependencies":[],"spec_path":"fis/s01-a.md"},{"id":"S02","title":"Two","dependencies":["S01"],"spec_path":"fis/s02-b.md"}]}}</workflow-context>',
+    );
+    addTearDown(completionSub.cancel);
+
+    final handoff = await dispatchStep(
+      definition.nodes.single,
+      harness.buildExecutionContext(run: run, definition: definition, workflowContext: context),
+    );
+
+    expect(handoff, isA<StepHandoffSuccess>());
+    expect((handoff as StepHandoffSuccess).outputs['story_specs'], isA<Map<String, dynamic>>());
+  });
+
   test('dispatchStep returns a validation-failed handoff for invalid story_specs contract', () async {
     final harness = await ScenarioTaskHarness.create();
     addTearDown(harness.dispose);

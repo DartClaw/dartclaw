@@ -3,7 +3,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, HarnessPool;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner, TaskEventService, TurnTraceService;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistry, WorkflowDefinitionSource, WorkflowService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
 
 import 'api/google_chat_space_events_wiring.dart';
 import 'api/google_chat_webhook.dart';
@@ -100,7 +100,6 @@ class DartclawServerBuilder {
   // Workflow
   WorkflowService? workflowService;
   WorkflowDefinitionSource? workflowDefinitionSource;
-  SkillRegistry? skillRegistry;
 
   // Tasks
   GoalService? goalService;
@@ -171,6 +170,7 @@ class DartclawServerBuilder {
             stallTimeout: config?.governance.turnProgress.stallTimeout ?? Duration.zero,
             stallAction: config?.governance.turnProgress.stallAction ?? TurnProgressAction.warn,
           );
+    resetService?.bindSessionContinuityResetter(_cachedTurns!.resetSessionContinuity);
     return _cachedTurns!;
   }
 
@@ -256,7 +256,6 @@ class DartclawServerBuilder {
         canvasService: canvasService,
         workflowService: workflowService,
         workflowDefinitionSource: workflowDefinitionSource,
-        skillRegistry: skillRegistry,
         contentGuardDisplay: contentGuardDisplay,
         heartbeatDisplay: heartbeatDisplay,
         schedulingDisplay: schedulingDisplay,

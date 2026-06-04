@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import 'claude_cli_provider.dart' show resolveContainerWorkDir, startCliProcess;
+import 'cli_process_supervisor.dart';
 import 'workflow_cli_runner.dart';
 
 /// [CliProvider] implementation for the Codex CLI one-shot runner.
@@ -18,7 +19,9 @@ import 'workflow_cli_runner.dart';
 class CodexCliProvider implements CliProvider {
   static final _log = Logger('CodexCliProvider');
 
-  const CodexCliProvider();
+  final Set<Process> _inflight = <Process>{};
+
+  CodexCliProvider();
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest req) async {
@@ -32,8 +35,10 @@ class CodexCliProvider implements CliProvider {
         : {...req.providerConfig.environment, ...req.extraEnvironment!};
 
     final stopwatch = Stopwatch()..start();
+    Process? process;
+    CliProcessSupervisor? supervisor;
     try {
-      final process = await startCliProcess(
+      process = await startCliProcess(
         executable: command.$1,
         arguments: command.$2,
         workingDirectory: resolvedWorkDir,
@@ -41,6 +46,17 @@ class CodexCliProvider implements CliProvider {
         containerManager: req.containerManager,
         processStarter: req.processStarter,
       );
+      _inflight.add(process);
+      supervisor = CliProcessSupervisor(
+        process: process,
+        provider: 'codex',
+        stepName: req.stepName,
+        stallTimeout: req.stallTimeout,
+        stallAction: req.stallAction,
+        stepTimeout: req.stepTimeout,
+        eventBus: req.eventBus,
+        log: req.log,
+      )..start();
       // Close stdin immediately – Codex 0.120.0+ reads from stdin when a pipe
       // is detected, even when a prompt argument is provided. Without EOF the
       // process blocks on "Reading additional input from stdin…" indefinitely.
@@ -58,7 +74,9 @@ class CodexCliProvider implements CliProvider {
           .listen(
             (line) {
               stdoutBuffer.writeln(line);
-              _handleLine(line, codexState, req: req, emitProgress: true);
+              if (_handleLine(line, codexState, req: req, emitProgress: true)) {
+                supervisor?.recordParsedOutput();
+              }
             },
             onError: (Object error, StackTrace stackTrace) {
               if (!stdoutDone.isCompleted) stdoutDone.completeError(error, stackTrace);
@@ -81,9 +99,10 @@ class CodexCliProvider implements CliProvider {
             cancelOnError: true,
           );
 
-      final exitCode = await process.exitCode;
+      final exitCode = await supervisor.waitForExitCode();
       await stdoutDone.future;
       await stderrDone.future;
+      supervisor.stop();
       final stdout = stdoutBuffer.toString();
       final stderr = stderrBuffer.toString();
       stopwatch.stop();
@@ -105,6 +124,11 @@ class CodexCliProvider implements CliProvider {
 
       return _parseResult(stdout, fallbackDuration: stopwatch.elapsed);
     } finally {
+      supervisor?.stop();
+      final activeProcess = process;
+      if (activeProcess != null) {
+        _inflight.remove(activeProcess);
+      }
       if (tempSchemaPath != null) {
         try {
           await File(tempSchemaPath).delete();
@@ -113,6 +137,12 @@ class CodexCliProvider implements CliProvider {
         }
       }
     }
+  }
+
+  @override
+  Future<void> cancelInflight() async {
+    await Future.wait(_inflight.map(terminateCliProcess), eagerError: false);
+    _inflight.clear();
   }
 
   /// Exposed for command-vector assertions without spawning a process.
@@ -201,17 +231,17 @@ class CodexCliProvider implements CliProvider {
     return _CodexCommand((req.providerConfig.executable, args), tempSchemaPath: schemaPath);
   }
 
-  void _handleLine(String line, _CodexStreamState state, {required CliTurnRequest req, bool emitProgress = false}) {
-    if (line.trim().isEmpty) return;
+  bool _handleLine(String line, _CodexStreamState state, {required CliTurnRequest req, bool emitProgress = false}) {
+    if (line.trim().isEmpty) return false;
 
     Map<String, dynamic>? event;
     try {
       event = _mapValue(jsonDecode(line));
     } on FormatException {
       _log.fine('CodexCliProvider: ignoring non-JSON Codex stdout line: ${_previewText(line)}');
-      return;
+      return false;
     }
-    if (event == null) return;
+    if (event == null) return false;
 
     final type = stringValue(event['type']);
     switch (type) {
@@ -282,6 +312,7 @@ class CodexCliProvider implements CliProvider {
       default:
         break;
     }
+    return true;
   }
 
   WorkflowCliTurnResult _parseResult(String stdout, {required Duration fallbackDuration}) {

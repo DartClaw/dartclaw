@@ -2,10 +2,12 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
 
+import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
@@ -13,7 +15,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
         MessageService,
+        OnFailurePolicy,
         OutputConfig,
+        SessionService,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
@@ -28,6 +32,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitStrategy,
         WorkflowRun,
         WorkflowRunStatus,
+        WorkflowRunStatusChangedEvent,
         WorkflowStep;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -44,6 +49,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import 'workflow_executor_test_support.dart' show ThrowingContextExtractor;
+
 void main() {
   late Directory tempDir;
   late String sessionsDir;
@@ -58,7 +65,7 @@ void main() {
   late EventBus eventBus;
   late WorkflowExecutor executor;
 
-  WorkflowExecutor makeExecutor({WorkflowTurnAdapter? turnAdapter}) {
+  WorkflowExecutor makeExecutor({WorkflowTurnAdapter? turnAdapter, ContextExtractor? contextExtractor}) {
     return WorkflowExecutor(
       executionContext: StepExecutionContext(
         taskService: taskService,
@@ -66,12 +73,14 @@ void main() {
         kvService: kvService,
         repository: repository,
         gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-        ),
+        contextExtractor:
+            contextExtractor ??
+            ContextExtractor(
+              taskService: taskService,
+              messageService: messageService,
+              dataDir: tempDir.path,
+              workflowStepExecutionRepository: workflowStepExecutionRepository,
+            ),
         taskRepository: taskRepository,
         agentExecutionRepository: agentExecutionRepository,
         workflowStepExecutionRepository: workflowStepExecutionRepository,
@@ -144,7 +153,359 @@ void main() {
     await taskService.transition(taskId, status, trigger: 'test');
   }
 
+  Future<void> completeTaskWithOutcome(
+    String taskId, {
+    required String outcomeContent,
+    TaskStatus finalStatus = TaskStatus.accepted,
+    int? tokenCount,
+  }) async {
+    final session = await SessionService(baseDir: sessionsDir).createSession(type: SessionType.task);
+    await taskService.updateFields(taskId, sessionId: session.id);
+    if (tokenCount != null) {
+      await kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': tokenCount}));
+    }
+    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
+    await completeTask(taskId, status: finalStatus);
+  }
+
   group('core map execution', () {
+    test('S02 map item retries task failure exactly once with maxRetries 1', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-retry-task-failure',
+        description: 'Map retry count test',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 1,
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 1,
+          ),
+        ],
+      );
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext(
+        data: const {
+          'items': ['a'],
+        },
+      );
+
+      final taskIds = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskIds.add(e.taskId);
+        await completeTask(e.taskId, status: TaskStatus.failed);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(taskIds, hasLength(2));
+      for (final taskId in taskIds) {
+        expect((await taskService.get(taskId))?.maxRetries, equals(0));
+      }
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    });
+
+    test('S02 map item retries completed-task failed outcome once and accumulates retry tokens', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-retry-outcome-failure',
+        description: 'Map retry outcome count test',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 1,
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 1,
+          ),
+        ],
+      );
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext(
+        data: const {
+          'items': ['a'],
+        },
+      );
+
+      var taskCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        await completeTaskWithOutcome(
+          e.taskId,
+          outcomeContent: taskCount == 1
+              ? '<step-outcome>{"outcome":"failed","reason":"missing artifact"}</step-outcome>'
+              : '<step-outcome>{"outcome":"succeeded","reason":"artifact found"}</step-outcome>',
+          tokenCount: taskCount == 1 ? 7 : 11,
+        );
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(taskCount, equals(2));
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(finalRun?.totalTokens, equals(18));
+      expect(finalRun?.contextJson['data']?['implement[0].tokenCount'], equals(18));
+    });
+
+    test('S02 map retry stays inside the item branch and does not block sibling dispatch', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-retry-concurrency',
+        description: 'Map retry concurrency test',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 2,
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 1,
+          ),
+        ],
+      );
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext(
+        data: const {
+          'items': ['slow', 'fast'],
+        },
+      );
+
+      final queuedDescriptions = <String>[];
+      String? slowFirstTaskId;
+      var slowAttempts = 0;
+      final secondInitialQueued = Completer<void>();
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        final description = task?.description ?? '';
+        queuedDescriptions.add(description);
+        if (description.contains('slow')) {
+          slowAttempts++;
+          if (slowAttempts == 1) {
+            slowFirstTaskId = e.taskId;
+            if (queuedDescriptions.length >= 2 && !secondInitialQueued.isCompleted) {
+              secondInitialQueued.complete();
+            }
+            return;
+          }
+          await completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"slow recovered"}</step-outcome>',
+          );
+          return;
+        }
+        if (description.contains('fast')) {
+          if (slowFirstTaskId != null && !secondInitialQueued.isCompleted) {
+            secondInitialQueued.complete();
+          }
+          await completeTaskWithOutcome(
+            e.taskId,
+            outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"fast done"}</step-outcome>',
+          );
+        }
+      });
+
+      final execution = executor.execute(run, definition, context).timeout(const Duration(seconds: 5));
+      await secondInitialQueued.future.timeout(const Duration(seconds: 2));
+      expect(
+        queuedDescriptions.take(2).where((description) => description.contains('fast')),
+        isNotEmpty,
+        reason: 'sibling item should be dispatched before the slow item retry is released',
+      );
+      await completeTaskWithOutcome(
+        slowFirstTaskId!,
+        outcomeContent: '<step-outcome>{"outcome":"failed","reason":"transient slow failure"}</step-outcome>',
+      );
+      await execution;
+      await sub.cancel();
+
+      expect(slowAttempts, equals(2));
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('S02 map item run-abort during wait is not retried and does not complete the run', () async {
+      // Regression: a run pause/cancel mid-wait must abort the item without
+      // retrying (no orphan task triples) AND propagate to the step so the
+      // runner stops dispatching siblings and the executor exits without
+      // overwriting the cancelled status to completed. Mirrors single-step.
+      final definition = WorkflowDefinition(
+        name: 'map-abort-not-retried',
+        description: 'Map abort-not-retried test',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 1,
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 2,
+          ),
+        ],
+      );
+      final run = makeRun(definition);
+      await repository.insert(run);
+      // Two items: the second proves the abort stops sibling dispatch.
+      final context = WorkflowContext(
+        data: const {
+          'items': ['a', 'b'],
+        },
+      );
+
+      final taskIds = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskIds.add(e.taskId);
+        // Run leaves `running` mid-wait. Persist the status so any (buggy) retry
+        // attempt's re-check also aborts, bounding the failure mode instead of
+        // hanging; then signal the abort. The task is intentionally not completed.
+        final current = await repository.getById(run.id);
+        if (current != null) {
+          await repository.update(current.copyWith(status: WorkflowRunStatus.cancelled));
+        }
+        eventBus.fire(
+          WorkflowRunStatusChangedEvent(
+            runId: run.id,
+            definitionName: definition.name,
+            oldStatus: WorkflowRunStatus.running,
+            newStatus: WorkflowRunStatus.cancelled,
+            timestamp: DateTime.now(),
+          ),
+        );
+      });
+
+      await executor.execute(run, definition, context).timeout(const Duration(seconds: 5));
+      await sub.cancel();
+
+      expect(
+        taskIds,
+        hasLength(1),
+        reason: 'run-abort must not be retried into orphan tasks nor dispatch the sibling item',
+      );
+      final finalRun = await repository.getById('run-1');
+      expect(
+        finalRun?.status,
+        equals(WorkflowRunStatus.cancelled),
+        reason: 'an aborted map step must not overwrite the cancelled run with completed',
+      );
+    });
+
+    test('S02 map item wait timeout is terminal, not retried', () async {
+      // Regression: a per-item timeout is an infra failure, not an OC02 outcome
+      // failure, so it must not consume the workflow retry budget.
+      final definition = WorkflowDefinition(
+        name: 'map-timeout-not-retried',
+        description: 'Map timeout-not-retried test',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 1,
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 2,
+            timeoutSeconds: 1,
+          ),
+        ],
+      );
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext(
+        data: const {
+          'items': ['a'],
+        },
+      );
+
+      final taskIds = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskIds.add(e.taskId);
+        // Never complete the task: the wait times out. A timeout must be terminal.
+      });
+
+      await executor.execute(run, definition, context).timeout(const Duration(seconds: 10));
+      await sub.cancel();
+
+      expect(taskIds, hasLength(1), reason: 'a per-item timeout must be terminal, not retried');
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    });
+
+    test('S02 map item fails when context extraction throws an unexpected error', () async {
+      // Parity with the single-step path: an unexpected (non-MissingArtifact,
+      // non-StateError) extraction exception must fail the item, not silently
+      // succeed with empty outputs.
+      final definition = WorkflowDefinition(
+        name: 'map-extraction-error',
+        description: 'Map generic extraction failure test',
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 1,
+          ),
+        ],
+      );
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext(
+        data: const {
+          'items': ['a'],
+        },
+      );
+
+      final throwingExecutor = makeExecutor(
+        contextExtractor: ThrowingContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+      );
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await throwingExecutor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      expect(
+        finalRun?.status,
+        equals(WorkflowRunStatus.failed),
+        reason: 'an unexpected extraction exception must fail the map item, not silently succeed',
+      );
+    });
+
     test('workflow-owned map coding task auto-advances on accepted terminal status', () async {
       final definition = WorkflowDefinition(
         name: 'map-auto-accept',

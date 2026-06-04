@@ -135,7 +135,7 @@ test('GET /api/tasks returns task list', () async {
 
 **Characteristics**:
 - Tagged with `@Tags(['integration'])` — skipped by default in `dart_test.yaml`
-- Run explicitly: `dart test -t integration`
+- Run explicitly with the package/profile command that selects real files and opts into skipped tests
 - Long timeouts (`Timeout(Duration(seconds: 60))`)
 - Require environment setup (API keys, binaries, hardware)
 
@@ -170,9 +170,37 @@ test('ServiceWiring builds a server that serves / and /health', () async {
 });
 ```
 
+### Workflow Validation Ladder
+
+Workflow changes should move through the cheapest proof surface that covers the risk before using live model-backed tests.
+
+1. **Workflow contract profile** - deterministic Dart tests for built-in YAML policy, gates, output contracts, review artifact resolution, aggregate-review wiring, and step-outcome semantics.
+2. **Scripted/component E2E** - executor-level tests with fakes or canned harness responses when workflow plumbing needs to run without live agent turns.
+3. **Targeted live canary** - one live integration canary for the changed subsystem.
+4. **Full live workflow sweep** - final confidence gate only.
+
+Commands:
+
+```bash
+bash dev/testing/profiles/workflow-contract/run.sh
+bash dev/testing/profiles/workflow-live/run.sh --canary step-isolation
+bash dev/testing/profiles/workflow-live/run.sh --canary spec-and-implement
+bash dev/testing/profiles/workflow-live/run.sh --canary plan-and-implement
+bash dev/testing/profiles/workflow-live/run.sh --canary merge-resolve
+bash dev/testing/profiles/workflow-live/run.sh --full
+```
+
+Use the full live sweep once contract checks and the affected canary are green. Do not use workspace-root
+`dart test -t integration` as a workflow gate: this repo root has no default `test/` directory, and the integration tag
+is skipped by default unless the command uses `--run-skipped` against explicit files.
+
+The live runner writes logs under `.agent_temp/` by default and summarizes warning classes that are easy to miss in the
+expanded reporter stream: cleanup idempotency noise, provider capability warnings, local plugin manifest warnings, and
+large token-accounting lines.
+
 ### Integration test model selection
 
-The workflow integration tier (`packages/dartclaw_workflow` Layer 4 suite, gated by `dart test -t integration`) runs against a default provider + per-role model preset baked into `E2EFixture`. Five environment variables let you swap that preset at run time without editing fixtures or test files:
+The workflow integration tier (`packages/dartclaw_workflow` Layer 4 suite, run through the `workflow-live` profile) runs against a default provider + per-role model preset baked into `E2EFixture`. Five environment variables let you swap that preset at run time without editing fixtures or test files:
 
 | Variable | Effect |
 |---|---|
@@ -315,7 +343,7 @@ Related helpers such as `channelOriginJson`, `createTask`, `flushAsync`, `latest
 tags:
   contract:
   integration:
-    skip: "Requires live API credentials — run explicitly with: dart test -t integration"
+    skip: "Requires live API credentials — run explicitly with: dart test --run-skipped -t integration"
 ```
 
 **Tag usage**:
@@ -463,7 +491,7 @@ done
 
 ```bash
 # Requires real claude binary + API credentials
-dart test -t integration packages/dartclaw_core
+dart test --run-skipped -t integration packages/dartclaw_core
 ```
 
 ### Coverage

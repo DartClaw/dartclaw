@@ -20,9 +20,10 @@ import 'map_context.dart';
 import 'map_step_context.dart';
 import 'missing_artifact_failure.dart';
 import 'skill_prompt_builder.dart';
-import 'skill_registry.dart';
+import 'skill_introspector.dart';
 import 'step_config_policy.dart' as step_config_policy;
 import 'step_config_resolver.dart';
+import 'step_retry_policy.dart';
 import 'step_outcome_normalizer.dart' as step_outcome_normalizer;
 import 'built_in_workflow_workspace.dart';
 import 'workflow_context.dart';
@@ -33,6 +34,8 @@ import 'workflow_git_port.dart';
 import 'workflow_run_paths.dart';
 import 'workflow_runner_types.dart';
 import 'workflow_task_factory.dart' as workflow_task_factory;
+import 'workflow_skill_preflight.dart';
+import 'workflow_step_effective_outputs.dart';
 import 'workflow_template_engine.dart';
 import 'merge_resolve_attempt_artifact.dart';
 import 'workflow_task_config.dart';
@@ -68,7 +71,8 @@ class WorkflowExecutor {
   final SkillPromptBuilder _skillPromptBuilder;
   final WorkflowTurnAdapter? _turnAdapter;
   final WorkflowStepOutputTransformer? _outputTransformer;
-  final SkillRegistry? _skillRegistry;
+  final SkillIntrospector? _skillIntrospector;
+  final WorkflowSkillPreflightConfig _skillPreflightConfig;
   final TaskRepository? _taskRepository;
   final AgentExecutionRepository? _agentExecutionRepository;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
@@ -76,6 +80,7 @@ class WorkflowExecutor {
   final String _dataDir;
   final Uuid _uuid;
   final WorkflowRoleDefaults _roleDefaults;
+  WorkflowSkillPreflightResult _skillPreflightResult = WorkflowSkillPreflightResult.empty;
   final Map<String, String>? _hostEnvironment;
   final List<String> _bashStepEnvAllowlist;
   final List<String> _bashStepExtraStripPatterns;
@@ -116,7 +121,8 @@ class WorkflowExecutor {
        _skillPromptBuilder = promptConfiguration.skillPromptBuilder,
        _turnAdapter = executionContext.turnAdapter,
        _outputTransformer = executionContext.outputTransformer,
-       _skillRegistry = executionContext.skillRegistry,
+       _skillIntrospector = executionContext.skillIntrospector,
+       _skillPreflightConfig = executionContext.skillPreflightConfig,
        _taskRepository = executionContext.taskRepository,
        _agentExecutionRepository = executionContext.agentExecutionRepository,
        _workflowStepExecutionRepository = executionContext.workflowStepExecutionRepository,
@@ -166,6 +172,20 @@ class WorkflowExecutor {
     final gitInitError = await _initializeWorkflowGit(run, definition, context);
     if (gitInitError != null) {
       await _failRun(run, gitInitError);
+      return;
+    }
+    try {
+      _skillPreflightResult = WorkflowSkillPreflightResult.empty;
+      _skillPreflightResult = await preflightWorkflowSkillRefs(
+        definition: definition,
+        introspector: _skillIntrospector,
+        skillPreflightConfig: _skillPreflightConfig,
+        roleDefaults: _roleDefaults,
+        context: context,
+      );
+    } on WorkflowPreflightException catch (e) {
+      final failure = _failRun(run, e.message);
+      await failure;
       return;
     }
     final requiresActiveWorkspaceRoot = _requiresActiveWorkspaceRoot(definition);

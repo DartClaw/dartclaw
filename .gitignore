@@ -44,3 +44,4 @@ statics
 .agents/skills/dartclaw-*
 .claude/skills/dartclaw-*
 notes/
+examples/sdk/*/.dartclaw-sdk-example/

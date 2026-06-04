@@ -4,9 +4,31 @@
 
 ## Active Milestone
 
-### 0.16.6 — Web UI Stimulus Adoption (Release-ready, awaiting tag)
+### 0.17 — Personal AI & Developer Experience (Active)
 
-Stimulus is now the standard browser interaction layer across the Web UI while HTMX + Trellis remain the rendering/request foundation and the zero-Node toolchain is preserved. Shared shell behavior, core pages, special surfaces, and migrated browser interactions now use `dc-*` Stimulus controllers with the legacy page-global model removed as the primary path. The private 0.17 chat-composer FIS and contributor-facing architecture/guidelines were synced to the migrated controller model.
+Structured `USER.md` identity context, conversational onboarding bootstrapping, inbox-drop knowledge ingestion, LLM-maintained knowledge wiki, temporal knowledge graph (SQLite-based structured facts with time-validity), guard config editor, SDK docs Phase 2, chat input redesign (composable input, slash command palette, file attachments, @-mention context references), interrupted-turn retry UX, automated kill/restart crash-recovery validation.
+
+Milestone close note: all planned 0.17 stories are implemented in this checkout, plus post-plan workflow-engine reliability, harness stabilization, and release-hardening work (captured as Phases G/H in the canonical PRD). No `0.17.x` deferral remains for the planned story set; PRD out-of-scope items such as SDK Tier 3 guides, Flutter examples, CLI REPL, query-to-wiki promotion UX, and binary distribution stay in their documented future/pre-1.0 buckets.
+
+Release-ready: all automated gates green (format, analyze, fitness, full test suite, version lockstep at 0.17.0, bundle cleanup). Awaiting final manual gates (live integration, UI smoke, maintainer-smoke workflow runs) and the `v0.17.0` tag.
+
+## Planned
+
+### 0.18 — Universal Agent Harness (Planned)
+
+Provider-runtime expansion beyond the current Claude/Codex families through `AcpHarness`, a universal ACP adapter for non-Claude agents. Scope includes Phase A0 verification of capability-gated reverse-call mediation, Goose as the first target, Mistral Vibe as the verified second target, per-provider pool structure and queueing semantics needed when a third built-in provider is introduced, `delegate_to_agent` MCP delegation, stuck-turn recovery, and distribution polish.
+
+Backlog migrations from 0.16.5 close-out triage:
+- TD-068: Replace the shared mixed-provider `HarnessPool` with provider-scoped pools before adding the third built-in provider.
+- TD-062: Add stuck-turn visibility and an admin/operator escape hatch for wedged Codex sessions.
+- TD-109: Add per-turn tool scoping or toolless structured extraction before inbox ingestion is treated as untrusted multi-session input.
+- TD-110: Decide and implement guard/audit coverage for write-capable MCP tools before broader multi-operator deployments.
+
+## Recently Shipped
+
+### 0.16.6 — Web UI Stimulus Adoption ✅
+
+Tagged `v0.16.6` on 2026-05-27. Stimulus is now the standard browser interaction layer across the Web UI while HTMX + Trellis remain the rendering/request foundation and the zero-Node toolchain is preserved. Shared shell behavior, core pages, special surfaces, and migrated browser interactions now use `dc-*` Stimulus controllers with the legacy page-global model removed as the primary path. Architecture deep-dives (`dev/architecture/`) and the design system (`dev/design-system/`) promoted to canonical in this repo. AI-native testing scenarios and profile variants (plain, channels, governance, visual, workflows) migrated from the private repo.
 
 Backlog migrations from 0.16.5 close-out triage:
 - TD-020: Reply-to-bot gating with GOWA v8 `replied_to_id` tracking.
@@ -19,21 +41,6 @@ Backlog migrations from 0.16.5 close-out triage:
 - TD-079: Output-contract inference from `outputs:` declarations.
 - TD-080: Agent-resolved-merge v2 cluster: pause escalation, conflict review UI, default-on rollout.
 - TD-084: Foreach/map empty-collection policy (`onEmpty`) for misconfigured upstream outputs.
-
-## Planned
-
-### 0.17 — Personal AI & Developer Experience (Planned)
-
-Structured `USER.md` identity context, conversational onboarding bootstrapping, inbox-drop knowledge ingestion, LLM-maintained knowledge wiki, temporal knowledge graph (SQLite-based structured facts with time-validity), guard config editor, SDK docs Phase 2, chat input redesign (composable input, slash command palette, file attachments, @-mention context references), interrupted-turn retry UX, automated kill/restart crash-recovery validation.
-
-### 0.18 — Provider Harness Expansion (Planned)
-
-Provider-runtime expansion beyond the current Claude/Codex families, including per-provider pool structure and queueing semantics needed when a third built-in provider is introduced.
-
-Backlog migrations from 0.16.5 close-out triage:
-- TD-068: Replace the shared mixed-provider `HarnessPool` with provider-scoped pools before adding the third built-in provider.
-
-## Recently Shipped
 
 ### 0.16.5 — Stabilisation & Hardening ✅
 

@@ -179,7 +179,19 @@ dart test --reporter=failures-only packages/dartclaw_core --name "SessionKey"
 # Run only contract tests
 dart test --reporter=failures-only -t contract packages/dartclaw_storage
 
-# Run live integration tests (requires real claude binary + API credentials)
+# Fast workflow validation while iterating on workflow YAML, gates, outputs, and review artifacts
+bash dev/testing/profiles/workflow-contract/run.sh
+
+# Targeted live workflow canaries (requires real provider binary + credentials)
+bash dev/testing/profiles/workflow-live/run.sh --canary step-isolation
+bash dev/testing/profiles/workflow-live/run.sh --canary spec-and-implement
+bash dev/testing/profiles/workflow-live/run.sh --canary plan-and-implement
+bash dev/testing/profiles/workflow-live/run.sh --canary merge-resolve
+
+# Full live workflow sweep, final gate only
+bash dev/testing/profiles/workflow-live/run.sh --full
+
+# Run live core integration tests (requires real claude binary + API credentials)
 dart test --reporter=failures-only -t integration packages/dartclaw_core
 
 # Per-package coverage

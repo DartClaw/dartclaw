@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 
 import 'schema_presets.dart' show isReviewReportPathPreset, schemaPresets;
 import 'schema_validator.dart' show SchemaValidator;
-import 'skill_registry.dart';
 import 'step_config_resolver.dart'
     show WorkflowRoleDefaults, globMatchStepId, resolveStepConfig, workflowRoleDefaultAliases;
 import 'workflow_template_engine.dart';
@@ -93,12 +92,6 @@ class WorkflowDefinitionValidator {
     WorkflowTemplateEngine? templateEngine,
   }) : _engine = templateEngine ?? WorkflowTemplateEngine();
 
-  /// Optional skill registry for skill-aware validation.
-  ///
-  /// When null, skill reference validation is skipped (e.g. in tests or
-  /// parsing-only contexts where no registry is configured).
-  SkillRegistry? skillRegistry;
-
   /// Validates [definition] and returns a [ValidationReport].
   ///
   /// [continuityProviders]: optional set of provider names that support session
@@ -135,7 +128,6 @@ class WorkflowDefinitionValidator {
     if (continuityProviders != null) {
       _validateMultiPromptProviders(definition, errors, continuityProviders);
     }
-    _validateSkillReferences(definition, errors);
     _validateHybridStepRules(definition, errors, warnings, continuityProviders);
     return ValidationReport(errors: errors, warnings: warnings);
   }

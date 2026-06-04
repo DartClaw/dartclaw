@@ -25,7 +25,6 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
     required this.commandProbe,
     required this.delayFactory,
     required this.harnessConfig,
-    this.healthProbe,
   });
 
   /// Logger shared by the concrete harness implementation.
@@ -51,9 +50,6 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
 
   /// Injectable async delay callback.
   final DelayFactory delayFactory;
-
-  /// Optional health probe used by some subclasses or tests.
-  final HealthProbe? healthProbe;
 
   /// Shared initialize-handshake configuration.
   final HarnessConfig harnessConfig;

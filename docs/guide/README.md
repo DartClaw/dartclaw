@@ -69,4 +69,4 @@ See also: [Common Patterns](recipes/_common-patterns.md) | [Troubleshooting](rec
 
 ## SDK Guide
 
-Building custom agents with DartClaw as a library? See the [SDK Guide](../sdk/quick-start.md).
+Building custom agents with DartClaw as a library? Start with the [SDK Quick Start](../sdk/quick-start.md), then use [Concepts](../sdk/concepts.md), [Architecture](../sdk/architecture.md), [Security](../sdk/security.md), the [Package Guide](../sdk/packages.md), and the [runnable examples](../../examples/sdk/).

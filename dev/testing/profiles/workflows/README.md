@@ -220,17 +220,14 @@ curl -sX POST -H "Authorization: Bearer $TOKEN" http://localhost:3333/api/workfl
 
 ## Scenario Coverage
 
-Workflow smoke scenarios now require full completion. They still use the smallest possible documentation-only prompts, but they are expected to finish the workflow, expose successful publish metadata, and clean up the generated PR so the latest workflow runs end in a real `completed` state:
+There is one live scenario per built-in workflow. Each drives a real run to a clean `completed` state with the smallest possible documentation-only prompt, then closes the published PR as cleanup. Their job is the operator-facing surface — the Web UI and the connected CLI → server → SSE path — not the engine mechanics:
 
-- `dev/testing/scenarios/workflow-spec-and-implement-smoke.md` — completes `spec-and-implement`, verifies final completion and published PR metadata, then closes the PR
-- `dev/testing/scenarios/workflow-plan-and-implement-smoke.md` — completes `plan-and-implement`, verifies final completion and published PR metadata, then closes the PR
+- `dev/testing/scenarios/workflow-spec-and-implement-publish.md` — runs `spec-and-implement` end to end, verifies the workflows list, the run detail page, live progress and a clean completion state, then closes the published PR
+- `dev/testing/scenarios/workflow-plan-and-implement-publish.md` — runs `plan-and-implement` end to end (`MAX_PARALLEL=2`, two thin stories so the parallel per-story path executes), verifies the same UI surface, then closes the published PR
 
-Deeper publish scenarios exercise stricter real worktree and GitHub publication assertions against the `workflow-test-todo-app` repository:
+Engine mechanics — per-task/per-story worktree creation, branch push, GitHub PR creation and PR diff contents — are **not** re-asserted here. They are owned by the automated integration test `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` (TI03 spec-and-implement, TI04 plan-and-implement), which runs the same workflows against this same repository with a real harness, distinct per-story worktrees, real `gh pr create`, and automatic PR cleanup. Run it with `dart test --run-skipped -t integration`.
 
-- `dev/testing/scenarios/workflow-spec-and-implement-publish.md` — completes `spec-and-implement`, verifies a real worktree-backed coding task, verifies the pushed branch and GitHub PR, then closes the PR
-- `dev/testing/scenarios/workflow-plan-and-implement-publish.md` — completes `plan-and-implement`, verifies multiple real worktree-backed story tasks, verifies the pushed branch and GitHub PR, then closes the PR
-
-Cancellation and operator-interruption coverage should live in explicit cancellation scenarios rather than in the default smoke path.
+Cancellation and operator-interruption coverage should live in explicit, named cancellation scenarios rather than in the live completion scenario.
 
 All of these scenarios use deliberately tiny documentation-only prompts so the authored workflow output stays narrow and repeatable.
 

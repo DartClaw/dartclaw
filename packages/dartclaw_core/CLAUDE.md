@@ -12,7 +12,7 @@
 - **Cross-cutting** — `RepoLock` (advisory file lock for shared `.git/` writes), `atomicWriteJson` (the only sanctioned JSON write path).
 
 ## Shape
-- **Harness**: `HarnessFactory.create` → `start()` (spawns provider binary) → `runTurn(...)` (writes stdin, reads stdout via `ProtocolAdapter`) → `stop()`. All mutating ops serialized via `_withLock()`; spawn-generation counter discards stale exit handlers.
+- **Harness**: `HarnessFactory.create` → `start()` (spawns provider binary) → `runTurn(...)` (writes stdin, reads stdout via `ProtocolAdapter`) → `resetSessionContinuity(sessionId)` when a DartClaw session reset must drop provider-side conversation state → `stop()`. All mutating ops serialized via `_withLock()`; spawn-generation counter discards stale exit handlers.
 - **Inbound channel**: `Channel.handleWebhook(payload)` → `ChannelManager` (`ownsJid` ownership check) → `ChannelTaskBridge` (binding → rate limit → review → trigger → fall-through) → task or session.
 - **Events**: producers fire on `EventBus`; `BridgeEvent` carries protocol-stream signals, `DartclawEvent` carries app semantics — both broadcast, fire-and-forget.
 
@@ -34,6 +34,7 @@
 - `EventBus.fire` is fire-and-forget with broadcast semantics — events with no subscriber are dropped. Don't use it for required handoffs.
 - The barrel's `show` clauses are exhaustive and authoritative; adding a class to a `src/` file does **not** export it. Many "missing class" errors elsewhere trace here.
 - `ClaudeProtocolAdapter` normalizes provider tool names to the canonical taxonomy (`shell`/`file_read`/`file_write`/`file_edit`/`web_fetch`/`mcp_call`) **before** guard evaluation — preserve `rawProviderToolName` on `GuardContext` for audit, but route policy by canonical.
+- Direct Claude spawns inherit user-scope Claude settings by default. Only pass `--setting-sources project` when `providers.claude.inherit_user_settings: false`; containerized spawns stay flag-free because the container is the isolation boundary.
 - Codex approval round-trip is the ONLY guard interception point for the Codex provider — never spawn `codex` with `--yolo`.
 - File-backed `MessageService` uses 1-based line cursors in `messages.ndjson`; cursor is assigned on read, never persisted in the JSON line itself.
 

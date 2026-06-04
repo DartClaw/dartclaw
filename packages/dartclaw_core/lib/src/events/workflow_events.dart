@@ -150,6 +150,28 @@ final class WorkflowCliTurnProgressEvent extends DartclawEvent {
       'turn: $turnIndex, cumulative: $cumulativeTokens)';
 }
 
+final class WorkflowCliStallEvent extends DartclawEvent {
+  final String provider;
+  final String stepName;
+  final Duration silentDuration;
+  final String action;
+
+  @override
+  final DateTime timestamp;
+
+  WorkflowCliStallEvent({
+    required this.provider,
+    required this.stepName,
+    required this.silentDuration,
+    required this.action,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'WorkflowCliStallEvent(provider: $provider, step: $stepName, silentDuration: $silentDuration, action: $action)';
+}
+
 /// Fired when all steps in a parallel group complete (success or partial failure).
 // NOT_ALERTABLE: workflow lifecycle telemetry — surfaced via SSE only
 final class ParallelGroupCompletedEvent extends WorkflowLifecycleEvent {

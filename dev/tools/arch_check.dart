@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
-// Ratchet: this bound is a soft architectural nag, not a hard limit. The intent
-// is to keep `dartclaw_core/lib` focused on runtime primitives; non-primitive
-// growth should land in `dartclaw_models` / `dartclaw_config` instead. Bump
-// only with a CHANGELOG note explaining what justified the growth — the
-// conversation forced by every breach is the point.
-const _coreLocCeiling = 12500; // S22 TI08: moved non-primitives to dartclaw_config
+// Ratchet: this bound is a hard CI limit. The intent is to keep
+// `dartclaw_core/lib` focused on runtime primitives; non-primitive growth should
+// land in `dartclaw_models` / `dartclaw_config` instead. Bump only with a
+// CHANGELOG note explaining what justified the growth.
+const _coreLocCeiling = 12500;
+const _coreLocWarnThreshold = 12400;
 const _barrelExportCeiling = 94; // S34: +ClaudeSettingsBuilder +normalizeDynamicMap +intValue +stringValue
 const _workspacePackageCeiling = 14;
 const _workspaceAppNames = {'dartclaw_cli'};
@@ -68,6 +68,7 @@ Future<void> main() async {
     await _checkDependencyGraph(repoRoot),
     _checkCoreSqliteDependency(repoRoot),
     _checkCrossPackageSrcImports(repoRoot),
+    _checkClaudeProviderOptionOwnership(repoRoot),
     _checkCoreLoc(repoRoot),
     _checkBarrelExports(repoRoot),
     _checkWorkspacePackageCount(repoRoot),
@@ -178,6 +179,45 @@ Future<_CheckResult> _checkDependencyGraph(String repoRoot) async {
   }
 }
 
+_CheckResult _checkClaudeProviderOptionOwnership(String repoRoot) {
+  final violations = <String>[];
+  final allowed = {
+    'packages/dartclaw_config/lib/src/claude_provider_options.dart',
+    'packages/dartclaw_config/lib/src/config_parser.dart',
+  };
+
+  for (final root in ['apps', 'packages']) {
+    final dir = Directory('$repoRoot/$root');
+    if (!dir.existsSync()) {
+      continue;
+    }
+
+    for (final file in dir.listSync(recursive: true)) {
+      if (file is! File || !file.path.endsWith('.dart')) {
+        continue;
+      }
+
+      final relativePath = _relativePath(file.path, repoRoot);
+      if (allowed.contains(relativePath) || relativePath.contains('/test/')) {
+        continue;
+      }
+
+      final content = file.readAsStringSync();
+      if (RegExp(r'''\[['"]inherit_user_settings['"]\]''').hasMatch(content)) {
+        violations.add(relativePath);
+      }
+    }
+  }
+
+  return _CheckResult(
+    name: 'L1 Claude provider option ownership',
+    passed: violations.isEmpty,
+    detail: violations.isEmpty
+        ? 'Production inherit_user_settings lookups are centralized in dartclaw_config.'
+        : 'Found raw inherit_user_settings lookup(s) outside dartclaw_config policy helper: ${violations.join(', ')}',
+  );
+}
+
 _CheckResult _checkCoreSqliteDependency(String repoRoot) {
   final pubspec = File('$repoRoot/packages/dartclaw_core/pubspec.yaml').readAsStringSync();
   final dependenciesSection = _topLevelSection(pubspec, 'dependencies');
@@ -239,7 +279,9 @@ _CheckResult _checkCoreLoc(String repoRoot) {
   return _CheckResult(
     name: 'L2 core LOC ceiling',
     passed: loc <= _coreLocCeiling,
-    detail: '$loc lines in packages/dartclaw_core/lib (threshold <= $_coreLocCeiling).',
+    detail:
+        '${loc >= _coreLocWarnThreshold ? 'WARN: ' : ''}$loc lines in packages/dartclaw_core/lib '
+        '(warn >= $_coreLocWarnThreshold, threshold <= $_coreLocCeiling).',
   );
 }
 

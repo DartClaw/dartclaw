@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/auth/request_auth_context.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -18,11 +19,28 @@ void main() {
   });
 
   group('authMiddleware', () {
+    test('admin context defaults closed when absent', () {
+      final request = Request('GET', Uri.parse('http://localhost/api/config/guards'));
+
+      expect(requestHasAdminAccess(request), isFalse);
+      expect(requestHasAdminAccess(withAdminAuthContext(request)), isTrue);
+    });
+
     test('disabled middleware passes all through', () async {
       final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken, enabled: false);
       final handler = mw(makeOk());
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/sessions')));
       expect(response.statusCode, 200);
+    });
+
+    test('localAdminMiddleware grants admin context to every request', () async {
+      final handler = localAdminMiddleware()(
+        (Request request) => Response.ok(requestHasAdminAccess(request) ? 'admin' : 'read-only'),
+      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/config/guards')));
+
+      expect(response.statusCode, 200);
+      expect(await response.readAsString(), 'admin');
     });
 
     group('public paths', () {
@@ -111,6 +129,21 @@ void main() {
       expect(response.statusCode, 200);
     });
 
+    test('authenticated requests ignore client-supplied read-only downgrade header', () async {
+      final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
+      final handler = mw((Request request) => Response.ok(requestHasAdminAccess(request) ? 'admin' : 'read-only'));
+      final response = await handler(
+        Request(
+          'GET',
+          Uri.parse('http://localhost/api/config/guards'),
+          headers: {'authorization': 'Bearer $gatewayToken', 'x-dartclaw-read-only': 'true'},
+        ),
+      );
+
+      expect(response.statusCode, 200);
+      expect(await response.readAsString(), 'admin');
+    });
+
     test('invalid bearer token returns 401 JSON for API client', () async {
       final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
       final handler = mw(makeOk());
@@ -122,52 +155,25 @@ void main() {
       expect(body['error'], 'Unauthorized');
     });
 
-    test('token bootstrap sets HMAC cookie and redirects', () async {
-      final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
-      final handler = mw(makeOk());
-      final response = await handler(Request('GET', Uri.parse('http://localhost/?token=$gatewayToken')));
-      expect(response.statusCode, 302);
-      expect(response.headers['location'], '/');
-      expect(response.headers['set-cookie'], contains('dart_session='));
-      expect(response.headers['set-cookie'], contains('HttpOnly'));
-      expect(response.headers['set-cookie'], contains('SameSite=Strict'));
-
-      // Verify the cookie token is valid
-      final cookie = response.headers['set-cookie']!;
-      final tokenMatch = RegExp(r'dart_session=([^;]+)').firstMatch(cookie);
-      expect(tokenMatch, isNotNull);
-      expect(validateSessionToken(tokenMatch!.group(1)!, gatewayToken), isTrue);
-    });
-
-    test('token bootstrap can set Secure cookie flag', () async {
-      final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken, cookieSecure: true);
-      final handler = mw(makeOk());
-      final response = await handler(Request('GET', Uri.parse('http://localhost/?token=$gatewayToken')));
-
-      expect(response.statusCode, 302);
-      expect(response.headers['set-cookie'], contains('Secure'));
-    });
-
-    test('token bootstrap on deep link redirects back to same route without token', () async {
-      final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
-      final handler = mw(makeOk());
-      final response = await handler(Request('GET', Uri.parse('http://localhost/settings?token=$gatewayToken')));
-
-      expect(response.statusCode, 302);
-      expect(response.headers['location'], '/settings');
-      expect(response.headers['set-cookie'], contains('dart_session='));
-    });
-
-    test('token bootstrap preserves other query params when redirecting', () async {
+    test('query token bootstrap is rejected without setting a cookie', () async {
       final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
       final handler = mw(makeOk());
       final response = await handler(
-        Request('GET', Uri.parse('http://localhost/tasks?status=review&token=$gatewayToken')),
+        Request('GET', Uri.parse('http://localhost/?token=$gatewayToken'), headers: {'accept': 'application/json'}),
       );
+      expect(response.statusCode, 401);
+      expect(response.headers['set-cookie'], isNull);
+    });
 
+    test('query token browser requests redirect to login without leaking the token', () async {
+      final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
+      final handler = mw(makeOk());
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/settings?token=$gatewayToken'), headers: {'accept': 'text/html'}),
+      );
       expect(response.statusCode, 302);
-      expect(response.headers['location'], '/tasks?status=review');
-      expect(response.headers['set-cookie'], contains('dart_session='));
+      expect(response.headers['location'], '/login?next=%2Fsettings');
+      expect(response.headers['set-cookie'], isNull);
     });
 
     test('invalid token bootstrap does not set cookie', () async {

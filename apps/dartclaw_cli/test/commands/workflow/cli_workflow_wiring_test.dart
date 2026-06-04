@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillIntrospector, WorkflowTaskType;
 
 import 'package:dartclaw_cli/src/commands/workflow/andthen_skill_bootstrap.dart' show bootstrapWorkflowSkills;
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
@@ -9,13 +9,26 @@ import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart'
     show restoreCheckoutBeforeWorkflowBranchDeletion;
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show SkillSource, WorkflowDefinition, WorkflowStep, WorkflowVariable;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep, WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+final class _FakeSkillIntrospector implements SkillIntrospector {
+  final Map<String, Set<String>> skillsByProvider;
+
+  const _FakeSkillIntrospector(this.skillsByProvider);
+
+  @override
+  Future<Set<String>> listAvailable({
+    required String provider,
+    String? executable,
+    Map<String, dynamic> providerOptions = const <String, dynamic>{},
+  }) async {
+    return skillsByProvider[provider] ?? const <String>{};
+  }
+}
 
 HarnessFactory _harnessFactoryFor(AgentHarness Function() builder) {
   final factory = HarnessFactory();
@@ -28,11 +41,6 @@ void _runGit(String workingDirectory, List<String> args) {
   if (result.exitCode != 0) {
     fail('git ${args.join(' ')} failed in $workingDirectory: ${result.stderr}');
   }
-}
-
-void _writeSkill(String skillsRoot, String name) {
-  final skillDir = Directory(p.join(skillsRoot, name))..createSync(recursive: true);
-  File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('---\nname: $name\n---\n\n# $name\n');
 }
 
 Future<void> _waitFor(bool Function() predicate, {Duration timeout = const Duration(seconds: 5)}) async {
@@ -85,13 +93,13 @@ void main() {
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
+      skillIntrospector: const _FakeSkillIntrospector({
+        'claude': {'andthen:review'},
+      }),
     );
     addTearDown(wiring.dispose);
 
     await wiring.wire();
-
-    expect(wiring.skillRegistry.getByName('dartclaw-discover-andthen-spec'), isNotNull);
-    expect(wiring.skillRegistry.getByName('dartclaw-discover-andthen-plan'), isNotNull);
 
     for (final projectId in ['alpha', 'beta']) {
       final projectSkillDir = p.join(
@@ -132,16 +140,75 @@ void main() {
     expect(cloneDir.existsSync(), isFalse);
   });
 
-  test('excludes custom workflows that reference missing skills', () async {
+  test('loads custom workflows with missing skills and fails at runtime preflight', () async {
     final workspaceWorkflowsDir = Directory(p.join(tempDir.path, 'workflows', 'custom'))..createSync(recursive: true);
     File(p.join(workspaceWorkflowsDir.path, 'invalid.yaml')).writeAsStringSync('''
 name: invalid-missing-skill
-description: Should be rejected
+description: Should load but fail at runtime preflight
 steps:
   - id: review
     name: Review
-    type: analysis
     skill: missing-skill
+''');
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    );
+
+    final wiring = CliWorkflowWiring(
+      config: config,
+      dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
+      environment: {'HOME': p.join(tempDir.path, 'fake-home')},
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      skillIntrospector: const _FakeSkillIntrospector({
+        'claude': {'andthen:review'},
+      }),
+    );
+    addTearDown(wiring.dispose);
+
+    await wiring.wire();
+
+    final definition = wiring.registry.getByName('invalid-missing-skill');
+    expect(definition, isNotNull);
+
+    final failed = Completer<WorkflowRunStatusChangedEvent>();
+    final sub = wiring.eventBus
+        .on<WorkflowRunStatusChangedEvent>()
+        .where((event) => event.newStatus == WorkflowRunStatus.failed)
+        .listen((event) {
+          if (!failed.isCompleted) {
+            failed.complete(event);
+          }
+        });
+    addTearDown(sub.cancel);
+
+    final run = await wiring.workflowService.start(definition!, const {}, headless: true);
+    final event = await failed.future.timeout(const Duration(seconds: 5));
+
+    expect(event.runId, run.id);
+    final failedRun = await wiring.workflowService.get(run.id);
+    expect(failedRun?.errorMessage, contains('Missing skills for provider "claude": missing-skill'));
+    expect(await wiring.taskService.list(), isEmpty);
+  });
+
+  test('loads workflow yaml files directly under the data-dir workflows folder', () async {
+    final workflowsDir = Directory(p.join(tempDir.path, 'workflows'))..createSync(recursive: true);
+    File(p.join(workflowsDir.path, 'my-review.yaml')).writeAsStringSync('''
+name: my-review
+description: Local review workflow
+steps:
+  - id: shell-check
+    name: Shell Check
+    type: bash
+    prompt: |
+      printf 'ok\\n'
 ''');
 
     final config = DartclawConfig(
@@ -165,7 +232,7 @@ steps:
 
     await wiring.wire();
 
-    expect(wiring.registry.getByName('invalid-missing-skill'), isNull);
+    expect(wiring.registry.getByName('my-review'), isNotNull);
   });
 
   test('loads per-project workflows from configured localPath directories', () async {
@@ -201,6 +268,9 @@ steps:
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
+      skillIntrospector: const _FakeSkillIntrospector({
+        'claude': {'andthen:review'},
+      }),
     );
     addTearDown(wiring.dispose);
 
@@ -394,6 +464,9 @@ steps:
       harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
+      skillIntrospector: const _FakeSkillIntrospector({
+        'claude': {'andthen:review'},
+      }),
     );
     addTearDown(wiring.dispose);
 
@@ -477,6 +550,56 @@ steps:
     final claudeConfigs = capturedByProvider['claude']!;
     expect(claudeConfigs, hasLength(1));
     expect(claudeConfigs.single.environment['ANTHROPIC_API_KEY'], 'anthropic-key');
+  });
+
+  test('reserves a pool slot for each non-default provider when default pool_size saturates the floor', () async {
+    // Regression: with codex (default, pool_size: 3) + claude (pool_size: 1)
+    // the eager spawn previously filled the 3-slot minimum capacity, then the
+    // first ensureTaskRunnersForProviders({'claude'}) threw `Pool already at
+    // capacity (3/3)` because no slot was reserved for the non-default
+    // provider that workflow steps pin (e.g. plan-and-implement-inline's
+    // plan-review-council pins provider: claude).
+    final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
+    final factory = HarnessFactory()
+      ..register('codex', (config) {
+        capturedByProvider.putIfAbsent('codex', () => <HarnessFactoryConfig>[]).add(config);
+        return FakeAgentHarness();
+      })
+      ..register('claude', (config) {
+        capturedByProvider.putIfAbsent('claude', () => <HarnessFactoryConfig>[]).add(config);
+        return FakeAgentHarness();
+      });
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'codex'),
+      providers: const ProvidersConfig(
+        entries: {
+          'codex': ProviderEntry(executable: 'codex', poolSize: 3),
+          'claude': ProviderEntry(executable: 'claude', poolSize: 1),
+        },
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    );
+
+    final wiring = CliWorkflowWiring(
+      config: config,
+      dataDir: tempDir.path,
+      runAndthenSkillsBootstrap: false,
+      environment: {'HOME': p.join(tempDir.path, 'fake-home')},
+      harnessFactory: factory,
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+    );
+    addTearDown(wiring.dispose);
+
+    await wiring.wire();
+    await wiring.ensureTaskRunnersForProviders({'codex', 'claude'});
+
+    // Pool now holds the primary codex harness + 3 codex task runners + the
+    // on-demand claude runner. addRunner must not have thrown.
+    expect(capturedByProvider['codex'], hasLength(4), reason: 'primary harness + 3 eager codex task runners');
+    expect(capturedByProvider['claude'], hasLength(1), reason: 'on-demand claude task runner');
+    expect(wiring.pool.hasTaskRunnerForProvider('claude'), isTrue);
   });
 
   test('defaults standalone harness cwd to the process cwd when runtime cwd is omitted', () async {
@@ -582,43 +705,6 @@ steps:
     expect(captured.map((config) => config.cwd).toSet(), {runtimeCwd.path});
   });
 
-  test('discovers manually installed provider skills from data-dir native roots', () async {
-    final dataClaudeSkills = p.join(tempDir.path, '.claude', 'skills');
-    final dataAgentsSkills = p.join(tempDir.path, '.agents', 'skills');
-    for (final name in const ['andthen:prd', 'andthen:plan']) {
-      _writeSkill(dataClaudeSkills, name);
-      _writeSkill(dataAgentsSkills, name);
-    }
-
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-    );
-
-    final wiring = CliWorkflowWiring(
-      config: config,
-      dataDir: tempDir.path,
-      runAndthenSkillsBootstrap: false,
-      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-    );
-    addTearDown(wiring.dispose);
-
-    await wiring.wire();
-
-    for (final name in const ['andthen:prd', 'andthen:plan']) {
-      final skill = wiring.skillRegistry.getByName(name);
-      expect(skill, isNotNull);
-      expect(skill!.path, startsWith(tempDir.path));
-      expect(skill.source, SkillSource.dataDirNative);
-      expect(skill.nativeHarnesses, {'claude', 'codex'});
-    }
-  });
-
   test('standalone wiring provisions DC-native skills before registering shipped workflows', () async {
     final fakeHome = p.join(tempDir.path, 'provision-home');
     _seedProviderAndThenSkills(fakeHome);
@@ -650,15 +736,6 @@ steps:
       isTrue,
     );
     expect(_unexpectedDataDirSkillEntries(tempDir.path), isEmpty);
-    for (final name in _shippedDartclawSkillRefs) {
-      expect(wiring.skillRegistry.resolveRef(name, 'claude'), isNotNull, reason: '$name should resolve');
-      expect(
-        wiring.skillRegistry.validateRef(name, provider: 'claude'),
-        isNull,
-        reason: '$name validateRef should pass',
-      );
-    }
-
     final registeredNames = wiring.registry.listAll().map((workflow) => workflow.name).toSet();
     expect(registeredNames, containsAll(['plan-and-implement', 'spec-and-implement', 'code-review']));
     expect(runner.calls.where((call) => call.executable.endsWith('install-skills.sh')), isEmpty);
@@ -1228,41 +1305,6 @@ steps:
         await wiring.dispose();
       }
     }
-  });
-
-  test('honors a local asset root for built-in skill discovery', () async {
-    final prefixDir = Directory(p.join(tempDir.path, 'prefix'))..createSync(recursive: true);
-    final assetRoot = Directory(p.join(prefixDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
-    Directory(p.join(assetRoot.path, 'templates')).createSync(recursive: true);
-    Directory(p.join(assetRoot.path, 'static')).createSync(recursive: true);
-    final skillDir = Directory(p.join(assetRoot.path, 'skills', 'dartclaw-asset-skill'))..createSync(recursive: true);
-    File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('---\nname: dartclaw-asset-skill\n---\n\n# asset\n');
-
-    final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
-      providers: ProvidersConfig(
-        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
-      ),
-      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
-    );
-
-    final wiring = CliWorkflowWiring(
-      config: config,
-      dataDir: tempDir.path,
-      runAndthenSkillsBootstrap: false,
-      environment: {'HOME': p.join(tempDir.path, 'fake-home')},
-      assetResolver: AssetResolver(resolvedExecutable: p.join(prefixDir.path, 'bin', 'dartclaw')),
-      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
-    );
-    addTearDown(wiring.dispose);
-
-    await wiring.wire();
-
-    final skill = wiring.skillRegistry.getByName('dartclaw-asset-skill');
-    expect(skill, isNotNull);
-    expect(skill!.source, SkillSource.dartclaw);
   });
 }
 

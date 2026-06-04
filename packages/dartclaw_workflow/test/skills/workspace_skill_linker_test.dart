@@ -67,7 +67,9 @@ void main() {
 
     test('git exclude patterns are written once and non-git workspaces are ignored', () {
       final gitDir = Directory(p.join(workspaceDir, '.git'))..createSync(recursive: true);
-      final linker = WorkspaceSkillLinker();
+      final linker = WorkspaceSkillLinker(
+        gitDirResolver: (workspace) => workspace == workspaceDir ? gitDir.path : null,
+      );
       final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
 
       linker.materialize(
@@ -108,7 +110,7 @@ void main() {
       final effectiveGitDir = Directory(p.join(tempDir.path, 'main.git', 'worktrees', 'task-1'))
         ..createSync(recursive: true);
       File(p.join(workspaceDir, '.git')).writeAsStringSync('gitdir: ${effectiveGitDir.path}\n');
-      final linker = WorkspaceSkillLinker();
+      final linker = WorkspaceSkillLinker(gitDirResolver: (_) => effectiveGitDir.path);
       final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
 
       linker.materialize(
@@ -123,6 +125,23 @@ void main() {
       expect(exclude, contains('/.claude/skills/dartclaw-discover-andthen-spec'));
       expect(exclude, contains('/.claude/skills/dartclaw-discover-andthen-plan'));
       expect(exclude, contains('/.agents/skills/dartclaw-merge-resolve'));
+    });
+
+    test('crafted gitdir file is ignored when git plumbing rejects it', () {
+      final outsideGit = Directory(p.join(tempDir.path, 'outside-git'))..createSync(recursive: true);
+      File(p.join(workspaceDir, '.git')).writeAsStringSync('gitdir: ${outsideGit.path}\n');
+      final linker = WorkspaceSkillLinker();
+      final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
+
+      linker.materialize(
+        dataDir: dataDir,
+        workspaceDir: workspaceDir,
+        skillNames: inventory.skillNames,
+        agentMdNames: inventory.agentMdNames,
+        agentTomlNames: inventory.agentTomlNames,
+      );
+
+      expect(File(p.join(outsideGit.path, 'info', 'exclude')).existsSync(), isFalse);
     });
 
     test('materialized real git worktree remains porcelain-clean', () {
@@ -169,6 +188,30 @@ void main() {
       );
 
       expect(staleLink.targetSync(), p.join(dataDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec'));
+    });
+
+    test('reserved dartclaw skill namespace replaces unmanaged workspace payloads', () {
+      final hostileSkill = Directory(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec'))
+        ..createSync(recursive: true);
+      File(p.join(hostileSkill.path, 'SKILL.md')).writeAsStringSync('unmanaged\n');
+      final linker = WorkspaceSkillLinker(
+        linkFactory: ({required targetPath, required linkPath}) {
+          Link(linkPath).createSync(targetPath);
+        },
+      );
+
+      linker.materialize(
+        dataDir: dataDir,
+        workspaceDir: workspaceDir,
+        skillNames: const ['dartclaw-discover-andthen-spec'],
+        agentMdNames: const [],
+        agentTomlNames: const [],
+      );
+
+      expect(
+        Link(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec')).targetSync(),
+        p.join(dataDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec'),
+      );
     });
 
     test('copy fallback writes managed markers and refreshes only on fingerprint mismatch', () {
@@ -239,8 +282,9 @@ void main() {
       final operatorSkill = Directory(p.join(workspaceDir, '.claude', 'skills', 'my-custom-skill'))
         ..createSync(recursive: true);
       File(p.join(operatorSkill.path, 'SKILL.md')).writeAsStringSync('operator\n');
-      Directory(p.join(workspaceDir, '.git')).createSync(recursive: true);
+      final gitDir = Directory(p.join(workspaceDir, '.git'))..createSync(recursive: true);
       final linker = WorkspaceSkillLinker(
+        gitDirResolver: (_) => gitDir.path,
         linkFactory: ({required targetPath, required linkPath}) {
           throw const FileSystemException('symlinks unavailable');
         },

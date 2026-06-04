@@ -54,6 +54,16 @@ CodexHarness _buildHarness({
   );
 }
 
+Future<void> _pumpUntilSentMessageCount(FakeCodexProcess process, String method, int count) async {
+  for (var i = 0; i < 20; i++) {
+    if (process.sentMessages.where((message) => message['method'] == method).length >= count) {
+      return;
+    }
+    await pumpEventLoop();
+  }
+  throw StateError('Expected $count outbound $method message(s)');
+}
+
 void main() {
   group('CodexHarness', () {
     group('constructor defaults', () {
@@ -299,6 +309,47 @@ void main() {
         expect(turnStartMessages, hasLength(2));
         expect((turnStartMessages[0]['params'] as Map<String, dynamic>)['threadId'], 'thread-123');
         expect((turnStartMessages[1]['params'] as Map<String, dynamic>)['threadId'], 'thread-123');
+      });
+
+      test('resetSessionContinuity starts a fresh thread for the session', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        final firstTurn = harness.turn(
+          sessionId: 'sess-reset',
+          messages: [
+            {'role': 'user', 'content': 'first question'},
+          ],
+          systemPrompt: 'test',
+        );
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake, threadId: 'thread-before-reset');
+        fake.emitTurnCompleted(inputTokens: 1, outputTokens: 2);
+        await firstTurn;
+
+        await harness.resetSessionContinuity('sess-reset');
+
+        final secondTurn = harness.turn(
+          sessionId: 'sess-reset',
+          messages: [
+            {'role': 'user', 'content': 'after reset'},
+          ],
+          systemPrompt: 'test',
+        );
+        await _pumpUntilSentMessageCount(fake, 'thread/start', 2);
+        fake.emitThreadStartResponse(id: latestRequestId(fake, 'thread/start'), threadId: 'thread-after-reset');
+        await pumpEventLoop();
+        fake.emitTurnCompleted(inputTokens: 3, outputTokens: 4);
+        await secondTurn;
+
+        final threadStartMessages = fake.sentMessages.where((message) => message['method'] == 'thread/start').toList();
+        final turnStartMessages = fake.sentMessages.where((message) => message['method'] == 'turn/start').toList();
+
+        expect(threadStartMessages, hasLength(2));
+        expect((turnStartMessages[0]['params'] as Map<String, dynamic>)['threadId'], 'thread-before-reset');
+        expect((turnStartMessages[1]['params'] as Map<String, dynamic>)['threadId'], 'thread-after-reset');
       });
 
       test('creates separate threads for different sessions', () async {

@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/auth/request_auth_context.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:path/path.dart' as p;
@@ -125,11 +126,13 @@ workspace:
   }
 
   Future<Response> patch(Router router, String path, Map<String, dynamic> body) {
-    final request = Request(
-      'PATCH',
-      Uri.parse('http://localhost$path'),
-      body: jsonEncode(body),
-      headers: {'content-type': 'application/json'},
+    final request = withAdminAuthContext(
+      Request(
+        'PATCH',
+        Uri.parse('http://localhost$path'),
+        body: jsonEncode(body),
+        headers: {'content-type': 'application/json'},
+      ),
     );
     return router.call(request);
   }
@@ -400,13 +403,50 @@ workspace:
   });
 
   group('PATCH /api/config — validation', () {
-    test('empty body returns 400', () async {
+    test('request without admin context returns 403 before mutating config', () async {
       final router = createRouter();
       final request = Request(
         'PATCH',
         Uri.parse('http://localhost/api/config'),
-        body: '{}',
+        body: jsonEncode({'guards.content.enabled': false}),
         headers: {'content-type': 'application/json'},
+      );
+
+      final response = await router.call(request);
+
+      expect(response.statusCode, 403);
+      expect(await readJson(response), containsPair('error', containsPair('code', 'FORBIDDEN')));
+    });
+
+    test('no-auth pipeline (auth_mode: none) lets an unauthenticated request patch config', () async {
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
+      final router = createRouter(runtime: runtime);
+      // localAdminMiddleware is what the server installs when auth is disabled;
+      // without it the admin gate above would 403 every request in no-auth mode.
+      final handler = const Pipeline().addMiddleware(localAdminMiddleware()).addHandler(router.call);
+      final request = Request(
+        'PATCH',
+        Uri.parse('http://localhost/api/config'),
+        body: jsonEncode({'scheduling.heartbeat.enabled': false}),
+        headers: {'content-type': 'application/json'},
+      );
+
+      final response = await handler(request);
+
+      expect(response.statusCode, 200);
+      expect((await readJson(response))['applied'], ['scheduling.heartbeat.enabled']);
+      expect(runtime.heartbeatEnabled, false);
+    });
+
+    test('empty body returns 400', () async {
+      final router = createRouter();
+      final request = withAdminAuthContext(
+        Request(
+          'PATCH',
+          Uri.parse('http://localhost/api/config'),
+          body: '{}',
+          headers: {'content-type': 'application/json'},
+        ),
       );
       final response = await router.call(request);
       expect(response.statusCode, 400);

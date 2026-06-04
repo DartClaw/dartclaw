@@ -51,79 +51,8 @@ void main() {
         expect(frontmatter['user-invocable'], isFalse);
       });
 
-      test('workflow.default_prompt is a non-empty string', () {
-        final workflow = frontmatter['workflow'];
-        expect(workflow, isA<Map<Object?, Object?>>());
-        final prompt = (workflow as Map<Object?, Object?>)['default_prompt'];
-        expect(prompt, isA<String>());
-        expect((prompt as String).trim(), isNotEmpty);
-      });
-    });
-
-    // TI03 — four output fields with correct formats
-    group('output declarations', () {
-      late Map<Object?, Object?> defaultOutputs;
-
-      setUp(() {
-        final workflow = frontmatter['workflow'] as Map<Object?, Object?>;
-        expect(
-          workflow['default_outputs'],
-          isA<Map<Object?, Object?>>(),
-          reason: 'workflow.default_outputs must be a map',
-        );
-        defaultOutputs = workflow['default_outputs'] as Map<Object?, Object?>;
-      });
-
-      test('declares merge_resolve.outcome output', () {
-        expect(defaultOutputs.containsKey('merge_resolve.outcome'), isTrue);
-      });
-
-      test('merge_resolve.outcome declares enum-typed string with the three allowed values', () {
-        final cfg = defaultOutputs['merge_resolve.outcome'] as Map<Object?, Object?>;
-        // Runtime format must be one of the runtime-supported OutputFormat values
-        // (text/json/lines/path); the enum constraint is expressed in the description.
-        expect(cfg['format'], 'text', reason: 'TI03 enum-typed string maps to runtime format=text');
-        final desc = cfg['description'] as String;
-        for (final v in ['resolved', 'failed', 'cancelled']) {
-          expect(desc, contains(v), reason: 'description must enumerate allowed value "$v"');
-        }
-      });
-
-      test('declares merge_resolve.conflicted_files output', () {
-        expect(defaultOutputs.containsKey('merge_resolve.conflicted_files'), isTrue);
-      });
-
-      test('merge_resolve.conflicted_files has format: json', () {
-        final cfg = defaultOutputs['merge_resolve.conflicted_files'] as Map;
-        expect(cfg['format'], 'json');
-      });
-
-      test('declares merge_resolve.resolution_summary output', () {
-        expect(defaultOutputs.containsKey('merge_resolve.resolution_summary'), isTrue);
-      });
-
-      test('declares merge_resolve.error_message output', () {
-        expect(defaultOutputs.containsKey('merge_resolve.error_message'), isTrue);
-      });
-
-      test('all four output keys are present', () {
-        const required = {
-          'merge_resolve.outcome',
-          'merge_resolve.conflicted_files',
-          'merge_resolve.resolution_summary',
-          'merge_resolve.error_message',
-        };
-        for (final key in required) {
-          expect(defaultOutputs.containsKey(key), isTrue, reason: 'missing output: $key');
-        }
-      });
-
-      test('each output has a non-empty description', () {
-        for (final entry in defaultOutputs.entries) {
-          final val = entry.value as Map;
-          expect(val['description'], isA<String>(), reason: '${entry.key} missing description');
-          expect((val['description'] as String).trim(), isNotEmpty, reason: '${entry.key} description is empty');
-        }
+      test('does not carry workflow frontmatter defaults', () {
+        expect(frontmatter.containsKey('workflow'), isFalse);
       });
     });
 

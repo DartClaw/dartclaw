@@ -3,8 +3,6 @@
 ## Project Overview
 
 **DartClaw** – An experimental, security-conscious AI agent runtime built with Dart. Dart orchestrator (AOT-compiled, zero npm) + multiple agent harnesses (Claude Code, Codex, and potentially more).
-Current milestone: 0.16.5 – Stabilisation & Hardening
-> AGENTS.md is the standard instruction file for ALL non-Claude-Code agents, not DartClaw-specific.
 
 Read more in `dev/state/PRODUCT.md` for vision, development stage, and core philosophy.
 
@@ -65,11 +63,13 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Roadmap (current + next) | `dev/state/ROADMAP.md` | Active milestone and what's after |
 | Tech stack | `dev/state/STACK.md` | Languages, packages, external services |
 | Ubiquitous language | `dev/state/UBIQUITOUS_LANGUAGE.md` | Domain glossary – use these terms in code, docs, naming |
+| Architecture reference | `dev/architecture/` (`system-`, `security-`, `configuration-`, `control-protocol`, `task-execution-`, `workflow-`, `session-state-`, `data-model`, `channel-messaging-`, `cli-api-`, `observability-operations-architecture.md`) | Canonical deep-dive on how each subsystem actually works. Read the relevant doc before changing or reasoning about a subsystem — e.g. `control-protocol.md` for agent-harness spawn/CLI flags/provider protocols, `security-architecture.md` for container/setting isolation + guards, `configuration-architecture.md` for the config schema. Don't reverse-engineer subsystem behavior from source when a doc exists |
 | Tech debt backlog | `dev/state/TECH-DEBT-BACKLOG.md` | Known debt requiring requirements input or architecture decision |
 | Spec lifecycle | `dev/state/SPEC-LIFECYCLE.md` | When exported implementation bundle files appear or disappear |
 | Design system | `dev/design-system/DESIGN.md` (+ `tokens.css`, `components.css`, `icons.css`, `showcase.html`) | Single source of truth for visual design. YAML frontmatter follows the [DESIGN.md spec](https://github.com/google-labs-code/design.md). Read before any UI/CSS/template work. |
 | Implementation bundle specs | `dev/bundle/docs/specs/` | Transient PRD/plan/FIS copies for public workflow runs; canonical in private |
 | Implementation bundle docs | `dev/bundle/docs/` | Transient support docs copied with private `docs/` layout preserved |
+| User-facing docs | `docs/guide/` (`getting-started`, `configuration`, `customization`, `security`, `governance`, `agents`, `workflows`, `tasks`, `web-ui-and-api`, `cli-reference`, `deployment`, channel guides, `recipes/`, …) + `docs/sdk/` (`quick-start`, `packages`) | End-user reference and guides. Read the relevant guide before changing user-facing behavior, config keys, CLI, channels, web UI, or the SDK surface — e.g. `docs/guide/configuration.md` documents `providers.*` options. **Keep them current** in the same change when behavior/config they document changes (same currency discipline as package `AGENTS.md`) |
 | Changelog | `CHANGELOG.md` | Shipped history per release |
 | Built-in workflows | `dev/tools/dartclaw-workflows/README.md` (+ § below) | Running shipped workflows against this checkout |
 | Dart style | `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` | Before writing Dart |

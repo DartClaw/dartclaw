@@ -44,6 +44,12 @@ abstract final class WorkflowTaskConfig {
   /// Task-config key carrying merge-resolve environment variables.
   static const String mergeResolveEnv = '_workflowMergeResolveEnv';
 
+  /// Task-config key carrying the authored workflow step name.
+  static const String workflowStepName = 'workflowStepName';
+
+  /// Task-config key carrying the authored workflow step timeout in seconds.
+  static const String workflowTimeoutSeconds = 'workflowTimeoutSeconds';
+
   // ---------------------------------------------------------------------------
   // Cross-package typed accessors (server-side reads route through here).
   // ---------------------------------------------------------------------------

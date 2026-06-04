@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'components.dart';
 import 'loader.dart';
 
@@ -16,6 +18,7 @@ typedef ClassifiedMessage = ({
   MessageType messageType,
   String? detail,
   String? senderName,
+  String? metadata,
 });
 
 /// Classifies a raw message into one of the four message types.
@@ -31,10 +34,19 @@ ClassifiedMessage classifyMessage({
   required String id,
   required String role,
   required String content,
+  String? metadata,
   String? senderName,
 }) {
   if (role == 'user') {
-    return (id: id, role: role, content: content, messageType: MessageType.user, detail: null, senderName: senderName);
+    return (
+      id: id,
+      role: role,
+      content: content,
+      messageType: MessageType.user,
+      detail: null,
+      senderName: senderName,
+      metadata: metadata,
+    );
   }
 
   final guardMatch = _guardBlockPattern.firstMatch(content);
@@ -46,6 +58,7 @@ ClassifiedMessage classifyMessage({
       messageType: MessageType.guardBlock,
       detail: guardMatch.group(1) ?? content,
       senderName: null,
+      metadata: metadata,
     );
   }
 
@@ -58,10 +71,19 @@ ClassifiedMessage classifyMessage({
       messageType: MessageType.turnFailed,
       detail: failedMatch.group(1),
       senderName: null,
+      metadata: metadata,
     );
   }
 
-  return (id: id, role: role, content: content, messageType: MessageType.assistant, detail: null, senderName: null);
+  return (
+    id: id,
+    role: role,
+    content: content,
+    messageType: MessageType.assistant,
+    detail: null,
+    senderName: null,
+    metadata: metadata,
+  );
 }
 
 /// Renders a list of messages as HTML fragments.
@@ -85,6 +107,7 @@ String messagesHtmlFragment(List<ClassifiedMessage> messages) {
               'content': m.content,
               'senderName': m.senderName,
               'hasSenderName': m.senderName != null && m.senderName!.isNotEmpty,
+              'richInputHtml': richInputHtmlFromMessageMetadata(m.metadata),
             },
           ),
         );
@@ -97,6 +120,43 @@ String messagesHtmlFragment(List<ClassifiedMessage> messages) {
     }
   }
   return buffer.toString();
+}
+
+/// Renders durable rich input chips attached to a stored user message.
+String? richInputHtmlFromMessageMetadata(String? metadata) {
+  if (metadata == null || metadata.trim().isEmpty) return null;
+  final decoded = _tryDecodeJson(metadata);
+  if (decoded is! Map<String, dynamic>) return null;
+  return richInputHtmlFromMetadataMap(decoded);
+}
+
+String? richInputHtmlFromMetadataMap(Map<String, dynamic>? metadata) {
+  if (metadata == null) return null;
+  final attachments = (metadata['attachments'] as List?)?.whereType<Map<String, dynamic>>().toList() ?? const [];
+  final references = (metadata['references'] as List?)?.whereType<Map<String, dynamic>>().toList() ?? const [];
+  if (attachments.isEmpty && references.isEmpty) return null;
+
+  final buffer = StringBuffer('<div class="msg-rich-input" aria-label="Rich input context">');
+  for (final attachment in attachments) {
+    final filename = htmlEscape.convert((attachment['filename'] as String?) ?? 'attachment');
+    final state = htmlEscape.convert((attachment['state'] as String?) ?? 'ready');
+    buffer.write('<span class="composer-chip composer-chip-attachment">$filename <small>$state</small></span>');
+  }
+  for (final reference in references) {
+    final type = htmlEscape.convert((reference['type'] as String?) ?? 'reference');
+    final label = htmlEscape.convert((reference['label'] as String?) ?? (reference['id'] as String?) ?? 'reference');
+    buffer.write('<span class="composer-chip composer-chip-reference">@$label <small>$type</small></span>');
+  }
+  buffer.write('</div>');
+  return buffer.toString();
+}
+
+Object? _tryDecodeJson(String value) {
+  try {
+    return jsonDecode(value);
+  } catch (_) {
+    return null;
+  }
 }
 
 /// Renders the full chat area, including the messages list and input form.

@@ -341,7 +341,10 @@ class WorkflowsPage extends DashboardPage {
       try {
         final msgs = await context.messages!.getMessagesTail(task!.sessionId!);
         final messageList = msgs
-            .map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null))
+            .map(
+              (m) =>
+                  classifyMessage(id: m.id, role: m.role, content: m.content, metadata: m.metadata, senderName: null),
+            )
             .toList();
         messagesHtml = messagesHtmlFragment(messageList);
       } catch (e) {

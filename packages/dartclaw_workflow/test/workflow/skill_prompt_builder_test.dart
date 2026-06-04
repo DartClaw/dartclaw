@@ -117,22 +117,14 @@ void main() {
       expect(result, contains('## Required Output Format'));
     });
 
-    test('skill + no prompt + skillDefaultPrompt -> skill line + default prompt', () {
-      final result = builder.build(
-        skill: 'dartclaw-quick-review',
-        skillDefaultPrompt: 'Quick-review the recent change set.',
-      );
-      expect(result, "Use the 'dartclaw-quick-review' skill.\n\nQuick-review the recent change set.");
+    test('skill + no prompt -> skill line only', () {
+      final result = builder.build(skill: 'dartclaw-quick-review');
+      expect(result, "Use the 'dartclaw-quick-review' skill.");
     });
 
-    test('skill + explicit prompt overrides skillDefaultPrompt', () {
-      final result = builder.build(
-        skill: 'dartclaw-quick-review',
-        resolvedPrompt: 'Custom prompt.',
-        skillDefaultPrompt: 'Default prompt that should NOT appear.',
-      );
+    test('skill + explicit prompt renders the prompt body', () {
+      final result = builder.build(skill: 'dartclaw-quick-review', resolvedPrompt: 'Custom prompt.');
       expect(result, contains('Custom prompt.'));
-      expect(result, isNot(contains('Default prompt that should NOT appear.')));
     });
   });
 

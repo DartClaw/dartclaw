@@ -137,27 +137,38 @@ Future<void> _ensureLocalBranch({required String projectDir, required String bra
 }
 
 int _standaloneTaskRunnerCapacity(DartclawConfig config) {
-  final configuredProviders = <String>{config.agent.provider, ...config.providers.entries.keys};
-  // Standalone workflows may need to provision an explicit provider that is
-  // not the default (for example, built-in workflows target `claude` even
-  // when the default provider is Codex). Reserve enough task-runner slots to
-  // materialize the built-in provider families on demand.
+  // Standalone workflows reserve task-runner slots upfront so the pool can host
+  // every harness a workflow may pin without `addRunner` racing the cap after
+  // wire(). Capacity must cover:
+  //   1. The default provider's eager spawn — `pool_size`, or 1 when
+  //      `pool_size` is unset/zero. Mirrors `defaultRunnersToSpawn` in
+  //      `cli_workflow_wiring.dart`'s `_wireHarness`.
+  //   2. One on-demand slot per other configured provider — `ensureTaskRunnersForProviders`
+  //      adds at most one runner per non-default provider when a workflow step
+  //      pins it (e.g. `plan-and-implement-inline`'s `plan-review-council`
+  //      pins `provider: claude` even when the default is codex).
+  // The 3-slot floor preserves headroom for single-provider profiles;
+  // `tasks.maxConcurrent` upgrades capacity when the operator opts into more.
   const minimumStandaloneCapacity = 3;
-  final minimumCapacity = configuredProviders.length > minimumStandaloneCapacity
-      ? configuredProviders.length
-      : minimumStandaloneCapacity;
-  if (config.tasks.maxConcurrent > minimumCapacity) {
-    return config.tasks.maxConcurrent;
-  }
-  return minimumCapacity;
+  final defaultProviderId = config.agent.provider;
+  final defaultPoolSize = config.providers[defaultProviderId]?.poolSize ?? 0;
+  final defaultEagerCount = defaultPoolSize > 0 ? defaultPoolSize : 1;
+  final nonDefaultConfiguredCount = config.providers.entries.keys.where((id) => id != defaultProviderId).length;
+  final demandCapacity = defaultEagerCount + nonDefaultConfiguredCount;
+  final capacity = [
+    minimumStandaloneCapacity,
+    demandCapacity,
+    config.tasks.maxConcurrent,
+  ].reduce((a, b) => a > b ? a : b);
+  return capacity;
 }
 
 Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
-  final environment = Map<String, String>.from(Platform.environment)
-    ..remove('ANTHROPIC_API_KEY')
-    ..remove('OPENAI_API_KEY')
-    ..remove('CODEX_API_KEY')
-    ..remove('CLAUDE_CODE_SUBAGENT_MODEL');
+  final environment = SafeProcess.sanitize(
+    baseEnvironment: Platform.environment,
+    sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
+    extraEnvironment: claudeHardeningEnvVars,
+  );
   final apiKey = registry.getApiKey(providerId);
   if (apiKey != null) {
     for (final envVar in CredentialRegistry.envVarsFor(providerId)) {
@@ -168,19 +179,11 @@ Map<String, String> _providerEnvironment(String providerId, CredentialRegistry r
 }
 
 String _resolveProviderExecutable(DartclawConfig config, String providerId) {
-  final entry = config.providers[providerId];
-  if (entry != null) {
-    return entry.executable;
-  }
-  return switch (ProviderIdentity.family(providerId)) {
-    'claude' => config.server.claudeExecutable,
-    'codex' => 'codex',
-    _ => providerId,
-  };
+  return resolveWorkflowProviderExecutable(config, providerId);
 }
 
 Map<String, dynamic> _providerOptions(DartclawConfig config, String providerId) =>
-    config.providers[providerId]?.options ?? const <String, dynamic>{};
+    workflowProviderOptions(config, providerId);
 
 Future<String> _resolveWorkflowProjectDir(CliWorkflowWiring w, String? projectId) async {
   final trimmed = projectId?.trim();

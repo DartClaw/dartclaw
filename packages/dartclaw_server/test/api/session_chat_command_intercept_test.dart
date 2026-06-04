@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
 import 'package:dartclaw_server/src/api/chat_command_handler.dart';
+import 'package:dartclaw_server/src/auth/request_auth_context.dart';
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
@@ -44,6 +46,8 @@ class _FakeTurnManager extends TurnManager {
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
+    List<String>? allowedTools,
+    bool readOnly = false,
   }) async {
     reserveCalled = true;
     return 'turn-1';
@@ -89,7 +93,7 @@ class _FakeWorkflowService extends WorkflowService {
     EventBus eventBus,
     KvService kvService,
     String dataDir,
-  ) : super(
+  ) : super.lifecycleOnly(
         repository: repository,
         taskService: taskService,
         messageService: messageService,
@@ -194,11 +198,13 @@ void main() {
     final session = await sessions.createSession();
 
     final response = await handler(
-      Request(
-        'POST',
-        Uri.parse('http://localhost/api/sessions/${session.id}/send'),
-        body: 'message=%2Fworkflow+run+code-review+PR_NUMBER%3D42+REPO%3Downer%2Frepo',
-        headers: {'content-type': 'application/x-www-form-urlencoded'},
+      withAdminAuthContext(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/sessions/${session.id}/send'),
+          body: 'message=%2Fworkflow+run+code-review+PR_NUMBER%3D42+REPO%3Downer%2Frepo',
+          headers: {'content-type': 'application/x-www-form-urlencoded'},
+        ),
       ),
     );
 
@@ -209,15 +215,36 @@ void main() {
     expect(turns.reserveCalled, isFalse);
   });
 
-  test('invalid workflow chat commands still intercept without persisting messages', () async {
+  test('non-admin workflow run commands are rejected before message persistence', () async {
     final session = await sessions.createSession();
 
     final response = await handler(
       Request(
         'POST',
         Uri.parse('http://localhost/api/sessions/${session.id}/send'),
-        body: 'message=%2Fworkflow+run+code-review+PR_NUMBER%3D42',
+        body: 'message=%2Fworkflow+run+code-review+PR_NUMBER%3D42+REPO%3Downer%2Frepo',
         headers: {'content-type': 'application/x-www-form-urlencoded'},
+      ),
+    );
+
+    expect(response.statusCode, 200);
+    final body = await response.readAsString();
+    expect(body, contains('Workflow run requires admin access'));
+    expect(await messages.getMessages(session.id), isEmpty);
+    expect(turns.reserveCalled, isFalse);
+  });
+
+  test('invalid workflow chat commands still intercept without persisting messages', () async {
+    final session = await sessions.createSession();
+
+    final response = await handler(
+      withAdminAuthContext(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/sessions/${session.id}/send'),
+          body: 'message=%2Fworkflow+run+code-review+PR_NUMBER%3D42',
+          headers: {'content-type': 'application/x-www-form-urlencoded'},
+        ),
       ),
     );
 
@@ -227,5 +254,53 @@ void main() {
     expect(body, contains('REPO'));
     expect(await messages.getMessages(session.id), isEmpty);
     expect(turns.reserveCalled, isFalse);
+  });
+
+  test('command discovery exposes workflow run for admin writable sessions', () async {
+    final session = await sessions.createSession();
+
+    final response = await handler(
+      withAdminAuthContext(Request('GET', Uri.parse('http://localhost/api/sessions/${session.id}/commands'))),
+    );
+
+    expect(response.statusCode, 200);
+    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+    final commands = body['commands'] as List<dynamic>;
+    expect(
+      commands,
+      contains(predicate((command) => (command as Map<String, dynamic>)['insertText'] == '/workflow list')),
+    );
+    expect(
+      commands,
+      contains(predicate((command) => (command as Map<String, dynamic>)['insertText'] == '/workflow run ')),
+    );
+  });
+
+  test('command discovery hides workflow run without admin permission', () async {
+    final session = await sessions.createSession();
+
+    final response = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/${session.id}/commands')));
+
+    expect(response.statusCode, 200);
+    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+    final commands = body['commands'] as List<dynamic>;
+    expect(
+      commands,
+      contains(predicate((command) => (command as Map<String, dynamic>)['insertText'] == '/workflow list')),
+    );
+    expect(
+      commands,
+      isNot(contains(predicate((command) => (command as Map<String, dynamic>)['insertText'] == '/workflow run '))),
+    );
+  });
+
+  test('command discovery hides commands for archived sessions', () async {
+    final session = await sessions.createSession(type: SessionType.archive);
+
+    final response = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/${session.id}/commands')));
+
+    expect(response.statusCode, 200);
+    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+    expect(body['commands'], isEmpty);
   });
 }

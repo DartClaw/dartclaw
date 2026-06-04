@@ -389,6 +389,289 @@ function attachSettingsListeners() {
   });
 }
 
+var guardEditorState = null;
+var activeGuardEditorGuard = 'command';
+
+var guardFieldLabels = {
+  command: {
+    extra_blocked_patterns: 'Blocked pattern',
+    extra_blocked_pipe_targets: 'Blocked pipe target',
+  },
+  file: {
+    extra_rules: 'File rule',
+  },
+  network: {
+    extra_allowed_domains: 'Allowed domain',
+    extra_exfil_patterns: 'Exfiltration pattern',
+  },
+  'input-sanitizer': {
+    extra_patterns: 'Input pattern',
+  },
+};
+
+function currentGuardEditorGroup() {
+  if (!guardEditorState) return null;
+  return guardEditorState.guards.find(function (group) { return group.guard === activeGuardEditorGuard; });
+}
+
+function guardEntryDisplay(value) {
+  if (value && typeof value === 'object') {
+    if ('pattern' in value && 'level' in value) return value.pattern + ' -> ' + value.level;
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function renderGuardEditor() {
+  var root = document.querySelector('[data-guard-editor]');
+  if (!root || !guardEditorState) return;
+
+  var tabs = root.querySelector('[data-guard-editor-tabs]');
+  var rows = root.querySelector('[data-guard-editor-rows]');
+  var fieldSelect = root.querySelector('[data-guard-editor-field]');
+  var levelSelect = root.querySelector('[data-guard-editor-level]');
+  var testModeSelect = root.querySelector('[data-guard-editor-test-mode]');
+  var result = root.querySelector('[data-guard-editor-result]');
+  var group = currentGuardEditorGroup();
+
+  if (tabs) {
+    tabs.innerHTML = guardEditorState.guards.map(function (guard) {
+      var active = guard.guard === activeGuardEditorGuard ? ' active' : '';
+      return '<button type="button" class="guard-editor-tab' + active + '" data-guard-editor-tab="' + escapeHtml(guard.guard) + '">' + escapeHtml(guard.guard) + '</button>';
+    }).join('');
+  }
+
+  if (!group) return;
+  var labels = guardFieldLabels[group.guard] || {};
+  var rowHtml = [];
+  Object.keys(group.fields || {}).forEach(function (field) {
+    var entries = group.fields[field] || [];
+    if (!entries.length) {
+      rowHtml.push('<tr><td>-</td><td>' + escapeHtml(labels[field] || field) + '</td><td class="guard-editor-message">No editable extensions</td><td></td></tr>');
+      return;
+    }
+    entries.forEach(function (entry, index) {
+      var controls = '<td><button type="button" class="btn btn-ghost btn-sm" data-guard-editor-edit="' + escapeHtml(field) + '" data-index="' + index + '">Edit</button><button type="button" class="btn btn-ghost btn-sm" data-guard-editor-delete="' + escapeHtml(field) + '" data-index="' + index + '">Delete</button></td>';
+      rowHtml.push('<tr><td>' + (index + 1) + '</td><td>' + escapeHtml(labels[field] || field) + '</td><td class="guard-editor-value">' + escapeHtml(guardEntryDisplay(entry)) + '</td>' + controls + '</tr>');
+    });
+  });
+  if (rows) {
+    rows.innerHTML = rowHtml.join('');
+  }
+
+  if (fieldSelect) {
+    fieldSelect.innerHTML = Object.keys(labels).map(function (field) {
+      return '<option value="' + escapeHtml(field) + '">' + escapeHtml(labels[field]) + '</option>';
+    }).join('');
+    var isFileRule = group.guard === 'file' && fieldSelect.value === 'extra_rules';
+    if (levelSelect) levelSelect.hidden = !isFileRule;
+  }
+  if (testModeSelect) testModeSelect.hidden = group.guard !== 'file';
+  if (result && guardEditorState.displayedLayer) {
+    result.textContent = 'Showing ' + guardEditorState.displayedLayer;
+  }
+  if (result && guardEditorState.pendingRestart && guardEditorState.pendingRestart.length) {
+    result.classList.remove('guard-editor-error');
+    result.textContent = 'Showing ' + (guardEditorState.displayedLayer || 'persisted-config') + '. Pending restart: ' + guardEditorState.pendingRestart.join(', ');
+  }
+}
+
+function loadGuardEditor() {
+  var root = document.querySelector('[data-guard-editor]');
+  if (!root || root.dataset.loaded) return;
+  root.dataset.loaded = '1';
+  fetch('/api/config/guards')
+    .then(function (res) {
+      if (!res.ok) throw new Error('Failed to load guard editor');
+      return res.json();
+    })
+    .then(function (state) {
+      guardEditorState = state;
+      renderGuardEditor();
+    })
+    .catch(function (err) {
+      var result = root.querySelector('[data-guard-editor-result]');
+      if (result) {
+        result.classList.add('guard-editor-error');
+        result.textContent = err.message || 'Failed to load guard editor';
+      }
+    });
+}
+
+function guardEditorPayload(root) {
+  var group = currentGuardEditorGroup();
+  var field = root.querySelector('[data-guard-editor-field]')?.value;
+  var value = root.querySelector('[data-guard-editor-value]')?.value.trim();
+  if (!group || !field || !value) return null;
+  if (group.guard === 'file' && field === 'extra_rules') {
+    return { field: field, body: { pattern: value, level: root.querySelector('[data-guard-editor-level]')?.value || 'no_access' } };
+  }
+  return { field: field, body: { value: value } };
+}
+
+function attachGuardEditorListeners() {
+  var root = document.querySelector('[data-guard-editor]');
+  if (!root || root.dataset.listeners) return;
+  root.dataset.listeners = '1';
+
+  root.addEventListener('click', function (event) {
+    var tab = event.target.closest('[data-guard-editor-tab]');
+    if (tab) {
+      activeGuardEditorGuard = tab.dataset.guardEditorTab;
+      renderGuardEditor();
+      return;
+    }
+
+    var edit = event.target.closest('[data-guard-editor-edit]');
+    if (edit) {
+      var group = currentGuardEditorGroup();
+      var entries = group && group.fields ? group.fields[edit.dataset.guardEditorEdit] || [] : [];
+      var current = entries[Number(edit.dataset.index)];
+      var defaultValue = guardEntryDisplay(current);
+      if (group.guard === 'file' && edit.dataset.guardEditorEdit === 'extra_rules' && current && current.pattern) {
+        defaultValue = current.pattern;
+      }
+      var next = window.prompt('Guard extension value', defaultValue);
+      if (next == null || !next.trim()) return;
+      var body = { value: next.trim() };
+      if (group.guard === 'file' && edit.dataset.guardEditorEdit === 'extra_rules') {
+        var level = window.prompt('File access level', current && current.level ? current.level : 'no_access');
+        if (level == null || !level.trim()) return;
+        body = { pattern: next.trim(), level: level.trim() };
+      }
+      fetch('/api/config/guards/' + activeGuardEditorGuard + '/' + edit.dataset.guardEditorEdit + '/' + edit.dataset.index, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+        .then(function (res) {
+          if (!res.ok) return res.json().then(function (data) { throw data; });
+          return res.json();
+        })
+        .then(function (mutation) {
+          return refreshGuardEditorState().then(function () {
+            showGuardMutationToast('Guard extension updated', mutation);
+          });
+        })
+        .catch(function (err) {
+          showToast('error', (err.errors && err.errors[0] && err.errors[0].message) || 'Update failed');
+        });
+      return;
+    }
+
+    var del = event.target.closest('[data-guard-editor-delete]');
+    if (!del) return;
+    fetch('/api/config/guards/' + activeGuardEditorGuard + '/' + del.dataset.guardEditorDelete + '/' + del.dataset.index, {
+      method: 'DELETE',
+    })
+      .then(function (res) {
+        if (!res.ok) return res.json().then(function (data) { throw data; });
+        return res.json();
+      })
+      .then(function (mutation) {
+        return refreshGuardEditorState().then(function () {
+          showGuardMutationToast('Guard extension deleted', mutation);
+        });
+      })
+      .catch(function (err) {
+        showToast('error', (err.errors && err.errors[0] && err.errors[0].message) || 'Delete failed');
+      });
+  });
+
+  root.addEventListener('change', function (event) {
+    if (event.target.matches('[data-guard-editor-field]')) renderGuardEditor();
+  });
+
+  var addForm = root.querySelector('[data-guard-editor-add]');
+  if (addForm) {
+    addForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var payload = guardEditorPayload(root);
+      if (!payload) return;
+      fetch('/api/config/guards/' + activeGuardEditorGuard + '/' + payload.field, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload.body),
+      })
+        .then(function (res) {
+          if (!res.ok) return res.json().then(function (data) { throw data; });
+          return res.json();
+        })
+        .then(function (mutation) {
+          var input = root.querySelector('[data-guard-editor-value]');
+          if (input) input.value = '';
+          return refreshGuardEditorState().then(function () {
+            showGuardMutationToast('Guard extension saved', mutation);
+          });
+        })
+        .catch(function (err) {
+          showToast('error', (err.errors && err.errors[0] && err.errors[0].message) || 'Save failed');
+        });
+    });
+  }
+
+  var tester = root.querySelector('[data-guard-editor-test]');
+  if (tester) {
+    tester.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var input = root.querySelector('[data-guard-editor-test-input]');
+      var mode = root.querySelector('[data-guard-editor-test-mode]');
+      var result = root.querySelector('[data-guard-editor-result]');
+      var payload = { guard: activeGuardEditorGuard, input: input ? input.value : '' };
+      var draft = guardEditorPayload(root);
+      if (draft && draft.body && root.querySelector('[data-guard-editor-value]')?.value.trim()) {
+        payload.candidate = { field: draft.field, value: activeGuardEditorGuard === 'file' ? draft.body : draft.body.value };
+      }
+      if (activeGuardEditorGuard === 'file' && mode) {
+        payload.input = { input: input ? input.value : '', mode: mode.value };
+      }
+      fetch('/api/config/guards/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then(function (res) {
+          if (!res.ok) return res.json().then(function (data) { throw data; });
+          return res.json();
+        })
+        .then(function (data) {
+          if (result) {
+            result.classList.remove('guard-editor-error');
+            var layer = data.evaluatedLayer ? ' [' + data.evaluatedLayer + ']' : '';
+            result.textContent = data.verdict.toUpperCase() + layer + (data.reason ? ': ' + data.reason : '');
+          }
+        })
+        .catch(function (err) {
+          if (result) {
+            result.classList.add('guard-editor-error');
+            result.textContent = (err.errors && err.errors[0] && err.errors[0].message) || 'Test failed';
+          }
+        });
+    });
+  }
+}
+
+function refreshGuardEditorState() {
+  return fetch('/api/config/guards')
+    .then(function (r) { return r.json(); })
+    .then(function (state) {
+      guardEditorState = state;
+      renderGuardEditor();
+    });
+}
+
+function showGuardMutationToast(message, mutation) {
+  var pending = mutation && mutation.pendingRestart ? mutation.pendingRestart.length : 0;
+  var applied = mutation && mutation.applied ? mutation.applied.length : 0;
+  if (pending > 0 && applied === 0) {
+    showToast('info', message + ' — restart required');
+  } else if (pending > 0) {
+    showToast('info', message + ' — some changes pending restart');
+  } else {
+    showToast('success', message);
+  }
+}
+
 function initSettingsForm() {
   var form = document.querySelector('.settings-form');
   if (!form || form.dataset.settingsInit) return;
@@ -410,6 +693,8 @@ function initSettingsForm() {
       populateSettingsForm(config, meta);
       checkRestartBanner(config);
       attachSettingsListeners();
+      loadGuardEditor();
+      attachGuardEditorListeners();
     })
     .catch(function (err) {
       showToast('error', err.message || 'Failed to load settings');

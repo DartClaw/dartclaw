@@ -1,5 +1,5 @@
-packages/dartclaw_config/lib/dartclaw_config.dart  # 56 exports; shrink to <=50 as config-parser follow-up cleanup lands.
+packages/dartclaw_config/lib/dartclaw_config.dart  # 59 exports; shrink to <=50 as config-parser follow-up cleanup lands.
 packages/dartclaw_core/lib/dartclaw_core.dart  # 83 exports; shrink to <=80 as 0.16.5 model/API naming cleanup lands.
-packages/dartclaw_server/lib/dartclaw_server.dart  # 28 exports; shrink to <=25 as server public surface cleanup lands.
+packages/dartclaw_server/lib/dartclaw_server.dart  # 29 exports; shrink to <=25 as server public surface cleanup lands.
 packages/dartclaw_testing/lib/dartclaw_testing.dart  # 28 exports; shrink to <=25 as shared fake surface cleanup lands.
 packages/dartclaw_workflow/lib/dartclaw_workflow.dart  # 38 exports; shrink to <=35 after workflow surface cleanup.

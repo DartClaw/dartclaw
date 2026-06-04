@@ -6,6 +6,14 @@ How DartClaw creates, schedules, executes, reviews, and observes background task
 
 ---
 
+## Audience & Scope
+
+This is the **contributor reference**. It documents how the task subsystem is built: the domain model, the execution pipeline and `TaskExecutor`/`_executeCore` internals, the `HarnessPool` acquisition strategies, turn execution and trace persistence, coding-task worktree + merge + PR plumbing, the review concurrency model, and how task events flow through observability. Use it when modifying the orchestrator, worktree lifecycle, or review/merge code paths — or when writing tests against any of those.
+
+For **using tasks** (creating tasks from the Web UI/API, container profile routing in practice, per-task budget overrides, the review user flow, automation and scheduling examples), read [`docs/guide/tasks.md`](../../docs/guide/tasks.md) and [`docs/guide/agents.md`](../../docs/guide/agents.md). Where subjects overlap with those guides (TaskType list, simplified state diagram, container profile mapping), this doc keeps the implementation contract — exact enum values, full state machine including failure/cancel terminals, dispatch routing code paths — rather than re-explaining the user-facing concepts.
+
+---
+
 ## 1. Overview
 
 A **task** is a background unit of work executed by an agent harness. Tasks decouple work submission from execution — any surface (Web UI, API, channel message, cron schedule, workflow step) can create a task, and the runtime handles queuing, dispatch, isolation, and review.
@@ -140,7 +148,7 @@ Persisted output produced by task execution (`dartclaw_core/lib/src/task/task_ar
 | `id`       | `String`       | Unique artifact ID                    |
 | `taskId`   | `String`       | Owning task                           |
 | `name`     | `String`       | Display name                          |
-| `kind`     | `ArtifactKind` | Classification: `diff`, `document`, `data`, `pr` |
+| `kind`     | `ArtifactKind` | Classification: `diff`, `document`, `data`, `branch`, `pr` |
 | `path`     | `String`       | File path or URL                      |
 | `createdAt`| `DateTime`     | Recording timestamp                   |
 

@@ -225,11 +225,15 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
         break;
       }
 
+      // Run left `running` (pause/cancel) while an item awaited its task: stop
+      // dispatching siblings. In-flight items settle below; the step returns null.
+      if (mapCtx.aborted) break;
+
       // Dispatch eligible items up to the concurrency cap.
       final poolAvailable = _turnAdapter?.availableRunnerCount?.call();
       final concurrencyCap = mapCtx.effectiveConcurrency(poolAvailable);
       while (inFlight.length < concurrencyCap && pending.isNotEmpty) {
-        if (isCancelled?.call() ?? false) break;
+        if ((isCancelled?.call() ?? false) || mapCtx.aborted) break;
         // Find the next dependency-eligible index from the pending queue.
         int? nextIndex;
         if (depGraph.hasDependencies) {
@@ -264,8 +268,8 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
                 for (final key in step.inputs) key: context[key] ?? '',
               }, outputConfigs: _inputConfigsFor(definition, step.inputs))
             : null;
-        final effectiveOutputs = _effectiveOutputsFor(step);
-        final effectiveOutputKeys = _effectiveOutputKeysFor(step, effectiveOutputs);
+        final effectiveOutputs = effectiveOutputsFor(step);
+        final effectiveOutputKeys = effectiveOutputKeysFor(step, effectiveOutputs);
         final effectiveProjectId = _resolveProjectIdWithMap(
           definition,
           step,
@@ -274,23 +278,25 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
           resolved: resolved,
           effectiveOutputs: effectiveOutputs,
         );
-        final skillDefaultPrompt = _skillDefaultPromptFor(step, null);
         final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
         final variableNames = _autoFrameVariableNames(step);
+        final taskProvider = resolved.provider ?? _skillPreflightConfig.defaultProvider;
+        final visibleSkill = step.skill == null
+            ? null
+            : _skillPreflightResult.visibleSkillFor(provider: taskProvider, skill: step.skill!);
         final iterPrompt = _skillPromptBuilder.build(
-          skill: step.skill,
+          skill: visibleSkill,
           resolvedPrompt: resolvedPrompt,
           contextSummary: contextSummary,
           outputs: effectiveOutputs,
           outputKeys: effectiveOutputKeys,
           outputExamples: step.outputExamples,
-          skillDefaultPrompt: skillDefaultPrompt,
           autoFrameContext: step.autoFrameContext,
           inputs: step.inputs,
           variables: variableNames,
           resolvedInputValues: resolvedInputValues,
           templatePrompt: rawPrompt,
-          provider: resolved.provider,
+          provider: taskProvider,
         );
         final taskConfig = _buildStepConfig(
           run,
@@ -320,6 +326,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
               iterTitle: iterTitle,
               taskConfig: taskConfig,
               projectId: effectiveProjectId,
+              provider: taskProvider,
               resolved: resolved,
               mapCtx: mapCtx,
               context: context,
@@ -401,6 +408,15 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     // 10. Wait for all remaining in-flight to settle.
     if (inFlight.isNotEmpty) {
       await Future.wait(inFlight.values, eagerError: false);
+    }
+
+    // Run left `running` (pause/cancel) mid-step: persist progress for resume
+    // and return null so the executor exits without marking the run completed,
+    // mirroring the single-step dispatcher's null return on abort.
+    if (mapCtx.aborted) {
+      WorkflowExecutor._log.info("Workflow '${run.id}': map step '${step.id}' aborted; run no longer running");
+      await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
+      return null;
     }
 
     // Accumulate total tokens from context metadata keys.
@@ -527,6 +543,7 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     );
 
     await _repository.update(updatedRun);
+    await _persistContext(run.id, context);
   }
 
   String _restoredMapFailureMessage(dynamic slotValue) =>

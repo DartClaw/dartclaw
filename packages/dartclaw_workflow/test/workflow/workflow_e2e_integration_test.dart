@@ -603,7 +603,7 @@ void expectStepArtifactOutputs(Directory artifactDir, String stepKey, Set<String
         expect(
           value?.toString().trim(),
           allOf(isNotEmpty, endsWith('.md')),
-          reason: 'Step "$stepKey" output "$key" should be a markdown report path.',
+          reason: 'Step "$stepKey" output "$key" should be a durable markdown report path.',
         );
       }
     }
@@ -616,7 +616,7 @@ Map<String, dynamic> _isolationDiagnosticsFor(E2EFixtureInstance fixture) => {
   'workflowWorkspaceDir': fixture.workflowWorkspaceDir,
 };
 
-void expectCommittedPlanArtifacts({required String projectDir, required Directory artifactDir}) {
+void expectCommittedPlanArtifacts({required String projectDir, required Directory artifactDir, required String ref}) {
   final planArtifacts = artifactDir
       .listSync()
       .whereType<File>()
@@ -632,8 +632,6 @@ void expectCommittedPlanArtifacts({required String projectDir, required Director
     final planPath = outputs['plan'] as String?;
     if (planPath != null && planPath.trim().isNotEmpty) {
       requiredPaths.add(planPath.trim());
-      final planDir = p.dirname(planPath.trim());
-      requiredPaths.add(p.join(planDir, '.technical-research.md'));
     }
     final storySpecs = outputs['story_specs'];
     if (storySpecs is Map<Object?, Object?> && storySpecs['items'] is List<Object?>) {
@@ -648,12 +646,12 @@ void expectCommittedPlanArtifacts({required String projectDir, required Director
 
   final missing = <String>[];
   for (final relativePath in requiredPaths) {
-    final result = Process.runSync('git', ['cat-file', '-e', 'HEAD:$relativePath'], workingDirectory: projectDir);
+    final result = Process.runSync('git', ['cat-file', '-e', '$ref:$relativePath'], workingDirectory: projectDir);
     if (result.exitCode != 0) {
       missing.add(relativePath);
     }
   }
-  expect(missing, isEmpty, reason: 'Expected committed plan artifacts at HEAD: $missing');
+  expect(missing, isEmpty, reason: 'Expected committed plan artifacts at $ref: $missing');
 }
 
 void expectPublishSuccess(Map<String, dynamic> contextJson) {
@@ -1503,7 +1501,7 @@ void main() {
     // steps (revise-spec runs only when spec_confidence is in (0, 7);
     // remediate/re-review only when integrated-review finds issues) are
     // excluded – assert their runs separately if they occur.
-    final expectedOrder = ['spec', 'implement', 'integrated-review'];
+    final expectedOrder = ['spec', 'implement', 'simplify-code', 'integrated-review'];
     expectStepOrder(recorder, expectedOrder);
 
     // Assert worktrees were recorded for coding steps
@@ -1651,7 +1649,6 @@ void main() {
       'quick-review',
       'simplify-code',
       'remediate',
-      'remediate-architecture',
       're-review',
     ];
     expectStepOrderSubsequence(recorder.stepOrder, coreSteps);
@@ -1675,14 +1672,17 @@ void main() {
     );
 
     expect(recorder.count('quick-review'), greaterThanOrEqualTo(2), reason: 'quick-review should run at least twice');
-    expect(recorder.count('plan-review'), 1, reason: 'plan-review should run exactly once');
-    expect(recorder.count('architecture-review'), 1, reason: 'architecture-review should run exactly once');
-    expect(recorder.count('remediate'), greaterThanOrEqualTo(1), reason: 'remediate should run at least once');
     expect(
-      recorder.count('remediate-architecture'),
-      greaterThanOrEqualTo(1),
-      reason: 'architecture remediation should run at least once',
+      recorder.count('plan-review'),
+      inInclusiveRange(1, 2),
+      reason: 'plan-review should run once, with at most one configured retry',
     );
+    expect(
+      recorder.count('architecture-review'),
+      inInclusiveRange(1, 2),
+      reason: 'architecture-review should run once, with at most one configured retry',
+    );
+    expect(recorder.count('remediate'), greaterThanOrEqualTo(1), reason: 'remediate should run at least once');
     expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 're-review should run at least once');
     final remediateInputs = recorder.tracesForStep('remediate').map((trace) => trace.inputs).toList(growable: false);
     expect(remediateInputs, isNotEmpty, reason: 'remediate should receive review findings input');
@@ -1694,18 +1694,7 @@ void main() {
     expect(
       remediateInputs.any((inputs) => (inputs['architecture_review_findings']?.toString().trim() ?? '').isNotEmpty),
       isFalse,
-      reason: 'remediate should not receive architecture findings; those use remediate-architecture',
-    );
-    final architectureRemediateInputs = recorder
-        .tracesForStep('remediate-architecture')
-        .map((trace) => trace.inputs)
-        .toList(growable: false);
-    expect(
-      architectureRemediateInputs.any(
-        (inputs) => (inputs['architecture_review_findings']?.toString().trim() ?? '').endsWith('.md'),
-      ),
-      isTrue,
-      reason: 'remediate-architecture should receive one markdown architecture report path',
+      reason: 'architecture findings should be represented in the aggregate review_findings report',
     );
 
     // Assert worktrees were recorded for coding steps
@@ -1738,7 +1727,6 @@ void main() {
     });
     expectNoMissingFisFallbacks(artifactDir);
     expectIsolationDiagnostics(artifactDir, fixture!);
-    expectCommittedPlanArtifacts(projectDir: fixtureDir, artifactDir: artifactDir);
 
     // Safety net – see spec-and-implement test above for rationale.
     expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);
@@ -1753,6 +1741,7 @@ void main() {
       expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
       final branch = publishBranch!;
       createdBranches.add(branch);
+      expectCommittedPlanArtifacts(projectDir: fixtureDir, artifactDir: artifactDir, ref: 'origin/$branch');
       await assertDiffTouchesExpectedFiles(
         projectDir: fixtureDir,
         headRef: 'main',

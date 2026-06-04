@@ -94,6 +94,7 @@ class CodexHarness extends BaseHarness {
   Future<void> start() => startLifecycle(
     busyMessage: 'Cannot start CodexHarness while busy',
     beforeStart: () async {
+      isStopping = false;
       await _cleanupEnvironment();
       await _verifyExecutable();
       _environment = CodexEnvironment(
@@ -239,7 +240,15 @@ class CodexHarness extends BaseHarness {
   }
 
   @override
-  Future<void> stop() => withLock(_stopInternal);
+  Future<void> resetSessionContinuity(String sessionId) async {
+    _threadIds.remove(sessionId);
+  }
+
+  @override
+  Future<void> stop() {
+    isStopping = true;
+    return withLock(_stopInternal);
+  }
 
   Future<void> _stopInternal() async {
     final process = currentProcess;
@@ -436,7 +445,7 @@ class CodexHarness extends BaseHarness {
 
       case proto.CompactBoundary():
         // CompactBoundary is a Claude Code-specific wire format. Codex
-        // compaction is handled via CodexProtocolAdapter (S02). No-op here.
+        // compaction is handled via CodexProtocolAdapter. No-op here.
         break;
 
       case proto.CompactionStarted():
@@ -460,7 +469,7 @@ class CodexHarness extends BaseHarness {
 
   @override
   void handleUnexpectedProcessExit(int exitCode) {
-    if (currentState == WorkerState.stopped) {
+    if (currentState == WorkerState.stopped || isStopping) {
       return;
     }
     _threadIds.clear();

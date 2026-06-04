@@ -76,10 +76,20 @@ void main() {
       expect(recovered, [sessionId]);
       expect(await turnState.getAll(), isEmpty);
 
+      final messages = MessageService(baseDir: tempDir.path);
+      await messages.insertMessage(
+        sessionId: sessionId,
+        role: 'assistant',
+        content: '[Turn failed: worker process crashed]',
+      );
+
       final firstSessionPage = await _get(restartPort, '/sessions/$sessionId');
       expect(firstSessionPage, contains('recovered from an interrupted turn'));
+      expect(firstSessionPage, contains('msg-turn-failed'));
+      expect(firstSessionPage, contains('worker process crashed'));
       final secondSessionPage = await _get(restartPort, '/sessions/$sessionId');
       expect(secondSessionPage, isNot(contains('recovered from an interrupted turn')));
+      expect(secondSessionPage, contains('msg-turn-failed'));
     },
   );
 }

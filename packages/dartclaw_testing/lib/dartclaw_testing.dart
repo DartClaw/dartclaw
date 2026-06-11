@@ -57,15 +57,17 @@ export 'src/codex_harness_test_helpers.dart'
         waitForSentMessage;
 export 'src/fake_agent_harness.dart' show FakeAgentHarness;
 export 'src/fake_channel.dart' show FakeChannel;
+export 'src/fake_channel_manager.dart' show FakeChannelManager;
 export 'src/fake_codex_process.dart' show FakeCodexProcess;
+export 'src/fake_content_classifier.dart' show FakeContentClassifier;
 export 'src/fake_google_chat_rest_client.dart' show FakeGoogleChatRestClient;
 export 'src/fake_google_jwt_verifier.dart' show FakeGoogleJwtVerifier;
 export 'src/fake_guard.dart' show FakeGuard;
 export 'src/fake_git_gateway.dart' show FakeGitGateway;
 export 'src/fake_project_service.dart' show FakeProjectService;
 export 'src/fake_process.dart' show CapturingFakeProcess, FakeProcess;
+export 'src/fake_skill_introspector.dart' show FakeSkillIntrospector;
 export 'src/fake_turn_manager.dart' show FakeTurnManager;
-export 'src/fake_workflow_task_binding_coordinator.dart' show FakeWorkflowTaskBindingCoordinator;
 export 'src/flush_async.dart' show flushAsync;
 export 'src/in_memory_agent_execution_repository.dart' show InMemoryAgentExecutionRepository;
 export 'src/in_memory_execution_repository_transactor.dart' show InMemoryExecutionRepositoryTransactor;

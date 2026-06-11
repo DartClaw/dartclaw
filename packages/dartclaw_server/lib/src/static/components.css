@@ -3291,10 +3291,6 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
     flex-wrap: wrap;
     justify-content: flex-end;
   }
-
-  .scheduling-table-fade-wrap::after {
-    display: none;
-  }
 }
 
 .task-group-count {
@@ -3425,6 +3421,20 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
   padding: var(--sp-3); max-height: 500px; overflow-y: auto;
 }
 .task-chat-embed .messages { display: flex; flex-direction: column; gap: var(--sp-3); }
+.turn-status-panel {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: var(--sp-3); margin-bottom: var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--bg-surface0));
+  border-radius: var(--radius); background: var(--bg-base);
+}
+.turn-status-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2);
+}
+.turn-status-times {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2);
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-overlay);
+}
+.turn-status-times span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-no-session {
   background: var(--bg-mantle); border: var(--border); border-radius: var(--radius);
   padding: var(--sp-4);

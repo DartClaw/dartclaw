@@ -129,6 +129,10 @@ class McpProtocolHandler {
     }
 
     final args = params['arguments'] as Map<String, dynamic>? ?? {};
+    final validationError = _validateToolArguments(tool, args);
+    if (validationError != null) {
+      return _errorResponse(id, -32602, validationError);
+    }
 
     ToolResult result;
     try {
@@ -154,6 +158,21 @@ class McpProtocolHandler {
         'isError': true,
       }),
     };
+  }
+
+  String? _validateToolArguments(McpTool tool, Map<String, dynamic> args) {
+    final schema = tool.inputSchema;
+    if (schema['additionalProperties'] != false) return null;
+
+    final properties = schema['properties'];
+    if (properties is! Map) return null;
+
+    for (final key in args.keys) {
+      if (!properties.containsKey(key)) {
+        return 'Invalid params: unknown argument "$key" for tool "${tool.name}"';
+      }
+    }
+    return null;
   }
 
   static String _successResponse(Object id, Object result) {

@@ -70,6 +70,25 @@ void main() {
     });
   });
 
+  group('FileGuard — file_read tool', () {
+    test('blocks file_read of a no_access path', () async {
+      final home = Platform.environment['HOME'] ?? '/home/user';
+      final v = await guard.evaluate(_tool('file_read', {'file_path': '$home/.ssh/id_rsa'}));
+      expect(v.isBlock, isTrue);
+      expect(v.message, contains('no_access'));
+    });
+
+    test('allows file_read of a read_only path', () async {
+      expect((await guard.evaluate(_tool('file_read', {'file_path': '.env'}))).isPass, isTrue);
+    });
+
+    test('blocks file_write of a read_only path (regression guard)', () async {
+      final v = await guard.evaluate(_tool('file_write', {'file_path': '.env'}));
+      expect(v.isBlock, isTrue);
+      expect(v.message, contains('read_only'));
+    });
+  });
+
   group('FileGuard — file_write / file_edit tools', () {
     test('blocks file_write to .ssh path and file_edit on .env', () async {
       final home = Platform.environment['HOME'] ?? '/home/user';

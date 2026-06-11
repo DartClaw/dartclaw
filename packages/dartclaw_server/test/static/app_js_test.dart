@@ -30,8 +30,6 @@ void main() {
     test('Stimulus controllers include S04 migrations', () {
       final indexSource = File('$baseDir/controllers/index.js').readAsStringSync();
       expect(indexSource, contains("application.register('dc-whatsapp', DcWhatsappController);"));
-      expect(indexSource, contains("application.register('dc-canvas-admin', DcCanvasAdminController);"));
-      expect(indexSource, contains('Canvas standalone intentionally remains outside Stimulus'));
     });
 
     test('scheduling controller owns migrated behavior directly', () {
@@ -110,6 +108,25 @@ void main() {
       expect(source, isNot(contains('[data-project-edit]')));
       expect(source, isNot(contains('[data-project-dialog-open]')));
       expect(source, isNot(contains('[data-project-dialog-close]')));
+    });
+
+    test('tasks controller handles turn wait state and early cancel', () {
+      final source = File('$baseDir/controllers/dc_tasks_controller.js').readAsStringSync();
+      expect(source, contains("data.type === 'turn_wait_state'"));
+      expect(source, contains("'/api/sessions/' + encodeURIComponent(sessionId) + '/turn-status'"));
+      expect(source, contains("'/turns/' + encodeURIComponent(turnId) + '/cancel'"));
+      expect(source, contains("JSON.stringify({ reason: 'operator_cancel' })"));
+      expect(source, contains('[data-turn-cancel]'));
+      expect(source, contains('panel.hidden = !hasActiveTurn'));
+      expect(source, contains("button.removeAttribute('data-turn-id')"));
+    });
+
+    test('chat controller stops turns through the turn-id cancel contract', () {
+      final source = File('$baseDir/controllers/dc_chat_controller.js').readAsStringSync();
+      expect(source, contains("sessionPath + '/turn-status'"));
+      expect(source, contains("sessionPath + '/turns/' + encodeURIComponent(status.turn_id) + '/cancel'"));
+      expect(source, contains("JSON.stringify({ reason: 'operator_cancel' })"));
+      expect(source, isNot(contains("fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/turn/stop'")));
     });
   });
 

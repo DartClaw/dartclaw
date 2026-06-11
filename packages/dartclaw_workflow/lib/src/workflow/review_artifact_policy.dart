@@ -80,6 +80,52 @@ bool allowsMissingCleanReviewArtifact(
   return fc == 0 && (gc == null || gc == 0);
 }
 
+/// Locates a review report the agent wrote to the runtime-artifacts `reviews/`
+/// output dir but failed to claim via an inline `<workflow-context>` payload.
+///
+/// Review reports are written under the step's `--output-dir`
+/// (`<runtimeArtifactsDir>/reviews`), never into the worktree diff, so this is
+/// the correct fallback when the inline path claim is missing. Falling back to
+/// worktree `changedMatches` is a category error: the `review_report_path`
+/// preset uses the default `**/*` pattern, so every dirty worktree file matches.
+///
+/// Returns the absolute path of the most-recently-modified matching report
+/// (logging a warning when more than one is present, since the missing claim
+/// makes attribution ambiguous), or null when none is found.
+String? locateUnclaimedReviewArtifact({
+  required String outputKey,
+  required WorkflowStep step,
+  required Task task,
+  required FileSystemOutput resolver,
+  required String dataDir,
+}) {
+  final runId = task.workflowRunId?.trim();
+  if (runId == null || runId.isEmpty) return null;
+
+  final runtimeArtifactsDir = workflowRuntimeArtifactsDir(dataDir: dataDir, runId: runId);
+  final reviewsDir = Directory(p.join(runtimeArtifactsDir, 'reviews'));
+  if (!reviewsDir.existsSync()) return null;
+
+  final candidates = <({String path, DateTime modified})>[];
+  for (final entity in reviewsDir.listSync()) {
+    if (entity is! File) continue;
+    final relative = p.normalize(p.relative(entity.path, from: runtimeArtifactsDir));
+    if (!resolver.matches(relative)) continue;
+    if (runtimeArtifactsRelativeClaim(entity.path, runtimeArtifactsDir) == null) continue;
+    candidates.add((path: entity.path, modified: entity.statSync().modified));
+  }
+  if (candidates.isEmpty) return null;
+  candidates.sort((a, b) => b.modified.compareTo(a.modified));
+  if (candidates.length > 1) {
+    _log.warning(
+      'Multiple review artifacts in ${reviewsDir.path} for "$outputKey" on task ${task.id}; '
+      'selecting most recent (${p.basename(candidates.first.path)}) because the review step '
+      'omitted its inline <workflow-context> report-path claim.',
+    );
+  }
+  return candidates.first.path;
+}
+
 /// Writes a diagnostic stub file for a missing clean review artifact.
 ///
 /// Returns the materialized path on success, null otherwise. The stub is only

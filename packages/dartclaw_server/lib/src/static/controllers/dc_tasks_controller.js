@@ -51,6 +51,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
           updateTaskBadge(data.reviewCount || 0);
           updateTaskSidebar(data.activeTasks || []);
           updateRunningWorkflowsSection(data.activeWorkflows || []);
+          refreshDisplayedTurnStatus();
           if (Array.isArray(data.projects)) {
             data.projects.forEach((project) => updateProjectStatusBadge(project.id, project.status));
           }
@@ -98,13 +99,98 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
 
         if (data.type === 'task_event') {
           updateDashboardEvents(data);
+          return;
+        }
+
+        if (data.type === 'turn_wait_state') {
+          applyTurnWaitState(data);
         }
       } catch (_) {}
     };
 
     taskEventSource.onerror = function() {
-      // EventSource auto-reconnects. No custom logic needed.
+      // Intentionally empty: EventSource auto-reconnects, and the turn-status
+      // snapshot refresh re-fires from the 'connected' event handler above.
     };
+  }
+
+  function displayedTurnPanel() {
+    return document.querySelector('[data-turn-status-session-id]');
+  }
+
+  function refreshDisplayedTurnStatus() {
+    const panel = displayedTurnPanel();
+    if (!panel) return;
+    const sessionId = panel.getAttribute('data-turn-status-session-id');
+    if (!sessionId) return;
+    fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/turn-status')
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => {
+        if (payload) applyTurnWaitState(payload);
+      })
+      .catch(() => {});
+  }
+
+  function applyTurnWaitState(data) {
+    const panel = displayedTurnPanel();
+    if (!panel || panel.getAttribute('data-turn-status-session-id') !== data.session_id) return;
+    const state = data.state || 'idle';
+    const hasActiveTurn = state !== 'idle' && Boolean(data.turn_id);
+    panel.hidden = !hasActiveTurn;
+    if (!hasActiveTurn) {
+      panel.removeAttribute('data-turn-status-turn-id');
+    } else {
+      panel.setAttribute('data-turn-status-turn-id', data.turn_id);
+    }
+    const reason = (data.wait_reason || '').replace(/_/g, ' ');
+    const stateEl = panel.querySelector('[data-turn-status-state]');
+    if (stateEl) stateEl.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+    const reasonEl = panel.querySelector('[data-turn-status-reason]');
+    if (reasonEl) reasonEl.textContent = reason || '\u2014';
+    setPanelText(panel, '[data-turn-status-waiting]', data.waiting_since || '');
+    setPanelText(panel, '[data-turn-status-stuck]', data.stuck_since || '');
+    setPanelText(panel, '[data-turn-status-timeout]', data.global_timeout_at || '');
+    const button = panel.querySelector('[data-turn-cancel]');
+    if (button) {
+      button.hidden = !hasActiveTurn;
+      button.disabled = !hasActiveTurn || data.can_cancel !== true;
+      if (hasActiveTurn) {
+        button.setAttribute('data-turn-id', data.turn_id);
+      } else {
+        button.removeAttribute('data-turn-id');
+      }
+    }
+  }
+
+  function setPanelText(panel, selector, value) {
+    const el = panel.querySelector(selector);
+    if (el) el.textContent = value;
+  }
+
+  function initTurnCancelActions() {
+    document.querySelectorAll('[data-turn-cancel]').forEach((button) => {
+      if (button.dataset.turnCancelInit) return;
+      button.dataset.turnCancelInit = '1';
+      button.addEventListener('click', async () => {
+        const sessionId = button.getAttribute('data-session-id');
+        const turnId = button.getAttribute('data-turn-id');
+        if (!sessionId || !turnId || button.disabled) return;
+        button.disabled = true;
+        try {
+          await fetch(
+            '/api/sessions/' + encodeURIComponent(sessionId) + '/turns/' + encodeURIComponent(turnId) + '/cancel',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reason: 'operator_cancel' }),
+            },
+          );
+          refreshDisplayedTurnStatus();
+        } catch (_) {
+          button.disabled = false;
+        }
+      });
+    });
   }
 
   function updateTaskProgress(data) {
@@ -740,6 +826,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
     initTaskReviewActions();
     initTaskStartActions();
     initTaskCancelActions();
+    initTurnCancelActions();
     if (typeof workflowPage().onLoad === 'function') {
       workflowPage().onLoad();
     }

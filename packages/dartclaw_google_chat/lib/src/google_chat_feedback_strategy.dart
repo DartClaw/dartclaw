@@ -222,15 +222,5 @@ class GoogleChatFeedbackStrategy implements ChannelFeedbackStrategy {
     return 'Still working after ${_formatElapsed(elapsed)}.';
   }
 
-  String _formatElapsed(Duration elapsed) {
-    final minutes = elapsed.inMinutes;
-    final seconds = elapsed.inSeconds % 60;
-    if (minutes <= 0) {
-      return '${elapsed.inSeconds}s';
-    }
-    if (seconds == 0) {
-      return '${minutes}m';
-    }
-    return '${minutes}m ${seconds}s';
-  }
+  String _formatElapsed(Duration elapsed) => humanizeDuration(elapsed);
 }

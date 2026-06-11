@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'step_output_validation_helpers.dart';
+
 /// Derives a review finding count from a structured output payload.
 ///
 /// Handles both `.findings_count` and `.gating_findings_count` output keys,
@@ -122,13 +124,4 @@ bool isGatingFinding(Object? finding) {
   final findingMap = asStringKeyedMap(finding);
   final severity = findingMap?['severity']?.toString().trim().toLowerCase();
   return severity == null || severity != 'low';
-}
-
-/// Normalizes [value] to a string-keyed `Map<String, dynamic>` or returns null.
-Map<String, dynamic>? asStringKeyedMap(Object? value) {
-  return switch (value) {
-    final Map<String, dynamic> typed => Map<String, dynamic>.from(typed),
-    final Map<dynamic, dynamic> dynamicMap => dynamicMap.map((key, value) => MapEntry('$key', value)),
-    _ => null,
-  };
 }

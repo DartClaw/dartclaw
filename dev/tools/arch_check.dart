@@ -5,8 +5,17 @@ import 'dart:io';
 // `dartclaw_core/lib` focused on runtime primitives; non-primitive growth should
 // land in `dartclaw_models` / `dartclaw_config` instead. Bump only with a
 // CHANGELOG note explaining what justified the growth.
-const _coreLocCeiling = 12500;
-const _coreLocWarnThreshold = 12400;
+//
+// Bumped 12500 -> 12800 to absorb the cross-package shared-util consolidation
+// (formatLocalDateTime, humanizeDuration, httpRequest landed in
+// `lib/src/util/`): these are genuine runtime primitives pulled up from
+// duplicated per-package copies, so net monorepo LOC dropped while core grew.
+//
+// Bumped 12800 -> 13500 for the first-party ACP harness lifecycle. ACP needs
+// core-owned subprocess/JSON-RPC primitives so routing, pool release, and
+// harness errors share the same runtime boundary as Claude/Codex.
+const _coreLocCeiling = 13500;
+const _coreLocWarnThreshold = 13400;
 const _barrelExportCeiling = 94; // S34: +ClaudeSettingsBuilder +normalizeDynamicMap +intValue +stringValue
 const _workspacePackageCeiling = 14;
 const _workspaceAppNames = {'dartclaw_cli'};

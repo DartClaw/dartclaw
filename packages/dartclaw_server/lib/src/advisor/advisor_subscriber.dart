@@ -6,7 +6,6 @@ import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 
-import '../canvas/canvas_service.dart';
 import '../task/task_service.dart';
 
 /// Identifies why an advisor evaluation was scheduled.
@@ -350,8 +349,6 @@ class AdvisorOutputRouter {
     required EventBus eventBus,
     required ChatCardBuilder googleChatCardBuilder,
     this.threadBindings,
-    this.canvasService,
-    this.canvasSessionKey,
   }) : _channelManager = channelManager,
        _eventBus = eventBus,
        _googleChatCardBuilder = googleChatCardBuilder;
@@ -360,14 +357,8 @@ class AdvisorOutputRouter {
   final EventBus _eventBus;
   final ChatCardBuilder _googleChatCardBuilder;
   final ThreadBindingStore? threadBindings;
-  final CanvasService? canvasService;
-  final String? canvasSessionKey;
 
   Future<void> route(AdvisorOutput output, AdvisorTriggerContext trigger, List<Task> tasks) async {
-    if (canvasService != null && canvasSessionKey != null) {
-      canvasService!.push(canvasSessionKey!, renderAdvisorInsightCard(output: output, trigger: trigger, tasks: tasks));
-    }
-
     _eventBus.fire(
       AdvisorInsightEvent(
         status: output.status.wireName,
@@ -502,7 +493,6 @@ class AdvisorSubscriber {
 
   StreamSubscription<TaskStatusChangedEvent>? _taskStatusSub;
   StreamSubscription<TaskEventCreatedEvent>? _taskEventSub;
-  StreamSubscription<AgentStateChangedEvent>? _agentStateSub;
   StreamSubscription<AdvisorMentionEvent>? _advisorMentionSub;
   String? _lastSessionKey;
 
@@ -514,8 +504,6 @@ class AdvisorSubscriber {
     ChannelManager? channelManager,
     TurnTraceService? traceService,
     ThreadBindingStore? threadBindings,
-    CanvasService? canvasService,
-    String? canvasSessionKey,
     List<String> triggers = const <String>[],
     int periodicIntervalMinutes = 10,
     int maxWindowTurns = 10,
@@ -538,8 +526,6 @@ class AdvisorSubscriber {
          eventBus: eventBus,
          googleChatCardBuilder: googleChatCardBuilder ?? const ChatCardBuilder(),
          threadBindings: threadBindings,
-         canvasService: canvasService,
-         canvasSessionKey: canvasSessionKey,
        ),
        _maxPriorReflections = maxPriorReflections,
        _model = model,
@@ -560,9 +546,6 @@ class AdvisorSubscriber {
     _taskEventSub ??= _eventBus.on<TaskEventCreatedEvent>().listen((event) {
       unawaited(_handleTaskEventCreated(event));
     });
-    _agentStateSub ??= _eventBus.on<AgentStateChangedEvent>().listen((event) {
-      unawaited(_handleAgentStateChanged(event));
-    });
     _advisorMentionSub ??= _eventBus.on<AdvisorMentionEvent>().listen((event) {
       unawaited(_handleAdvisorMention(event));
     });
@@ -573,11 +556,9 @@ class AdvisorSubscriber {
     _evaluator.dispose();
     await _taskStatusSub?.cancel();
     await _taskEventSub?.cancel();
-    await _agentStateSub?.cancel();
     await _advisorMentionSub?.cancel();
     _taskStatusSub = null;
     _taskEventSub = null;
-    _agentStateSub = null;
     _advisorMentionSub = null;
   }
 
@@ -613,19 +594,6 @@ class AdvisorSubscriber {
     if (event.kind == 'tokenUpdate') {
       _circuitBreaker.recordPrimaryTurn();
     }
-    await _recordEntry(entry);
-  }
-
-  Future<void> _handleAgentStateChanged(AgentStateChangedEvent event) async {
-    final entry = ContextEntry(
-      kind: 'agent_state_changed',
-      summary: 'Runner ${event.runnerId} is ${event.state}.',
-      sessionKey: _lastSessionKey ?? SessionKey.webSession(),
-      taskId: event.currentTaskId,
-      timestamp: event.timestamp,
-      estimatedTokens: _estimateTokens('${event.runnerId} ${event.state}'),
-      details: {'runnerId': event.runnerId, 'state': event.state, 'currentTaskId': event.currentTaskId},
-    );
     await _recordEntry(entry);
   }
 
@@ -794,33 +762,6 @@ class AdvisorSubscriber {
   }
 
   int _estimateTokens(String text) => (text.length / 4).ceil().clamp(1, 10000);
-}
-
-/// Renders the advisor insight card HTML for the given [AdvisorOutput] and trigger context.
-String renderAdvisorInsightCard({
-  required AdvisorOutput output,
-  required AdvisorTriggerContext trigger,
-  required List<Task> tasks,
-}) {
-  final escape = const HtmlEscape(HtmlEscapeMode.element);
-  final taskLabel = tasks.isEmpty ? 'No active tasks' : tasks.map((task) => task.title).join(', ');
-  final suggestion = output.suggestion == null || output.suggestion!.trim().isEmpty
-      ? ''
-      : '<p class="advisor-insight-suggestion"><strong>Suggestion:</strong> ${escape.convert(output.suggestion!.trim())}</p>';
-  return '''
-<section class="advisor-insight-card" style="border:1px solid #b6c2d6;background:#f5f8fb;color:#233245;border-radius:12px;padding:14px 16px;margin:12px 0;">
-  <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
-    <div>
-      <p style="margin:0 0 4px 0;font-style:italic;font-weight:700;letter-spacing:0.02em;">Advisor Insight</p>
-      <p style="margin:0;color:#51657f;font-size:0.92rem;">Trigger: ${escape.convert(trigger.type.wireName)}</p>
-    </div>
-    <span style="padding:4px 8px;border-radius:999px;background:#dce7f3;font-weight:700;">${escape.convert(output.status.wireName)}</span>
-  </div>
-  <p style="margin:12px 0 8px 0;">${escape.convert(output.observation)}</p>
-  $suggestion
-  <p style="margin:10px 0 0 0;color:#51657f;font-size:0.9rem;"><strong>Tasks:</strong> ${escape.convert(taskLabel)}</p>
-</section>
-''';
 }
 
 class _Destination {

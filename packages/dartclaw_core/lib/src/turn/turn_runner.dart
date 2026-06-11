@@ -37,6 +37,7 @@ abstract interface class TurnRunner {
     String? model,
     String? effort,
     int? maxTurns,
+    String? taskId,
     bool isHumanInput = false,
   });
 

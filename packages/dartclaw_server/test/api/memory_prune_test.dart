@@ -5,9 +5,10 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, Harnes
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
-import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'api_test_helpers.dart';
 
 void main() {
   late Directory tempDir;
@@ -41,16 +42,15 @@ void main() {
 
   group('POST /api/memory/prune', () {
     test('returns 503 when pruner not configured', () async {
-      final router = memoryRoutes(
-        statusService: statusService,
-        workspaceDir: workspaceDir,
-        // No pruner — not configured
+      final client = ApiRouteTestClient(
+        memoryRoutes(
+          statusService: statusService,
+          workspaceDir: workspaceDir,
+          // No pruner — not configured
+        ).call,
       );
 
-      final response = await router.call(Request('POST', Uri.parse('http://localhost/api/memory/prune')));
-
-      expect(response.statusCode, 503);
-      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final body = await client.expectJsonObject('POST', '/api/memory/prune', status: 503);
       expect(body['error']['code'], 'UNAVAILABLE');
     });
 
@@ -60,17 +60,16 @@ void main() {
 
       final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
 
-      final router = memoryRoutes(
-        statusService: statusService,
-        workspaceDir: workspaceDir,
-        pruner: pruner,
-        kvService: kvService,
+      final client = ApiRouteTestClient(
+        memoryRoutes(
+          statusService: statusService,
+          workspaceDir: workspaceDir,
+          pruner: pruner,
+          kvService: kvService,
+        ).call,
       );
 
-      final response = await router.call(Request('POST', Uri.parse('http://localhost/api/memory/prune')));
-
-      expect(response.statusCode, 200);
-      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final body = await client.expectJsonObject('POST', '/api/memory/prune');
       expect(body, containsPair('entriesArchived', isA<int>()));
       expect(body, containsPair('duplicatesRemoved', isA<int>()));
       expect(body, containsPair('entriesRemaining', isA<int>()));
@@ -82,14 +81,16 @@ void main() {
 
       final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
 
-      final router = memoryRoutes(
-        statusService: statusService,
-        workspaceDir: workspaceDir,
-        pruner: pruner,
-        kvService: kvService,
+      final client = ApiRouteTestClient(
+        memoryRoutes(
+          statusService: statusService,
+          workspaceDir: workspaceDir,
+          pruner: pruner,
+          kvService: kvService,
+        ).call,
       );
 
-      await router.call(Request('POST', Uri.parse('http://localhost/api/memory/prune')));
+      await client.request('POST', '/api/memory/prune');
 
       final raw = await kvService.get('prune_history');
       expect(raw, isNotNull);
@@ -117,14 +118,16 @@ void main() {
 
       final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
 
-      final router = memoryRoutes(
-        statusService: statusService,
-        workspaceDir: workspaceDir,
-        pruner: pruner,
-        kvService: kvService,
+      final client = ApiRouteTestClient(
+        memoryRoutes(
+          statusService: statusService,
+          workspaceDir: workspaceDir,
+          pruner: pruner,
+          kvService: kvService,
+        ).call,
       );
 
-      await router.call(Request('POST', Uri.parse('http://localhost/api/memory/prune')));
+      await client.request('POST', '/api/memory/prune');
 
       final raw = await kvService.get('prune_history');
       final history = jsonDecode(raw!) as List;
@@ -139,17 +142,16 @@ void main() {
       // No MEMORY.md file — pruner returns empty result
       final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
 
-      final router = memoryRoutes(
-        statusService: statusService,
-        workspaceDir: workspaceDir,
-        pruner: pruner,
-        kvService: kvService,
+      final client = ApiRouteTestClient(
+        memoryRoutes(
+          statusService: statusService,
+          workspaceDir: workspaceDir,
+          pruner: pruner,
+          kvService: kvService,
+        ).call,
       );
 
-      final response = await router.call(Request('POST', Uri.parse('http://localhost/api/memory/prune')));
-
-      expect(response.statusCode, 200);
-      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final body = await client.expectJsonObject('POST', '/api/memory/prune');
       expect(body['entriesArchived'], 0);
       expect(body['duplicatesRemoved'], 0);
       expect(body['entriesRemaining'], 0);

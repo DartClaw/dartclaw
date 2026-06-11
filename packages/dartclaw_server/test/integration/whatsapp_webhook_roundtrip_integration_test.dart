@@ -9,39 +9,7 @@ import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-class _FakeGowaManager extends GowaManager {
-  final List<(String, String)> sentTexts = [];
-  final List<(String, String)> sentMedia = [];
-  final _firstSentCompleter = Completer<void>();
-
-  _FakeGowaManager() : super(executable: 'whatsapp');
-
-  /// Completes when the first outbound message is sent.
-  Future<void> get firstSent => _firstSentCompleter.future;
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> sendText(String jid, String text) async {
-    sentTexts.add((jid, text));
-    if (!_firstSentCompleter.isCompleted) _firstSentCompleter.complete();
-  }
-
-  @override
-  Future<void> sendMedia(String jid, String filePath, {String? caption}) async {
-    sentMedia.add((jid, filePath));
-  }
-
-  @override
-  Future<GowaStatus> status() async => (isConnected: true, isLoggedIn: true, deviceId: 'bot@s.whatsapp.net');
-
-  @override
-  Future<GowaLoginQr> loginQr() async => (url: null, durationSeconds: 60);
-}
+import '../whatsapp_test_support.dart';
 
 class _ChannelWorker implements AgentHarness {
   @override
@@ -151,7 +119,7 @@ void main() {
   late TurnManager turns;
   late MessageQueue queue;
   late ChannelManager channelManager;
-  late _FakeGowaManager gowa;
+  late FakeGowaManager gowa;
   late WhatsAppChannel channel;
   late Handler handler;
 
@@ -180,7 +148,7 @@ void main() {
 
     channelManager = ChannelManager(queue: queue, config: const ChannelConfig.defaults());
 
-    gowa = _FakeGowaManager();
+    gowa = FakeGowaManager(status: (isConnected: true, isLoggedIn: true, deviceId: 'bot@s.whatsapp.net'));
     channel = WhatsAppChannel(
       gowa: gowa,
       config: WhatsAppConfig(enabled: true, groupAccess: GroupAccessMode.open),

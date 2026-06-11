@@ -617,7 +617,7 @@ void main() {
       // literal declared key – assert on that key directly.
       _expectReviewReportPathOrCleanCounts(
         result,
-        'review_findings',
+        'integrated-review.review_findings',
         'integrated-review.findings_count',
         rootDir: fixtureDir,
         runtimeArtifactsDir: runtimeArtifactsDir,
@@ -631,13 +631,13 @@ void main() {
     timeout: _defaultLiveTestTimeout,
   );
 
-  test('quick-review runs against the provider and writes an artifact', () async {
-    // quick-review declares no outputs – its --fix invocation absorbs any
+  test('simplify-code runs against the provider and writes no context outputs', () async {
+    // simplify-code declares no outputs – its --fix invocation absorbs any
     // findings into the working tree via continueSession. This smoke test
     // verifies the step executes end-to-end against a real provider and
-    // emits a non-empty agent response with a durable artifact path.
+    // emits a non-empty agent response.
     final result = await executeStep(
-      step: _stepById(planDefinition, 'quick-review'),
+      step: _stepById(planDefinition, 'simplify-code'),
       context: WorkflowContext(
         variables: const {
           'FEATURE': 'Add exactly one markdown note file with one heading and one bullet.',
@@ -671,11 +671,11 @@ void main() {
         index: 0,
         length: 1,
       ),
-      artifactLabel: 'quick-review-single-story-clean',
+      artifactLabel: 'simplify-code-single-story-clean',
     );
 
     expect(result.assistantContent.trim(), isNotEmpty, reason: 'Artifact: ${result.artifactPath}');
-    expect(result.outputs, isEmpty, reason: 'quick-review declares no outputs in plan-and-implement.yaml');
+    expect(result.outputs, isEmpty, reason: 'simplify-code declares no outputs in plan-and-implement.yaml');
   }, timeout: _defaultLiveTestTimeout);
 
   test('plan-review returns zero gating findings for a trivially clean two-story batch', () async {
@@ -710,8 +710,9 @@ void main() {
         'spec': 'Create notes/beta.md with heading "Beta Note" and bullet "Validated".',
       },
     ];
-    // quick-review declares no outputs in plan-and-implement.yaml, so each
-    // per-story aggregate carries only the implement step's payload.
+    // Only the implement step promotes outputs to the per-story aggregate:
+    // simplify-code declares none and review-story's review keys stay
+    // loop-scoped, so each aggregate carries only the implement payload.
     final storyResults = [
       {
         'implement': {'story_result': 'Created notes/alpha.md with heading "Alpha Note" and bullet "Validated".'},
@@ -749,7 +750,7 @@ void main() {
     // test asserts extraction shape and count consistency, not a fixed verdict.
     _expectReviewReportPathOrCleanCounts(
       result,
-      'review_findings',
+      'plan-review.review_findings',
       'plan-review.findings_count',
       rootDir: fixtureDir,
       runtimeArtifactsDir: runtimeArtifactsDir,
@@ -795,8 +796,9 @@ void main() {
         'spec': 'Create notes/beta.md with heading "Beta Note" and bullet "Validated".',
       },
     ];
-    // quick-review declares no outputs in plan-and-implement.yaml, so each
-    // per-story aggregate carries only the implement step's payload.
+    // Only the implement step promotes outputs to the per-story aggregate:
+    // simplify-code declares none and review-story's review keys stay
+    // loop-scoped, so each aggregate carries only the implement payload.
     final storyResults = [
       {
         'implement': {'story_result': 'Created notes/alpha.md with heading "Alpha Note" and bullet "Validated".'},
@@ -830,7 +832,7 @@ void main() {
       artifactLabel: 'architecture-review-clean-two-story-batch',
     );
 
-    _requireRelativeMarkdownArtifactPath(result, 'architecture_review_findings', rootDir: fixtureDir);
+    _requireRelativeMarkdownArtifactPath(result, 'architecture-review.review_findings', rootDir: fixtureDir);
     final findingsCount = _requireFindingsCount(result, 'architecture-review.findings_count');
     expect(findingsCount, inInclusiveRange(0, 1), reason: 'Artifact: ${result.artifactPath}');
     expect(

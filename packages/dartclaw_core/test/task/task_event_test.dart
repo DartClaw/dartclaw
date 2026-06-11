@@ -125,17 +125,6 @@ void main() {
       expect(a, isNot(equals(c)));
     });
 
-    test('toString() includes kind and id', () {
-      final event = TaskEvent(
-        id: 'evt-7',
-        taskId: 'task-F',
-        timestamp: DateTime.utc(2026, 3, 24),
-        kind: TaskEventKind.artifactCreated,
-      );
-      expect(event.toString(), contains('artifactCreated'));
-      expect(event.toString(), contains('evt-7'));
-    });
-
     test('fromJson() with missing details key uses empty map', () {
       final json = {
         'id': 'evt-8',

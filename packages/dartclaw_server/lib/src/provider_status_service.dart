@@ -23,6 +23,8 @@ class ProviderStatus {
   final bool isDefault;
   final String health;
   final String? errorMessage;
+  final String? securityClassification;
+  final List<Map<String, dynamic>>? validationEvidence;
 
   const ProviderStatus({
     required this.id,
@@ -36,6 +38,8 @@ class ProviderStatus {
     required this.isDefault,
     required this.health,
     required this.errorMessage,
+    this.securityClassification,
+    this.validationEvidence,
   });
 
   Map<String, dynamic> toJson() => {
@@ -50,6 +54,8 @@ class ProviderStatus {
     'isDefault': isDefault,
     'health': health,
     'errorMessage': errorMessage,
+    if (securityClassification != null) 'securityClassification': securityClassification,
+    if (validationEvidence != null) 'validationEvidence': validationEvidence,
   };
 }
 
@@ -148,6 +154,11 @@ class ProviderStatusService {
     final health = _deriveHealth(binaryFound: probe.binaryFound, credentialPresent: authenticated);
 
     final credentialStatus = hasApiKey ? 'present' : (probe.binaryAuthed ? 'oauth' : 'missing');
+    final acpValidationResult = provider.options['acp_validation_owned'] == true
+        ? _acpValidationResult(provider.options['acp_validation_result'])
+        : null;
+    final securityClassification = acpValidationResult?['securityClassification'] as String?;
+    final validationEvidence = _validationEvidence(acpValidationResult?['evidence']);
 
     return ProviderStatus(
       id: providerId,
@@ -167,7 +178,26 @@ class ProviderStatusService {
         credentialPresent: authenticated,
         credentialEnvVar: credentialEnvVar,
       ),
+      securityClassification: securityClassification,
+      validationEvidence: validationEvidence,
     );
+  }
+
+  Map<String, dynamic>? _acpValidationResult(Object? value) {
+    if (value is! Map) {
+      return null;
+    }
+    return Map<String, dynamic>.from(value);
+  }
+
+  List<Map<String, dynamic>>? _validationEvidence(Object? value) {
+    if (value is! List) {
+      return null;
+    }
+    return [
+      for (final item in value)
+        if (item is Map) Map<String, dynamic>.from(item),
+    ];
   }
 
   int _countActiveWorkers(String providerId) {

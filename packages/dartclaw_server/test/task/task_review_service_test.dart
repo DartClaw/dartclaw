@@ -9,6 +9,8 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, 
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import 'task_review_test_support.dart';
+
 void main() {
   late Database db;
   late TaskService tasks;
@@ -181,11 +183,11 @@ void main() {
           'createdAt': '2026-03-13T10:00:00.000Z',
         },
       );
-      final mergeExecutor = _RecordingMergeExecutor(
+      final mergeExecutor = RecordingMergeExecutor(
         result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-1): Fix login'),
       );
-      final worktreeManager = _RecordingWorktreeManager();
-      final taskFileGuard = _RecordingTaskFileGuard()..register('task-1', '/tmp/worktree');
+      final worktreeManager = RecordingWorktreeManager();
+      final taskFileGuard = RecordingTaskFileGuard()..register('task-1', '/tmp/worktree');
       final service = TaskReviewService(
         tasks: tasks,
 
@@ -284,10 +286,10 @@ void main() {
           'createdAt': '2026-03-13T10:00:00.000Z',
         },
       );
-      final mergeExecutor = _RecordingMergeExecutor(
+      final mergeExecutor = RecordingMergeExecutor(
         result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-workflow-review): accept'),
       );
-      final worktreeManager = _RecordingWorktreeManager();
+      final worktreeManager = RecordingWorktreeManager();
       final service = TaskReviewService(tasks: tasks, mergeExecutor: mergeExecutor, worktreeManager: worktreeManager);
 
       final result = await service.review('task-workflow-review', 'accept');
@@ -316,10 +318,10 @@ void main() {
           'createdAt': '2026-03-13T10:00:00.000Z',
         },
       );
-      final mergeExecutor = _RecordingMergeExecutor(
+      final mergeExecutor = RecordingMergeExecutor(
         result: const MergeConflict(conflictingFiles: ['lib/main.dart'], details: 'Automatic merge failed'),
       );
-      final worktreeManager = _RecordingWorktreeManager();
+      final worktreeManager = RecordingWorktreeManager();
       final service = TaskReviewService(
         tasks: tasks,
 
@@ -464,9 +466,9 @@ void main() {
           pr: const PrConfig(strategy: PrStrategy.githubPr),
         ),
       );
-      final pushService = _FakeRemotePushService(result: const PushSuccess());
-      final prCreator = _FakePrCreator(result: const PrCreated('https://github.com/u/r/pull/42'));
-      final worktreeManager = _RecordingWorktreeManager();
+      final pushService = FakeRemotePushService(result: const PushSuccess());
+      final prCreator = FakePrCreator(result: const PrCreated('https://github.com/u/r/pull/42'));
+      final worktreeManager = RecordingWorktreeManager();
       final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
@@ -505,7 +507,7 @@ void main() {
           pr: const PrConfig(strategy: PrStrategy.branchOnly),
         ),
       );
-      final pushService = _FakeRemotePushService(result: const PushSuccess());
+      final pushService = FakeRemotePushService(result: const PushSuccess());
       final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
@@ -538,7 +540,7 @@ void main() {
           pr: const PrConfig(strategy: PrStrategy.branchOnly),
         ),
       );
-      final pushService = _FakeRemotePushService(result: const PushSuccess());
+      final pushService = FakeRemotePushService(result: const PushSuccess());
       final gitRunner = _FakeGitRunner.withResponses({
         'status --porcelain --untracked-files=all': _gitResult('?? notes/spec-publish.md\n'),
         'add -A': _gitResult(''),
@@ -576,8 +578,8 @@ void main() {
           pr: const PrConfig(strategy: PrStrategy.githubPr),
         ),
       );
-      final pushService = _FakeRemotePushService(result: const PushSuccess());
-      final prCreator = _FakePrCreator(result: const PrGhNotFound('gh not found. Create PR manually.'));
+      final pushService = FakeRemotePushService(result: const PushSuccess());
+      final prCreator = FakePrCreator(result: const PrGhNotFound('gh not found. Create PR manually.'));
       final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
@@ -611,14 +613,14 @@ void main() {
           pr: const PrConfig(strategy: PrStrategy.githubPr),
         ),
       );
-      final pushService = _FakeRemotePushService(result: const PushSuccess());
-      final prCreator = _FakePrCreator(
+      final pushService = FakeRemotePushService(result: const PushSuccess());
+      final prCreator = FakePrCreator(
         result: const PrCreationFailed(
           error: 'GitHub PR creation failed (HTTP 422)',
           details: 'A pull request already exists for this branch.',
         ),
       );
-      final worktreeManager = _RecordingWorktreeManager();
+      final worktreeManager = RecordingWorktreeManager();
       final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
@@ -649,10 +651,10 @@ void main() {
       await _putProjectTaskInReview(tasks, 'task-auth');
 
       final projectService = _projectService(project: _makeProject(id: 'my-app'));
-      final pushService = _FakeRemotePushService(
+      final pushService = FakeRemotePushService(
         result: const PushAuthFailure('Authentication denied. Check credentials.'),
       );
-      final worktreeManager = _RecordingWorktreeManager();
+      final worktreeManager = RecordingWorktreeManager();
       final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
@@ -682,7 +684,7 @@ void main() {
       await _putProjectTaskInReview(tasks, 'task-reject');
 
       final projectService = _projectService(project: _makeProject(id: 'my-app'));
-      final pushService = _FakeRemotePushService(result: const PushRejected('non-fast-forward update rejected'));
+      final pushService = FakeRemotePushService(result: const PushRejected('non-fast-forward update rejected'));
       final gitRunner = _FakeGitRunner.cleanBranchDiff();
       final service = TaskReviewService(
         tasks: tasks,
@@ -701,7 +703,7 @@ void main() {
     test('project-backed reject cleans up using the project clone context', () async {
       await _putProjectTaskInReview(tasks, 'task-reject-cleanup');
 
-      final worktreeManager = _RecordingWorktreeManager();
+      final worktreeManager = RecordingWorktreeManager();
       final service = TaskReviewService(
         tasks: tasks,
 
@@ -738,10 +740,10 @@ void main() {
         },
       );
 
-      final mergeExecutor = _RecordingMergeExecutor(
+      final mergeExecutor = RecordingMergeExecutor(
         result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-local): Local task'),
       );
-      final worktreeManager = _RecordingWorktreeManager();
+      final worktreeManager = RecordingWorktreeManager();
       final service = TaskReviewService(tasks: tasks, mergeExecutor: mergeExecutor, worktreeManager: worktreeManager);
 
       final result = await service.review('task-local', 'accept');
@@ -764,7 +766,7 @@ void main() {
       await tasks.transition('task-no-wt', TaskStatus.running, now: DateTime.parse('2026-03-13T10:05:00Z'));
       await tasks.transition('task-no-wt', TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z'));
 
-      final pushService = _FakeRemotePushService(result: const PushSuccess());
+      final pushService = FakeRemotePushService(result: const PushSuccess());
       final service = TaskReviewService(
         tasks: tasks,
 
@@ -794,26 +796,6 @@ void main() {
       expect((await tasks.get('task-no-push'))!.status, TaskStatus.review);
     });
   });
-}
-
-class _RecordingMergeExecutor extends MergeExecutor {
-  final MergeResult result;
-  int callCount = 0;
-
-  _RecordingMergeExecutor({required this.result}) : super(projectDir: '.');
-
-  @override
-  Future<MergeResult> merge({
-    required String branch,
-    required String baseRef,
-    required String taskId,
-    required String taskTitle,
-    String? expectedBaseSha,
-    MergeStrategy? strategy,
-  }) async {
-    callCount += 1;
-    return result;
-  }
 }
 
 class _BlockingMergeExecutor extends MergeExecutor {
@@ -860,29 +842,6 @@ class _ThrowingMergeExecutor extends MergeExecutor {
   }
 }
 
-class _RecordingWorktreeManager extends WorktreeManager {
-  final List<String> cleanedTaskIds = [];
-  final List<String?> cleanedProjectIds = [];
-
-  _RecordingWorktreeManager() : super(dataDir: '/tmp', projectDir: '/tmp');
-
-  @override
-  Future<void> cleanup(String taskId, {Project? project}) async {
-    cleanedTaskIds.add(taskId);
-    cleanedProjectIds.add(project?.id);
-  }
-}
-
-class _RecordingTaskFileGuard extends TaskFileGuard {
-  final List<String> deregisteredTaskIds = [];
-
-  @override
-  void deregister(String taskId) {
-    deregisteredTaskIds.add(taskId);
-    super.deregister(taskId);
-  }
-}
-
 // ── Project-backed test helpers ──────────────────────────────────────────────
 
 Project _makeProject({required String id, PrConfig pr = const PrConfig.defaults()}) => Project(
@@ -925,29 +884,6 @@ FakeProjectService _projectService({required Project? project}) {
     includeLocalProjectInGetAll: false,
     defaultProjectId: project?.id,
   );
-}
-
-class _FakeRemotePushService extends RemotePushService {
-  final PushResult result;
-  int callCount = 0;
-
-  _FakeRemotePushService({required this.result});
-
-  @override
-  Future<PushResult> push({required Project project, required String branch}) async {
-    callCount++;
-    return result;
-  }
-}
-
-class _FakePrCreator extends PrCreator {
-  final PrCreationResult result;
-
-  _FakePrCreator({required this.result});
-
-  @override
-  Future<PrCreationResult> create({required Project project, required Task task, required String branch}) async =>
-      result;
 }
 
 class _FakeGitRunner {

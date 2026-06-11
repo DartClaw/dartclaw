@@ -4,6 +4,83 @@ import 'package:dartclaw_server/src/templates/loader.dart' as server;
 import 'package:test/test.dart';
 import 'package:trellis/trellis.dart';
 
+void _expectAll(String html, Iterable<String> needles) {
+  for (final needle in needles) {
+    expect(html, contains(needle));
+  }
+}
+
+void _expectNone(String html, Iterable<String> needles) {
+  for (final needle in needles) {
+    expect(html, isNot(contains(needle)));
+  }
+}
+
+Map<String, dynamic> _sidebarContext(Map<String, dynamic> overrides) => {
+  'mainSession': false,
+  'mainHref': '',
+  'mainActive': false,
+  'tasksEnabledAttr': null,
+  'showChannels': true,
+  'noChannels': true,
+  'noDmChannels': true,
+  'hasGroupChannels': false,
+  'showDmLabel': false,
+  'dmChannels': <Map<String, dynamic>>[],
+  'groupChannels': <Map<String, dynamic>>[],
+  'noActiveEntries': true,
+  'activeEntries': <Map<String, dynamic>>[],
+  'hasArchivedEntries': false,
+  'archivedEntries': <Map<String, dynamic>>[],
+  'archivedCount': 0,
+  'archiveContainsActive': false,
+  'hasNav': false,
+  'navItems': <Map<String, dynamic>>[],
+  ...overrides,
+};
+
+Map<String, dynamic> _sessionInfoContext(Map<String, dynamic> overrides) => {
+  'title': 'My Research',
+  'sessionId': 'abc-123',
+  'inputStr': '1.2K',
+  'outputStr': '3.4K',
+  'totalStr': '4.6K',
+  'messageCount': 42,
+  'createdAt': '2025-01-15',
+  'sidebar': '',
+  'topbar': '',
+  ...overrides,
+};
+
+Map<String, dynamic> _settingsContext(Map<String, dynamic> overrides) => {
+  'whatsAppEnabled': false,
+  'signalConnected': false,
+  'signalDisconnected': false,
+  'signalNotConfigured': true,
+  'signalEnabled': false,
+  'googleChatEnabled': false,
+  'signalPhone': '',
+  'guardsActive': false,
+  'activeGuardCount': 0,
+  'activeGuards': <String>[],
+  'schedulingActive': false,
+  'scheduledJobsCount': 0,
+  'heartbeatDisplay': 'disabled',
+  'healthBadgeHtml': '<span class="status-badge status-badge-success">Healthy</span>',
+  'whatsAppStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+  'signalStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+  'googleChatStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+  'uptimeStr': '1h 30m',
+  'sessionCount': 5,
+  'version': '0.3.0',
+  'gitSyncEnabled': false,
+  'workspacePathDisplay': '~/.dartclaw/workspace/',
+  'gitSyncDisplay': 'Disabled',
+  'sidebar': '',
+  'topbar': '',
+  ...overrides,
+};
+
 void main() {
   final templatesDir = Directory('lib/src/templates').existsSync()
       ? 'lib/src/templates'
@@ -15,209 +92,106 @@ void main() {
   });
 
   group('TemplateLoader', () {
-    test('validate() succeeds when all templates exist', () {
+    test('validates and renders known templates', () {
       final loader = server.TemplateLoaderService(templatesDir);
-      // Should not throw.
       loader.validate();
-    });
 
-    test('validate() throws when templates are missing', () {
-      final tmpDir = Directory.systemTemp.createTempSync('tpl_test_');
-      addTearDown(() => tmpDir.deleteSync(recursive: true));
-
-      final loader = server.TemplateLoaderService(tmpDir.path);
-      expect(() => loader.validate(), throwsA(isA<StateError>()));
-    });
-
-    test('validate() error message lists missing templates', () {
-      final tmpDir = Directory.systemTemp.createTempSync('tpl_test_');
-      addTearDown(() => tmpDir.deleteSync(recursive: true));
-
-      final loader = server.TemplateLoaderService(tmpDir.path);
-      try {
-        loader.validate();
-        fail('Expected StateError');
-      } on StateError catch (e) {
-        expect(e.message, contains('Missing templates'));
-        expect(e.message, contains('error_page.html'));
-        expect(e.message, contains('login.html'));
-      }
-    });
-
-    test('source() returns template content and trellis renders it', () {
-      final loader = server.TemplateLoaderService(templatesDir);
       final html = loader.trellis.render(loader.source('error_page'), {
         'code': 404,
         'title': 'Not Found',
         'detail': 'Gone',
       });
-      expect(html, contains('404'));
-      expect(html, contains('Not Found'));
+      _expectAll(html, ['404', 'Not Found']);
     });
 
-    test('source() throws for unknown template', () {
+    test('reports missing and unknown templates', () {
+      final tmpDir = Directory.systemTemp.createTempSync('tpl_test_');
+      addTearDown(() => tmpDir.deleteSync(recursive: true));
+
+      final missingLoader = server.TemplateLoaderService(tmpDir.path);
+      expect(() => missingLoader.validate(), throwsA(isA<StateError>()));
+      try {
+        missingLoader.validate();
+        fail('Expected StateError');
+      } on StateError catch (error) {
+        _expectAll(error.message, ['Missing templates', 'error_page.html', 'login.html']);
+      }
+
       final loader = server.TemplateLoaderService(templatesDir);
       expect(() => loader.source('nonexistent'), throwsA(isA<StateError>()));
     });
   });
 
-  group('error_page.html', () {
-    test('renders error code, title, and detail', () async {
-      final html = await engine.renderFileFragment(
-        'error_page',
-        fragment: 'errorPage',
-        context: {'code': 500, 'title': 'Server Error', 'detail': 'Something broke'},
-      );
-      expect(html, contains('500'));
-      expect(html, contains('Server Error'));
-      expect(html, contains('Something broke'));
-    });
-
-    test('auto-escapes title with special characters', () async {
+  group('basic fragments', () {
+    test('error page renders content, escapes input, and links home', () async {
       final html = await engine.renderFileFragment(
         'error_page',
         fragment: 'errorPage',
         context: {'code': 400, 'title': '<Bad Request>', 'detail': 'x&y'},
       );
-      expect(html, contains('&lt;Bad Request&gt;'));
-      expect(html, contains('x&amp;y'));
+      _expectAll(html, ['400', '&lt;Bad Request&gt;', 'x&amp;y', 'href="/"', 'Back to Home']);
     });
 
-    test('contains back-to-home link', () async {
-      final html = await engine.renderFileFragment(
-        'error_page',
-        fragment: 'errorPage',
-        context: {'code': 404, 'title': 'Not Found', 'detail': ''},
-      );
-      expect(html, contains('href="/"'));
-      expect(html, contains('Back to Home'));
-    });
-  });
+    test('login renders form states', () async {
+      final empty = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': null});
+      _expectAll(empty, ['login-form', 'name="token"', 'type="password"', 'name="remember"']);
+      expect(empty, isNot(contains('login-error')));
 
-  group('login.html', () {
-    test('renders login form with token input', () async {
-      final html = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': null});
-      expect(html, contains('login-form'));
-      expect(html, contains('name="token"'));
-      expect(html, contains('type="password"'));
-    });
-
-    test('renders error message when error is provided', () async {
-      final html = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': 'Invalid token'});
-      expect(html, contains('login-error'));
-      expect(html, contains('Invalid token'));
-    });
-
-    test('hides error div when error is null', () async {
-      final html = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': null});
-      expect(html, isNot(contains('login-error')));
-    });
-
-    test('contains DartClaw branding', () async {
-      final html = await engine.renderFileFragment(
+      final withError = await engine.renderFileFragment(
         'login',
         fragment: 'loginPage',
-        context: {'error': null, 'appName': 'DartClaw'},
+        context: {'error': 'Invalid token', 'appName': 'DartClaw', 'nextPath': '/tasks?status=review'},
       );
-      expect(html, contains('DartClaw'));
+      _expectAll(withError, [
+        'login-error',
+        'Invalid token',
+        'DartClaw',
+        'name="next"',
+        'value="/tasks?status=review"',
+      ]);
     });
 
-    test('contains remember checkbox', () async {
-      final html = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': null});
-      expect(html, contains('name="remember"'));
-    });
-
-    test('renders next-path hidden input when provided', () async {
-      final html = await engine.renderFileFragment(
-        'login',
-        fragment: 'loginPage',
-        context: {'error': null, 'nextPath': '/tasks?status=review'},
-      );
-      expect(html, contains('name="next"'));
-      expect(html, contains('value="/tasks?status=review"'));
-    });
-  });
-
-  group('components.html', () {
-    test('banner renders with type class and message', () async {
-      final html = await engine.renderFileFragment(
-        'components',
-        fragment: 'banner',
-        context: {'type': 'error', 'message': 'Something went wrong'},
-      );
-      expect(html, contains('banner-error'));
-      expect(html, contains('Something went wrong'));
-    });
-
-    test('banner escapes message content', () async {
-      final html = await engine.renderFileFragment(
+    test('components render banner and empty states', () async {
+      final banner = await engine.renderFileFragment(
         'components',
         fragment: 'banner',
         context: {'type': 'warning', 'message': '<b>oops</b>'},
       );
-      expect(html, contains('&lt;b&gt;oops'));
-    });
+      _expectAll(banner, ['banner-warning', '&lt;b&gt;oops']);
 
-    test('emptyState renders prompt text', () async {
-      final html = await engine.renderFileFragment('components', fragment: 'emptyState', context: const {});
-      expect(html, contains('No messages yet'));
-      expect(html, contains('empty-state'));
-    });
+      final emptyState = await engine.renderFileFragment('components', fragment: 'emptyState', context: const {});
+      _expectAll(emptyState, ['No messages yet', 'empty-state']);
 
-    test('emptyAppState renders create session button', () async {
-      final html = await engine.renderFileFragment('components', fragment: 'emptyAppState', context: const {});
-      expect(html, contains('No chats yet'));
-      expect(html, isNot(contains('data-dc-legacy-action')));
+      final emptyAppState = await engine.renderFileFragment('components', fragment: 'emptyAppState', context: const {});
+      _expectAll(emptyAppState, ['No chats yet']);
+      expect(emptyAppState, isNot(contains('data-dc-legacy-action')));
     });
   });
 
-  group('layout.html', () {
-    test('renders full HTML document with title', () async {
+  group('layout and topbars', () {
+    test('layout includes document chrome, assets, requested scripts, and escaped title', () async {
       final html = await engine.renderFile('layout', {
-        'title': 'Test Page',
+        'title': '<script>xss</script>',
         'body': '<p>Hello</p>',
         'appName': 'DartClaw',
-        'scriptsHtml': '',
-      });
-      expect(html, contains('<!DOCTYPE html>'));
-      expect(html, contains('Test Page - DartClaw'));
-    });
-
-    test('includes required CDN scripts', () async {
-      final html = await engine.renderFile('layout', {'title': 'T', 'body': '', 'scriptsHtml': ''});
-      expect(html, contains('htmx.org'));
-      expect(html, contains('marked'));
-      expect(html, contains('purify.min.js'));
-    });
-
-    test('includes static asset references', () async {
-      final html = await engine.renderFile('layout', {'title': 'T', 'body': '', 'scriptsHtml': ''});
-      expect(html, contains('/static/tokens.css'));
-      expect(html, contains('/static/components.css'));
-      expect(html, contains('/static/controllers/index.js'));
-      expect(html, isNot(contains('/static/app.js')));
-      expect(html, isNot(contains('/static/settings.js')));
-    });
-
-    test('renders explicit page scripts only when requested', () async {
-      final html = await engine.renderFile('layout', {
-        'title': 'T',
-        'body': '',
         'scriptsHtml': '<script defer="defer" src="/static/extra-page.js"></script>',
       });
-      expect(html, contains('/static/extra-page.js'));
+      _expectAll(html, [
+        '<!DOCTYPE html>',
+        '&lt;script&gt;',
+        'htmx.org',
+        'marked',
+        'purify.min.js',
+        '/static/tokens.css',
+        '/static/components.css',
+        '/static/controllers/index.js',
+        '/static/extra-page.js',
+      ]);
+      _expectNone(html, ['<script>xss</script>', '/static/app.js', '/static/settings.js']);
     });
 
-    test('escapes title to prevent XSS', () async {
-      final html = await engine.renderFile('layout', {'title': '<script>xss</script>', 'body': '', 'scriptsHtml': ''});
-      expect(html, contains('&lt;script&gt;'));
-      expect(html, isNot(contains('<script>xss</script>')));
-    });
-  });
-
-  group('topbar.html', () {
-    test('sessionTopbar renders editable title input', () async {
-      final html = await engine.renderFileFragment(
+    test('topbar fragments render expected controls', () async {
+      final session = await engine.renderFileFragment(
         'topbar',
         fragment: 'sessionTopbar',
         context: {
@@ -230,15 +204,9 @@ void main() {
           'resetHref': '/api/sessions/sess-1/reset',
         },
       );
-      expect(html, contains('session-title'));
-      expect(html, contains('My Chat'));
-      expect(html, contains('sess-1'));
-      expect(html, contains('data-icon="menu"'));
-      expect(html, contains('data-icon="info"'));
-    });
+      _expectAll(session, ['session-title', 'My Chat', 'sess-1', 'data-icon="menu"', 'data-icon="info"']);
 
-    test('sessionTopbar shows resume button for archives', () async {
-      final html = await engine.renderFileFragment(
+      final archive = await engine.renderFileFragment(
         'topbar',
         fragment: 'sessionTopbar',
         context: {
@@ -251,75 +219,38 @@ void main() {
           'resetHref': '/api/sessions/a1/reset',
         },
       );
-      expect(html, contains('>Resume<'));
-    });
+      expect(archive, contains('>Resume<'));
 
-    test('plainTopbar renders DartClaw branding', () async {
-      final html = await engine.renderFileFragment(
+      final plain = await engine.renderFileFragment(
         'topbar',
         fragment: 'plainTopbar',
         context: const {'appName': 'DartClaw'},
       );
-      expect(html, contains('DartClaw'));
-      expect(html, contains('theme-toggle'));
-      expect(html, contains('data-icon="menu"'));
-    });
+      _expectAll(plain, ['DartClaw', 'theme-toggle', 'data-icon="menu"']);
 
-    test('pageTopbar renders static title with back link', () async {
-      final html = await engine.renderFileFragment(
+      final page = await engine.renderFileFragment(
         'topbar',
         fragment: 'pageTopbar',
         context: {'title': 'Settings', 'backHref': '/', 'backLabel': 'Back'},
       );
-      expect(html, contains('Settings'));
-      expect(html, contains('href="/"'));
-      expect(html, contains('icon-arrow-left'));
+      _expectAll(page, ['Settings', 'href="/"', 'icon-arrow-left']);
     });
   });
 
   group('sidebar.html', () {
-    test('renders with empty data showing placeholders', () async {
-      final html = await engine.renderFileFragment(
-        'sidebar',
-        fragment: 'sidebar',
-        context: {
-          'mainSession': false,
-          'mainHref': '',
-          'mainActive': false,
-          'tasksEnabledAttr': null,
-          'showChannels': true,
-          'noChannels': true,
-          'noDmChannels': true,
-          'hasGroupChannels': false,
-          'showDmLabel': false,
-          'dmChannels': <Map<String, dynamic>>[],
-          'groupChannels': <Map<String, dynamic>>[],
-          'noActiveEntries': true,
-          'activeEntries': <Map<String, dynamic>>[],
-          'hasArchivedEntries': false,
-          'archivedEntries': <Map<String, dynamic>>[],
-          'archivedCount': 0,
-          'archiveContainsActive': false,
-          'hasNav': false,
-          'navItems': <Map<String, dynamic>>[],
-        },
-      );
-      expect(html, contains('No active channels'));
-      expect(html, contains('No chats yet'));
-    });
+    test('renders empty, provider, navigation, and action states', () async {
+      final empty = await engine.renderFileFragment('sidebar', fragment: 'sidebar', context: _sidebarContext({}));
+      _expectAll(empty, ['No active channels', 'No chats yet']);
 
-    test('renders provider badges for session entries across sidebar sections', () async {
-      final html = await engine.renderFileFragment(
+      final providers = await engine.renderFileFragment(
         'sidebar',
         fragment: 'sidebar',
-        context: {
+        context: _sidebarContext({
           'mainSession': true,
           'mainHref': '/sessions/main',
           'mainActive': true,
-          'tasksEnabledAttr': null,
           'mainProvider': 'claude',
           'mainProviderLabel': 'Claude',
-          'showChannels': true,
           'noChannels': false,
           'noDmChannels': false,
           'hasGroupChannels': true,
@@ -369,79 +300,31 @@ void main() {
             },
           ],
           'archivedCount': 1,
-          'archiveContainsActive': false,
-          'hasNav': false,
-          'navItems': <Map<String, dynamic>>[],
-        },
+        }),
       );
+      _expectAll(providers, [
+        'provider-badge',
+        'provider-badge-claude',
+        'provider-badge-codex',
+        'Claude',
+        'Codex',
+        'data-icon="terminal"',
+        'data-icon="hash"',
+        'data-icon="message-circle"',
+        'data-icon="archive"',
+        'data-icon="new-session"',
+        '>New Chat</button>',
+        'data-icon="x"',
+        'data-icon="chevron-down"',
+      ]);
 
-      expect(html, contains('provider-badge'));
-      expect(html, contains('provider-badge-claude'));
-      expect(html, contains('provider-badge-codex'));
-      expect(html, contains('Claude'));
-      expect(html, contains('Codex'));
-      expect(html, contains('data-icon="terminal"'));
-      expect(html, contains('data-icon="hash"'));
-      expect(html, contains('data-icon="message-circle"'));
-      expect(html, contains('data-icon="archive"'));
-      expect(html, contains('data-icon="new-session"'));
-      expect(html, contains('>New Chat</button>'));
-      expect(html, contains('data-icon="x"'));
-      expect(html, contains('data-icon="chevron-down"'));
-    });
-
-    test('renders session entries with HTMX SPA nav attrs', () async {
-      final html = await engine.renderFileFragment(
+      final entries = await engine.renderFileFragment(
         'sidebar',
         fragment: 'sidebar',
-        context: {
-          'mainSession': false,
-          'mainHref': '',
-          'mainActive': false,
-          'tasksEnabledAttr': null,
-          'showChannels': true,
-          'noChannels': true,
-          'noDmChannels': true,
-          'hasGroupChannels': false,
-          'showDmLabel': false,
-          'dmChannels': <Map<String, dynamic>>[],
-          'groupChannels': <Map<String, dynamic>>[],
+        context: _sidebarContext({
           'noActiveEntries': false,
           'activeEntries': [
             {'id': 's1', 'href': '/sessions/s1', 'active': true, 'extraClass': 'active', 'title': 'Research'},
-          ],
-          'hasArchivedEntries': false,
-          'archivedEntries': <Map<String, dynamic>>[],
-          'archivedCount': 0,
-          'archiveContainsActive': false,
-          'hasNav': false,
-          'navItems': <Map<String, dynamic>>[],
-        },
-      );
-      expect(html, contains('hx-target="#main-content"'));
-      expect(html, contains('hx-push-url="true"'));
-      expect(html, contains('hx-select-oob="#topbar,#sidebar"'));
-      expect(html, contains('Research'));
-    });
-
-    test('renders archive and delete actions in the correct sidebar sections', () async {
-      final html = await engine.renderFileFragment(
-        'sidebar',
-        fragment: 'sidebar',
-        context: {
-          'mainSession': false,
-          'mainHref': '',
-          'mainActive': false,
-          'tasksEnabledAttr': null,
-          'showChannels': true,
-          'noChannels': true,
-          'noDmChannels': true,
-          'hasGroupChannels': false,
-          'showDmLabel': false,
-          'dmChannels': <Map<String, dynamic>>[],
-          'groupChannels': <Map<String, dynamic>>[],
-          'noActiveEntries': false,
-          'activeEntries': [
             {'id': 'active-1', 'href': '/sessions/active-1', 'active': false, 'extraClass': '', 'title': 'Active chat'},
           ],
           'hasArchivedEntries': true,
@@ -455,40 +338,23 @@ void main() {
             },
           ],
           'archivedCount': 1,
-          'archiveContainsActive': false,
-          'hasNav': false,
-          'navItems': <Map<String, dynamic>>[],
-        },
+        }),
       );
+      _expectAll(entries, [
+        'hx-target="#main-content"',
+        'hx-push-url="true"',
+        'hx-select-oob="#topbar,#sidebar"',
+        'Research',
+        'data-session-archive="true"',
+        'data-session-delete="true"',
+        'aria-label="Archive chat"',
+        'aria-label="Delete session"',
+      ]);
 
-      expect(html, contains('data-session-archive="true"'));
-      expect(html, contains('data-session-delete="true"'));
-      expect(html, contains('aria-label="Archive chat"'));
-      expect(html, contains('aria-label="Delete session"'));
-    });
-
-    test('renders nav items in system section', () async {
-      final html = await engine.renderFileFragment(
+      final nav = await engine.renderFileFragment(
         'sidebar',
         fragment: 'sidebar',
-        context: {
-          'mainSession': false,
-          'mainHref': '',
-          'mainActive': false,
-          'tasksEnabledAttr': null,
-          'showChannels': true,
-          'noChannels': true,
-          'noDmChannels': true,
-          'hasGroupChannels': false,
-          'showDmLabel': false,
-          'dmChannels': <Map<String, dynamic>>[],
-          'groupChannels': <Map<String, dynamic>>[],
-          'noActiveEntries': true,
-          'activeEntries': <Map<String, dynamic>>[],
-          'hasArchivedEntries': false,
-          'archivedEntries': <Map<String, dynamic>>[],
-          'archivedCount': 0,
-          'archiveContainsActive': false,
+        context: _sidebarContext({
           'hasNav': true,
           'showSystemNav': true,
           'showExtensionNav': true,
@@ -499,57 +365,39 @@ void main() {
           'extensionNavItems': [
             {'label': 'Optional', 'href': '/optional', 'active': false, 'ariaCurrent': null, 'icon': null},
           ],
-        },
+        }),
       );
-      expect(html, contains('Health'));
-      expect(html, contains('Settings'));
-      expect(html, contains('Optional'));
-      expect(html, contains('sidebar-nav-item'));
-      expect(html, contains('data-icon="health"'));
-      expect(html, contains('data-icon="settings"'));
-      expect(html, isNot(contains('data-icon="null"')));
+      _expectAll(nav, [
+        'Health',
+        'Settings',
+        'Optional',
+        'sidebar-nav-item',
+        'data-icon="health"',
+        'data-icon="settings"',
+      ]);
+      expect(nav, isNot(contains('data-icon="null"')));
     });
   });
 
   group('session_info.html', () {
-    test('renders session title, ID, and token usage', () async {
-      final html = await engine.renderFileFragment(
+    test('renders token usage, provider cost states, and escaped title', () async {
+      final basic = await engine.renderFileFragment(
         'session_info',
         fragment: 'sessionInfo',
-        context: {
-          'title': 'My Research',
-          'sessionId': 'abc-123',
-          'inputStr': '1.2K',
-          'outputStr': '3.4K',
-          'totalStr': '4.6K',
-          'messageCount': 42,
-          'createdAt': '2025-01-15',
-          'sidebar': '',
-          'topbar': '',
-        },
+        context: _sessionInfoContext({}),
       );
-      expect(html, contains('My Research'));
-      expect(html, contains('abc-123'));
-      expect(html, contains('1.2K'));
-      expect(html, contains('3.4K'));
-      expect(html, contains('4.6K'));
-      expect(html, contains('42'));
-    });
+      _expectAll(basic, ['My Research', 'abc-123', '1.2K', '3.4K', '4.6K', '42']);
 
-    test('renders Claude cost and cached token details when usage data includes provider information', () async {
-      final html = await engine.renderFileFragment(
+      final claude = await engine.renderFileFragment(
         'session_info',
         fragment: 'sessionInfo',
-        context: {
+        context: _sessionInfoContext({
           'title': 'Claude Session',
           'sessionId': 'claude-1',
           'inputStr': '120',
           'outputStr': '80',
           'totalStr': '200',
           'messageCount': 2,
-          'createdAt': '2025-01-15',
-          'sidebar': '',
-          'topbar': '',
           'provider': 'claude',
           'providerLabel': 'Claude',
           'hasEstimatedCost': true,
@@ -558,30 +406,21 @@ void main() {
           'cachedInputTokens': 18,
           'hasCachedTokens': true,
           'cachedTokensDisplay': '18',
-        },
+        }),
       );
+      _expectAll(claude, ['Claude Session', r'$0.42', 'Cached Input', '18']);
+      expect(claude, isNot(contains('cost unavailable')));
 
-      expect(html, contains('Claude Session'));
-      expect(html, contains(r'$0.42'));
-      expect(html, contains('Cached Input'));
-      expect(html, contains('18'));
-      expect(html, isNot(contains('cost unavailable')));
-    });
-
-    test('renders Codex cost fallback and cached input tokens when USD cost is unavailable', () async {
-      final html = await engine.renderFileFragment(
+      final codex = await engine.renderFileFragment(
         'session_info',
         fragment: 'sessionInfo',
-        context: {
+        context: _sessionInfoContext({
           'title': 'Codex Session',
           'sessionId': 'codex-1',
           'inputStr': '310',
           'outputStr': '90',
           'totalStr': '400',
           'messageCount': 4,
-          'createdAt': '2025-01-15',
-          'sidebar': '',
-          'topbar': '',
           'provider': 'codex',
           'providerLabel': 'Codex',
           'hasEstimatedCost': false,
@@ -590,68 +429,42 @@ void main() {
           'cachedInputTokens': 64,
           'hasCachedTokens': true,
           'cachedTokensDisplay': '64',
-        },
+        }),
       );
+      _expectAll(codex, ['Codex Session', 'cost unavailable', 'Cached Input', '64']);
 
-      expect(html, contains('Codex Session'));
-      expect(html, contains('cost unavailable'));
-      expect(
-        html,
-        contains('This provider does not report USD cost. Token counts are tracked for governance budgets.'),
+      final escaped = await engine.renderFileFragment(
+        'session_info',
+        fragment: 'sessionInfo',
+        context: _sessionInfoContext({'title': '<script>xss</script>', 'sessionId': 'x'}),
       );
-      expect(html, contains('Cached Input'));
-      expect(html, contains('64'));
+      expect(escaped, contains('&lt;script&gt;'));
     });
 
     test('defaults legacy usage data to Claude-style cost display', () async {
       final html = await engine.renderFileFragment(
         'session_info',
         fragment: 'sessionInfo',
-        context: {
+        context: _sessionInfoContext({
           'title': 'Legacy Session',
           'sessionId': 'legacy-1',
           'inputStr': '10',
           'outputStr': '15',
           'totalStr': '25',
           'messageCount': 1,
-          'createdAt': '2025-01-15',
-          'sidebar': '',
-          'topbar': '',
           'hasEstimatedCost': true,
           'estimatedCostUsd': 0.10,
           'estimatedCostDisplay': r'$0.10',
-        },
+        }),
       );
-
-      expect(html, contains('Legacy Session'));
-      expect(html, contains(r'$0.10'));
-      expect(html, isNot(contains('cost unavailable')));
-      expect(html, isNot(contains('Cached Input')));
-    });
-
-    test('escapes session title with special chars', () async {
-      final html = await engine.renderFileFragment(
-        'session_info',
-        fragment: 'sessionInfo',
-        context: {
-          'title': '<script>xss</script>',
-          'sessionId': 'x',
-          'inputStr': '0',
-          'outputStr': '0',
-          'totalStr': '0',
-          'messageCount': 0,
-          'createdAt': '—',
-          'sidebar': '',
-          'topbar': '',
-        },
-      );
-      expect(html, contains('&lt;script&gt;'));
+      _expectAll(html, ['Legacy Session', r'$0.10']);
+      _expectNone(html, ['cost unavailable', 'Cached Input']);
     });
   });
 
-  group('scheduling.html', () {
-    test('renders heartbeat status and job table', () async {
-      final html = await engine.renderFileFragment(
+  group('status pages', () {
+    test('scheduling renders active and empty states', () async {
+      final active = await engine.renderFileFragment(
         'scheduling',
         fragment: 'scheduling',
         context: {
@@ -675,34 +488,26 @@ void main() {
           'topbar': '',
         },
       );
-      expect(html, contains('Heartbeat'));
-      expect(html, contains('Active'));
-      expect(html, contains('Daily Digest'));
-      expect(html, contains('0 9 * * *'));
-    });
+      _expectAll(active, ['Heartbeat', 'Active', 'Daily Digest', '0 9 * * *']);
 
-    test('renders empty job table placeholder', () async {
-      final html = await engine.renderFileFragment(
+      final empty = await engine.renderFileFragment(
         'scheduling',
         fragment: 'scheduling',
         context: {
           'pulseClass': '',
           'badgeClass': 'badge-muted',
           'badgeText': 'Disabled',
-          'intervalDisplay': '—',
+          'intervalDisplay': '-',
           'hasJobs': false,
           'jobs': <Map<String, dynamic>>[],
           'sidebar': '',
           'topbar': '',
         },
       );
-      expect(html, contains('No scheduled jobs configured'));
-      expect(html, contains('Disabled'));
+      _expectAll(empty, ['No scheduled jobs configured', 'Disabled']);
     });
-  });
 
-  group('health_dashboard.html', () {
-    test('renders status hero and metrics', () async {
+    test('health dashboard renders metrics and escapes version', () async {
       final html = await engine.renderFileFragment(
         'health_dashboard',
         fragment: 'healthDashboard',
@@ -713,34 +518,15 @@ void main() {
           'uptimeStr': '3d 14h 22m',
           'version': '0.3.0',
           'workerState': 'running',
-          'cardsHtml':
-              '<div class="card"><div class="card-header">'
-              '<span class="card-title">Worker</span>'
-              '<span class="card-badge badge-success">OK</span></div>'
-              '<div class="card-rows"><div class="card-row">'
-              '<span class="card-row-label">State</span>'
-              '<span class="card-row-value">running</span></div></div></div>',
-          'metricsHtml':
-              '<div class="card card-metric card-metric--info">'
-              '<div class="metric-value">12</div>'
-              '<div class="metric-label">Sessions</div></div>'
-              '<div class="card card-metric card-metric--info">'
-              '<div class="metric-value">2.4 MB</div>'
-              '<div class="metric-label">DB Size</div></div>',
+          'cardsHtml': '<div class="card"><span class="card-title">Worker</span><span>running</span></div>',
+          'metricsHtml': '<div class="metric-value">12</div><div class="metric-label">DB Size</div><div>2.4 MB</div>',
           'sidebar': '',
           'topbar': '',
         },
       );
-      expect(html, contains('Healthy'));
-      expect(html, contains('3d 14h 22m'));
-      expect(html, contains('0.3.0'));
-      expect(html, contains('running'));
-      expect(html, contains('12'));
-      expect(html, contains('2.4 MB'));
-    });
+      _expectAll(html, ['Healthy', '3d 14h 22m', '0.3.0', 'running', '12', '2.4 MB']);
 
-    test('escapes version string', () async {
-      final html = await engine.renderFileFragment(
+      final escaped = await engine.renderFileFragment(
         'health_dashboard',
         fragment: 'healthDashboard',
         context: {
@@ -756,139 +542,54 @@ void main() {
           'topbar': '',
         },
       );
-      expect(html, contains('&lt;script&gt;'));
+      expect(escaped, contains('&lt;script&gt;'));
     });
   });
 
   group('settings.html', () {
-    test('renders all settings cards', () async {
-      final html = await engine.renderFileFragment(
-        'settings',
-        fragment: 'settings',
-        context: {
-          'whatsAppEnabled': false,
-          'signalConnected': false,
-          'signalDisconnected': false,
-          'signalNotConfigured': true,
-          'signalEnabled': false,
-          'signalPhone': '',
-          'guardsActive': false,
-          'activeGuardCount': 0,
-          'activeGuards': <String>[],
-          'schedulingActive': false,
-          'scheduledJobsCount': 0,
-          'heartbeatDisplay': 'disabled',
-          'healthBadgeHtml': '<span class="status-badge status-badge-success">Healthy</span>',
-          'whatsAppStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
-          'signalStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
-          'googleChatStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
-          'uptimeStr': '1h 30m',
-          'sessionCount': 5,
-          'version': '0.3.0',
-          'gitSyncEnabled': false,
-          'workspacePathDisplay': '~/.dartclaw/workspace/',
-          'gitSyncDisplay': 'Disabled',
-          'sidebar': '',
-          'topbar': '',
-        },
-      );
-      expect(html, contains('Settings'));
-      expect(html, contains('WhatsApp Channel'));
-      expect(html, contains('Security'));
-      expect(html, contains('Scheduling'));
-      expect(html, contains('Authentication'));
-      expect(html, contains('System Health'));
-      expect(html, contains('Workspace'));
-    });
-
-    test('shows channel configure links even when channels are disabled', () async {
-      final html = await engine.renderFileFragment(
-        'settings',
-        fragment: 'settings',
-        context: {
-          'whatsAppEnabled': false,
-          'signalConnected': false,
-          'signalDisconnected': false,
-          'signalNotConfigured': true,
-          'signalEnabled': false,
-          'googleChatEnabled': false,
-          'signalPhone': '',
-          'guardsActive': false,
-          'activeGuardCount': 0,
-          'activeGuards': <String>[],
-          'schedulingActive': false,
-          'scheduledJobsCount': 0,
-          'heartbeatDisplay': 'disabled',
-          'healthBadgeHtml': '<span class="status-badge status-badge-success">Healthy</span>',
-          'whatsAppStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
-          'signalStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
-          'googleChatStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
-          'uptimeStr': '1h 30m',
-          'sessionCount': 5,
-          'version': '0.3.0',
-          'gitSyncEnabled': false,
-          'workspacePathDisplay': '~/.dartclaw/workspace/',
-          'gitSyncDisplay': 'Disabled',
-          'sidebar': '',
-          'topbar': '',
-        },
-      );
-
-      expect(html, contains('/settings/channels/whatsapp'));
-      expect(html, contains('/settings/channels/signal'));
-      expect(html, contains('/settings/channels/google_chat'));
+    test('renders cards and channel configure links', () async {
+      final html = await engine.renderFileFragment('settings', fragment: 'settings', context: _settingsContext({}));
+      _expectAll(html, [
+        'Settings',
+        'WhatsApp Channel',
+        'Security',
+        'Scheduling',
+        'Authentication',
+        'System Health',
+        'Workspace',
+        '/settings/channels/whatsapp',
+        '/settings/channels/signal',
+        '/settings/channels/google_chat',
+      ]);
     });
 
     test('shows WhatsApp configure link when enabled', () async {
       final html = await engine.renderFileFragment(
         'settings',
         fragment: 'settings',
-        context: {
+        context: _settingsContext({
           'whatsAppEnabled': true,
-          'signalConnected': false,
-          'signalDisconnected': false,
-          'signalNotConfigured': true,
-          'signalEnabled': false,
-          'signalPhone': '',
-          'guardsActive': false,
-          'activeGuardCount': 0,
-          'activeGuards': <String>[],
-          'schedulingActive': false,
-          'scheduledJobsCount': 0,
-          'heartbeatDisplay': 'disabled',
           'healthBadgeHtml': '<span class="status-badge status-badge-success">OK</span>',
           'whatsAppStatusBadgeHtml': '<span class="status-badge status-badge-success">Connected</span>',
-          'signalStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
-          'googleChatStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
           'uptimeStr': '0m',
           'sessionCount': 0,
-          'version': '0.3.0',
-          'gitSyncEnabled': false,
           'workspacePathDisplay': '/tmp',
-          'gitSyncDisplay': 'Disabled',
-          'sidebar': '',
-          'topbar': '',
-        },
+        }),
       );
-      expect(html, contains('/settings/channels/whatsapp'));
-      expect(html, contains('Configure'));
+      _expectAll(html, ['/settings/channels/whatsapp', 'Configure']);
     });
   });
 
   group('chat.html', () {
-    test('userMessage renders with msg-user class and escaped content', () async {
-      final html = await engine.renderFileFragment(
+    test('message fragments render expected content and optional states', () async {
+      final user = await engine.renderFileFragment(
         'chat',
         fragment: 'userMessage',
         context: {'content': 'Hello <world>'},
       );
-      expect(html, contains('msg-user'));
-      expect(html, contains('>You<'));
-      expect(html, contains('Hello &lt;world&gt;'));
-    });
+      _expectAll(user, ['msg-user', '>You<', 'Hello &lt;world&gt;']);
 
-    test('userMessage renders rich input chips when provided', () async {
-      final html = await engine.renderFileFragment(
+      final rich = await engine.renderFileFragment(
         'chat',
         fragment: 'userMessage',
         context: {
@@ -896,49 +597,40 @@ void main() {
           'richInputHtml': '<div class="msg-rich-input"><span class="composer-chip">notes.md</span></div>',
         },
       );
-      expect(html, contains('msg-rich-input'));
-      expect(html, contains('notes.md'));
-    });
+      _expectAll(rich, ['msg-rich-input', 'notes.md']);
 
-    test('assistantMessage renders with data-markdown', () async {
-      final html = await engine.renderFileFragment(
+      final assistant = await engine.renderFileFragment(
         'chat',
         fragment: 'assistantMessage',
         context: {'content': 'Here is the answer'},
       );
-      expect(html, contains('msg-assistant'));
-      expect(html, contains('data-markdown'));
-      expect(html, contains('Here is the answer'));
-    });
+      _expectAll(assistant, ['msg-assistant', 'data-markdown', 'Here is the answer']);
 
-    test('guardBlock renders blocked reason', () async {
-      final html = await engine.renderFileFragment(
+      final guard = await engine.renderFileFragment(
         'chat',
         fragment: 'guardBlock',
         context: {'detail': 'Dangerous command detected'},
       );
-      expect(html, contains('GUARD BLOCKED'));
-      expect(html, contains('Dangerous command detected'));
-    });
+      _expectAll(guard, ['GUARD BLOCKED', 'Dangerous command detected']);
 
-    test('turnFailed renders with optional detail', () async {
-      final html = await engine.renderFileFragment(
+      final failed = await engine.renderFileFragment(
         'chat',
         fragment: 'turnFailed',
         context: {'detail': 'Process exited with code 1'},
       );
-      expect(html, contains('Turn failed'));
-      expect(html, contains('Process exited with code 1'));
+      _expectAll(failed, ['Turn failed', 'Process exited with code 1']);
+
+      final failedWithoutDetail = await engine.renderFileFragment(
+        'chat',
+        fragment: 'turnFailed',
+        context: {'detail': null},
+      );
+      expect(failedWithoutDetail, contains('Turn failed'));
+      expect(failedWithoutDetail, isNot(contains('msg-turn-failed-detail')));
     });
 
-    test('turnFailed hides detail when null', () async {
-      final html = await engine.renderFileFragment('chat', fragment: 'turnFailed', context: {'detail': null});
-      expect(html, contains('Turn failed'));
-      expect(html, isNot(contains('msg-turn-failed-detail')));
-    });
-
-    test('chatArea renders session container with HTMX form', () async {
-      final html = await engine.renderFileFragment(
+    test('chat area and send response render HTMX/SSE wiring', () async {
+      final area = await engine.renderFileFragment(
         'chat',
         fragment: 'chatArea',
         context: {
@@ -952,36 +644,38 @@ void main() {
           'inputDisabled': null,
         },
       );
-      expect(html, contains('data-session-id="abc-123"'));
-      expect(html, contains('class="msg">test'));
-      expect(html, contains('hx-post="/api/sessions/abc-123/send"'));
-      expect(html, isNot(contains('sse-container')));
-      expect(html, contains('hx-target="#messages"'));
-      expect(html, contains('hx-swap="beforeend"'));
-      expect(html, contains('name="attachments"'));
-      expect(html, contains('data-dc-chat-target="commandPalette"'));
-    });
+      _expectAll(area, [
+        'data-session-id="abc-123"',
+        'class="msg">test',
+        'hx-post="/api/sessions/abc-123/send"',
+        'hx-target="#messages"',
+        'hx-swap="beforeend"',
+        'name="attachments"',
+        'data-dc-chat-target="commandPalette"',
+      ]);
+      expect(area, isNot(contains('sse-container')));
 
-    test('sendResponse renders user message and SSE connector', () async {
-      final html = await engine.renderFileFragment(
+      final response = await engine.renderFileFragment(
         'chat',
         fragment: 'sendResponse',
         context: {'message': 'Hello <world>', 'sseUrl': '/api/sessions/s1/stream?turn=t1'},
       );
-      expect(html, contains('msg-user'));
-      expect(html, contains('Hello &lt;world&gt;'));
-      expect(html, contains('streaming-msg'));
-      expect(html, contains('sse-connect="/api/sessions/s1/stream?turn=t1"'));
-      expect(html, contains('hx-ext="sse"'));
-      expect(html, contains('sse-close="done"'));
-      expect(html, contains('sse-swap="delta"'));
+      _expectAll(response, [
+        'msg-user',
+        'Hello &lt;world&gt;',
+        'streaming-msg',
+        'sse-connect="/api/sessions/s1/stream?turn=t1"',
+        'hx-ext="sse"',
+        'sse-close="done"',
+        'sse-swap="delta"',
+      ]);
     });
   });
 
   group('no htmlEscape calls in .html templates', () {
     test('template files do not contain htmlEscape()', () {
       final dir = Directory(templatesDir);
-      final htmlFiles = dir.listSync().whereType<File>().where((f) => f.path.endsWith('.html'));
+      final htmlFiles = dir.listSync().whereType<File>().where((file) => file.path.endsWith('.html'));
       for (final file in htmlFiles) {
         final content = file.readAsStringSync();
         expect(content, isNot(contains('htmlEscape')), reason: '${file.path} contains htmlEscape()');

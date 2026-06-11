@@ -1,12 +1,7 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:test/test.dart';
 
-DartclawConfig _loadYaml(String yaml) {
-  return DartclawConfig.load(
-    fileReader: (path) => path == '/tmp/.dartclaw/dartclaw.yaml' ? yaml : null,
-    env: {'HOME': '/tmp'},
-  );
-}
+import 'support/load_config.dart';
 
 void main() {
   group('ProvidersConfig', () {
@@ -21,7 +16,7 @@ void main() {
     });
 
     test('parses providers section with claude and codex entries', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 providers:
   claude:
     executable: claude
@@ -43,7 +38,7 @@ providers:
     });
 
     test('parses claude inherit_user_settings provider option', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 providers:
   claude:
     executable: claude
@@ -57,7 +52,7 @@ providers:
     });
 
     test('warns and defaults claude inherit_user_settings to true on invalid type', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 providers:
   claude:
     executable: claude
@@ -69,17 +64,31 @@ providers:
     });
 
     test('defaults pool size to 0 when omitted', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 providers:
   claude:
     executable: claude
 ''');
 
       expect(config.providers['claude']?.poolSize, 0);
+      expect(config.providers['claude']?.effectivePoolSize, 1);
+    });
+
+    test('warns and defaults negative pool size to effective one', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    pool_size: -1
+''');
+
+      expect(config.providers['claude']?.poolSize, 0);
+      expect(config.providers['claude']?.effectivePoolSize, 1);
+      expect(config.warnings, anyElement(contains('Invalid value for providers.claude.pool_size')));
     });
 
     test('warns on missing executable field', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 providers:
   codex:
     sandbox: workspace-write
@@ -90,14 +99,14 @@ providers:
     });
 
     test('returns empty ProvidersConfig when section absent', () {
-      final config = _loadYaml('agent:\n  model: sonnet\n');
+      final config = loadYaml('agent:\n  model: sonnet\n');
 
       expect(config.providers, const ProvidersConfig.defaults());
       expect(config.providers.isEmpty, isTrue);
     });
 
     test('handles invalid type for providers section', () {
-      final config = _loadYaml('providers: codex\n');
+      final config = loadYaml('providers: codex\n');
 
       expect(config.providers.isEmpty, isTrue);
       expect(config.warnings, anyElement(contains('Invalid type for providers')));

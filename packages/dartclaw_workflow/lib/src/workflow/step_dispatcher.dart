@@ -33,6 +33,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     required String? activeWorkspaceRoot,
     bool promoteAfterSuccess = false,
     Map<String, dynamic>? extraTaskConfig,
+    _NestedLoopScope? nestedLoopScope,
   }) async {
     if (step.taskType == WorkflowTaskType.bash) {
       return _executeBashStep(run, step, context);
@@ -45,6 +46,23 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
 
     if (step.taskType == WorkflowTaskType.aggregateReviews) {
       return _executeAggregateStep(run, definition, step, context, activeWorkspaceRoot: activeWorkspaceRoot);
+    }
+
+    // A `loop`-type step is only reachable as a foreach child: the loop
+    // controller runs against the per-iteration [context] (its iterContext).
+    if (step.taskType == WorkflowTaskType.loop) {
+      if (nestedLoopScope == null) {
+        await _failRun(run, "Loop step '${step.id}' dispatched without a nested-loop scope");
+        return null;
+      }
+      return _executeNestedLoopStep(
+        run,
+        definition,
+        step,
+        context,
+        scope: nestedLoopScope,
+        activeWorkspaceRoot: activeWorkspaceRoot,
+      );
     }
 
     final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: _roleDefaults);

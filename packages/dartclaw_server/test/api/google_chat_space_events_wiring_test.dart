@@ -42,26 +42,11 @@ class _FakeAdapter extends CloudEventAdapter {
   AdapterResult processMessage(ReceivedMessage message) => result;
 }
 
-class _FakeChannelManager extends ChannelManager {
-  _FakeChannelManager()
-    : super(
-        queue: MessageQueue(dispatcher: (_, _, {senderJid, senderDisplayName}) async => ''),
-        config: const ChannelConfig.defaults(),
-      );
-
-  final List<ChannelMessage> handled = [];
-
-  @override
-  void handleInboundMessage(ChannelMessage message) {
-    handled.add(message);
-  }
-}
-
 void main() {
   late Directory tempDir;
   late FakeGoogleChatRestClient restClient;
   late GoogleChatChannel channel;
-  late _FakeChannelManager channelManager;
+  late FakeChannelManager channelManager;
   late MessageDeduplicator deduplicator;
 
   setUp(() {
@@ -71,7 +56,7 @@ void main() {
       config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
       restClient: restClient,
     );
-    channelManager = _FakeChannelManager();
+    channelManager = FakeChannelManager();
     deduplicator = MessageDeduplicator();
   });
 
@@ -118,7 +103,7 @@ void main() {
 
     expect(acked, isTrue);
     expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._')]);
-    expect(channelManager.handled, hasLength(1));
+    expect(channelManager.received, hasLength(1));
   });
 
   test('does not send typing indicator when disabled', () async {
@@ -139,7 +124,7 @@ void main() {
     );
 
     expect(restClient.sentMessages, isEmpty);
-    expect(channelManager.handled, hasLength(1));
+    expect(channelManager.received, hasLength(1));
   });
 
   test('does not send typing indicator when channel is absent', () async {
@@ -156,7 +141,7 @@ void main() {
     );
 
     expect(restClient.sentMessages, isEmpty);
-    expect(channelManager.handled, hasLength(1));
+    expect(channelManager.received, hasLength(1));
   });
 
   group('sender display name enrichment', () {
@@ -183,8 +168,8 @@ void main() {
         ),
       );
 
-      expect(channelManager.handled, hasLength(1));
-      expect(channelManager.handled.first.metadata['senderDisplayName'], 'Tobias');
+      expect(channelManager.received, hasLength(1));
+      expect(channelManager.received.first.metadata['senderDisplayName'], 'Tobias');
       expect(restClient.getMemberDisplayNameCalls, [('spaces/AAAA', 'users/123')]);
     });
 
@@ -204,9 +189,9 @@ void main() {
         ),
       );
 
-      expect(channelManager.handled, hasLength(2));
-      expect(channelManager.handled[0].metadata['senderDisplayName'], 'Tobias');
-      expect(channelManager.handled[1].metadata['senderDisplayName'], 'Tobias');
+      expect(channelManager.received, hasLength(2));
+      expect(channelManager.received[0].metadata['senderDisplayName'], 'Tobias');
+      expect(channelManager.received[1].metadata['senderDisplayName'], 'Tobias');
       // Only one API call — second message served from cache.
       expect(restClient.getMemberDisplayNameCalls, hasLength(1));
     });
@@ -227,8 +212,8 @@ void main() {
         ),
       );
 
-      expect(channelManager.handled, hasLength(1));
-      expect(channelManager.handled.first.metadata.containsKey('senderDisplayName'), isFalse);
+      expect(channelManager.received, hasLength(1));
+      expect(channelManager.received.first.metadata.containsKey('senderDisplayName'), isFalse);
     });
 
     test('skips enrichment when senderDisplayName already resolved', () async {
@@ -247,7 +232,7 @@ void main() {
         ),
       );
 
-      expect(channelManager.handled.first.metadata['senderDisplayName'], 'Webhook Name');
+      expect(channelManager.received.first.metadata['senderDisplayName'], 'Webhook Name');
       expect(restClient.getMemberDisplayNameCalls, isEmpty);
     });
   });
@@ -268,6 +253,6 @@ void main() {
     );
 
     expect(restClient.sentMessages, isEmpty);
-    expect(channelManager.handled, isEmpty);
+    expect(channelManager.received, isEmpty);
   });
 }

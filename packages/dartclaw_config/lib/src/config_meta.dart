@@ -107,6 +107,39 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       min: 1,
     ),
+    'delegation.enabled': FieldMeta(
+      yamlPath: 'delegation.enabled',
+      jsonKey: 'delegation.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'delegation.agents': FieldMeta(
+      yamlPath: 'delegation.agents',
+      jsonKey: 'delegation.agents',
+      type: ConfigFieldType.objectList,
+      mutability: ConfigMutability.restart,
+    ),
+    'delegation.max_budget_tokens': FieldMeta(
+      yamlPath: 'delegation.max_budget_tokens',
+      jsonKey: 'delegation.maxBudgetTokens',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 0,
+    ),
+    'delegation.budget_accounting': FieldMeta(
+      yamlPath: 'delegation.budget_accounting',
+      jsonKey: 'delegation.budgetAccounting',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['provider_reported', 'estimate_if_unreported'],
+    ),
+    'delegation.rate_limit.max_per_minute': FieldMeta(
+      yamlPath: 'delegation.rate_limit.max_per_minute',
+      jsonKey: 'delegation.rateLimit.maxPerMinute',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 0,
+    ),
 
     // --- Restart-required fields ---
 
@@ -1007,13 +1040,6 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.bool_,
       mutability: ConfigMutability.restart,
     ),
-    'channels.google_chat.space_events.auth_mode': FieldMeta(
-      yamlPath: 'channels.google_chat.space_events.auth_mode',
-      jsonKey: 'channels.googleChat.spaceEvents.authMode',
-      type: ConfigFieldType.enum_,
-      mutability: ConfigMutability.restart,
-      allowedValues: ['user', 'app'],
-    ),
     'channels.google_chat.feedback.enabled': FieldMeta(
       yamlPath: 'channels.google_chat.feedback.enabled',
       jsonKey: 'channels.googleChat.feedback.enabled',
@@ -1075,6 +1101,18 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.int_,
       mutability: ConfigMutability.restart,
       min: 100,
+    ),
+    'harness.turn_monitor.wait_warning_after': FieldMeta(
+      yamlPath: 'harness.turn_monitor.wait_warning_after',
+      jsonKey: 'harness.turnMonitor.waitWarningAfter',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'harness.turn_monitor.stuck_after': FieldMeta(
+      yamlPath: 'harness.turn_monitor.stuck_after',
+      jsonKey: 'harness.turnMonitor.stuckAfter',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
     ),
 
     // Governance
@@ -1223,63 +1261,6 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.enum_,
       mutability: ConfigMutability.restart,
       allowedValues: ['abort', 'warn'],
-    ),
-    'canvas.enabled': FieldMeta(
-      yamlPath: 'canvas.enabled',
-      jsonKey: 'canvas.enabled',
-      type: ConfigFieldType.bool_,
-      mutability: ConfigMutability.restart,
-    ),
-    'canvas.share.default_permission': FieldMeta(
-      yamlPath: 'canvas.share.default_permission',
-      jsonKey: 'canvas.share.defaultPermission',
-      type: ConfigFieldType.enum_,
-      mutability: ConfigMutability.restart,
-      allowedValues: ['view', 'interact'],
-    ),
-    'canvas.share.default_ttl': FieldMeta(
-      yamlPath: 'canvas.share.default_ttl',
-      jsonKey: 'canvas.share.defaultTtlMinutes',
-      type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
-      min: 1,
-    ),
-    'canvas.share.max_connections': FieldMeta(
-      yamlPath: 'canvas.share.max_connections',
-      jsonKey: 'canvas.share.maxConnections',
-      type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
-      min: 1,
-    ),
-    'canvas.share.auto_share': FieldMeta(
-      yamlPath: 'canvas.share.auto_share',
-      jsonKey: 'canvas.share.autoShare',
-      type: ConfigFieldType.bool_,
-      mutability: ConfigMutability.restart,
-    ),
-    'canvas.share.show_qr': FieldMeta(
-      yamlPath: 'canvas.share.show_qr',
-      jsonKey: 'canvas.share.showQr',
-      type: ConfigFieldType.bool_,
-      mutability: ConfigMutability.restart,
-    ),
-    'canvas.workshop_mode.task_board': FieldMeta(
-      yamlPath: 'canvas.workshop_mode.task_board',
-      jsonKey: 'canvas.workshopMode.taskBoard',
-      type: ConfigFieldType.bool_,
-      mutability: ConfigMutability.restart,
-    ),
-    'canvas.workshop_mode.show_contributor_stats': FieldMeta(
-      yamlPath: 'canvas.workshop_mode.show_contributor_stats',
-      jsonKey: 'canvas.workshopMode.showContributorStats',
-      type: ConfigFieldType.bool_,
-      mutability: ConfigMutability.restart,
-    ),
-    'canvas.workshop_mode.show_budget_bar': FieldMeta(
-      yamlPath: 'canvas.workshop_mode.show_budget_bar',
-      jsonKey: 'canvas.workshopMode.showBudgetBar',
-      type: ConfigFieldType.bool_,
-      mutability: ConfigMutability.restart,
     ),
     'advisor.enabled': FieldMeta(
       yamlPath: 'advisor.enabled',

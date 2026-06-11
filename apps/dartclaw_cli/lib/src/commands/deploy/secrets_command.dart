@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 
-import 'setup_command.dart' show RunProcess;
+/// Signature matching [Process.run] for dependency injection in deploy commands.
+typedef RunProcess = Future<ProcessResult> Function(String executable, List<String> arguments);
 
 /// Injects secrets into generated config files, starts the service,
 /// and verifies health.

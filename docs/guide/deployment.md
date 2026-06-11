@@ -5,13 +5,22 @@ DartClaw is designed for always-on deployment on a Mac Mini or Linux server.
 ## Quick Deploy
 
 ```bash
-# 1. Set up your instance (config, workspace, onboarding)
+# 1. Install DartClaw
+brew tap DartClaw/dartclaw
+brew install dartclaw
+dartclaw --version
+
+# 2. Verify provider CLIs separately
+claude --version
+codex --version
+
+# 3. Set up your instance (config, workspace, onboarding)
 dartclaw init
 
-# 2. Install as a user-scoped background service
+# 4. Install as a user-scoped background service
 dartclaw service install --instance-dir ~/.dartclaw
 
-# 3. Start the service
+# 5. Start the service
 dartclaw service start --instance-dir ~/.dartclaw
 ```
 
@@ -50,7 +59,22 @@ The old three-step `dartclaw deploy setup / config / secrets` workflow used root
 
 ## Standalone Binary
 
-Use the repo build entrypoint to produce the production binary:
+Homebrew is the only package manager for DartClaw releases. It installs the versioned platform archive for your host and verifies the runtime version with `dartclaw --version`:
+
+```bash
+brew tap DartClaw/dartclaw
+brew install dartclaw
+dartclaw --version
+```
+
+DartClaw does not install provider CLIs. Install and verify `claude`, `codex`, Goose, Vibe, or any future provider binary separately before selecting that provider in configuration:
+
+```bash
+claude --version
+codex --version
+```
+
+Use the repo build entrypoint to produce the production binary from source:
 
 ```bash
 bash dev/tools/build.sh
@@ -58,8 +82,9 @@ bash dev/tools/build.sh
 
 `dev/tools/build.sh` compiles `apps/dartclaw_cli/bin/dartclaw.dart` to `build/dartclaw` and also produces the
 release artifacts that carry the asset tree separately from the binary: `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz`,
-`build/dartclaw-assets-v{VERSION}.tar.gz`, and `build/SHA256SUMS.txt`. The binary does not embed templates,
-static assets, skills, or workflows; packaged installs discover those files from the filesystem instead.
+`build/dartclaw-assets-v{VERSION}.tar.gz`, and `build/SHA256SUMS.txt`. Release targets use `macos-arm64`,
+`macos-x64`, `linux-x64`, and `linux-arm64`. The binary does not embed templates, static assets, skills, or workflows;
+packaged installs discover those files from the filesystem instead.
 
 ```bash
 build/dartclaw serve --config /path/to/dartclaw.yaml --data-dir /tmp/dartclaw

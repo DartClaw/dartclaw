@@ -67,6 +67,19 @@ String _allPromptText(WorkflowStep step) {
 String? _effectiveDescription(OutputConfig? config) =>
     config == null ? null : PromptAugmenter.effectiveDescription(config);
 
+/// Returns a review step's single review-report path output entry, or null.
+///
+/// Review steps declare exactly one `format: path` output backed by the
+/// canonical `review_report_path` preset – the report artifact. Keyed
+/// generically (not by literal name) so the lookup survives the step-prefixed
+/// output-key convention (`<stepId>.review_findings`).
+MapEntry<String, OutputConfig>? _reviewReportPathOutput(WorkflowStep step) {
+  final entries = (step.outputs ?? const <String, OutputConfig>{}).entries
+      .where((e) => e.value.format == OutputFormat.path && e.value.presetName == 'review_report_path')
+      .toList();
+  return entries.length == 1 ? entries.single : null;
+}
+
 const _builtInWorkflows = ['spec-and-implement.yaml', 'plan-and-implement.yaml', 'code-review.yaml'];
 const _inlineWorkflows = ['spec-and-implement-inline.yaml', 'plan-and-implement-inline.yaml'];
 
@@ -160,14 +173,18 @@ void main() {
       expect(_load('code-review.yaml').steps.first.id, 'review-code');
     });
 
-    test('plan-and-implement simplifies inside each story after quick-review', () {
+    test('plan-and-implement runs implement → simplify-code → review → nested loop per story', () {
       final def = _load('plan-and-implement.yaml');
       expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);
+      // quick-review is gone; the per-story converging loop replaces it.
+      expect(_flattenedSteps(def).where((step) => step.skill == 'andthen:quick-review'), isEmpty);
       expect(_flattenedSteps(def).where((step) => step.skill == 'andthen:simplify-code'), hasLength(1));
 
       final storyPipeline = def.nodes.whereType<ForeachNode>().singleWhere((node) => node.stepId == 'story-pipeline');
       final stepIds = storyPipeline.childStepIds;
-      expect(stepIds.indexOf('simplify-code'), stepIds.indexOf('quick-review') + 1);
+      expect(stepIds.indexOf('simplify-code'), stepIds.indexOf('implement') + 1);
+      expect(stepIds.indexOf('review-story'), stepIds.indexOf('simplify-code') + 1);
+      expect(stepIds.indexOf('story-remediation'), stepIds.indexOf('review-story') + 1);
 
       final simplify = _flattenedSteps(def).singleWhere((step) => step.id == 'simplify-code');
       expect(simplify.skill, 'andthen:simplify-code');
@@ -178,6 +195,16 @@ void main() {
       expect(simplify.maxRetries, isNull);
       expect(simplify.inputs, ['story_result']);
       expect(_allPromptText(simplify), contains('changes for this story'));
+
+      // The per-story loop is a foreach-owned loop with the converging shape.
+      final loop = def.loops.singleWhere((l) => l.id == 'story-remediation');
+      expect(loop.steps, ['remediate-story', 're-review-story']);
+      expect(loop.exitGate, 'gating_findings_count == 0');
+      final review = _flattenedSteps(def).singleWhere((step) => step.id == 'review-story');
+      expect(_allPromptText(review), contains('--mode gap,code,security'));
+      // The loop controller declares no outputs (no review-key leak to plan level).
+      final loopController = _flattenedSteps(def).singleWhere((step) => step.id == 'story-remediation');
+      expect(loopController.outputKeys, isEmpty);
     });
 
     test('spec-and-implement simplifies once between implement and reviews', () {
@@ -217,14 +244,17 @@ void main() {
       expect(prompt, isNot(contains('current branch')));
     });
 
-    test('inline plan-and-implement mirrors the per-story simplify-code shape', () {
+    test('inline plan-and-implement mirrors the per-story simplify-code + nested-loop shape', () {
       final def = _loadInline('plan-and-implement-inline.yaml');
       expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);
+      expect(_flattenedSteps(def).where((step) => step.skill == 'andthen:quick-review'), isEmpty);
       expect(_flattenedSteps(def).where((step) => step.skill == 'andthen:simplify-code'), hasLength(1));
 
       final storyPipeline = def.nodes.whereType<ForeachNode>().singleWhere((node) => node.stepId == 'story-pipeline');
       final stepIds = storyPipeline.childStepIds;
-      expect(stepIds.indexOf('simplify-code'), stepIds.indexOf('quick-review') + 1);
+      expect(stepIds.indexOf('simplify-code'), stepIds.indexOf('implement') + 1);
+      expect(stepIds.indexOf('review-story'), stepIds.indexOf('simplify-code') + 1);
+      expect(stepIds.indexOf('story-remediation'), stepIds.indexOf('review-story') + 1);
 
       final simplify = _flattenedSteps(def).singleWhere((step) => step.id == 'simplify-code');
       expect(simplify.skill, 'andthen:simplify-code');
@@ -235,6 +265,12 @@ void main() {
       expect(simplify.maxRetries, isNull);
       expect(simplify.inputs, ['story_result']);
       expect(_allPromptText(simplify), contains('changes for this story'));
+
+      final loop = def.loops.singleWhere((l) => l.id == 'story-remediation');
+      expect(loop.steps, ['remediate-story', 're-review-story']);
+      expect(loop.exitGate, 'gating_findings_count == 0');
+      final loopController = _flattenedSteps(def).singleWhere((step) => step.id == 'story-remediation');
+      expect(loopController.outputKeys, isEmpty);
     });
 
     test('inline workflows run the full deterministic verification gate', () {
@@ -279,8 +315,9 @@ void main() {
     // Structured review steps declare an explicit allowlist with `file_write`
     // absent so step_config_policy.stepIsReadOnly returns true. File-backed
     // review steps need `file_write`; they emit a path to a report artifact
-    // that the workflow validates against the task worktree.
-    const writeableReviewSteps = {'quick-review'};
+    // that the workflow validates against the task worktree. No built-in review
+    // step is currently exempt from this contract.
+    const writeableReviewSteps = <String>{};
 
     test('review steps declare tool access consistent with artifact outputs', () {
       for (final file in _builtInWorkflows) {
@@ -401,15 +438,15 @@ void main() {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
           if (step.skill != 'andthen:review') continue;
-          final reviewFindings = step.outputs?['review_findings'];
-          if (reviewFindings == null) continue;
+          final reportOutput = _reviewReportPathOutput(step);
+          if (reportOutput == null) continue;
           checked++;
           expect(
             _allPromptText(step),
             contains('--output-dir "{{workflow.runtime_artifacts_dir}}/reviews"'),
             reason: '$file → "${step.id}" must write review reports under workflow runtime artifacts',
           );
-          final description = _effectiveDescription(reviewFindings) ?? '';
+          final description = _effectiveDescription(reportOutput.value) ?? '';
           expect(
             description,
             contains('--output-dir'),
@@ -426,11 +463,65 @@ void main() {
       expect(checked, greaterThan(0), reason: 'built-ins must include file-backed andthen:review steps');
     });
 
+    test('parallel review source steps prefix every output key with the step id', () {
+      // Convention: a review step that feeds an aggregate-reviews step prefixes
+      // ALL its output keys with its step id (`<stepId>.review_findings`,
+      // `<stepId>.findings_count`, `<stepId>.gating_findings_count`). The host
+      // accepts the skill's bare-suffix emission via the filesystem-claim alias,
+      // so prefixing is always collision-safe. Locks out the historical
+      // three-strategy split (bare `review_findings`, distinct
+      // `architecture_review_findings`, prefixed council key).
+      final definitions = <String, WorkflowDefinition>{
+        for (final file in _builtInWorkflows) file: _load(file),
+        for (final file in const [
+          'spec-and-implement-inline.yaml',
+          'plan-and-implement-inline.yaml',
+          'review-and-remediate-inline.yaml',
+        ])
+          file: _loadInline(file),
+      };
+      var checked = 0;
+
+      for (final entry in definitions.entries) {
+        final aggregate = _flattenedSteps(
+          entry.value,
+        ).where((s) => s.type == WorkflowTaskType.aggregateReviews).firstOrNull;
+        if (aggregate == null) continue;
+        final stepsById = {for (final s in _flattenedSteps(entry.value)) s.id: s};
+
+        for (final sourceId in aggregate.aggregateReviews ?? const <String>[]) {
+          final source = stepsById[sourceId]!;
+          checked++;
+          final prefix = '$sourceId.';
+          for (final key in source.outputs?.keys ?? const <String>[]) {
+            expect(
+              key,
+              startsWith(prefix),
+              reason: '${entry.key} → source "$sourceId" output key "$key" must be prefixed with its step id',
+            );
+          }
+          final reportOutput = _reviewReportPathOutput(source);
+          expect(reportOutput?.key, '$sourceId.review_findings', reason: '${entry.key} → "$sourceId" report key');
+          expect(
+            source.outputs?.containsKey('review_findings'),
+            isNot(isTrue),
+            reason: '${entry.key} → "$sourceId" must not declare a bare review_findings',
+          );
+          expect(
+            source.outputs?.containsKey('architecture_review_findings'),
+            isNot(isTrue),
+            reason: '${entry.key} → "$sourceId" must not declare the legacy architecture_review_findings',
+          );
+        }
+      }
+      expect(checked, greaterThan(0), reason: 'workflows must include aggregated review source steps');
+    });
+
     test('parallel review workflows aggregate first-pass findings and re-review overwrites simple names', () {
       final expectedSources = {
-        'spec-and-implement.yaml': ['integrated-review', 'architecture-review'],
-        'plan-and-implement.yaml': ['plan-review', 'architecture-review'],
-        'spec-and-implement-inline.yaml': ['integrated-review', 'architecture-review'],
+        'spec-and-implement.yaml': ['integrated-review', 'integrated-review-council', 'architecture-review'],
+        'plan-and-implement.yaml': ['plan-review', 'plan-review-council', 'architecture-review'],
+        'spec-and-implement-inline.yaml': ['integrated-review', 'integrated-review-council', 'architecture-review'],
         'plan-and-implement-inline.yaml': ['plan-review', 'plan-review-council', 'architecture-review'],
       };
 
@@ -534,13 +625,26 @@ void main() {
       }
     });
 
-    test('plan-and-implement: plan-review targets the plan with mixed review mode', () {
+    test('plan-and-implement: whole-plan pass gates on gap + architecture + code,security council', () {
       final def = _load('plan-and-implement.yaml');
       final planReview = _flattenedSteps(def).firstWhere((s) => s.id == 'plan-review');
-      final text = _allPromptText(planReview);
-      expect(text, contains('{{context.plan}}'));
-      expect(text, contains('--mode mixed'));
-      expect(text, contains('--auto'));
+      final planReviewText = _allPromptText(planReview);
+      expect(planReviewText, contains('{{context.plan}}'));
+      expect(planReviewText, contains('--mode gap'));
+      expect(planReviewText, contains('--auto'));
+
+      // The code,security council runs alongside, provider-agnostic, and is
+      // crash-tolerant (onFailure: continue) but still feeds the aggregator.
+      final council = _flattenedSteps(def).firstWhere((s) => s.id == 'plan-review-council');
+      expect(_allPromptText(council), contains('--mode code,security --council'));
+      expect(council.onFailure, OnFailurePolicy.continueWorkflow);
+      expect(council.skill, 'andthen:review');
+
+      // The top-level remediation re-review uses the combined gap,code,security
+      // mode (no council).
+      final reReview = _flattenedSteps(def).firstWhere((s) => s.id == 're-review');
+      expect(_allPromptText(reReview), contains('--mode gap,code,security'));
+      expect(_allPromptText(reReview), isNot(contains('--council')));
     });
 
     test('andthen:review steps pin reports to workflow runtime artifacts dir', () {
@@ -598,7 +702,7 @@ void main() {
       for (final entry in definitions.entries) {
         final architectureReview = _flattenedSteps(entry.value).where((step) => step.id == 'architecture-review');
         for (final step in architectureReview) {
-          final output = step.outputs!['architecture_review_findings']!;
+          final output = step.outputs!['architecture-review.review_findings']!;
           expect(output.format, OutputFormat.path, reason: '${entry.key} → architecture-review output format');
           expect(
             output.presetName,

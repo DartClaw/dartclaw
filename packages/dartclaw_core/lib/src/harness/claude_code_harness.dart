@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 
 import 'package:dartclaw_config/dartclaw_config.dart' show ClaudeProviderOptions, HistoryConfig;
 import '../container/container_executor.dart';
+import '../storage/atomic_write.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
 import 'base_harness.dart';
@@ -411,16 +412,10 @@ class ClaudeCodeHarness extends BaseHarness {
           },
         },
       });
+      // Create empty, tighten to owner-only, THEN write credentials — the
+      // file must never hold the bearer token at default permissions.
       await configFile.create(exclusive: true);
-      if (!Platform.isWindows) {
-        final result = await Process.run('chmod', ['600', configFile.path]);
-        if (result.exitCode != 0) {
-          final stderr = (result.stderr as String).trim();
-          throw StateError(
-            'Failed to secure MCP config permissions: ${stderr.isEmpty ? 'chmod exited ${result.exitCode}' : stderr}',
-          );
-        }
-      }
+      await chmodOwnerOnly(configFile.path);
       await configFile.writeAsString(configJson, flush: true);
       mcpConfigPath = configFile.path;
       _mcpConfigPath = mcpConfigPath;
@@ -763,6 +758,11 @@ class ClaudeCodeHarness extends BaseHarness {
       case proto.ToolResult(:final toolId, :final output, :final isError):
         emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
+      case proto.ProgressMessage():
+      case proto.SessionMetadataUpdate():
+      case proto.ProtocolDiagnostic():
+        break;
+
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         _handleControlRequest(requestId, subtype, data);
 
@@ -891,6 +891,7 @@ class ClaudeCodeHarness extends BaseHarness {
 
   Future<void> _handlePreToolUseCallback(String requestId, Map<String, dynamic>? hookInput) async {
     final rawToolName = hookInput?['tool_name'] as String? ?? '';
+    emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
     final toolInput = hookInput?['tool_input'] as Map<String, dynamic>? ?? {};
     final canonicalTool = _adapter.mapToolName(rawToolName);
     final guardToolName = canonicalTool?.stableName ?? 'claude:$rawToolName';
@@ -909,7 +910,9 @@ class ClaudeCodeHarness extends BaseHarness {
         rawProviderToolName: rawToolName,
       );
       if (verdict.isBlock) {
-        _writeLine(_adapter.buildHookResponse(requestId, allow: false));
+        if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false))) {
+          emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+        }
         return;
       }
     }
@@ -920,11 +923,25 @@ class ClaudeCodeHarness extends BaseHarness {
       final sanitizedEnv = Map<String, dynamic>.from(envMap)..remove('ANTHROPIC_API_KEY');
       final updatedInput = Map<String, dynamic>.from(toolInput)..['env'] = sanitizedEnv;
       _log.info('Stripped ANTHROPIC_API_KEY from bash env');
-      _writeLine(_adapter.buildCredentialStripResponse(requestId, updatedInput));
+      if (_tryWriteHookResponse(requestId, _adapter.buildCredentialStripResponse(requestId, updatedInput))) {
+        emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+      }
       return;
     }
 
-    _writeLine(_adapter.buildHookResponse(requestId, allow: true));
+    if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: true))) {
+      emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+    }
+  }
+
+  bool _tryWriteHookResponse(String requestId, Map<String, dynamic> response) {
+    try {
+      _writeLine(response);
+      return true;
+    } catch (error, stackTrace) {
+      _log.severe('Failed to write Claude hook response for $requestId: $error', error, stackTrace);
+      return false;
+    }
   }
 
   void _handlePostToolUseCallback(String requestId, Map<String, dynamic>? hookInput) {

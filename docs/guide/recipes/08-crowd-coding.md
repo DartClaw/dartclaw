@@ -29,8 +29,7 @@ This recipe is designed for workshop organizers, hackathon facilitators, and tea
 - [Task orchestration](../tasks.md) -- parallel task execution with accept/reject review cycle
 - Thread binding -- task notification threads become the review channel for that task
 - Cross-channel binding -- `/bind <taskId>` and `/unbind` can attach WhatsApp groups, Signal groups, or Google Chat threads to an existing task session
-- Advisor agent -- optional observer that posts structured `[Advisor]` insights to the canvas and bound channels
-- Shareable canvas -- standalone live canvas page with share-token links for projected screens and participant phones (0.14.2+)
+- Advisor agent -- optional observer that posts structured `[Advisor]` insights to bound channels
 
 **Scenario B only (External Repo):**
 - [Multi-project support](../configuration.md) -- register external repos as projects; tasks create worktrees from fresh clones, accepted work is pushed as PRs (0.14+)
@@ -162,33 +161,6 @@ projects:
 ```
 
 Everything else (governance, channels, sessions, tasks, guards) stays the same as Scenario A.
-
-Add this optional `canvas:` block when you want a live workshop view outside the authenticated web UI:
-
-```yaml
-base_url: https://workshop.example.com
-
-canvas:
-  enabled: true
-  share:
-    default_permission: interact
-    default_ttl: 8h
-    max_connections: 50
-    auto_share: true
-    show_qr: true
-  workshop_mode:
-    task_board: true
-    show_contributor_stats: true
-    show_budget_bar: true
-```
-
-What this enables:
-- Agent-created share links like `https://workshop.example.com/canvas/<token>` that work without web UI login
-- A projection-friendly standalone canvas page with live SSE updates
-- Built-in workshop templates for a task board and stats bar
-- An authenticated `/canvas-admin` dashboard page for facilitators with iframe preview and share-link controls
-
-For full canvas configuration, security model, MCP tool reference, and troubleshooting, see the [Canvas guide](../canvas.md).
 
 **Pre-flight checklist** for Scenario B:
 - Export `GITHUB_TOKEN` and point a `github-token` credential entry at it
@@ -412,7 +384,7 @@ Steps 1--7 are common to all scenarios. Steps 8+ differ by scenario.
    task: build a hello world page at /hello that returns "Hello, world!"
    ```
 
-   DartClaw creates a task, starts working in an isolated branch, and posts a notification to the Space. If `canvas.enabled` is on, the facilitator can project `/canvas-admin` or share a public `/canvas/<token>` link for live task-board visibility without web UI login.
+   DartClaw creates a task, starts working in an isolated branch, and posts a notification to the Space.
 
 9. **Interact via thread** -- participants can reply directly in the notification thread to give feedback or ask questions. With `features.thread_binding.enabled: true`, all replies in that thread go to the task's session.
 
@@ -590,7 +562,7 @@ The advisor is a soft observer. It never blocks or overrides the main agent.
 - `advisor.triggers` controls when it fires: `periodic`, `task_review`, `turn_depth`, `token_velocity`, `explicit`
 - `@advisor ...` always triggers an explicit reply in the current thread or group
 - Periodic and event-based advisor messages are broadcast to all channels currently bound to the task
-- Advisor output is structured as status + observation + optional suggestion, and the same insight can also be pushed to the workshop canvas
+- Advisor output is structured as status + observation + optional suggestion
 
 ## Customization Tips
 
@@ -598,7 +570,7 @@ The advisor is a soft observer. It never blocks or overrides the main agent.
 - **Warn vs block budget**: Use `action: warn` for exploratory workshops where you want cost visibility without interrupting flow; use `action: block` for budget-constrained events
 - **Multi-channel governance**: Add WhatsApp or Signal participants alongside Google Chat -- governance (rate limits, budgets, loop detection) applies across all channels uniformly. Thread binding remains Google Chat Spaces only
 - **Cross-channel task rooms**: Start a task in Google Chat, then use `/bind` from a WhatsApp or Signal group if you want mobile participants to steer the same task session
-- **Advisor-only facilitation layer**: Enable `advisor:` plus `canvas:` when you want a facilitator screen that surfaces observer insights without interrupting the primary conversation
+- **Advisor facilitation layer**: Enable `advisor:` when you want an observer that surfaces insights to bound channels without interrupting the primary conversation
 - **Target an external repo** (0.14+): Add a `projects:` block to point tasks at a real codebase. Each task creates an isolated worktree from a fresh fetch. On accept, the branch is pushed and a PR is created. Without a `projects:` block, an implicit `_local` project uses DartClaw's working directory -- existing setups work unchanged
 - **Dynamic project registration**: Register additional repos at runtime via `POST /api/projects` with the remote URL -- no server restart needed. Useful for hackathons where teams bring their own repos
 - **PR strategy**: Set `pr.strategy: github-pr` for GitHub repos (creates draft PRs with configurable labels). Use `pr.strategy: branch-only` for non-GitHub remotes (pushes branch, stores branch name as artifact)

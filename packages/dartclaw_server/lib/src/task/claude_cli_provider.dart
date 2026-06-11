@@ -137,8 +137,21 @@ class ClaudeCliProvider implements CliProvider {
         req.containerManager == null && ClaudeProviderOptions.useProjectSettingSources(req.providerConfig.options);
     final args = <String>[
       '-p',
+      // Stream NDJSON events instead of a single buffered object. With
+      // `--output-format json` claude emits nothing on stdout until the turn
+      // completes, so the CLI stall monitor (which resets only on stdout lines)
+      // false-trips on any turn longer than the stall timeout — even while
+      // claude is actively working. Streaming emits one event per line
+      // throughout the turn, giving the supervisor a continuous liveness signal
+      // (matching the codex `exec --json` JSONL path). The terminal
+      // `type: "result"` event carries the same summary fields the single
+      // object did. `--verbose` is required for stream-json under `-p`;
+      // `--include-partial-messages` streams token-level deltas so long
+      // single-message turns (e.g. extended thinking) still emit incrementally.
       '--output-format',
-      'json',
+      'stream-json',
+      '--verbose',
+      '--include-partial-messages',
       if (settingSourcesProject) ...['--setting-sources', 'project'],
       if (req.providerSessionId != null) ...['--resume', req.providerSessionId!],
       if (req.maxTurns != null) ...['--max-turns', '${req.maxTurns}'],
@@ -157,7 +170,10 @@ class ClaudeCliProvider implements CliProvider {
   }
 
   WorkflowCliTurnResult _parse(String stdout, {required Duration fallbackDuration}) {
-    final decoded = jsonDecode(stdout) as Map<String, dynamic>;
+    final decoded = _terminalResultEvent(stdout);
+    if (decoded == null) {
+      throw StateError('Claude stream-json output contained no terminal "result" event');
+    }
     final subtype = stringValue(decoded['subtype']);
     if (subtype == 'error_max_structured_output_retries' || subtype == 'error_max_turns') {
       _log.warning('Claude structured output fell back due to subtype "$subtype"');
@@ -168,14 +184,28 @@ class ClaudeCliProvider implements CliProvider {
       structuredOutput: decoded['structured_output'] is Map<String, dynamic>
           ? decoded['structured_output'] as Map<String, dynamic>
           : null,
-      inputTokens: intValue(decoded['input_tokens']) ?? 0,
-      outputTokens: intValue(decoded['output_tokens']) ?? 0,
-      cacheReadTokens: intValue(decoded['cache_read_tokens']) ?? 0,
-      cacheWriteTokens: intValue(decoded['cache_write_tokens']) ?? 0,
-      newInputTokens: intValue(decoded['input_tokens']) ?? 0,
+      // Token counts are nested under `usage` in the result event
+      // (`usage.input_tokens`, etc.); the legacy top-level keys are retained as
+      // a defensive fallback.
+      inputTokens: _usageInt(decoded, 'input_tokens', 'input_tokens'),
+      outputTokens: _usageInt(decoded, 'output_tokens', 'output_tokens'),
+      cacheReadTokens: _usageInt(decoded, 'cache_read_input_tokens', 'cache_read_tokens'),
+      cacheWriteTokens: _usageInt(decoded, 'cache_creation_input_tokens', 'cache_write_tokens'),
+      newInputTokens: _usageInt(decoded, 'input_tokens', 'input_tokens'),
       totalCostUsd: (decoded['total_cost_usd'] as num?)?.toDouble(),
       duration: Duration(milliseconds: intValue(decoded['duration_ms']) ?? fallbackDuration.inMilliseconds),
     );
+  }
+
+  /// Reads a token count from the result event's nested `usage` map, falling
+  /// back to a legacy top-level key when `usage` is absent.
+  int _usageInt(Map<String, dynamic> decoded, String usageKey, String legacyTopKey) {
+    final usage = decoded['usage'];
+    if (usage is Map) {
+      final value = intValue(usage[usageKey]);
+      if (value != null) return value;
+    }
+    return intValue(decoded[legacyTopKey]) ?? 0;
   }
 
   static String? _rejectInteractivePermissionMode(String? mode, _ClaudeTaskPolicy taskPolicy) {
@@ -195,14 +225,47 @@ class ClaudeCliProvider implements CliProvider {
   }
 }
 
+/// Returns the terminal `type: "result"` event from claude stream-json stdout.
+///
+/// Stream-json emits one JSON object per line (`system`, `stream_event`,
+/// `assistant`, … then a final `result`). Scans lines in order and returns the
+/// last `result`-typed object. As a defensive fallback for a non-streaming
+/// envelope (a lone result object with no `type` field), returns the sole
+/// parseable JSON object when no `result`-typed line is present. Returns null
+/// when nothing parseable is found.
+Map<String, dynamic>? _terminalResultEvent(String stdout) {
+  Map<String, dynamic>? terminal;
+  Map<String, dynamic>? soleObject;
+  var objectCount = 0;
+  for (final line in const LineSplitter().convert(stdout)) {
+    final trimmed = line.trim();
+    if (trimmed.isEmpty) continue;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(trimmed);
+    } on FormatException {
+      continue;
+    }
+    if (decoded is! Map<String, dynamic>) continue;
+    objectCount++;
+    soleObject = decoded;
+    if (decoded['type'] == 'result') {
+      terminal = decoded;
+    }
+  }
+  if (terminal != null) return terminal;
+  // Non-streaming fallback: a single bare result object with no `type` tag.
+  return objectCount == 1 ? soleObject : null;
+}
+
 /// Builds a diagnostic message for a non-zero claude one-shot exit.
 ///
-/// `claude -p --output-format json` reports turn-level errors in its stdout
-/// result JSON (`subtype`, `is_error`, `api_error_status`, `result`), while
-/// stderr typically carries only operational warnings (e.g. the benign
-/// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` notice). The stdout diagnostic is placed
-/// before stderr so the real failure survives downstream reason truncation
-/// instead of being masked by a harmless warning.
+/// `claude -p --output-format stream-json` reports turn-level errors in the
+/// terminal `result` event (`subtype`, `is_error`, `api_error_status`,
+/// `result`), while stderr typically carries only operational warnings (e.g.
+/// the benign `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` notice). The stdout diagnostic
+/// is placed before stderr so the real failure survives downstream reason
+/// truncation instead of being masked by a harmless warning.
 String _describeNonZeroExit(int exitCode, String stdout, String stderr) {
   final parts = <String>['Workflow one-shot claude command failed with exit code $exitCode'];
   final diagnostic = _resultJsonDiagnostic(stdout);
@@ -212,33 +275,21 @@ String _describeNonZeroExit(int exitCode, String stdout, String stderr) {
   return parts.join('; ');
 }
 
-/// Extracts a human-readable diagnostic from a claude result JSON envelope, or
-/// null when [stdout] is not a parseable result envelope.
+/// Extracts a human-readable diagnostic from the terminal claude `result`
+/// event, or null when stdout carries no parseable result event.
 String? _resultJsonDiagnostic(String stdout) {
-  final trimmed = stdout.trim();
-  if (trimmed.isEmpty) return null;
-  // `--output-format json` emits a single object; fall back to the last line
-  // in case any prefix noise precedes it.
-  for (final candidate in <String>{trimmed, trimmed.split('\n').last.trim()}) {
-    final Object? decoded;
-    try {
-      decoded = jsonDecode(candidate);
-    } on FormatException {
-      continue;
-    }
-    if (decoded is! Map) continue;
-    final subtype = stringValue(decoded['subtype']);
-    final result = stringValue(decoded['result']);
-    final apiErrorStatus = decoded['api_error_status'];
-    final fields = <String>[
-      if (subtype != null && subtype.isNotEmpty) 'subtype=$subtype',
-      if (decoded['is_error'] == true) 'is_error=true',
-      if (apiErrorStatus != null) 'api_error_status=$apiErrorStatus',
-      if (result != null && result.trim().isNotEmpty) 'result=${result.trim()}',
-    ];
-    if (fields.isNotEmpty) return fields.join(' ');
-  }
-  return null;
+  final decoded = _terminalResultEvent(stdout);
+  if (decoded == null) return null;
+  final subtype = stringValue(decoded['subtype']);
+  final result = stringValue(decoded['result']);
+  final apiErrorStatus = decoded['api_error_status'];
+  final fields = <String>[
+    if (subtype != null && subtype.isNotEmpty) 'subtype=$subtype',
+    if (decoded['is_error'] == true) 'is_error=true',
+    if (apiErrorStatus != null) 'api_error_status=$apiErrorStatus',
+    if (result != null && result.trim().isNotEmpty) 'result=${result.trim()}',
+  ];
+  return fields.isEmpty ? null : fields.join(' ');
 }
 
 String? _permissionModeForTaskPolicy(String? configured, _ClaudeTaskPolicy taskPolicy) {

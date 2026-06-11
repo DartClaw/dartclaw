@@ -15,7 +15,7 @@ Google Chat support is built for a **Chat app**, not a simple incoming webhook. 
 - A Google Cloud project
 - A Google Chat app registered for that project
 - Service account credentials that can call the Chat API
-- OAuth client credentials for the one-time `google-auth` consent flow if you use `space_events.auth_mode: user`
+- OAuth client credentials for the one-time `google-auth` consent flow if you use Space Events
 - A reachable HTTPS URL for your DartClaw server if you use `audience.type: app-url`
 - Optional: Google Cloud CLI (`gcloud`) if you prefer CLI setup over the Cloud console
 
@@ -210,14 +210,9 @@ Google Chat's standard webhook model only pushes `MESSAGE` events when the bot i
 
 ### Authentication
 
-Two auth paths exist for creating Workspace Events subscriptions:
+Workspace Events subscriptions authenticate via **user OAuth** (GA since March 2024). This ties subscriptions to a user who is a member of the target Spaces and requires no Workspace admin approval. Run `dartclaw google-auth` once to authorize and store the refresh token.
 
-| Path | Status | Admin Approval | Notes |
-|------|--------|----------------|-------|
-| **User OAuth** | GA (since March 2024) | Not required | Recommended. Ties subscriptions to a user who is a member of target Spaces |
-| **Service account (app auth)** | Developer Preview (since Sep 2025) | Required (one-time) | Fallback path. Requires Workspace admin to authorize the needed `chat.app.*` scopes |
-
-DartClaw prefers user OAuth when `space_events.auth_mode: user`. If no stored user credentials are available, or they no longer match the configured event types, DartClaw falls back to service account auth and logs how to refresh the stored credentials.
+If no stored user credentials are available, or their granted scopes do not cover the configured event types, DartClaw logs an actionable error pointing to `dartclaw google-auth` and leaves Space Events disabled – it does not silently degrade. (Cloud Pub/Sub *pull* still uses the service account, which is GCP IAM rather than Workspace-Events auth.)
 
 ### GCP Console Setup
 
@@ -235,12 +230,10 @@ Complete these steps before enabling `space_events` in your config:
 
 5. **Grant your service account subscriber permission**: On the subscription's **Permissions** panel, add your DartClaw service account (the `client_email` from your service account JSON) with role **Pub/Sub Subscriber** (`roles/pubsub.subscriber`). This is on the **subscription**, not the topic — a common point of confusion.
 
-6. **OAuth consent screen and client credentials** (recommended for `auth_mode: user`):
-   - Configure the OAuth consent screen: in **Google Auth Platform > Data access** (or **APIs & Services > OAuth consent screen** in older Console layouts), add the `chat.messages.readonly` scope.
+6. **OAuth consent screen and client credentials** (required for Space Events):
+   - Configure the OAuth consent screen: in **Google Auth Platform > Data access** (or **APIs & Services > OAuth consent screen** in older Console layouts), add every scope implied by your configured `space_events.event_types`: `chat.messages.readonly` for message events, `chat.memberships.readonly` for membership events, and `chat.spaces.readonly` for space events.
    - Create an OAuth client: in **Google Auth Platform > Clients**, create a client with application type **Desktop app** (not "Web application" — web clients fail unless you configure a matching localhost redirect URI). Download the client credentials JSON.
-   - DartClaw uses this for `space_events.auth_mode: user`, which is the recommended path because it is GA and does not require Workspace admin approval.
-
-7. **(Service account auth only) Workspace admin approval**: A Workspace admin must authorize your app's service account for the `chat.app.spaces` and `chat.app.memberships` scopes. This is done in the Google Admin Console under **Security > API controls > Domain-wide delegation** or **App access control**.
+   - DartClaw uses this to run the one-time `dartclaw google-auth` consent flow. User OAuth is GA and does not require Workspace admin approval.
 
 Wait 2–5 minutes after IAM changes for permission propagation before testing.
 
@@ -297,7 +290,6 @@ channels:
       event_types:
         - message.created
       include_resource: true
-      auth_mode: user
 ```
 
 | Field | Default | Notes |
@@ -311,7 +303,6 @@ channels:
 | `space_events.pubsub_topic` | — | Full topic resource path (required) |
 | `space_events.event_types` | `['message.created']` | Shorthand; expanded to full form at runtime |
 | `space_events.include_resource` | `true` | Full payload (4h TTL) vs name-only (7d TTL) |
-| `space_events.auth_mode` | `user` | `user` (GA) or `app` (Developer Preview) |
 
 ### Authenticate User OAuth
 
@@ -330,9 +321,9 @@ dartclaw google-auth \
 
 Use a Google OAuth client of type **Desktop app** for this flow. A `web` OAuth client can fail with `Access blocked: This app’s request is invalid` unless you explicitly configure a matching `http://localhost:<port>` redirect URI and run `google-auth --port <that-port>`.
 
-DartClaw stores the resulting refresh token in `google-chat-user-oauth.json` under `data_dir` with owner-only permissions on Unix. This stored file is the runtime credential used when `auth_mode: user`, and it is shared with reactions auth when `reactions_auth: user`. The `oauth_credentials` config field, by contrast, should point to the Google-downloaded OAuth client JSON used only to run `dartclaw google-auth`.
+DartClaw stores the resulting refresh token in `google-chat-user-oauth.json` under `data_dir` with owner-only permissions on Unix. This stored file is the runtime credential for Workspace Events subscriptions, and it is shared with reactions auth when `reactions_auth: user`. The `oauth_credentials` config field, by contrast, should point to the Google-downloaded OAuth client JSON used only to run `dartclaw google-auth`.
 
-The consent flow requests the union of the scopes required by the configured `space_events.event_types` and any reaction scopes implied by `reactions_auth`. On startup, `space_events.auth_mode: user` uses the stored refresh token for Workspace Events subscription management while Pub/Sub pull continues to use the service account.
+The consent flow requests the union of the scopes required by the configured `space_events.event_types` and any reaction scopes implied by `reactions_auth`. On startup, the stored refresh token is used for Workspace Events subscription management while Pub/Sub pull continues to use the service account.
 
 ### Emoji Typing Indicator Setup
 
@@ -363,9 +354,8 @@ Manual management is available via the API:
 |-------|-------------|
 | `403 PERMISSION_DENIED` on Pub/Sub pull (`pubsub.subscriptions.consume`) | Service account missing **Pub/Sub Subscriber** role on the subscription |
 | `403 SERVICE_DISABLED` on subscription creation | **Google Workspace Events API** not enabled in the project |
-| `403 insufficient authentication scopes` on subscription creation | Service account needs `chat.app.spaces` and `chat.app.memberships` scopes (requires Workspace admin approval for Developer Preview) |
-| `403 administrator must grant the app the required OAuth authorization scope` | Workspace admin has not approved the app for `chat.app.*` scopes |
-| `space_events.auth_mode is "user" but no user OAuth credentials found` in startup logs | You have not run `dartclaw google-auth`, or you ran it with a different `data_dir` / config file |
+| `space_events.enabled is true but no user OAuth credentials were found` in startup logs | You have not run `dartclaw google-auth`, or you ran it with a different `data_dir` / config file |
+| `Stored user OAuth credentials are missing required scopes` in startup logs | The stored credential predates a config change. Rerun `dartclaw google-auth --force` to refresh the consent set |
 | `Access blocked: This app’s request is invalid` during `google-auth` | You used a `web` OAuth client without an authorized localhost redirect. Use a **Desktop app** OAuth client instead |
 | Subscription creates OK but no messages arrive | Missing `chat-api-push@system.gserviceaccount.com` **Publisher** permission on the topic |
 | Duplicate message processing | Deduplication should handle this automatically; check logs for `MessageDeduplicator` warnings |

@@ -170,13 +170,25 @@ Map<String, String> existingSafeFileClaims(
   required String? workflowRunId,
   required String dataDir,
 }) {
+  // For review-report claims, resolve against the runtime-artifacts root first.
+  // In profiles where the data dir is nested inside the worktree (e.g. the
+  // maintainer workflow profile keeps `.data/` under the checkout), an absolute
+  // claim into `<runtimeArtifacts>/reviews/...` is *also* within the worktree
+  // root. With worktree-first ordering it resolves to a worktree-relative path,
+  // which `runtimeArtifactsOutputClaims` then rejects (it requires an absolute
+  // path) and which is gitignored (so absent from the diff), dropping the claim
+  // to the worktree-diff fallback. Trying the runtime-artifacts root first keeps
+  // the preserved absolute form so the claim is honored.
+  final orderedRoots = preserveRuntimeArtifactsRoot
+      ? _runtimeArtifactsRootFirst(roots, workflowRunId: workflowRunId, dataDir: dataDir)
+      : roots;
   final claims = <String, String>{};
   for (final value in values) {
     final safeClaim = safeRelativeExistingFileClaim(
       value,
       resolver,
       preserveRuntimeArtifactsRoot: preserveRuntimeArtifactsRoot,
-      roots: roots,
+      roots: orderedRoots,
       taskId: taskId,
       projectId: projectId,
       workflowRunId: workflowRunId,
@@ -185,6 +197,18 @@ Map<String, String> existingSafeFileClaims(
     if (safeClaim != null) claims[value] = safeClaim;
   }
   return claims;
+}
+
+/// Returns [roots] with the runtime-artifacts root moved to the front, or
+/// [roots] unchanged when it is absent or already first.
+List<String> _runtimeArtifactsRootFirst(List<String> roots, {required String? workflowRunId, required String dataDir}) {
+  final index = roots.indexWhere(
+    (root) => isRuntimeArtifactsRoot(root, workflowRunId: workflowRunId, dataDir: dataDir),
+  );
+  if (index <= 0) return roots;
+  final reordered = List<String>.from(roots);
+  reordered.insert(0, reordered.removeAt(index));
+  return reordered;
 }
 
 /// Returns paths from [values] that match the worktree diff, validated for containment.
@@ -403,6 +427,40 @@ Future<Object?> resolveFileSystemOutput(
     if (resolver.listMode) return safeClaims;
     if (safeClaims.length == 1) return safeClaims.single;
     throw StateError('Multiple filesystem artifacts were explicitly claimed for "$outputKey": $safeClaims');
+  }
+  // No inline path was claimed. For a review-artifact output the worktree
+  // `changedMatches` are the wrong source — review reports are written to the
+  // runtime-artifacts `reviews/` output dir, never the worktree diff, and the
+  // `review_report_path` preset's default `**/*` pattern would otherwise match
+  // every dirty file and throw. Locate the report in the output dir instead,
+  // degrading to a clean stub / empty rather than failing the whole run when a
+  // review step omits its inline claim.
+  if (prefersChanged) {
+    final located = rap.locateUnclaimedReviewArtifact(
+      outputKey: outputKey,
+      step: step,
+      task: task,
+      resolver: resolver,
+      dataDir: dataDir,
+    );
+    if (located != null) return resolver.listMode ? <String>[located] : located;
+    if (rap.allowsMissingCleanReviewArtifact(outputKey, step, resolver, workflowContextPayload)) {
+      final fallback = rap.materializeUnclaimedCleanReviewArtifact(
+        outputKey: outputKey,
+        step: step,
+        task: task,
+        resolver: resolver,
+        workflowContextPayload: workflowContextPayload,
+        dataDir: dataDir,
+      );
+      if (fallback != null) return resolver.listMode ? <String>[fallback] : fallback;
+    }
+    _log.warning(
+      'No review artifact found in the runtime-artifacts output dir for "$outputKey" on task '
+      '${task.id}; the review step claimed no inline report path. Returning empty instead of '
+      'matching unrelated worktree files.',
+    );
+    return resolver.listMode ? const <String>[] : '';
   }
   if (resolver.listMode) return changedMatches;
   if (changedMatches.isEmpty) {

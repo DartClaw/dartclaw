@@ -4,19 +4,9 @@
 
 ## Active Milestone
 
-### 0.17 — Personal AI & Developer Experience (Active)
+### 0.18 — Universal Agent Harness (Release-ready)
 
-Structured `USER.md` identity context, conversational onboarding bootstrapping, inbox-drop knowledge ingestion, LLM-maintained knowledge wiki, temporal knowledge graph (SQLite-based structured facts with time-validity), guard config editor, SDK docs Phase 2, chat input redesign (composable input, slash command palette, file attachments, @-mention context references), interrupted-turn retry UX, automated kill/restart crash-recovery validation.
-
-Milestone close note: all planned 0.17 stories are implemented in this checkout, plus post-plan workflow-engine reliability, harness stabilization, and release-hardening work (captured as Phases G/H in the canonical PRD). No `0.17.x` deferral remains for the planned story set; PRD out-of-scope items such as SDK Tier 3 guides, Flutter examples, CLI REPL, query-to-wiki promotion UX, and binary distribution stay in their documented future/pre-1.0 buckets.
-
-Release-ready: all automated gates green (format, analyze, fitness, full test suite, version lockstep at 0.17.0, bundle cleanup). Awaiting final manual gates (live integration, UI smoke, maintainer-smoke workflow runs) and the `v0.17.0` tag.
-
-## Planned
-
-### 0.18 — Universal Agent Harness (Planned)
-
-Provider-runtime expansion beyond the current Claude/Codex families through `AcpHarness`, a universal ACP adapter for non-Claude agents. Scope includes Phase A0 verification of capability-gated reverse-call mediation, Goose as the first target, Mistral Vibe as the verified second target, per-provider pool structure and queueing semantics needed when a third built-in provider is introduced, `delegate_to_agent` MCP delegation, stuck-turn recovery, and distribution polish.
+Provider-runtime expansion beyond the current Claude/Codex families through `AcpHarness`, a universal ACP adapter for non-Claude agents. Scope includes Phase A0 verification of capability-gated reverse-call mediation, Goose as the first target, Mistral Vibe as the verified second target, per-provider pool structure and queueing semantics needed when a third built-in provider is introduced, `delegate_to_agent` MCP delegation, stuck-turn recovery, and distribution polish. Implementation is complete and automated release prep is green; release is pending manual gates, squash-merge, and tag.
 
 Backlog migrations from 0.16.5 close-out triage:
 - TD-068: Replace the shared mixed-provider `HarnessPool` with provider-scoped pools before adding the third built-in provider.
@@ -24,7 +14,19 @@ Backlog migrations from 0.16.5 close-out triage:
 - TD-109: Add per-turn tool scoping or toolless structured extraction before inbox ingestion is treated as untrusted multi-session input.
 - TD-110: Decide and implement guard/audit coverage for write-capable MCP tools before broader multi-operator deployments.
 
+## Planned
+
+### 0.19 — Context Engine (Next)
+
+A knowledge-serving context layer: DartClaw synthesizes its internal knowledge (LLM-maintained wiki + temporal knowledge graph + memory) into compact, citation-backed packets served to agents over MCP via a single `context_research` call, instead of returning raw ranked rows. Adds outbound MCP — DartClaw as a guard-mediated, audited MCP *client* — so it can consume external MCP servers and systems of record. Includes a documented DartClaw-on-DartClaw dogfooding reference (propose-only). Builds on the 0.17 knowledge backend (temporal KG, wiki, inbox ingestion, FTS5/QMD, inbound MCP).
+
+The workflow track (Workflow DSL v2 + Dynamic Workflows) is confirmed for the milestone after this.
+
 ## Recently Shipped
+
+### 0.17 — Personal AI & Developer Experience ✅
+
+Tagged `v0.17.0` on 2026-06-04. Structured `USER.md` identity context, conversational onboarding bootstrapping, inbox-drop knowledge ingestion, LLM-maintained knowledge wiki, temporal knowledge graph (SQLite-based structured facts with time-validity), guard config editor, SDK docs Phase 2, chat input redesign (composable input, slash command palette, file attachments, @-mention context references), interrupted-turn retry UX, automated kill/restart crash-recovery validation. Also hardens the workflow engine (stall detection, foreach resume, resume-aware dependency validation, unified step-retry authority) — captured as PRD Phases G/H. See `CHANGELOG.md` for details.
 
 ### 0.16.6 — Web UI Stimulus Adoption ✅
 

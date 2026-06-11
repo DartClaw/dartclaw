@@ -127,6 +127,39 @@ host: localhost
 data_dir: ~/.dartclaw
 worker_timeout: 600              # seconds per agent turn
 
+# --- Harness turn monitor ---
+# Paths: harness.turn_monitor.wait_warning_after, harness.turn_monitor.stuck_after
+# Both must be positive durations with wait_warning_after <= stuck_after, and
+# stuck_after must be below worker_timeout (the global per-turn timeout above).
+# Invalid or out-of-order values fall back to these defaults. Restart-required:
+# changes are read at startup, not live-reloaded.
+harness:
+  turn_monitor:
+    wait_warning_after: 30s      # running -> waiting when an active turn wait remains this long
+    stuck_after: 120s            # waiting -> stuck before worker_timeout
+  acp:
+    agents:
+      goose:
+        binary: goose
+        args: [acp, --with-builtin, developer]
+        topology: direct         # direct | relay | unverified; omitted = unverified
+        model_provider: anthropic
+        verification: required   # required when guard mediation is claimed
+        requires_guard_mediation: true
+        required_builtins: [developer, fs, terminal]
+        container_isolation_required: false
+        container_profile: workspace
+      vibe:
+        binary: vibe-acp
+        args: []
+        topology: unverified
+        model_provider: mistral
+        verification: startup_probe
+        requires_guard_mediation: false
+        required_builtins: []
+        container_isolation_required: true
+        container_profile: restricted
+
 # --- Gateway Auth ---
 auth:
   cookie_secure: false          # add Secure to the session cookie when served over HTTPS
@@ -301,7 +334,6 @@ channels:
       event_types:                # shorthand event types; fully-qualified Google Workspace Chat names also accepted
         - message.created
       include_resource: true      # include full resource in event payloads
-      auth_mode: user             # user (GA) | app (Developer Preview; requires Workspace admin approval)
 
 # --- GitHub Webhook --- maps inbound GitHub events to workflow runs
 github:
@@ -325,7 +357,7 @@ tasks:
 
 # --- Agent Config ---
 agent:
-  provider: claude               # default provider: claude | codex
+  provider: claude               # default provider: claude | codex | <harness.acp.agents id>
   max_turns: 50
   model: opus[1m]                # also accepts shorthand like claude/opus or codex/gpt-5.4
   effort: high                   # reasoning effort — passed verbatim to provider (Claude: low|medium|high|xhigh|max; Codex: low|medium|high|xhigh)
@@ -396,11 +428,13 @@ providers:
   #   pool_size: 2               # 2 task workers
   #   sandbox: workspace-write   # workspace-write | danger-full-access
   #   approval: on-request       # on-request | unless-allow-listed | never
-  #                              # ⚠ IMPORTANT: Set approval: never for non-interactive
-  #                              #   use (crowd-coding, batch tasks). Without it, Codex
-  #                              #   may hang indefinitely on tool-use turns due to an
-  #                              #   upstream approval deadlock bug (openai/codex#11816).
-  #                              #   DartClaw's own guard chain remains active regardless.
+  #                              # IMPORTANT: approval: never is incompatible with
+  #                              #   Codex delegation provider-approval mode. For delegated
+  #                              #   Codex agents, use approval: on-request with sandbox:
+  #                              #   read-only or workspace-write. Non-delegated batch use
+  #                              #   may still choose approval: never to avoid the upstream
+  #                              #   approval deadlock bug (openai/codex#11816), but that
+  #                              #   disables Codex approval-request mediation.
   #                              #   See: docs/guide/agents.md § Providers
 
 # --- Credentials (0.13) ---
@@ -414,6 +448,21 @@ credentials:
   #   type: github-token
   #   token: ${GITHUB_TOKEN}
   #   repository: org/app        # optional repo-scope guard
+
+# --- Delegation (0.18) ---
+delegation:
+  enabled: false
+  agents:
+    - id: goose
+      require_guard_mediation: true
+      post_run_accounting_only: false
+    - id: codex
+      require_guard_mediation: false
+      post_run_accounting_only: true
+  max_budget_tokens: 0           # 0 = unlimited
+  budget_accounting: provider_reported # provider_reported | estimate_if_unreported
+  rate_limit:
+    max_per_minute: 6
 
 # --- Context Management ---
 context:
@@ -443,8 +492,8 @@ governance:
     daily_tokens: 0                    # 0 = unlimited; daily token budget
     action: block                      # block | warn (block new turns or warn only)
     timezone: "UTC+1"                  # budget resets at midnight in this timezone
-                                       # supported: UTC, GMT, UTC+N, UTC-N
-                                       # IANA names (e.g. Europe/Stockholm) are NOT supported
+                                       # supported: UTC, GMT, UTC+N, UTC-N,
+                                       # and IANA names (e.g. Europe/Stockholm), which are DST-aware
   loop_detection:
     enabled: false                     # disabled by default
     max_consecutive_turns: 5           # abort if agent takes >N consecutive turns
@@ -453,19 +502,8 @@ governance:
     max_consecutive_identical_tool_calls: 5
     action: abort                      # abort | warn
 
-# --- Canvas (0.14.2) --- see Canvas guide for details
-base_url: https://workshop.example.com:3333  # public URL for share links
-canvas:
-  enabled: true
-  share:
-    default_permission: interact    # view | interact
-    default_ttl: 8h                 # 30m, 8h, 1d, etc.
-    max_connections: 50
-    show_qr: true
-  workshop_mode:
-    task_board: true
-    show_contributor_stats: true
-    show_budget_bar: true
+# --- Server public URL ---
+base_url: https://example.com:3333  # public base URL for absolute links
 
 # --- Workspace Git Sync ---
 workspace:
@@ -513,7 +551,24 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 **Note on `providers` section:** When omitted, DartClaw creates a single Claude provider using `providers.claude.executable` (or the `claude` binary on `$PATH`). The explicit `providers:` section is only needed for multi-provider deployments or to customize pool sizes, executables, or provider-specific options. `pool_size: 0` means "use the default pool allocation". For Claude, `inherit_user_settings` defaults to `true`, so direct spawned sessions and workflow one-shots can see user-scope Claude plugins and skills. Set it to `false` to pass `--setting-sources project` for project-only settings on the direct host path.
 
-**Note on `governance.budget.timezone`:** Only UTC-offset formats are supported: `UTC`, `GMT`, `UTC+N`, `UTC-N` (e.g., `UTC+1`, `UTC-5`). IANA timezone names like `Europe/Stockholm` or `America/New_York` are **not** supported and will fall back to UTC with a warning. This means budget reset times do not automatically adjust for DST. If your timezone observes DST, you may need to update the offset seasonally or accept the one-hour drift during DST transitions.
+**Note on `harness.acp.agents`:** Each `harness.acp.agents.<id>` entry registers one ACP provider identity.
+
+- Required keys: `binary`, `args`, `topology`, `model_provider`, `verification`, `requires_guard_mediation`, `required_builtins`, `container_isolation_required`, and `container_profile`.
+- Missing `topology` defaults to `unverified`; unverified and relay ACP agents are container-isolation-only until verification proves reverse-call guard mediation.
+- Guarded Goose registrations require the `developer` builtin.
+- Registration defines spawn and classification only. Capacity stays under `providers.<id>.pool_size`, with default pool size `1`.
+
+**Note on `delegation`:** The `delegate_to_agent` MCP tool is disabled unless `delegation.enabled: true`.
+
+- Each target must be listed under `delegation.agents` with `id`, `require_guard_mediation`, and `post_run_accounting_only`.
+- Calls fail when `agent_id` is absent, task text is empty, or `work_dir` escapes the workspace jail.
+- `require_guard_mediation: true` rejects relay or unverified ACP agents and rejects Codex.
+- Codex delegation reports `security_mode: provider_approval`; use `approval: on-request` with `sandbox: read-only` or `sandbox: workspace-write`.
+- Approval bypass modes such as `approval: never`, and `sandbox: danger-full-access`, fail before spawn.
+- `max_budget_tokens` can enforce strict budgets for streaming or provider-reported usage. Non-reporting, non-streaming agents must set `post_run_accounting_only: true` on that allowlist entry.
+- Use `delegation.rate_limit.max_per_minute` to cap tool invocations.
+
+**Note on `governance.budget.timezone`:** Two forms are accepted. Fixed UTC offsets — `UTC`, `GMT`, `UTC+N`, `UTC-N` (e.g., `UTC+1`, `UTC-5`) — and IANA timezone names like `Europe/Stockholm` or `America/New_York`. IANA names are DST-aware: the offset is resolved for each reset instant, so budget reset time follows daylight-saving transitions automatically. Only the fixed `UTC±N` forms do not adjust for DST — with those, a DST-observing region needs the offset updated seasonally or accepts the one-hour drift across transitions. An unrecognized value falls back to UTC with a warning.
 
 **Note on `governance` defaults:** All governance features default to disabled/unlimited for backward compatibility. Rate limits, budgets, and loop detection only activate when explicitly configured. Admin senders are exempt from rate limits but not from token budgets.
 

@@ -15,7 +15,7 @@
 
 ## Gotchas
 - `SessionKey` factories pre-encode identifier components with `Uri.encodeComponent`. Do not double-encode at call sites; do not bypass factories and build `agent:...:...` strings by hand. The `.session_keys.json` index assumes deterministic, idempotent keys.
-- `Message.cursor` is the 1-based line number in `messages.ndjson` — assigned on read, never persisted. Don't add `cursor` to the JSON payload.
+- `Message.cursor` is the 1-based line number in `messages.ndjson`. `Message.toJson()` emits `cursor` and `fromJson()` reads it, so it round-trips through the model JSON. But the on-disk value is not authoritative: `MessageService` writes a placeholder cursor on append and overrides it with the actual 1-based line number on read. Treat the persisted `cursor` as advisory — line position is the source of truth.
 
 ## Testing
 - Pure value-type tests, one file per model in `test/`. No fakes needed (no I/O, no async). When changing a `toJson`/`fromJson` shape, add a round-trip test alongside the field-level assertions.

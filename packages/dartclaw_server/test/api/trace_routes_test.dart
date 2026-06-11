@@ -1,18 +1,10 @@
-import 'dart:convert';
-
 import 'package:dartclaw_core/dartclaw_core.dart' show ToolCallRecord, TurnTrace;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-Map<String, dynamic> _decodeObject(String body) => jsonDecode(body) as Map<String, dynamic>;
-
-Future<Map<String, dynamic>> _getTraces(Handler handler, String query) async {
-  final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces$query')));
-  return _decodeObject(await response.readAsString());
-}
+import 'api_test_helpers.dart';
 
 TurnTrace _makeTrace({
   required String id,
@@ -43,12 +35,12 @@ TurnTrace _makeTrace({
 void main() {
   late Database db;
   late TurnTraceService traceService;
-  late Handler handler;
+  late ApiRouteTestClient client;
 
   setUp(() {
     db = openTaskDbInMemory();
     traceService = TurnTraceService(db);
-    handler = traceRoutes(traceService).call;
+    client = ApiRouteTestClient(traceRoutes(traceService).call);
   });
 
   tearDown(() async {
@@ -57,11 +49,10 @@ void main() {
 
   group('GET /api/traces', () {
     test('returns empty traces and zero summary when no data', () async {
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces')));
-      expect(response.statusCode, 200);
+      final response = await client.expectResponse('GET', '/api/traces', status: 200);
       expect(response.headers['content-type'], contains('application/json'));
 
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect((body['traces'] as List), isEmpty);
       expect(body['summary']['traceCount'], 0);
       expect(body['summary']['totalTokens'], 0);
@@ -71,10 +62,7 @@ void main() {
       await traceService.insert(_makeTrace(id: 'trace-1', taskId: 'task-A', inputTokens: 100));
       await traceService.insert(_makeTrace(id: 'trace-2', taskId: 'task-B', inputTokens: 200));
 
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces')));
-      expect(response.statusCode, 200);
-
-      final body = _decodeObject(await response.readAsString());
+      final body = await client.expectJsonObject('GET', '/api/traces');
       expect((body['traces'] as List), hasLength(2));
       expect(body['summary']['traceCount'], 2);
     });
@@ -83,7 +71,7 @@ void main() {
       await traceService.insert(_makeTrace(id: 'trace-1', taskId: 'task-A'));
       await traceService.insert(_makeTrace(id: 'trace-2', taskId: 'task-B'));
 
-      final body = await _getTraces(handler, '?taskId=task-A');
+      final body = await client.expectJsonObject('GET', '/api/traces?taskId=task-A');
       final traces = body['traces'] as List;
       expect(traces, hasLength(1));
       expect((traces[0] as Map<String, dynamic>)['id'], 'trace-1');
@@ -93,7 +81,7 @@ void main() {
       await traceService.insert(_makeTrace(id: 'trace-1', model: 'claude-4-sonnet'));
       await traceService.insert(_makeTrace(id: 'trace-2', model: 'gpt-4'));
 
-      final body = await _getTraces(handler, '?model=claude-4-sonnet');
+      final body = await client.expectJsonObject('GET', '/api/traces?model=claude-4-sonnet');
       final traces = body['traces'] as List;
       expect(traces, hasLength(1));
       expect((traces[0] as Map<String, dynamic>)['id'], 'trace-1');
@@ -104,7 +92,10 @@ void main() {
       await traceService.insert(_makeTrace(id: 'trace-mid', startedAt: DateTime.utc(2026, 3, 15)));
       await traceService.insert(_makeTrace(id: 'trace-late', startedAt: DateTime.utc(2026, 3, 24)));
 
-      final body = await _getTraces(handler, '?since=2026-03-10T00:00:00Z&until=2026-03-20T00:00:00Z');
+      final body = await client.expectJsonObject(
+        'GET',
+        '/api/traces?since=2026-03-10T00:00:00Z&until=2026-03-20T00:00:00Z',
+      );
       final traces = body['traces'] as List;
       expect(traces, hasLength(1));
       expect((traces[0] as Map<String, dynamic>)['id'], 'trace-mid');
@@ -117,15 +108,15 @@ void main() {
         );
       }
 
-      final page1 = await _getTraces(handler, '?taskId=task-P&limit=2&offset=0');
+      final page1 = await client.expectJsonObject('GET', '/api/traces?taskId=task-P&limit=2&offset=0');
       expect((page1['traces'] as List), hasLength(2));
       // summary reflects full result set
       expect(page1['summary']['traceCount'], 5);
 
-      final page2 = await _getTraces(handler, '?taskId=task-P&limit=2&offset=2');
+      final page2 = await client.expectJsonObject('GET', '/api/traces?taskId=task-P&limit=2&offset=2');
       expect((page2['traces'] as List), hasLength(2));
 
-      final page3 = await _getTraces(handler, '?taskId=task-P&limit=2&offset=4');
+      final page3 = await client.expectJsonObject('GET', '/api/traces?taskId=task-P&limit=2&offset=4');
       expect((page3['traces'] as List), hasLength(1));
     });
 
@@ -134,41 +125,29 @@ void main() {
         await traceService.insert(_makeTrace(id: 'trace-$i', taskId: 'task-S', inputTokens: 100));
       }
 
-      final body = await _getTraces(handler, '?taskId=task-S&limit=1&offset=0');
+      final body = await client.expectJsonObject('GET', '/api/traces?taskId=task-S&limit=1&offset=0');
       expect((body['traces'] as List), hasLength(1));
       expect(body['summary']['traceCount'], 4);
       expect(body['summary']['totalInputTokens'], 400);
     });
 
     test('returns 400 for invalid since date', () async {
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces?since=not-a-date')));
-      expect(response.statusCode, 400);
-
-      final body = _decodeObject(await response.readAsString());
+      final body = await client.expectJsonObject('GET', '/api/traces?since=not-a-date', status: 400);
       expect((body['error'] as Map<String, dynamic>)['code'], 'INVALID_PARAM');
     });
 
     test('returns 400 for invalid until date', () async {
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces?until=bad')));
-      expect(response.statusCode, 400);
-
-      final body = _decodeObject(await response.readAsString());
+      final body = await client.expectJsonObject('GET', '/api/traces?until=bad', status: 400);
       expect((body['error'] as Map<String, dynamic>)['code'], 'INVALID_PARAM');
     });
 
     test('returns 400 for negative limit', () async {
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces?limit=-1')));
-      expect(response.statusCode, 400);
-
-      final body = _decodeObject(await response.readAsString());
+      final body = await client.expectJsonObject('GET', '/api/traces?limit=-1', status: 400);
       expect((body['error'] as Map<String, dynamic>)['code'], 'INVALID_PARAM');
     });
 
     test('returns 400 for non-integer runnerId', () async {
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces?runnerId=abc')));
-      expect(response.statusCode, 400);
-
-      final body = _decodeObject(await response.readAsString());
+      final body = await client.expectJsonObject('GET', '/api/traces?runnerId=abc', status: 400);
       expect((body['error'] as Map<String, dynamic>)['code'], 'INVALID_PARAM');
     });
   });
@@ -177,20 +156,14 @@ void main() {
     test('returns 200 with the trace payload', () async {
       await traceService.insert(_makeTrace(id: 'trace-detail', taskId: 'task-1', provider: 'claude'));
 
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces/trace-detail')));
-
-      expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = await client.expectJsonObject('GET', '/api/traces/trace-detail');
       expect(body['id'], 'trace-detail');
       expect(body['taskId'], 'task-1');
       expect(body['provider'], 'claude');
     });
 
     test('returns 404 when the trace does not exist', () async {
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/traces/missing')));
-
-      expect(response.statusCode, 404);
-      final body = _decodeObject(await response.readAsString());
+      final body = await client.expectJsonObject('GET', '/api/traces/missing', status: 404);
       expect((body['error'] as Map<String, dynamic>)['code'], 'TRACE_NOT_FOUND');
     });
   });

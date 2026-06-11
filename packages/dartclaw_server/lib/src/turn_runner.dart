@@ -7,6 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' as core show TurnRunner;
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner, TurnOutcome, TurnStatus, BusyTurnException;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:uuid/uuid.dart';
 
 import 'api/sse_broadcast.dart';
@@ -23,6 +24,9 @@ import 'turn_governance_enforcer.dart';
 import 'turn_guard_evaluator.dart';
 import 'turn_manager.dart';
 import 'turn_progress_monitor.dart';
+import 'turn_wait_status.dart';
+
+part 'turn_runner_cancellation.dart';
 
 /// Per-harness turn execution engine.
 ///
@@ -57,6 +61,8 @@ class TurnRunner implements core.TurnRunner {
   final EventBus? _eventBus;
   final Duration _stallTimeout;
   final TurnProgressAction _stallAction;
+  final TurnMonitorConfig _turnMonitor;
+  final Duration? _globalTimeout;
   final Duration _outcomeTtl;
 
   /// Tracks turn IDs that were cancelled due to mid-turn loop detection.
@@ -76,9 +82,15 @@ class TurnRunner implements core.TurnRunner {
 
   final Map<String, TurnContext> _activeTurns = {};
   final Set<String> _cancelledTurns = {};
+  final Set<String> _cancellingTurns = {};
+  final Set<String> _externallyCompletedTurns = {};
+  final Set<String> _acceptedCancelCleanupPending = {};
+  final Map<String, Future<void>> _acceptedCancelRecovery = {};
   final Map<String, ({TurnOutcome outcome, DateTime expiresAt})> _recentOutcomes = {};
+  final Map<String, String> _recentTaskIds = {};
   final Map<String, Completer<TurnOutcome>> _outcomePending = {};
   final Set<String> _recoveredSessions = {};
+  final Map<String, _RuntimeWaitTracker> _runtimeWaits = {};
 
   TurnRunner({
     required AgentHarness harness,
@@ -107,6 +119,8 @@ class TurnRunner implements core.TurnRunner {
     EventBus? eventBus,
     Duration stallTimeout = Duration.zero,
     TurnProgressAction stallAction = TurnProgressAction.warn,
+    TurnMonitorConfig turnMonitor = const TurnMonitorConfig.defaults(),
+    Duration? globalTimeout,
     Duration outcomeTtl = const Duration(seconds: 30),
     Future<void> Function(String sessionId, BudgetCheckResult result)? budgetWarningNotifier,
     this.profileId = 'workspace',
@@ -150,6 +164,8 @@ class TurnRunner implements core.TurnRunner {
        _eventBus = eventBus,
        _stallTimeout = stallTimeout,
        _stallAction = stallAction,
+       _turnMonitor = turnMonitor,
+       _globalTimeout = globalTimeout,
        _outcomeTtl = outcomeTtl;
 
   // ---------------------------------------------------------------------------
@@ -184,6 +200,11 @@ class TurnRunner implements core.TurnRunner {
   @override
   bool isActiveTurn(String sessionId, String turnId) => _activeTurns[sessionId]?.turnId == turnId;
 
+  /// Whether [turnId] is still tracked as externally completed. Should be false
+  /// once `executeTurn` has exited via any path — used to assert no leak.
+  @visibleForTesting
+  bool tracksExternalCompletion(String turnId) => _externallyCompletedTurns.contains(turnId);
+
   @override
   TurnOutcome? recentOutcome(String sessionId, String turnId) {
     _evictExpiredOutcomes();
@@ -204,6 +225,7 @@ class TurnRunner implements core.TurnRunner {
     String? model,
     String? effort,
     int? maxTurns,
+    String? taskId,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
@@ -216,7 +238,13 @@ class TurnRunner implements core.TurnRunner {
     await _governanceEnforcer.checkLoopPreTurn(sessionId, isHumanInput: isHumanInput);
     await _governanceEnforcer.awaitRateLimitWindow();
 
-    await _lockManager.acquire(sessionId);
+    await _lockManager.acquire(
+      sessionId,
+      waitWarningAfter: _turnMonitor.waitWarningAfter,
+      stuckAfter: _turnMonitor.stuckAfter,
+      onWaiting: () => _emitWaitState(sessionId, TurnWaitState.waiting),
+      onStuck: () => _emitWaitState(sessionId, TurnWaitState.stuck),
+    );
     final turnId = _uuid.v4();
     final startedAt = DateTime.now();
     _activeTurns[sessionId] = TurnContext(
@@ -228,6 +256,7 @@ class TurnRunner implements core.TurnRunner {
       model: model,
       effort: effort,
       maxTurns: maxTurns,
+      taskId: taskId,
       behaviorOverride: behaviorOverride,
       promptScope: promptScope,
       allowedTools: allowedTools,
@@ -235,6 +264,7 @@ class TurnRunner implements core.TurnRunner {
     );
     _outcomePending[turnId] = Completer<TurnOutcome>();
     _resetService?.touchActivity(sessionId);
+    _emitWaitState(sessionId, TurnWaitState.running);
 
     final turnState = _turnState;
     if (turnState != null) {
@@ -302,6 +332,7 @@ class TurnRunner implements core.TurnRunner {
     String? model,
     String? effort,
     int? maxTurns,
+    String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
@@ -312,6 +343,7 @@ class TurnRunner implements core.TurnRunner {
       model: model,
       effort: effort,
       maxTurns: maxTurns,
+      taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools,
       readOnly: readOnly,
@@ -324,8 +356,7 @@ class TurnRunner implements core.TurnRunner {
   Future<void> cancelTurn(String sessionId) async {
     final turnId = _activeTurns[sessionId]?.turnId;
     if (turnId == null) return;
-    _cancelledTurns.add(turnId);
-    await _worker.cancel();
+    await cancelTurnById(sessionId, turnId, TurnCancelReason.operatorCancel, enforceCanCancel: false);
   }
 
   @override
@@ -348,40 +379,6 @@ class TurnRunner implements core.TurnRunner {
     if (pending != null) return pending.future;
 
     throw ArgumentError('Unknown turnId: $turnId');
-  }
-
-  /// Scans [TurnStateStore] for orphaned turns from a previous crash.
-  Future<List<String>> detectAndCleanOrphanedTurns() async {
-    final turnState = _turnState;
-    if (turnState == null) return [];
-
-    try {
-      final orphans = await turnState.getAll();
-      if (orphans.isEmpty) return [];
-
-      final sessionIds = <String>[];
-      for (final entry in orphans.entries) {
-        final sessionId = entry.key;
-        sessionIds.add(sessionId);
-
-        final turnId = entry.value.turnId;
-        final startedAt = entry.value.startedAt.toIso8601String();
-        _log.warning('Orphaned turn detected: session=$sessionId, turn=$turnId, started=$startedAt');
-        await turnState.delete(sessionId);
-      }
-
-      _recoveredSessions.addAll(sessionIds);
-      _log.info('Cleaned up ${sessionIds.length} orphaned turn(s)');
-      return sessionIds;
-    } catch (e) {
-      _log.warning('Failed to detect orphaned turns', e);
-      return [];
-    }
-  }
-
-  /// Returns true (once) if this session recovered from a crash.
-  bool consumeRecoveryNotice(String sessionId) {
-    return _recoveredSessions.remove(sessionId);
   }
 
   /// Configures a best-effort notifier for newly emitted budget warnings.
@@ -504,10 +501,11 @@ class TurnRunner implements core.TurnRunner {
       emitProgressEvent: _progressController.add,
       onLoopAbort: (detection) {
         _loopDetectedTurns[turnId] = detection;
-        unawaited(cancelTurn(sessionId));
+        unawaited(cancelTurnById(sessionId, turnId, TurnCancelReason.automationCancel, enforceCanCancel: false));
       },
     );
     _turnProgressSnapshots[sessionId] = buildSnapshot;
+    _RuntimeWaitTracker? runtimeWait;
 
     String? userMessageFull;
     if (messages.isNotEmpty) {
@@ -522,14 +520,27 @@ class TurnRunner implements core.TurnRunner {
       if (event is DeltaEvent) {
         buffer.write(event.text);
         progressMonitor?.recordProgress();
+        runtimeWait?.recordActivity(TurnWaitReason.unknown);
         _resetService?.touchActivity(sessionId);
         progressTextLength += event.text.length;
         _progressController.add(TextDeltaProgressEvent(snapshot: buildSnapshot(), text: event.text));
       } else if (event is ToolUseEvent) {
+        runtimeWait?.recordActivity(TurnWaitReason.unknown);
         toolHooks.handleToolUse(event);
       } else if (event is ToolResultEvent) {
+        runtimeWait?.recordActivity(TurnWaitReason.unknown);
         toolHooks.handleToolResult(event);
+      } else if (event is ToolApprovalWaitEvent) {
+        runtimeWait?.recordActivity(TurnWaitReason.toolApproval);
+      } else if (event is ToolApprovalResolvedEvent) {
+        runtimeWait?.recordActivity(TurnWaitReason.unknown);
+      } else if (event is ProviderProgressBridgeEvent) {
+        progressMonitor?.recordProgress();
+        runtimeWait?.recordActivity(_waitReasonForProviderProgress(event.kind));
+        _resetService?.touchActivity(sessionId);
+        _progressController.add(ProviderProgressEvent(snapshot: buildSnapshot(), kind: event.kind, text: event.text));
       } else if (event is SystemInitEvent) {
+        runtimeWait?.recordActivity(TurnWaitReason.unknown);
         _contextMonitor.update(contextWindow: event.contextWindow);
       } else if (event is CompactionStartingBridgeEvent) {
         _eventBus?.fire(CompactionStartingEvent(sessionId: sessionId, trigger: 'auto', timestamp: DateTime.now()));
@@ -555,6 +566,16 @@ class TurnRunner implements core.TurnRunner {
 
         final systemPrompt = await _buildSystemPrompt(sessionId);
         final turnCtx = _activeTurns[sessionId];
+        await _awaitAcceptedCancelRecovery(sessionId);
+        if (_externallyCompletedTurns.contains(turnId)) {
+          outcome = TurnOutcome(
+            turnId: turnId,
+            sessionId: sessionId,
+            status: TurnStatus.cancelled,
+            completedAt: DateTime.now(),
+          );
+          return;
+        }
         _log.info(
           'Turn start: session=$sessionId, turn=$turnId, '
           'provider=$providerId${userMessage != null ? ', prompt=$userMessage' : ''}',
@@ -565,6 +586,14 @@ class TurnRunner implements core.TurnRunner {
               })
             : null;
         progressMonitor?.start();
+        runtimeWait = _RuntimeWaitTracker(
+          waitWarningAfter: _turnMonitor.waitWarningAfter,
+          stuckAfter: _turnMonitor.stuckAfter,
+          initialReason: TurnWaitReason.unknown,
+          onWaiting: () => _emitWaitState(sessionId, TurnWaitState.waiting),
+          onStuck: () => _emitWaitState(sessionId, TurnWaitState.stuck),
+        );
+        _runtimeWaits[sessionId] = runtimeWait;
         final result = await _worker.turn(
           sessionId: sessionId,
           messages: messages,
@@ -575,6 +604,15 @@ class TurnRunner implements core.TurnRunner {
           maxTurns: turnCtx?.maxTurns,
           resume: resume,
         );
+        if (_externallyCompletedTurns.remove(turnId)) {
+          outcome = TurnOutcome(
+            turnId: turnId,
+            sessionId: sessionId,
+            status: TurnStatus.cancelled,
+            completedAt: DateTime.now(),
+          );
+          return;
+        }
         final accumulated = buffer.toString();
         toolHooks.finalizePendingToolCalls();
         stopwatch.stop();
@@ -588,6 +626,7 @@ class TurnRunner implements core.TurnRunner {
 
         try {
           await _trackSessionUsage(sessionId, result, providerId);
+          await _applySessionMetadata(sessionId, result);
           _contextMonitor.update(contextTokens: result['input_tokens'] as int?);
         } catch (e) {
           _log.warning('Failed to track usage', e);
@@ -655,6 +694,22 @@ class TurnRunner implements core.TurnRunner {
           }
         }
 
+        if (result['stop_reason'] == 'cancelled') {
+          outcome = TurnOutcome(
+            turnId: turnId,
+            sessionId: sessionId,
+            status: TurnStatus.cancelled,
+            inputTokens: result['input_tokens'] as int? ?? 0,
+            outputTokens: result['output_tokens'] as int? ?? 0,
+            cacheReadTokens: cacheReadTokens,
+            cacheWriteTokens: cacheWriteTokens,
+            turnDuration: stopwatch.elapsed,
+            toolCalls: List.unmodifiable(toolHooks.completedToolCalls),
+            completedAt: DateTime.now(),
+          );
+          return;
+        }
+
         final redacted = _redactor?.redact(accumulated) ?? accumulated;
         final trimmed = _explorationSummarizer.summarizeOrTrim(
           redacted,
@@ -696,26 +751,32 @@ class TurnRunner implements core.TurnRunner {
         }
       } catch (e, st) {
         final wasCancelled = _cancelledTurns.remove(turnId);
+        _cancellingTurns.remove(turnId);
+        final acceptedCancel =
+            _acceptedCancelCleanupPending.contains(turnId) || _externallyCompletedTurns.contains(turnId);
         final loopDetection = _loopDetectedTurns.remove(turnId);
         if (wasCancelled) {
           _log.info('Turn $turnId cancelled');
         } else {
           _log.warning('Turn $turnId failed', e, st);
         }
-        try {
-          var partial = buffer.toString();
-          if (partial.isNotEmpty && _redactor != null) {
-            partial = _redactor.redact(partial);
+        if (!acceptedCancel) {
+          try {
+            var partial = buffer.toString();
+            if (partial.isNotEmpty && _redactor != null) {
+              partial = _redactor.redact(partial);
+            }
+            // Post loop detection message if this was a loop-cancelled turn.
+            final loopMsg = loopDetection != null ? '[Loop detected: ${loopDetection.message}]' : null;
+            await _messages.insertMessage(
+              sessionId: sessionId,
+              role: 'assistant',
+              content:
+                  loopMsg ?? (partial.isNotEmpty ? partial : (wasCancelled ? '[Turn cancelled]' : '[Turn failed]')),
+            );
+          } catch (e) {
+            _log.warning('Failed to persist partial message after turn failure: $e');
           }
-          // Post loop detection message if this was a loop-cancelled turn.
-          final loopMsg = loopDetection != null ? '[Loop detected: ${loopDetection.message}]' : null;
-          await _messages.insertMessage(
-            sessionId: sessionId,
-            role: 'assistant',
-            content: loopMsg ?? (partial.isNotEmpty ? partial : (wasCancelled ? '[Turn cancelled]' : '[Turn failed]')),
-          );
-        } catch (e) {
-          _log.warning('Failed to persist partial message after turn failure: $e');
         }
         outcome = TurnOutcome(
           turnId: turnId,
@@ -725,13 +786,15 @@ class TurnRunner implements core.TurnRunner {
           completedAt: DateTime.now(),
           loopDetection: loopDetection,
         );
-        unawaited(
-          _selfImprovement?.appendError(
-            errorType: wasCancelled ? 'TURN_CANCELLED' : 'TURN_FAILURE',
-            sessionId: sessionId,
-            context: '$e',
-          ),
-        );
+        if (!acceptedCancel) {
+          unawaited(
+            _selfImprovement?.appendError(
+              errorType: wasCancelled ? 'TURN_CANCELLED' : 'TURN_FAILURE',
+              sessionId: sessionId,
+              context: '$e',
+            ),
+          );
+        }
       }
     } finally {
       if (turnPolicy?.allowedTools != null) {
@@ -743,20 +806,13 @@ class TurnRunner implements core.TurnRunner {
       statusTickTimer?.cancel();
       progressMonitor?.stop();
       await eventSub.cancel();
-      _turnProgressSnapshots.remove(sessionId);
-      _activeTurns.remove(sessionId);
-      _lockManager.release(sessionId);
-      // Clean up loop detection state for this turn.
-      _governanceEnforcer.cleanupTurn(turnId);
-
-      final turnState = _turnState;
-      if (turnState != null) {
-        unawaited(
-          turnState.delete(sessionId).catchError((Object e, StackTrace st) {
-            _log.warning('Failed to clean up turn state', e, st);
-          }),
-        );
+      final activeStillThisTurn = _activeTurns[sessionId]?.turnId == turnId;
+      final cancelCleanupPending = _acceptedCancelCleanupPending.contains(turnId);
+      if (activeStillThisTurn) {
+        _turnProgressSnapshots.remove(sessionId);
+        _runtimeWaits.remove(sessionId)?.dispose();
       }
+      final recentTaskId = activeStillThisTurn ? _activeTurns[sessionId]?.taskId : _recentTaskIds[turnId];
       final resolved =
           outcome ??
           TurnOutcome(
@@ -766,8 +822,38 @@ class TurnRunner implements core.TurnRunner {
             errorMessage: 'Unexpected internal error',
             completedAt: DateTime.now(),
           );
-      _recentOutcomes[turnId] = (outcome: resolved, expiresAt: DateTime.now().add(_outcomeTtl));
-      _outcomePending.remove(turnId)?.complete(resolved);
+      if (!cancelCleanupPending) {
+        _rememberRecentOutcome(resolved, taskId: recentTaskId);
+        _outcomePending.remove(turnId)?.complete(resolved);
+      }
+      if (activeStillThisTurn && !cancelCleanupPending) {
+        switch (resolved.status) {
+          case TurnStatus.completed:
+            _emitWaitState(sessionId, TurnWaitState.completed);
+          case TurnStatus.failed:
+            _emitWaitState(sessionId, TurnWaitState.failed);
+          case TurnStatus.cancelled:
+            _emitWaitState(sessionId, TurnWaitState.cancelled);
+        }
+      }
+      // All reads of this set (711, 748, catch at 897) run before finally, so an
+      // unconditional remove here only closes the leak on throw/early-return paths.
+      _externallyCompletedTurns.remove(turnId);
+      if (!cancelCleanupPending) _cancellingTurns.remove(turnId);
+      if (activeStillThisTurn && !cancelCleanupPending) {
+        _activeTurns.remove(sessionId);
+        _lockManager.release(sessionId);
+      }
+      _governanceEnforcer.cleanupTurn(turnId);
+
+      final turnState = _turnState;
+      if (turnState != null && activeStillThisTurn && !cancelCleanupPending) {
+        unawaited(
+          turnState.delete(sessionId).catchError((Object e, StackTrace st) {
+            _log.warning('Failed to clean up turn state', e, st);
+          }),
+        );
+      }
     }
   }
 
@@ -820,6 +906,18 @@ class TurnRunner implements core.TurnRunner {
     costData['provider'] = existingProvider ?? provider;
 
     await kv.set(key, jsonEncode(costData));
+  }
+
+  Future<void> _applySessionMetadata(String sessionId, Map<String, dynamic> result) async {
+    final sessions = _sessions;
+    if (sessions == null) return;
+    final title = switch (result['session_title']) {
+      final String value when value.trim().isNotEmpty => value.trim(),
+      _ => null,
+    };
+    if (title != null) {
+      await sessions.updateTitle(sessionId, title);
+    }
   }
 
   Future<void> _appendDailyLog({
@@ -910,34 +1008,6 @@ class TurnRunner implements core.TurnRunner {
     }
   }
 
-  void _handleTurnStall({required String sessionId, required String turnId, required Duration stallTimeout}) {
-    final payload = {
-      'sessionId': sessionId,
-      'turnId': turnId,
-      'silentForSeconds': stallTimeout.inSeconds,
-      'action': _stallAction.name,
-    };
-
-    // Emit progress event for stall — snapshot from per-turn progress state.
-    final snapshotFn = _turnProgressSnapshots[sessionId];
-    final snapshot = snapshotFn != null ? snapshotFn() : TurnProgressSnapshot(elapsed: Duration.zero, toolCallCount: 0);
-    _progressController.add(
-      TurnStallProgressEvent(snapshot: snapshot, stallTimeout: stallTimeout, action: _stallAction.name),
-    );
-
-    switch (_stallAction) {
-      case TurnProgressAction.warn:
-        _log.warning('Turn $turnId has stalled for ${stallTimeout.inSeconds}s');
-        _sseBroadcast?.broadcast('turn_progress_stall', payload);
-      case TurnProgressAction.cancel:
-        _log.warning('Cancelling stalled turn $turnId after ${stallTimeout.inSeconds}s');
-        _sseBroadcast?.broadcast('turn_progress_stall', payload);
-        unawaited(cancelTurn(sessionId));
-      case TurnProgressAction.ignore:
-        _log.info('Ignoring stalled turn $turnId after ${stallTimeout.inSeconds}s');
-    }
-  }
-
   /// Extracts a file path hint from the last tool use event for type detection.
   ///
   /// Returns the file path if the last tool was a file-reading tool, or null
@@ -959,10 +1029,5 @@ class TurnRunner implements core.TurnRunner {
       }
     }
     return null;
-  }
-
-  void _evictExpiredOutcomes() {
-    final now = DateTime.now();
-    _recentOutcomes.removeWhere((_, v) => v.expiresAt.isBefore(now));
   }
 }

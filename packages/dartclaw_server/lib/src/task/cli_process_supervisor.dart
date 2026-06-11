@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show TurnProgressAction;
-import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, WorkflowCliStallEvent;
+import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, WorkflowCliStallEvent, killWithEscalation;
 import 'package:logging/logging.dart';
 
 import '../turn_progress_monitor.dart';
@@ -109,17 +109,5 @@ final class CliProcessSupervisor {
   }
 }
 
-Future<void> terminateCliProcess(Process process, {Duration grace = const Duration(seconds: 5)}) async {
-  process.kill();
-  try {
-    await process.exitCode.timeout(grace);
-    return;
-  } on TimeoutException {
-    process.kill(ProcessSignal.sigkill);
-  }
-  try {
-    await process.exitCode.timeout(grace);
-  } on TimeoutException {
-    return;
-  }
-}
+Future<void> terminateCliProcess(Process process, {Duration grace = const Duration(seconds: 5)}) =>
+    killWithEscalation(process, label: 'workflow CLI', gracePeriod: grace);

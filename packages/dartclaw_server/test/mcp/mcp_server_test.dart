@@ -1,8 +1,11 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_server/src/mcp/delegate_to_agent_tool.dart';
 import 'package:dartclaw_server/src/mcp/mcp_server.dart';
 import 'package:test/test.dart';
+
+import 'delegate_to_agent_test_support.dart';
 
 class _EchoTool implements McpTool {
   @override
@@ -68,6 +71,25 @@ class _SlowTool implements McpTool {
   }
 }
 
+class _StrictTool implements McpTool {
+  @override
+  String get name => 'strict';
+  @override
+  String get description => 'Rejects unknown input';
+  @override
+  Map<String, dynamic> get inputSchema => {
+    'type': 'object',
+    'properties': {
+      'text': {'type': 'string'},
+    },
+    'required': ['text'],
+    'additionalProperties': false,
+  };
+
+  @override
+  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text(args['text'] as String);
+}
+
 void main() {
   late McpProtocolHandler handler;
 
@@ -128,6 +150,62 @@ void main() {
       final result = response['result'] as Map<String, dynamic>;
       final content = result['content'] as List;
       expect(content[0]['text'], 'hello');
+    });
+
+    test('tools/call rejects unknown arguments for strict tool schemas', () async {
+      handler.registerTool(_StrictTool());
+      final response = decode(
+        await handler.handleRequest(
+          request(
+            'tools/call',
+            id: 31,
+            params: {
+              'name': 'strict',
+              'arguments': {'text': 'hello', 'extra': true},
+            },
+          ),
+        ),
+      );
+
+      expect(response['error'], isNotNull);
+      expect((response['error'] as Map)['code'], -32602);
+      expect((response['error'] as Map)['message'], contains('unknown argument "extra"'));
+    });
+
+    test('delegate_to_agent timeout returns structured JSON and releases resources', () async {
+      final runner = FakeDelegationRunner(providerId: 'goose', waitDelay: const Duration(milliseconds: 50));
+      final pool = FakeDelegationPool({'goose': runner});
+      handler.registerTool(
+        DelegateToAgentTool(
+          config: delegationConfig(),
+          pool: pool,
+          workspaceDir: '/tmp/ws',
+          executionTimeout: const Duration(milliseconds: 1),
+        ),
+      );
+
+      final response = decode(
+        await handler.handleRequest(
+          request(
+            'tools/call',
+            id: 32,
+            params: {
+              'name': 'delegate_to_agent',
+              'arguments': {'agent_id': 'goose', 'task': 'hang'},
+            },
+          ),
+        ),
+      );
+
+      expect(response['error'], isNull);
+      final result = response['result'] as Map<String, dynamic>;
+      final content = result['content'] as List;
+      final payload = jsonDecode(content.single['text'] as String) as Map<String, dynamic>;
+      expect(payload['status'], 'cancelled');
+      expect(payload['code'], 'CANCELLED');
+      expect(payload['budget_status'], 'unknown');
+      expect(runner.cancelCount, 1);
+      expect(pool.releases, 1);
     });
 
     test('tools/call with unknown tool returns error', () async {

@@ -3,36 +3,36 @@ import 'package:test/test.dart';
 
 void main() {
   group('ContextMonitor', () {
-    test('shouldFlush is false with no data', () {
+    test('does not flush with no data', () {
       final monitor = ContextMonitor();
-      expect(monitor.shouldFlush, isFalse);
+      expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isFalse);
     });
 
-    test('shouldFlush is false when under threshold', () {
+    test('does not flush when under threshold', () {
       final monitor = ContextMonitor(reserveTokens: 20000);
       monitor.update(contextWindow: 200000, contextTokens: 100000);
-      expect(monitor.shouldFlush, isFalse);
+      expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isFalse);
     });
 
-    test('shouldFlush is true when over threshold', () {
+    test('flushes when over threshold', () {
       final monitor = ContextMonitor(reserveTokens: 20000);
       monitor.update(contextWindow: 200000, contextTokens: 185000);
-      expect(monitor.shouldFlush, isTrue);
+      expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isTrue);
     });
 
-    test('shouldFlush is true at exact threshold', () {
+    test('flushes at exact threshold', () {
       final monitor = ContextMonitor(reserveTokens: 20000);
       monitor.update(contextWindow: 200000, contextTokens: 180001);
-      expect(monitor.shouldFlush, isTrue);
+      expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isTrue);
     });
 
-    test('shouldFlush does not re-trigger while flush is pending', () {
+    test('does not re-trigger flush while flush is pending', () {
       final monitor = ContextMonitor(reserveTokens: 20000);
       monitor.update(contextWindow: 200000, contextTokens: 190000);
-      expect(monitor.shouldFlush, isTrue);
+      expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isTrue);
 
       monitor.markFlushStarted();
-      expect(monitor.shouldFlush, isFalse);
+      expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isFalse);
       expect(monitor.isFlushPending, isTrue);
     });
 
@@ -44,22 +44,22 @@ void main() {
 
       expect(monitor.isFlushPending, isFalse);
       // Should be able to trigger again
-      expect(monitor.shouldFlush, isTrue);
+      expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isTrue);
     });
 
     test('partial updates work (only contextTokens)', () {
       final monitor = ContextMonitor(reserveTokens: 20000);
       monitor.update(contextWindow: 200000);
-      expect(monitor.shouldFlush, isFalse); // no token count yet
+      expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isFalse); // no token count yet
 
       monitor.update(contextTokens: 190000);
-      expect(monitor.shouldFlush, isTrue);
+      expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isTrue);
     });
 
-    test('shouldFlush is false with only contextTokens (no window)', () {
+    test('does not flush with only contextTokens (no window)', () {
       final monitor = ContextMonitor(reserveTokens: 20000);
       monitor.update(contextTokens: 190000);
-      expect(monitor.shouldFlush, isFalse); // no window set
+      expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isFalse); // no window set
     });
 
     group('checkThreshold', () {
@@ -146,31 +146,14 @@ void main() {
       });
     });
 
-    group('compactionSignalAvailable', () {
-      test('suppresses shouldFlush when true', () {
+    group('shouldFlushForCompactionSignal — compaction signal', () {
+      test('suppresses flush when the signal is available', () {
         final monitor = ContextMonitor(reserveTokens: 20000);
         monitor.update(contextWindow: 200000, contextTokens: 190000);
-        expect(monitor.shouldFlush, isTrue); // would flush without the flag
-
-        monitor.compactionSignalAvailable = true;
-        expect(monitor.shouldFlush, isFalse);
-      });
-
-      test('false by default — shouldFlush works normally', () {
-        final monitor = ContextMonitor(reserveTokens: 20000);
-        expect(monitor.compactionSignalAvailable, isFalse);
-        monitor.update(contextWindow: 200000, contextTokens: 190000);
-        expect(monitor.shouldFlush, isTrue);
-      });
-
-      test('can be toggled back to false to re-enable heuristic', () {
-        final monitor = ContextMonitor(reserveTokens: 20000);
-        monitor.update(contextWindow: 200000, contextTokens: 190000);
-        monitor.compactionSignalAvailable = true;
-        expect(monitor.shouldFlush, isFalse);
-
-        monitor.compactionSignalAvailable = false;
-        expect(monitor.shouldFlush, isTrue);
+        // Would flush when the signal is unavailable...
+        expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false), isTrue);
+        // ...but is suppressed when the harness delivers the signal.
+        expect(monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: true), isFalse);
       });
     });
 

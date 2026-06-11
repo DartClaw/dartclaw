@@ -5,6 +5,8 @@ import 'package:dartclaw_cli/src/commands/service/service_backend.dart';
 import 'package:dartclaw_cli/src/commands/service/service_command.dart';
 import 'package:test/test.dart';
 
+import '../../helpers/capturing_stdout.dart';
+
 class _FakeBackend implements ServiceBackend {
   final ServiceStatus _status;
   final ServiceResult _installResult;
@@ -81,7 +83,7 @@ void main() {
 
       await IOOverrides.runZoned(
         () => runner.run(['service', 'install', '--instance-dir', '/tmp/one']),
-        stdout: () => _CapturingStdout(output),
+        stdout: () => CapturingStdout(output),
       );
 
       expect(output.join('\n'), contains('installed'));
@@ -111,7 +113,7 @@ port: 4444
 
       await IOOverrides.runZoned(
         () => runner.run(['service', 'install', '--bin-path', '/usr/local/bin/dartclaw']),
-        stdout: () => _CapturingStdout(output),
+        stdout: () => CapturingStdout(output),
       );
 
       expect(backend.calls, contains('install:${tempDir.path}/instance'));
@@ -125,7 +127,7 @@ port: 4444
 
       await IOOverrides.runZoned(
         () => runner.run(['service', 'status', '--instance-dir', '/tmp/two']),
-        stdout: () => _CapturingStdout(output),
+        stdout: () => CapturingStdout(output),
       );
 
       expect(output.join('\n'), contains('/tmp/two'));
@@ -138,8 +140,8 @@ port: 4444
 
       await IOOverrides.runZoned(
         () => runner.run(['service', 'start', '--instance-dir', '/tmp/three']),
-        stderr: () => _CapturingStdout(errors),
-        stdout: () => _CapturingStdout([]),
+        stderr: () => CapturingStdout(errors),
+        stdout: () => CapturingStdout([]),
       );
 
       expect(errors.join('\n'), contains('not installed'));
@@ -147,18 +149,4 @@ port: 4444
       exitCode = 0;
     });
   });
-}
-
-class _CapturingStdout implements Stdout {
-  final List<String> lines;
-  _CapturingStdout(this.lines);
-
-  @override
-  void writeln([Object? object = '']) => lines.add(object.toString());
-
-  @override
-  void write(Object? object) => lines.add(object.toString());
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
 }

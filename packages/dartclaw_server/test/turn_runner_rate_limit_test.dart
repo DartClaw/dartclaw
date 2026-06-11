@@ -9,6 +9,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import 'turn_runner_test_support.dart';
+
 void main() {
   late Directory tempDir;
   late String sessionsDir;
@@ -40,7 +42,7 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  TurnRunner buildRunner({SlidingWindowRateLimiter? globalRateLimiter, _RecordingSseBroadcast? sse}) {
+  TurnRunner buildRunner({SlidingWindowRateLimiter? globalRateLimiter, RecordingSseBroadcast? sse}) {
     return TurnRunner(
       harness: worker,
       messages: messages,
@@ -83,7 +85,7 @@ void main() {
     });
 
     test('80% warning — emitted once when crossing threshold', () async {
-      final sse = _RecordingSseBroadcast();
+      final sse = RecordingSseBroadcast();
       // limit of 5, use 4 (80%) via injectable now
       final t0 = DateTime.now();
       final limiter = SlidingWindowRateLimiter(limit: 5, window: const Duration(minutes: 1));
@@ -181,14 +183,5 @@ class _FastFakeWorker extends AgentHarness {
   @override
   Future<void> dispose() async {
     if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
-  }
-}
-
-class _RecordingSseBroadcast extends SseBroadcast {
-  final List<String> events = [];
-
-  @override
-  void broadcast(String event, Map<String, dynamic> data) {
-    events.add(event);
   }
 }

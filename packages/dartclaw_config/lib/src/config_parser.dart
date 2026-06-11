@@ -41,6 +41,7 @@ const _knownKeys = {
   'agent',
   'auth',
   'gateway',
+  'harness',
   'concurrency',
   'sessions',
   'scheduling',
@@ -58,13 +59,13 @@ const _knownKeys = {
   'memory',
   'knowledge',
   'tasks',
-  'canvas',
   'automation',
   'governance',
   'features',
   'projects',
   'advisor',
   'alerts',
+  'delegation',
   'security',
   'andthen',
 };
@@ -826,297 +827,6 @@ SchedulingConfig _parseScheduling(Map<String, dynamic> yaml, SchedulingConfig de
   );
 }
 
-SearchConfig _parseSearch(
-  Map<String, dynamic> yaml,
-  Map<String, String> env,
-  SearchConfig defaults,
-  List<String> warns,
-) {
-  final providers = <String, SearchProviderEntry>{};
-  var backend = defaults.backend;
-  var qmdHost = defaults.qmdHost;
-  var qmdPort = defaults.qmdPort;
-  var defaultDepth = defaults.defaultDepth;
-
-  final searchMap = _sectionMap('search', yaml, warns);
-  if (searchMap != null) {
-    final backendVal = readString('backend', searchMap, warns);
-    if (backendVal != null) {
-      if (backendVal == 'fts5' || backendVal == 'qmd') {
-        backend = backendVal;
-      } else {
-        warns.add('Invalid search.backend: "$backendVal" — using default');
-      }
-    }
-    final qmdMap = readMap('qmd', searchMap, warns);
-    if (qmdMap != null) {
-      qmdHost = readString('host', qmdMap, warns, defaultValue: qmdHost) ?? qmdHost;
-      qmdPort = readInt('port', qmdMap, warns, defaultValue: defaults.qmdPort) ?? defaults.qmdPort;
-    }
-    final depth = readString('default_depth', searchMap, warns);
-    if (depth != null) defaultDepth = depth;
-
-    final providersMap = readMap('providers', searchMap, warns);
-    if (providersMap != null) {
-      for (final entry in providersMap.entries) {
-        final name = entry.key.toString();
-        final value = entry.value;
-        if (value is! Map) {
-          // reason: dynamic key interpolation — per-provider name can't use readX helpers
-          warns.add('Invalid type for search.providers.$name: "${value.runtimeType}" — skipping');
-          continue;
-        }
-        final enabled = value['enabled'];
-        if (enabled is! bool) {
-          warns.add('search.providers.$name missing or invalid "enabled" — skipping');
-          continue;
-        }
-        final rawKey = value['api_key'];
-        if (rawKey == null || rawKey is! String || rawKey.isEmpty) {
-          warns.add('search.providers.$name missing "api_key" — skipping');
-          continue;
-        }
-        final apiKey = envSubstitute(rawKey, env: env);
-        providers[name] = SearchProviderEntry(enabled: enabled, apiKey: apiKey);
-      }
-    }
-  }
-
-  return SearchConfig(
-    backend: backend,
-    qmdHost: qmdHost,
-    qmdPort: qmdPort,
-    defaultDepth: defaultDepth,
-    providers: providers,
-  );
-}
-
-ProvidersConfig _parseProviders(
-  Map<String, dynamic> yaml,
-  Map<String, String> env,
-  ProvidersConfig defaults,
-  List<String> warns,
-) {
-  final providersRaw = readMap('providers', yaml, warns);
-  if (providersRaw == null) return defaults;
-
-  final entries = <String, ProviderEntry>{};
-  for (final entry in providersRaw.entries) {
-    final providerId = entry.key.toString();
-    final value = entry.value;
-    if (value is! Map) {
-      // reason: dynamic key interpolation — per-provider id can't use readX helpers
-      warns.add('Invalid type for providers.$providerId: "${value.runtimeType}" — skipping');
-      continue;
-    }
-
-    final providerMap = Map<String, dynamic>.from(value);
-    final executableRaw = providerMap['executable'];
-    if (executableRaw is! String || executableRaw.trim().isEmpty) {
-      warns.add('providers.$providerId missing "executable" — skipping');
-      continue;
-    }
-
-    final poolSizeRaw = providerMap['pool_size'];
-    // reason: dynamic key interpolation — per-provider pool_size can't use readX helpers
-    if (poolSizeRaw != null && poolSizeRaw is! int) {
-      warns.add('Invalid type for providers.$providerId.pool_size: "${poolSizeRaw.runtimeType}" — using default');
-    }
-    final poolSize = poolSizeRaw is int ? poolSizeRaw : 0;
-
-    final options = Map<String, dynamic>.from(providerMap)
-      ..remove('executable')
-      ..remove('pool_size');
-    if (ProviderIdentity.family(providerId) == ProviderIdentity.claude) {
-      final inheritUserSettingsRaw = providerMap[ClaudeProviderOptions.inheritUserSettingsKey];
-      if (inheritUserSettingsRaw != null && inheritUserSettingsRaw is! bool) {
-        warns.add(
-          'Invalid type for providers.$providerId.inherit_user_settings: '
-          '"${inheritUserSettingsRaw.runtimeType}" — using default',
-        );
-      }
-      options[ClaudeProviderOptions.inheritUserSettingsKey] = ClaudeProviderOptions.normalizeInheritUserSettings(
-        inheritUserSettingsRaw,
-      );
-    }
-
-    entries[providerId] = ProviderEntry(
-      executable: expandHome(executableRaw.trim(), env: env),
-      poolSize: poolSize,
-      options: options,
-    );
-  }
-
-  return ProvidersConfig(entries: entries);
-}
-
-CredentialsConfig _parseCredentials(
-  Map<String, dynamic> yaml,
-  Map<String, String> env,
-  CredentialsConfig defaults,
-  List<String> warns,
-) {
-  final credentialsRaw = readMap('credentials', yaml, warns);
-  if (credentialsRaw == null) return defaults;
-
-  final entries = <String, CredentialEntry>{};
-  for (final entry in credentialsRaw.entries) {
-    final credentialName = entry.key.toString();
-    final value = entry.value;
-    if (value is! Map) {
-      // reason: dynamic key interpolation — per-credential name can't use readX helpers
-      warns.add('Invalid type for credentials.$credentialName: "${value.runtimeType}" — skipping');
-      continue;
-    }
-
-    final credentialMap = Map<String, dynamic>.from(value);
-    final credentialTypeRaw = credentialMap['type'];
-    final credentialType = switch (credentialTypeRaw) {
-      null => null,
-      'api-key' || 'apiKey' => CredentialType.apiKey,
-      'github-token' || 'githubToken' => CredentialType.githubToken,
-      _ => null,
-    };
-
-    if (credentialTypeRaw != null && credentialType == null) {
-      warns.add('credentials.$credentialName has unknown "type" "$credentialTypeRaw" — skipping');
-      continue;
-    }
-
-    switch (credentialType ?? CredentialType.apiKey) {
-      case CredentialType.apiKey:
-        final apiKeyRaw = credentialMap['api_key'];
-        if (apiKeyRaw is! String) {
-          warns.add('credentials.$credentialName missing "api_key" — skipping');
-          continue;
-        }
-        entries[credentialName] = CredentialEntry(
-          apiKey: envSubstitute(apiKeyRaw, env: env),
-          envVars: envReferences(apiKeyRaw),
-        );
-
-      case CredentialType.githubToken:
-        final tokenRaw = credentialMap['token'];
-        if (tokenRaw is! String) {
-          warns.add('credentials.$credentialName missing "token" — skipping');
-          continue;
-        }
-        final repositoryRaw = credentialMap['repository'];
-        final repository = repositoryRaw is String ? repositoryRaw.trim() : null;
-        entries[credentialName] = CredentialEntry.githubToken(
-          token: envSubstitute(tokenRaw, env: env),
-          repository: repository == null || repository.isEmpty ? null : repository,
-          envVars: envReferences(tokenRaw),
-        );
-    }
-  }
-
-  return CredentialsConfig(entries: entries);
-}
-
-SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults, List<String> warns) {
-  final guardsMap = readMap('guards', yaml, warns);
-  final guardsYaml = guardsMap ?? <String, dynamic>{};
-  final guards = guardsMap == null
-      ? const GuardConfig.defaults()
-      : () {
-          try {
-            return GuardConfig.fromYaml(guardsYaml, warns);
-          } catch (e) {
-            warns.add('Error parsing guards config: $e — using defaults');
-            return const GuardConfig.defaults();
-          }
-        }();
-
-  var contentGuardEnabled = defaults.contentGuardEnabled;
-  var contentGuardClassifier = defaults.contentGuardClassifier;
-  var contentGuardModel = defaults.contentGuardModel;
-  var contentGuardMaxBytes = defaults.contentGuardMaxBytes;
-  final contentMap = guardsMap != null ? readMap('content', guardsMap, warns) : null;
-  if (contentMap != null) {
-    contentGuardEnabled =
-        readBool('enabled', contentMap, warns, defaultValue: contentGuardEnabled) ?? contentGuardEnabled;
-    final classifierVal = readString('classifier', contentMap, warns);
-    if (classifierVal != null) {
-      if (classifierVal == 'claude_binary' || classifierVal == 'anthropic_api') {
-        contentGuardClassifier = classifierVal;
-      } else {
-        warns.add('Invalid guards.content.classifier: "$classifierVal" — using default');
-      }
-    }
-    final modelVal = readString('model', contentMap, warns);
-    if (modelVal != null) contentGuardModel = modelVal;
-    contentGuardMaxBytes =
-        readInt('max_bytes', contentMap, warns, defaultValue: defaults.contentGuardMaxBytes) ??
-        defaults.contentGuardMaxBytes;
-  }
-
-  var inputSanitizerEnabled = defaults.inputSanitizerEnabled;
-  var inputSanitizerChannelsOnly = defaults.inputSanitizerChannelsOnly;
-  final isMap = guardsMap != null ? readMap('input_sanitizer', guardsMap, warns) : null;
-  if (isMap != null) {
-    inputSanitizerEnabled =
-        readBool('enabled', isMap, warns, defaultValue: inputSanitizerEnabled) ?? inputSanitizerEnabled;
-    inputSanitizerChannelsOnly =
-        readBool('channels_only', isMap, warns, defaultValue: inputSanitizerChannelsOnly) ?? inputSanitizerChannelsOnly;
-  }
-
-  var bashStepEnvAllowlist = List<String>.from(defaults.bashStep.envAllowlist);
-  var bashStepExtraStripPatterns = List<String>.from(defaults.bashStep.extraStripPatterns);
-  final securityMap = readMap('security', yaml, warns);
-  final bashStepMap = securityMap != null ? readMap('bash_step', securityMap, warns) : null;
-  if (bashStepMap != null) {
-    final allowlistList = readField<List<dynamic>>('env_allowlist', bashStepMap, warns);
-    if (allowlistList != null) {
-      final extensions = allowlistList.whereType<String>().map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-      for (final e in allowlistList.where((e) => e is! String || e.trim().isEmpty)) {
-        warns.add('Invalid value for security.bash_step.env_allowlist entry: "$e" — ignoring');
-      }
-      bashStepEnvAllowlist = {...defaults.bashStep.envAllowlist, ...extensions}.toList()..sort();
-    }
-
-    final extraStripList = readField<List<dynamic>>('extra_strip_patterns', bashStepMap, warns);
-    if (extraStripList != null) {
-      for (final e in extraStripList.where((e) => e is! String || e.trim().isEmpty)) {
-        warns.add('Invalid value for security.bash_step.extra_strip_patterns entry: "$e" — ignoring');
-      }
-      bashStepExtraStripPatterns = extraStripList
-          .whereType<String>()
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-    }
-  }
-
-  final guardAuditMap = readMap('guard_audit', yaml, warns);
-  if (guardAuditMap != null && guardAuditMap.containsKey('max_entries')) {
-    warns.add(
-      'guard_audit.max_entries is deprecated and ignored — '
-      'use guard_audit.max_retention_days for audit retention',
-    );
-  }
-  final guardAuditMaxRetentionDays =
-      ((readInt('max_retention_days', guardAuditMap ?? {}, warns, defaultValue: defaults.guardAuditMaxRetentionDays) ??
-              defaults.guardAuditMaxRetentionDays))
-          .clamp(0, 365);
-
-  return SecurityConfig(
-    guards: guards,
-    guardsYaml: guardsYaml,
-    bashStep: SecurityBashStepConfig(
-      envAllowlist: bashStepEnvAllowlist,
-      extraStripPatterns: bashStepExtraStripPatterns,
-    ),
-    contentGuardEnabled: contentGuardEnabled,
-    contentGuardClassifier: contentGuardClassifier,
-    contentGuardModel: contentGuardModel,
-    contentGuardMaxBytes: contentGuardMaxBytes,
-    inputSanitizerEnabled: inputSanitizerEnabled,
-    inputSanitizerChannelsOnly: inputSanitizerChannelsOnly,
-    guardAuditMaxRetentionDays: guardAuditMaxRetentionDays,
-  );
-}
-
 UsageConfig _parseUsage(Map<String, dynamic> yaml, UsageConfig defaults, List<String> warns) {
   int? budgetWarningTokens = defaults.budgetWarningTokens;
   var maxFileSizeBytes = defaults.maxFileSizeBytes;
@@ -1354,6 +1064,72 @@ FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {
     return FeaturesConfig.fromYaml(Map<String, dynamic>.from(raw));
   }
   return const FeaturesConfig();
+}
+
+DelegationConfig _parseDelegation(Map<String, dynamic> yaml, DelegationConfig defaults, List<String> warns) {
+  final map = _sectionMap('delegation', yaml, warns);
+  if (map == null) return defaults;
+
+  final agents = <DelegationAgentConfig>[];
+  final seenAgentIds = <String>{};
+  final duplicateAgentIds = <String>{};
+  final rawAgents = map['agents'];
+  if (rawAgents is List) {
+    for (var i = 0; i < rawAgents.length; i++) {
+      final value = rawAgents[i];
+      if (value is! Map) {
+        warns.add('Invalid type for delegation.agents[$i]: "${value.runtimeType}" — skipping');
+        continue;
+      }
+      final agentMap = Map<String, dynamic>.from(value);
+      final id = readString('id', agentMap, warns)?.trim();
+      if (id == null || id.isEmpty) {
+        warns.add('delegation.agents[$i] missing "id" — skipping');
+        continue;
+      }
+      if (duplicateAgentIds.contains(id) || !seenAgentIds.add(id)) {
+        agents.removeWhere((agent) => agent.id == id);
+        duplicateAgentIds.add(id);
+        warns.add('Duplicate delegation.agents id "$id" — skipping all entries for that id');
+        continue;
+      }
+      agents.add(
+        DelegationAgentConfig(
+          id: id,
+          requireGuardMediation: readBool('require_guard_mediation', agentMap, warns, defaultValue: false) ?? false,
+          postRunAccountingOnly: readBool('post_run_accounting_only', agentMap, warns, defaultValue: false) ?? false,
+        ),
+      );
+    }
+  } else if (rawAgents != null) {
+    warns.add('Invalid type for delegation.agents: "${rawAgents.runtimeType}" — using empty allowlist');
+  }
+
+  final maxBudgetTokens = readInt('max_budget_tokens', map, warns, defaultValue: defaults.maxBudgetTokens);
+  final rateLimitMap = readMap('rate_limit', map, warns);
+  final maxPerMinute = rateLimitMap == null
+      ? defaults.rateLimit.maxPerMinute
+      : readInt('max_per_minute', rateLimitMap, warns, defaultValue: defaults.rateLimit.maxPerMinute);
+
+  return DelegationConfig(
+    enabled: readBool('enabled', map, warns, defaultValue: defaults.enabled) ?? defaults.enabled,
+    agents: List<DelegationAgentConfig>.unmodifiable(agents),
+    maxBudgetTokens: (maxBudgetTokens == null || maxBudgetTokens < 0) ? defaults.maxBudgetTokens : maxBudgetTokens,
+    budgetAccounting: _parseDelegationBudgetAccounting(readString('budget_accounting', map, warns), warns),
+    rateLimit: DelegationRateLimitConfig(maxPerMinute: (maxPerMinute == null || maxPerMinute < 0) ? 0 : maxPerMinute),
+  );
+}
+
+DelegationBudgetAccounting _parseDelegationBudgetAccounting(String? raw, List<String> warns) {
+  final normalized = raw?.trim().toLowerCase();
+  return switch (normalized) {
+    null || '' || 'provider_reported' => DelegationBudgetAccounting.providerReported,
+    'estimate_if_unreported' => DelegationBudgetAccounting.estimateIfUnreported,
+    _ => () {
+      warns.add('Invalid delegation.budget_accounting: "$raw" — using provider_reported');
+      return DelegationBudgetAccounting.providerReported;
+    }(),
+  };
 }
 
 void _warnRetiredAndthenConfig(Map<String, dynamic> yaml, List<String> warns) {

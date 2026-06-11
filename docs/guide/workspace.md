@@ -114,7 +114,7 @@ as a firehose for unrelated material.
 
 ### ONBOARDING.md -- Personalization Sentinel
 `dartclaw init` seeds `ONBOARDING.md` for a fresh instance. Web chat receives the onboarding instructions until the agent
-calls `onboarding_complete`, the user defers, or the sentinel expires. Non-web task, cron, channel, canvas, advisor, and
+calls `onboarding_complete`, the user defers, or the sentinel expires. Non-web task, cron, channel, advisor, and
 evaluator turns do not receive onboarding instructions. Run `dartclaw init --personalize` to rerun onboarding. Reruns
 write `.draft` files and `dartclaw init --apply-drafts` applies reviewed changes.
 

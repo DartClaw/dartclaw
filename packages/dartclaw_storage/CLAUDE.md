@@ -10,11 +10,13 @@
 - **Observability writers** — `TurnTraceService` (append-mostly `turns` rows; fire-and-forget via `unawaited()`), `TaskEventService` (synchronous `task_events` audit writes); both backed by `tasks.db`.
 - **Crash-recovery state** — `TurnStateStore` (`state.db`; transient rows written at turn-reservation, deleted in `finally`, bulk-cleaned by `detectAndCleanOrphanedTurns()` on boot — any row found at boot is crash evidence).
 - **Memory pruning** — `MemoryPruner` (operates on `MEMORY.md` + `MEMORY.archive.md` in the workspace dir; undated entries are intentionally never archived nor deduped).
+- **Knowledge graph** — `src/knowledge/`: `TemporalKnowledgeGraphService` owns the `kg_facts` table (+ `kg_facts_lookup` index) in `tasks.db` and exposes `KnowledgeFact`/`KnowledgeContradiction`; `normalizeKnowledgeEntity` canonicalizes entity strings.
+- **Wiki + webhook stores** — `WikiSearchSource` (`src/search/wiki_search_source.dart`) feeds wiki pages into search; `WebhookDeliveryStore` (`src/storage/webhook_delivery_store.dart`) persists inbound-webhook delivery reservations for idempotency.
 
 ## Boundaries
 - Allowed deps: `dartclaw_core`, `dartclaw_workflow` (for `WorkflowRun`/`WorkflowRunRepository` and related types), plus `sqlite3`, `logging`, `path`. **Don't** depend on `dartclaw_server`, `dartclaw_security`, or `dartclaw_config` (config dep is dev-only).
 - This is the **only** workspace package allowed to import `package:sqlite3` aside from `dartclaw_server` (and the umbrella). If you need an SQLite-backed entity, the contract goes in `dartclaw_core` (`src/task/`, `src/execution/`, `src/search/`) and the impl lands here.
-- No HTTP, no process spawning, no event firing. This package is a persistence layer — events are fired by the wiring layer in `dartclaw_server`.
+- No event firing. This package is a persistence layer — events are fired by the wiring layer in `dartclaw_server`. **Exception to the no-HTTP/no-process rule**: `QmdManager` (the optional QMD search backend) spawns and supervises an external `qmd` server process (`Process.run`) and talks to it over HTTP (`HttpClient` against `http://host:port`). That is the one sanctioned outbound/subprocess path here — keep it isolated in `QmdManager`; everything else stays pure persistence.
 - Don't expose raw `Database` from public methods. Repositories take `Database` in their constructor and own statement lifecycle internally.
 
 ## Conventions
@@ -38,6 +40,7 @@
 - Tags: `contract` (interface conformance), `component`, `integration` (skipped — live creds), `fitness-shape` (skipped — release-prep only). Default `dart test` runs contract+component; integration via `dart test --run-skipped -t integration`, shape via `dart test -t fitness-shape`.
 - Use `openSearchDbInMemory()` / `openTaskDbInMemory()` for fast tests. In-memory SQLite gives identical FTS5 semantics.
 - Repository tests should run against both the SQLite impl here and the `in_memory_*` fake from `dartclaw_testing` to verify contract parity.
+- This package does **not** consume `dartclaw_testing` (forbidden dep) — package-local fakes of storage-owned types live in package-local support files. Search-backend fakes (e.g. `FakeQmdManager`) live in `test/search/search_test_support.dart`.
 
 ## Key files
 - `lib/dartclaw_storage.dart` — barrel.

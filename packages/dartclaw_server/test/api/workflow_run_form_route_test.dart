@@ -4,23 +4,18 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, Harnes
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        InMemoryDefinitionSource,
-        WorkflowDefinition,
-        WorkflowRun,
-        WorkflowRunStatus,
-        WorkflowService,
-        WorkflowStep,
-        WorkflowVariable;
+    show InMemoryDefinitionSource, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowStep, WorkflowVariable;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'workflow_test_support.dart';
 
 void main() {
   late Database taskDb;
   late SqliteTaskRepository taskRepo;
   late TaskService tasks;
-  late _FakeWorkflowService workflows;
+  late FakeWorkflowService workflows;
   late Handler handler;
 
   setUp(() {
@@ -28,7 +23,7 @@ void main() {
     taskRepo = SqliteTaskRepository(taskDb);
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
-    workflows = _FakeWorkflowService(
+    workflows = FakeWorkflowService(
       db: sqlite3.openInMemory(),
       taskService: tasks,
       eventBus: eventBus,
@@ -178,53 +173,4 @@ void main() {
     expect(response.statusCode, 409);
     expect(await response.readAsString(), contains('git fetch failed'));
   });
-}
-
-class _FakeWorkflowService extends WorkflowService {
-  _FakeWorkflowService._super(
-    SqliteWorkflowRunRepository repository,
-    TaskService taskService,
-    MessageService messageService,
-    EventBus eventBus,
-    KvService kvService,
-    String dataDir,
-  ) : super.lifecycleOnly(
-        repository: repository,
-        taskService: taskService,
-        messageService: messageService,
-        eventBus: eventBus,
-        kvService: kvService,
-        dataDir: dataDir,
-      );
-
-  factory _FakeWorkflowService({
-    required Database db,
-    required TaskService taskService,
-    required EventBus eventBus,
-    required String dataDir,
-  }) {
-    final repo = SqliteWorkflowRunRepository(db);
-    final messages = MessageService(baseDir: '$dataDir/sessions');
-    final kv = KvService(filePath: '$dataDir/kv.json');
-    return _FakeWorkflowService._super(repo, taskService, messages, eventBus, kv, dataDir);
-  }
-
-  WorkflowRun? startResult;
-  Object? startError;
-  int startCalls = 0;
-
-  @override
-  Future<WorkflowRun> start(
-    WorkflowDefinition definition,
-    Map<String, String> variables, {
-    String? projectId,
-    bool allowDirtyLocalPath = false,
-    bool headless = false,
-  }) async {
-    startCalls++;
-    if (startError != null) {
-      throw startError!;
-    }
-    return startResult!;
-  }
 }

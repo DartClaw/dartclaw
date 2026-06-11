@@ -143,6 +143,30 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
               continue;
             }
             _recordNormalizedStep(childStepId, seenStepIds, errors);
+            // A foreach-nested loop's controller appears as a child step; its
+            // body (and finalizer) steps are owned by the loop and are not
+            // emitted as separate nodes, so account for them here.
+            final nestedLoop = loopById[childStepId];
+            if (nestedLoop != null) {
+              for (final loopStepId in nestedLoop.steps) {
+                if (!stepById.containsKey(loopStepId)) {
+                  errors.add(
+                    _err(
+                      ValidationErrorType.invalidReference,
+                      'Foreach-nested loop "$childStepId" references unknown step "$loopStepId".',
+                      stepId: loopStepId,
+                      loopId: childStepId,
+                    ),
+                  );
+                  continue;
+                }
+                _recordNormalizedStep(loopStepId, seenStepIds, errors, loopId: childStepId);
+              }
+              final finalizer = nestedLoop.finally_;
+              if (finalizer != null && stepById.containsKey(finalizer)) {
+                _recordNormalizedStep(finalizer, seenStepIds, errors, loopId: childStepId);
+              }
+            }
           }
       }
     }

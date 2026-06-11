@@ -168,12 +168,6 @@ enum OnFailurePolicy {
 
 /// Extraction strategy for context output values.
 enum ExtractionType {
-  /// Extract using a regular expression.
-  regex,
-
-  /// Extract using a JSON path expression.
-  jsonpath,
-
   /// Extract from a named artifact.
   artifact,
 }
@@ -183,7 +177,7 @@ class ExtractionConfig {
   /// Selects the extraction strategy.
   final ExtractionType type;
 
-  /// Pattern interpreted according to [type] (regex, JSONPath, or artifact name).
+  /// Pattern interpreted according to [type] (artifact name).
   final String pattern;
 
   /// Creates an [ExtractionConfig] value.
@@ -1623,6 +1617,13 @@ class WorkflowDefinition {
       for (final step in steps)
         if (step.isForeachController) ...step.foreachSteps!,
     };
+    // A loop whose controller step (id == loop.id) is a foreach child is
+    // dispatched by that foreach per item, not as a top-level loop node. Its
+    // body steps stay loop-owned (skipped from the top level) below.
+    final foreachOwnedLoopIds = {
+      for (final loop in loops)
+        if (foreachOwnedStepIds.contains(loop.id)) loop.id,
+    };
 
     final nodes = <WorkflowNode>[];
     final emittedLoopIds = <String>{};
@@ -1630,7 +1631,7 @@ class WorkflowDefinition {
     for (var index = 0; index < steps.length; index++) {
       final step = steps[index];
       final loopAtStep = loopByFirstStepId[step.id];
-      if (loopAtStep != null && emittedLoopIds.add(loopAtStep.id)) {
+      if (loopAtStep != null && !foreachOwnedLoopIds.contains(loopAtStep.id) && emittedLoopIds.add(loopAtStep.id)) {
         nodes.add(
           LoopNode(
             loopId: loopAtStep.id,

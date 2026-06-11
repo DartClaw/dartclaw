@@ -13,6 +13,7 @@ part 'project_events.dart';
 part 'scheduling_events.dart';
 part 'session_events.dart';
 part 'task_events.dart';
+part 'turn_wait_events.dart';
 part 'workflow_events.dart';
 
 /// Sealed event hierarchy for the DartClaw internal event bus.

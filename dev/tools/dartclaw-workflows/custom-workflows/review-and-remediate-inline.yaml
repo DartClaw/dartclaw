@@ -75,7 +75,7 @@ steps:
       on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}} – skip files and
       packages untouched by these changes.
     outputs:
-      review_findings: review_report_path
+      mixed-review.review_findings: review_report_path
       mixed-review.findings_count: findings_count
       mixed-review.gating_findings_count: gating_findings_count
 
@@ -115,7 +115,7 @@ steps:
       review to changes on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}}
       – skip packages untouched by these changes.
     outputs:
-      architecture_review_findings: review_report_path
+      architecture-review.review_findings: review_report_path
       architecture-review.findings_count: findings_count
       architecture-review.gating_findings_count: gating_findings_count
 

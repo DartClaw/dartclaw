@@ -31,6 +31,7 @@ import 'package:shelf_router/shelf_router.dart';
 
 import '../task/task_service.dart';
 import 'api_helpers.dart';
+import 'sse_broadcast.dart';
 
 final _log = Logger('WorkflowRoutes');
 const _maxWorkflowJsonBodyBytes = 256 * 1024;
@@ -590,7 +591,7 @@ Future<Response> _workflowRunSseHandler(
         'taskId': tasksByStepIndex[i]?.id,
       },
   ];
-  _sendSse(controller, {
+  sendSseData(controller, {
     'type': 'connected',
     'run': {
       'id': run.id,
@@ -603,7 +604,7 @@ Future<Response> _workflowRunSseHandler(
 
   // Subscribe to workflow lifecycle events.
   final runStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((event) {
-    _sendSse(controller, {
+    sendSseData(controller, {
       'type': 'workflow_status_changed',
       'runId': event.runId,
       'oldStatus': event.oldStatus.name,
@@ -631,11 +632,11 @@ Future<Response> _workflowRunSseHandler(
     if (displayScope != null) {
       payload['displayScope'] = displayScope;
     }
-    _sendSse(controller, payload);
+    sendSseData(controller, payload);
   });
 
   final parallelSub = eventBus.on<ParallelGroupCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    _sendSse(controller, {
+    sendSseData(controller, {
       'type': 'parallel_group_completed',
       'runId': event.runId,
       'stepIds': event.stepIds,
@@ -646,7 +647,7 @@ Future<Response> _workflowRunSseHandler(
   });
 
   final loopSub = eventBus.on<LoopIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    _sendSse(controller, {
+    sendSseData(controller, {
       'type': 'loop_iteration_completed',
       'runId': event.runId,
       'loopId': event.loopId,
@@ -657,7 +658,7 @@ Future<Response> _workflowRunSseHandler(
   });
 
   final mapIterationSub = eventBus.on<MapIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    _sendSse(controller, {
+    sendSseData(controller, {
       'type': 'map_iteration_completed',
       'runId': event.runId,
       'stepId': event.stepId,
@@ -672,7 +673,7 @@ Future<Response> _workflowRunSseHandler(
   });
 
   final mapStepSub = eventBus.on<MapStepCompletedEvent>().where((e) => e.runId == runId).listen((event) {
-    _sendSse(controller, {
+    sendSseData(controller, {
       'type': 'map_step_completed',
       'runId': event.runId,
       'stepId': event.stepId,
@@ -703,13 +704,13 @@ Future<Response> _workflowRunSseHandler(
     if (displayScope != null) {
       payload['displayScope'] = displayScope;
     }
-    _sendSse(controller, payload);
+    sendSseData(controller, payload);
   });
 
   final approvalRequestedSub = eventBus.on<WorkflowApprovalRequestedEvent>().where((e) => e.runId == runId).listen((
     event,
   ) {
-    _sendSse(controller, {
+    sendSseData(controller, {
       'type': 'approval_requested',
       'runId': event.runId,
       'stepId': event.stepId,
@@ -722,7 +723,7 @@ Future<Response> _workflowRunSseHandler(
   final approvalResolvedSub = eventBus.on<WorkflowApprovalResolvedEvent>().where((e) => e.runId == runId).listen((
     event,
   ) {
-    _sendSse(controller, {
+    sendSseData(controller, {
       'type': 'approval_resolved',
       'runId': event.runId,
       'stepId': event.stepId,
@@ -744,19 +745,7 @@ Future<Response> _workflowRunSseHandler(
     approvalResolvedSub.cancel();
   };
 
-  return Response.ok(
-    controller.stream,
-    headers: {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive'},
-  );
-}
-
-void _sendSse(StreamController<List<int>> controller, Map<String, dynamic> data) {
-  if (controller.isClosed) return;
-  try {
-    controller.add(utf8.encode('data: ${jsonEncode(data)}\n\n'));
-  } catch (_) {
-    // Client disconnected — cleaned up by onCancel.
-  }
+  return Response.ok(controller.stream, headers: eventStreamHeaders);
 }
 
 String? _taskDisplayScope(Task? task) {

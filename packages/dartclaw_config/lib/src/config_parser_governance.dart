@@ -227,62 +227,6 @@ GovernanceConfig _parseGovernance(Map<String, dynamic> yaml, GovernanceConfig de
   );
 }
 
-CanvasConfig _parseCanvas(Map<String, dynamic> yaml, CanvasConfig defaults, List<String> warns) {
-  final canvasMap = _sectionMap('canvas', yaml, warns);
-  if (canvasMap == null) return defaults;
-
-  final enabled = readBool('enabled', canvasMap, warns, defaultValue: defaults.enabled) ?? defaults.enabled;
-
-  var share = defaults.share;
-  final shareMap = readMap('share', canvasMap, warns);
-  if (shareMap != null) {
-    final defaultPermissionRaw = shareMap['default_permission'];
-    final defaultPermission = switch (defaultPermissionRaw) {
-      String value when value.trim() == 'view' || value.trim() == 'interact' => value.trim(),
-      String value => () {
-        warns.add('Unknown canvas.share.default_permission: "$value" — using default "${share.defaultPermission}"');
-        return share.defaultPermission;
-      }(),
-      null => share.defaultPermission,
-      _ => () {
-        warns.add(
-          'Invalid type for canvas.share.default_permission: "${defaultPermissionRaw.runtimeType}" — using default',
-        );
-        return share.defaultPermission;
-      }(),
-    };
-    final defaultTtlMinutes = _parseDurationMinutes(shareMap['default_ttl']) ?? share.defaultTtlMinutes;
-    final maxConnections =
-        readInt('max_connections', shareMap, warns, defaultValue: share.maxConnections) ?? share.maxConnections;
-    final autoShare = readBool('auto_share', shareMap, warns, defaultValue: share.autoShare) ?? share.autoShare;
-    final showQr = readBool('show_qr', shareMap, warns, defaultValue: share.showQr) ?? share.showQr;
-    share = CanvasShareConfig(
-      defaultPermission: defaultPermission,
-      defaultTtlMinutes: defaultTtlMinutes,
-      maxConnections: maxConnections,
-      autoShare: autoShare,
-      showQr: showQr,
-    );
-  }
-
-  var workshopMode = defaults.workshopMode;
-  final workshopMap = readMap('workshop_mode', canvasMap, warns);
-  if (workshopMap != null) {
-    workshopMode = CanvasWorkshopConfig(
-      taskBoard:
-          readBool('task_board', workshopMap, warns, defaultValue: workshopMode.taskBoard) ?? workshopMode.taskBoard,
-      showContributorStats:
-          readBool('show_contributor_stats', workshopMap, warns, defaultValue: workshopMode.showContributorStats) ??
-          workshopMode.showContributorStats,
-      showBudgetBar:
-          readBool('show_budget_bar', workshopMap, warns, defaultValue: workshopMode.showBudgetBar) ??
-          workshopMode.showBudgetBar,
-    );
-  }
-
-  return CanvasConfig(enabled: enabled, share: share, workshopMode: workshopMode);
-}
-
 int? _parseDurationMinutes(Object? value) {
   if (value is int) return value;
   if (value is! String) return null;

@@ -19,7 +19,7 @@ class HarnessPool implements core.HarnessPool {
   static final _log = Logger('HarnessPool');
 
   final List<TurnRunner> _runners;
-  final int _maxConcurrentTasks;
+  int _maxConcurrentTasks;
   final Set<TurnRunner> _available = {};
   final Set<TurnRunner> _busy = {};
 
@@ -58,6 +58,22 @@ class HarnessPool implements core.HarnessPool {
     _log.info('Added task runner (pool: ${_runners.length - 1}/$_maxConcurrentTasks task runners)');
   }
 
+  /// Current number of task runners (excludes the primary runner).
+  int get taskRunnerCount => _runners.length - 1;
+
+  /// Raises the task-runner capacity ceiling to at least [minCapacity];
+  /// never lowers it.
+  ///
+  /// The initial capacity is sized from config, but standalone workflow
+  /// execution may need to provision runners for a provider a workflow step
+  /// requests beyond that sizing (e.g. a `provider: claude` step under a
+  /// codex-default config). Growing the ceiling lets those runners be added.
+  void ensureCapacity(int minCapacity) {
+    if (minCapacity > _maxConcurrentTasks) {
+      _maxConcurrentTasks = minCapacity;
+    }
+  }
+
   /// Number of additional task runners that can still be spawned.
   @override
   int get spawnableCount => _maxConcurrentTasks - (_runners.length - 1);
@@ -90,10 +106,13 @@ class HarnessPool implements core.HarnessPool {
   /// Returns null if no matching runner is available.
   @override
   TurnRunner? tryAcquireForProvider(String providerId) {
-    if (_busy.length >= _maxConcurrentTasks) return null;
     final runner = _takeMatchingRunner((runner) => runner.providerId == providerId);
     if (runner == null) return null;
-    _log.fine('Acquired task runner for provider $providerId (busy: ${_busy.length}/$maxConcurrentTasks)');
+    _log.fine(
+      'Acquired task runner for provider $providerId '
+      '(provider busy: ${_busyForProvider(providerId)}/${_taskRunnerCountForProvider(providerId)}, '
+      'total busy: ${_busy.length}/$maxConcurrentTasks)',
+    );
     return runner;
   }
 
@@ -101,12 +120,12 @@ class HarnessPool implements core.HarnessPool {
   /// Returns null if no matching runner is available.
   @override
   TurnRunner? tryAcquireForProviderAndProfile(String providerId, String profileId) {
-    if (_busy.length >= _maxConcurrentTasks) return null;
     final runner = _takeMatchingRunner((runner) => runner.providerId == providerId && runner.profileId == profileId);
     if (runner == null) return null;
     _log.fine(
       'Acquired task runner for provider $providerId in profile $profileId '
-      '(busy: ${_busy.length}/$maxConcurrentTasks)',
+      '(provider busy: ${_busyForProvider(providerId)}/${_taskRunnerCountForProvider(providerId)}, '
+      'total busy: ${_busy.length}/$maxConcurrentTasks)',
     );
     return runner;
   }
@@ -157,13 +176,11 @@ class HarnessPool implements core.HarnessPool {
   /// Returns true when the task pool contains at least one runner for [providerId].
   @override
   bool hasTaskRunnerForProvider(String providerId) {
-    for (var i = 1; i < _runners.length; i++) {
-      if (_runners[i].providerId == providerId) {
-        return true;
-      }
-    }
-    return false;
+    return taskRunnerCountForProvider(providerId) > 0;
   }
+
+  @override
+  int taskRunnerCountForProvider(String providerId) => _taskRunnerCountForProvider(providerId);
 
   /// Distinct security profiles available among task runners.
   @override
@@ -184,6 +201,11 @@ class HarnessPool implements core.HarnessPool {
     }
     return null;
   }
+
+  int _busyForProvider(String providerId) => _busy.where((runner) => runner.providerId == providerId).length;
+
+  int _taskRunnerCountForProvider(String providerId) =>
+      _runners.skip(1).where((runner) => runner.providerId == providerId).length;
 
   /// Graceful shutdown: stops and disposes all runners' harnesses.
   @override

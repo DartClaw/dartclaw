@@ -217,7 +217,7 @@ Future<StepHandoff> _dispatchLoopNode(
   var updatedRun = run;
   final initialTokens = run.totalTokens;
   final activeWorkspaceRoot = await dispatcher._executor._resolveActiveWorkspaceRoot(run, definition, context);
-  final pausedOrCancelled = await dispatcher._executor._executeLoop(
+  final loopResult = await dispatcher._executor._executeLoop(
     run,
     definition,
     loop,
@@ -225,6 +225,7 @@ Future<StepHandoff> _dispatchLoopNode(
     activeWorkspaceRoot: activeWorkspaceRoot,
     onRunUpdated: (next) => updatedRun = next,
   );
+  final pausedOrCancelled = loopResult.halted;
   final finalRun = await dispatcher._executor._repository.getById(run.id) ?? updatedRun;
   final cost = StepTokenBreakdown(totalTokens: finalRun.totalTokens - initialTokens);
   final outputs = _outputsFromContext(context);

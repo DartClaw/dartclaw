@@ -3,9 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_core/dartclaw_core.dart' show HttpClientFactory;
 import 'package:dartclaw_server/dartclaw_server.dart' show TokenService;
-
-typedef HttpClientFactory = HttpClient Function();
 
 /// HTTP client for CLI-to-server communication.
 class DartclawApiClient {

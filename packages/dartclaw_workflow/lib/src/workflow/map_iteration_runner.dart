@@ -400,7 +400,17 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
       // Budget check after each completion.
       final refreshedRun = await _repository.getById(run.id) ?? run;
       run = refreshedRun;
-      if (_workflowBudgetExceeded(run, definition)) {
+      // Map-iteration tokens reach run.totalTokens only at map completion, so the
+      // mid-map check (and the 80% warning) adds them back as an evaluation-only
+      // basis from the persisted per-iteration `<stepId>[i].tokenCount` keys, so
+      // settled and sibling in-flight iterations count against maxTokens.
+      final mapConsumedTokens = workflow_budget_monitor.foreachScopeConsumedTokens(
+        context.data,
+        foreachStepId: step.id,
+        childStepIds: [step.id],
+      );
+      run = await _checkWorkflowBudgetWarning(run, definition, additionalTokens: mapConsumedTokens);
+      if (_workflowBudgetExceeded(run, definition, additionalTokens: mapConsumedTokens)) {
         mapCtx.budgetExhausted = true;
       }
     }

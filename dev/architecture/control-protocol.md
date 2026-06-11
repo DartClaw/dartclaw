@@ -1,23 +1,23 @@
 # Control Protocol & Harness Architecture
 
-Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports two subprocess protocols today: Claude Code's ad-hoc JSONL control protocol and Codex's JSON-RPC 2.0-like JSONL app-server protocol.
+Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.16.4
+**Current through**: 0.18
 
 ---
 
 ## 1. Protocol Overview
 
-DartClaw communicates with provider binaries over **bidirectional JSONL** (JSON Lines) piped through the subprocess's stdin and stdout. Each line is a self-contained JSON object terminated by `\n`.
+DartClaw communicates with provider binaries over bidirectional subprocess protocols on stdin and stdout. Claude Code uses JSONL, Codex app-server uses JSON-RPC-like JSONL, and ACP agents use ACP stdio JSON-RPC.
 
-| Dimension | Claude Code protocol | Codex JSON-RPC JSONL protocol |
-|---|---|---|
-| Wire format | Ad-hoc JSONL messages over stdin/stdout | JSON-RPC 2.0-like messages over stdin/stdout, serialized as JSONL |
-| Direction | DartClaw sends turn and control requests; the binary streams events, control requests, and results back | DartClaw sends `initialize`, `initialized`, `thread/start`, and `turn/start`; Codex streams notifications and approval requests back |
-| Lifecycle | Spawn `claude`, initialize once, then send user turns against the long-lived process | Spawn `codex app-server`, complete `initialize`/`initialized`, create a thread, then send turns against that thread |
-| Streaming | `content_block_delta`, assistant/tool blocks, and `compact_boundary` compaction markers | `item/agentMessage/delta`, `item/started`, `item/completed`, `turn/completed`, `turn/failed` |
-| Tool approval | `control_request` plus hook callbacks (`can_use_tool`, `PreToolUse`, `PostToolUse`, `PermissionDenied`, `PreCompact`) | JSON-RPC approval requests from server to client; DartClaw evaluates guards and replies allow/deny |
-| Session continuity | DartClaw owns persistence and replay; provider session state is not trusted as the source of truth | DartClaw also owns continuity; cached thread IDs are cleared on crash and history is replayed into a new thread |
+| Dimension | Claude Code protocol | Codex JSON-RPC JSONL protocol | ACP stdio JSON-RPC protocol |
+|---|---|---|---|
+| Wire format | Ad-hoc JSONL messages over stdin/stdout | JSON-RPC 2.0-like messages over stdin/stdout, serialized as JSONL | JSON-RPC 2.0 over subprocess stdio |
+| Direction | DartClaw sends turn and control requests; the binary streams events, control requests, and results back | DartClaw sends `initialize`, `initialized`, `thread/start`, and `turn/start`; Codex streams notifications and approval requests back | `AcpHarness` drives ACP session methods; direct agents may make host reverse-calls for filesystem and terminal operations |
+| Lifecycle | Spawn `claude`, initialize once, then send user turns against the long-lived process | Spawn `codex app-server`, complete `initialize`/`initialized`, create a thread, then send turns against that thread | Spawn configured ACP binary such as `goose acp` or `vibe-acp`, initialize once, then route turns through `AcpClient` |
+| Streaming | `content_block_delta`, assistant/tool blocks, and `compact_boundary` compaction markers | `item/agentMessage/delta`, `item/started`, `item/completed`, `turn/completed`, `turn/failed` | ACP session updates adapted into DartClaw bridge events by `AcpProtocolAdapter` |
+| Tool approval | `control_request` plus hook callbacks (`can_use_tool`, `PreToolUse`, `PostToolUse`, `PermissionDenied`, `PreCompact`) | JSON-RPC approval requests from server to client; DartClaw evaluates guards and replies allow/deny | Handler-level reverse-calls route through `GuardChain.evaluateBeforeToolCall(...)` before host file or terminal actions |
+| Session continuity | DartClaw owns persistence and replay; provider session state is not trusted as the source of truth | DartClaw also owns continuity; cached thread IDs are cleared on crash and history is replayed into a new thread | DartClaw owns persistence and classifies each ACP agent at registration/startup; relay and unverified topologies are container-isolation-only |
 
 ### Workflow One-Shot Exception
 
@@ -28,6 +28,7 @@ This is intentionally a workflow-only exception:
 - Interactive chat, channels, cron, and ordinary task turns remain on the long-lived streaming harnesses.
 - Workflow YAML step types are preserved only as metadata (`_workflowStepType`); the workflow runtime dispatches every workflow step through the coding-task path and expresses write intent through `readOnly`.
 - `format: json` with `schema` defaults to native structured output. The heuristic JSON parser is retained only as a post-failure fallback.
+- **One-shot stdout is streamed, not buffered** — and this is load-bearing for operability, not cosmetic. Both providers emit incremental NDJSON on stdout for the duration of the turn: `claude -p --output-format stream-json --verbose --include-partial-messages` (the terminal `type: "result"` event carries the result text, `session_id`, cost, and the `usage.{input_tokens,output_tokens,cache_read_input_tokens,cache_creation_input_tokens}` counts) and `codex exec --json`. The CLI stall monitor (FR00/TD-062) resets its silence timer on each stdout line, so the older buffered single-object mode (`claude -p --output-format json`, which emits one object only at completion) starved it of any liveness signal and false-tripped on every turn longer than `governance.turn_progress.stall_timeout` — even while the provider was actively working. Streaming restores the per-line liveness that keeps stall detection meaningful for long claude turns (e.g. the opus review council).
 
 ```
 ┌─────────────────────────────────────┐
@@ -40,7 +41,7 @@ This is intentionally a workflow-only exception:
 └─────────────────────────────────────┘
 ```
 
-### Why JSONL over stdin/stdout?
+### Why stdio subprocess protocols?
 
 | Alternative | Why rejected |
 |---|---|
@@ -49,7 +50,9 @@ This is intentionally a workflow-only exception:
 | Shared memory | Breaks process isolation — DartClaw's core security property |
 | Named pipes/Unix sockets | No advantage over stdin/stdout for a parent-child relationship; adds platform-specific wiring |
 
-stdin/stdout is the natural IPC channel for a parent-child process pair. One line equals one message — no framing protocol needed. Dart's `dart:io` `Process` API provides direct access to both streams. The protocol works identically whether the binary runs directly on the host or inside a Docker container (via `docker exec -i`).
+stdin/stdout is the natural IPC channel for a parent-child process pair. Dart's `dart:io` `Process` API provides direct access to both streams, while each provider keeps its own framing: JSONL for Claude and Codex, JSON-RPC for ACP. The transport works identically whether the binary runs directly on the host or inside a Docker container (via `docker exec -i`).
+
+ACP also uses subprocess stdio, but with JSON-RPC 2.0 framing rather than JSONL event names. DartClaw implements the ACP client surface directly on `json_rpc_2`; `acp_dart` and `dart_acp` remain reference material only. HTTP+SSE and WebSocket ACP daemon modes are not 0.18 targets.
 
 ### Design lineage
 
@@ -602,7 +605,7 @@ Back in _runTurn()
   │ ⑲ Persist assistant message to MessageService
   │ ⑳ Append to daily log (YYYY-MM-DD.md)
   │
-  │ ㉑ If ContextMonitor.shouldFlush: run pre-compaction flush turn
+  │ ㉑ If ContextMonitor.shouldFlushForCompactionSignal(...): run pre-compaction flush turn
   │
   ▼
 Finally block
@@ -769,12 +772,13 @@ abstract class AgentHarness {
 
 ### Concrete implementations
 
-Two concrete implementations exist today:
+Three concrete implementations exist today:
 
 - `ClaudeCodeHarness` — Claude Code JSONL protocol (primary, default)
 - `CodexHarness` — Codex JSON-RPC app-server protocol (see [Codex JSON-RPC Protocol](#codex-json-rpc-protocol))
+- `AcpHarness` — ACP stdio JSON-RPC protocol for configured ACP agents such as Goose and Vibe
 
-`HarnessFactory` creates provider-specific instances from `HarnessConfig`, and `HarnessPool` manages a heterogeneous pool of runners that may mix providers and security profiles.
+`HarnessFactory` creates provider-specific instances from `HarnessConfig` and ACP registration entries, and `HarnessPool` manages provider-scoped runners. Each provider identity has its own pool with default capacity `1`; `providers.<id>.pool_size` is the only capacity override. ACP agent registration controls spawn and security classification, not custom capacity.
 
 #### ClaudeCodeHarness
 
@@ -804,6 +808,24 @@ class HarnessConfig {
   final String? mcpGatewayToken;       // MCP bearer auth token
 }
 ```
+
+#### AcpHarness
+
+`AcpHarness` wraps an ACP agent subprocess using stdio JSON-RPC. The configured `harness.acp.agents.<id>` entry supplies the binary, args, topology, model provider, verification evidence, required built-ins, and container profile. Missing `topology` defaults to `unverified`.
+
+Only direct-provider ACP agents that advertise and honor host `fs` and `terminal` capabilities can be classified as guard-mediated. Goose direct-provider targets require the `developer` extension, a direct model provider selector, and verification evidence when guard mediation is required; known proxy selectors such as `claude-acp` and `codex-acp` are rejected as direct-provider claims. Vibe must prove the declared provider is non-proxy or pass startup verification before DartClaw marks it guard-mediated.
+
+Relay-provider and unverified ACP agents remain container-isolation-only. They may run in isolated profiles, but DartClaw does not claim guard mediation until per-agent verification proves reverse-call mediation.
+
+ACP reverse-calls are bound at the host handler boundary:
+
+| ACP method | Canonical tool | Guard/audit behavior |
+|---|---|---|
+| `fs/read_text_file` | `file_read` | Calls `GuardChain.evaluateBeforeToolCall(...)` with `rawProviderToolName: "fs/read_text_file"` |
+| `fs/write_text_file` | `file_write` | Calls `GuardChain.evaluateBeforeToolCall(...)` with `rawProviderToolName: "fs/write_text_file"` |
+| `terminal/create` | `shell` | Jails `cwd`, sanitizes `env` with `EnvPolicy.sanitize(...)`, honors `outputByteLimit` within DartClaw's host cap, then calls `SafeProcess.start(...)` |
+
+Terminal lifecycle calls (`terminal/output`, `terminal/wait_for_exit`, `terminal/kill`, `terminal/release`) are audited under their raw ACP method names and operate only on terminal IDs created by the host. They do not create another shell execution path.
 
 ### Working directory and model changes
 
@@ -856,16 +878,22 @@ DartclawServer (shelf)
 
 **Registered tools** (via `McpProtocolHandler`):
 
-| Tool | Implementation | Description |
-|---|---|---|
-| `memory_save` | `MemorySaveTool` | Persist facts to MEMORY.md + search index |
-| `memory_search` | `MemorySearchTool` | FTS5 full-text search over memory chunks |
-| `memory_read` | `MemoryReadTool` | Read full MEMORY.md contents |
-| `sessions_send` | `SessionsSendTool` | Inter-agent delegation |
-| `sessions_spawn` | `SessionsSpawnTool` | Spawn new session |
-| `web_fetch` | `WebFetchTool` | SSRF-hardened URL fetching with ContentGuard |
-| `brave_search` | `BraveSearchTool` | Web search via Brave API |
-| `tavily_search` | `TavilySearchTool` | Web search via Tavily API |
+| Tool | Implementation | Registration | Description |
+|---|---|---|---|
+| `memory_save` | `MemorySaveTool` | always | Persist facts to MEMORY.md + search index |
+| `memory_search` | `MemorySearchTool` | always | FTS5 full-text search over memory chunks |
+| `memory_read` | `MemoryReadTool` | always | Read full MEMORY.md contents |
+| `kg_add` | `KgAddTool` | always | Add a source-linked temporal fact to the knowledge graph |
+| `kg_query` | `KgQueryTool` | always | Query temporal knowledge-graph facts by entity/predicate (+ optional `as_of`) |
+| `kg_timeline` | `KgTimelineTool` | always | Return the full temporal fact timeline for an entity |
+| `kg_invalidate` | `KgInvalidateTool` | always | Invalidate a temporal fact without deleting its history |
+| `kg_contradictions` | `KgContradictionsTool` | always | Find open facts that would contradict an incoming fact |
+| `delegate_to_agent` | `DelegateToAgentTool` | always | Delegate bounded work to an allowlisted ACP or Codex provider agent |
+| `sessions_send` | `SessionsSendTool` | always | Inter-agent delegation |
+| `onboarding_complete` | `OnboardingCompleteTool` | **gated** — only while onboarding is active (`ONBOARDING.md` present at startup) | Mark conversational onboarding complete and remove the `ONBOARDING.md` sentinel |
+| `web_fetch` | `WebFetchTool` | always | SSRF-hardened URL fetching with ContentGuard |
+| `brave_search` | `BraveSearchTool` | **gated** — when the `brave` search provider is enabled with an API key | Web search via Brave API |
+| `tavily_search` | `TavilySearchTool` | **gated** — when the `tavily` search provider is enabled with an API key | Web search via Tavily API |
 
 Tools implement the `McpTool` interface:
 

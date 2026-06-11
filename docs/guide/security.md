@@ -5,11 +5,14 @@ DartClaw uses defense-in-depth: multiple independent layers so that no single co
 ## Architecture
 
 ```
-User ──→ HTTP Auth ──→ Dart Host ──→ Guards ──→ Container ──→ claude binary
+User ──→ HTTP Auth ──→ Dart Host ──→ Guards ──→ Provider Boundary
                            │                        │
-                     Guard Chain              network:none
-                     Audit Logger            Credential Proxy
-                     Content Guard          Mount Allowlist
+                     Guard Chain              Claude container path:
+                     Audit Logger              network:none
+                     Content Guard             CredentialProxy
+                                               Mount Allowlist
+                                              Codex: provider approval
+                                              ACP relay/unverified: restricted container
 ```
 
 ## Guard System
@@ -108,6 +111,14 @@ gateway:
   token: ${DARTCLAW_TOKEN}
 ```
 
+### CSRF and same-origin protection
+
+Cookie-authenticated browser sessions are defended against cross-site request forgery in depth, not by a single control:
+
+- **`SameSite=Strict` session cookies** keep the cookie off cross-site requests, so a forged cross-origin request arrives unauthenticated. This is the primary defense and needs no CSRF tokens — strong, but not treated as absolute.
+- **Same-origin Origin/Host check.** For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the server compares the request's `Origin` (or `Referer`) authority against its own `Host` and returns **403** on mismatch or when neither header is present. API clients using a Bearer token and no-auth local-admin sessions are exempt.
+- **Security headers.** Every response carries a strict `Content-Security-Policy` (including `form-action 'self'` and `frame-ancestors 'none'`), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and HSTS when `gateway.hsts` is enabled.
+
 ## Credential Proxy
 
 The credential proxy currently secures the Claude/Anthropic container path. The Dart host runs a `CredentialProxy` on a Unix socket that injects authentication headers into outbound Anthropic API requests. The container's `network:none` means this proxy is the **sole egress path** for that flow — there is no direct internet access from the Claude container.
@@ -148,7 +159,9 @@ Container (network:none)                          Host
 
 In OAuth mode, the host's `~/.claude.json` is mounted read-only into the container so the `claude` binary can authenticate directly. The proxy acts as a transparent relay without adding credentials.
 
-> Codex providers use the Codex CLI's own auth mechanisms today. They do not currently use this Anthropic-specific credential proxy path.
+> Codex and ACP providers do not use this Anthropic-specific credential proxy path. Codex uses the Codex CLI's own auth flow or `CODEX_API_KEY`; ACP agents use their configured provider's credential mechanism.
+
+For production, prefer API-key based credentials managed by the service environment or secret manager rather than interactive login state. Use `ANTHROPIC_API_KEY` for Claude/Anthropic, `CODEX_API_KEY` for Codex/OpenAI, and provider-specific secrets for ACP targets such as Goose or Vibe. The credential boundary is provider-specific: `CredentialProxy` isolates Claude container credentials, Codex receives only its resolved API key or CLI auth context, and ACP agents receive only the environment or files needed for that configured agent.
 
 ### Security Properties
 
@@ -157,19 +170,31 @@ In OAuth mode, the host's `~/.claude.json` is mounted read-only into the contain
 - **Sole egress** — `network:none` means the Unix socket is the only way out of the container
 - **Observability** — the proxy tracks request and error counts for health monitoring
 
-## Canvas Share-Token Authentication (0.14.2)
+## ACP and Delegation Security Modes
 
-Canvas routes (`/canvas/:token`) bypass HTTP auth entirely -- authentication is the share token embedded in the URL path. This allows workshop participants to view the canvas without DartClaw credentials.
+ACP security claims are topology-scoped:
 
-**Security properties:**
-- Tokens are 24-byte `Random.secure()` values (192 bits of entropy), base64url-encoded
-- All validation failures (invalid, expired, revoked) return **404** -- no information leakage
-- Canvas pages use **nonce-based CSP** (`script-src 'nonce-{nonce}'`) to prevent execution of scripts injected via agent-generated HTML
-- The admin panel embeds the canvas in a sandboxed iframe (`allow-scripts allow-forms`, no `allow-same-origin`) to isolate agent content from admin cookies
-- Canvas action endpoint has per-token rate limiting (10 req/min)
+| Mode | When to use | Security claim |
+|------|-------------|----------------|
+| Direct provider, verified | The ACP agent directly controls the model provider and verification proves it honors host `fs` and `terminal` reverse-calls | Guard-mediated. ACP `fs/read_text_file`, `fs/write_text_file`, and `terminal/create` are evaluated by DartClaw guards before host action |
+| Relay provider | The ACP target forwards work through another provider CLI or relay path | Container-isolation-only. No guard-mediation claim |
+| Unverified | Startup evidence is absent or insufficient | Container-isolation-only until verification proves reverse-call mediation |
+| Codex delegation | Delegated Codex work with approvals/sandbox enabled | Provider-approval mode, not guard-mediated |
 
-See the [Canvas guide](canvas.md) for full configuration and usage details.
+`delegate_to_agent` enforces these classifications before spawn. If an allowlist entry sets `require_guard_mediation: true`, relay and unverified ACP agents are rejected, and Codex is rejected because its delegated mode is `security_mode: "provider_approval"`. A restricted container profile is the safe default for relay or unverified ACP agents.
 
 ## Audit Logging
 
 All guard evaluations are logged with timestamps, verdicts, and context. Post-tool-use events log success/failure for audit trail.
+
+Retention controls are explicit and disabled or conservative by default:
+
+| Data | Config key | Purpose |
+|------|------------|---------|
+| Guard audit partitions | `guard_audit.max_retention_days` | Deletes dated guard audit files older than the limit |
+| Sessions | `sessions.maintenance.prune_after_days` | Archives or prunes inactive sessions when maintenance is enabled |
+| Cron sessions | `sessions.maintenance.cron_retention_hours` | Deletes orphaned cron sessions older than the limit |
+| Task artifacts | `tasks.artifact_retention_days` | Cleans terminal task artifacts after terminal tasks complete |
+| Knowledge inbox processed files | `knowledge.inbox.processed_retention_days` | Removes processed inbox files after the configured retention window |
+
+Set these values deliberately for production deployments. Retention reduces local data exposure, but it is not a substitute for provider-side data retention controls in Anthropic, OpenAI, Mistral, or another configured provider account.

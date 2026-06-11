@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
+import 'package:dartclaw_server/src/task/task_runner_pool_coordinator.dart' show TaskRunnerPoolCoordinator;
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -149,6 +150,70 @@ void main() {
     expect(primaryWorker.turnCalls, 0);
     expect(claudeTaskWorker.turnCalls, 0);
     expect((await tasks.get('task-provider-miss'))!.status, TaskStatus.queued);
+  });
+
+  test('unknown provider task stays queued without acquiring configured providers', () async {
+    final primaryWorker = _ProviderWorker(responseText: 'primary complete');
+    final claudeTaskWorker = _ProviderWorker(responseText: 'claude complete');
+    final codexWorker = _ProviderWorker(responseText: 'codex complete');
+    addTearDown(() async {
+      await primaryWorker.dispose();
+      await claudeTaskWorker.dispose();
+      await codexWorker.dispose();
+    });
+
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final eventRecorder = TaskEventRecorder(eventService: eventService);
+    final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
+    final taskClaudeRunner = TurnRunner(
+      harness: claudeTaskWorker,
+      messages: messages,
+      behavior: behavior,
+      providerId: 'claude',
+    );
+    final taskCodexRunner = TurnRunner(
+      harness: codexWorker,
+      messages: messages,
+      behavior: behavior,
+      providerId: 'codex',
+    );
+    final pool = HarnessPool(runners: [primaryRunner, taskClaudeRunner, taskCodexRunner]);
+    final turns = TurnManager.fromPool(pool: pool);
+    executor = TaskExecutor(
+      services: TaskExecutorServices(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        artifactCollector: collector,
+        eventRecorder: eventRecorder,
+      ),
+      runners: TaskExecutorRunners(turns: turns),
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(executor.stop);
+
+    await tasks.create(
+      id: 'task-provider-unknown',
+      title: 'Goose task',
+      description: 'Should not use another provider.',
+      type: TaskType.research,
+      autoStart: true,
+      provider: 'goose',
+    );
+
+    final processed = await executor.pollOnce();
+
+    expect(processed, isFalse);
+    expect(primaryWorker.turnCalls, 0);
+    expect(claudeTaskWorker.turnCalls, 0);
+    expect(codexWorker.turnCalls, 0);
+    expect((await tasks.get('task-provider-unknown'))!.status, TaskStatus.queued);
+    final events = eventService.listForTask('task-provider-unknown', kind: TaskEventKind.taskError);
+    expect(events, hasLength(1));
+    expect(events.single.details['message'], contains('Provider "goose" is unavailable'));
   });
 
   test(
@@ -363,6 +428,62 @@ void main() {
     expect(codexWorker.turnCalls, 1);
     expect((await tasks.get('task-claude'))!.provider, 'claude');
     expect((await tasks.get('task-codex'))!.provider, 'codex');
+  });
+
+  test('provider-specific wait triggers spawn even when another provider is idle', () async {
+    final primaryWorker = _ProviderWorker(responseText: 'primary complete');
+    final claudeTaskWorker = _ProviderWorker(responseText: 'claude complete');
+    final codexWorker = _ProviderWorker(responseText: 'codex complete');
+    final secondClaudeWorker = _ProviderWorker(responseText: 'second claude complete');
+    addTearDown(() async {
+      await primaryWorker.dispose();
+      await claudeTaskWorker.dispose();
+      await codexWorker.dispose();
+      await secondClaudeWorker.dispose();
+    });
+
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final pool = HarnessPool(
+      runners: [
+        TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior),
+        TurnRunner(harness: claudeTaskWorker, messages: messages, behavior: behavior, providerId: 'claude'),
+        TurnRunner(harness: codexWorker, messages: messages, behavior: behavior, providerId: 'codex'),
+      ],
+      maxConcurrentTasks: 3,
+    );
+    final busyClaude = pool.tryAcquireForProvider('claude');
+    expect(busyClaude, isNotNull);
+    expect(pool.availableCount, 1, reason: 'codex is idle and must not suppress claude provisioning');
+
+    final spawned = Completer<void>();
+    final coordinator = TaskRunnerPoolCoordinator(
+      pool: pool,
+      onSpawnNeeded: (requestedProviderId) async {
+        expect(requestedProviderId, 'claude');
+        pool.addRunner(
+          TurnRunner(harness: secondClaudeWorker, messages: messages, behavior: behavior, providerId: 'claude'),
+        );
+        spawned.complete();
+        return true;
+      },
+    );
+    final task = Task(
+      id: 'task-claude-spawn',
+      title: 'Claude spawn',
+      description: 'Needs another claude worker.',
+      type: TaskType.coding,
+      status: TaskStatus.queued,
+      provider: 'claude',
+      createdAt: DateTime.now(),
+    );
+
+    final firstAttempt = coordinator.acquireRunnerForTask(task, 'workspace');
+    expect(firstAttempt, isNull);
+    await spawned.future.timeout(const Duration(seconds: 1));
+
+    final secondAttempt = coordinator.acquireRunnerForTask(task, 'workspace');
+    expect(secondAttempt, isNotNull);
+    expect(secondAttempt!.providerId, 'claude');
   });
 }
 

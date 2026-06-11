@@ -394,7 +394,16 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           run.status == WorkflowRunStatus.cancelled) {
         return null;
       }
-      if (_workflowBudgetExceeded(run, definition)) {
+      // Foreach-scope tokens reach run.totalTokens only at foreach completion,
+      // so the mid-foreach check (and the 80% warning) adds them back as an
+      // evaluation-only basis from the persisted per-child/loop-checkpoint keys.
+      final foreachConsumedTokens = workflow_budget_monitor.foreachScopeConsumedTokens(
+        context.data,
+        foreachStepId: controllerStep.id,
+        childStepIds: childStepIds,
+      );
+      run = await _checkWorkflowBudgetWarning(run, definition, additionalTokens: foreachConsumedTokens);
+      if (_workflowBudgetExceeded(run, definition, additionalTokens: foreachConsumedTokens)) {
         mapCtx.budgetExhausted = true;
         controllerFailureMessage ??= "foreach-controller-failure: foreach step '${controllerStep.id}' budget exhausted";
       }
@@ -528,12 +537,49 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         iterResult[childStep.id] = _restoredForeachSubStepOutputs(context, childStep, iterIndex);
         continue;
       }
+      // Between children, re-check the budget against the foreach-scope basis so
+      // an item stops once earlier children (its own or a sibling iteration's)
+      // exhaust the budget, instead of running to its own limit. The first child
+      // is covered by the controller's pre-dispatch checks.
+      if (childIndex > 0) {
+        if (!mapCtx.budgetExhausted &&
+            _workflowBudgetExceeded(
+              run,
+              definition,
+              additionalTokens: workflow_budget_monitor.foreachScopeConsumedTokens(
+                context.data,
+                foreachStepId: controllerStep.id,
+                childStepIds: [for (final step in childSteps) step.id],
+              ),
+            )) {
+          mapCtx.budgetExhausted = true;
+        }
+        if (mapCtx.budgetExhausted) {
+          await failAndReturn(
+            "Foreach child step '${childStep.id}' not dispatched: workflow budget exceeded",
+            firstTaskId,
+          );
+          return;
+        }
+      }
       final childStepIndex = definition.steps.indexOf(childStep);
       final skippedRun = await _skipDueToEntryGate(run, childStep, childStepIndex, iterContext);
       if (skippedRun != null) {
         run = skippedRun;
         continue;
       }
+      final nestedLoopScope = childStep.taskType == WorkflowTaskType.loop
+          ? _NestedLoopScope(
+              foreachStepId: controllerStep.id,
+              iterIndex: iterIndex,
+              childStepIds: [for (final step in childSteps) step.id],
+              runContext: context,
+              persist: persistProgress,
+              isCancelled: isCancelled,
+              mapContext: mapContext,
+              enclosingMaxParallel: controllerMaxParallel,
+            )
+          : null;
       final result = await _executeStep(
         run,
         definition,
@@ -543,6 +589,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         stepIndex: childStepIndex,
         mapCtx: mapContext,
         enclosingMaxParallel: controllerMaxParallel,
+        nestedLoopScope: nestedLoopScope,
       );
       if (result == null) {
         await failAndReturn("Foreach child step '${childStep.id}' failed to create task", null);

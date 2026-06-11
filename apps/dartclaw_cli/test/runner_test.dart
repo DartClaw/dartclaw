@@ -2,6 +2,7 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/commands/status_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' show dartclawVersion;
 import 'package:test/test.dart';
 
 void main() {
@@ -37,6 +38,17 @@ void main() {
 
     test('executable name is dartclaw', () {
       expect(runner.executableName, 'dartclaw');
+    });
+
+    test('global --version prints dartclawVersion', () async {
+      final output = <String>[];
+      final versionRunner = DartclawRunner(writeLine: output.add)
+        ..addCommand(ServeCommand())
+        ..addCommand(StatusCommand());
+
+      await versionRunner.run(['--version']);
+
+      expect(output, [dartclawVersion]);
     });
   });
 }

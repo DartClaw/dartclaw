@@ -21,13 +21,14 @@ import 'agent_config.dart';
 import 'advisor_config.dart';
 import 'alerts_config.dart';
 import 'auth_config.dart';
-import 'canvas_config.dart';
 import 'claude_provider_options.dart';
 import 'context_config.dart';
 import 'credentials_config.dart';
+import 'delegation_config.dart';
 import 'duration_parser.dart' show tryParseDuration;
 import 'features_config.dart';
 import 'gateway_config.dart';
+import 'harness_config.dart';
 import 'governance_config.dart';
 import 'history_config.dart';
 import 'identifier_preservation_mode.dart';
@@ -56,6 +57,9 @@ part 'config_channel_provider.dart';
 part 'config_extensions.dart';
 part 'config_parser.dart';
 part 'config_parser_governance.dart';
+part 'config_parser_harness.dart';
+part 'config_parser_providers.dart';
+part 'config_parser_security.dart';
 
 /// Immutable configuration for DartClaw runtime.
 class DartclawConfig {
@@ -72,11 +76,11 @@ class DartclawConfig {
   /// auth.
   final AuthConfig auth;
 
-  /// canvas.
-  final CanvasConfig canvas;
-
   /// gateway.
   final GatewayConfig gateway;
+
+  /// harness.
+  final HarnessConfig harness;
 
   /// sessions.
   final SessionConfig sessions;
@@ -141,6 +145,9 @@ class DartclawConfig {
   /// alerts.
   final AlertsConfig alerts;
 
+  /// delegation.
+  final DelegationConfig delegation;
+
   /// Extension sections registered by private deployers via [registerExtensionParser].
   /// Unknown YAML keys with registered parsers produce typed entries here.
   /// Unknown YAML keys without registered parsers are stored as raw values
@@ -188,8 +195,8 @@ class DartclawConfig {
     this.agent = const AgentConfig.defaults(),
     this.advisor = const AdvisorConfig.defaults(),
     this.auth = const AuthConfig.defaults(),
-    this.canvas = const CanvasConfig.defaults(),
     this.gateway = const GatewayConfig.defaults(),
+    this.harness = const HarnessConfig.defaults(),
     this.sessions = const SessionConfig.defaults(),
     this.context = const ContextConfig.defaults(),
     this.security = const SecurityConfig.defaults(),
@@ -211,6 +218,7 @@ class DartclawConfig {
     this.features = const FeaturesConfig(),
     this.projects = const ProjectConfig.defaults(),
     this.alerts = const AlertsConfig.defaults(),
+    this.delegation = const DelegationConfig.defaults(),
     this.extensions = const {},
     List<String> warnings = const [],
   }) : _warnings = warnings;
@@ -229,8 +237,8 @@ class DartclawConfig {
     AgentConfig? agent,
     AdvisorConfig? advisor,
     AuthConfig? auth,
-    CanvasConfig? canvas,
     GatewayConfig? gateway,
+    HarnessConfig? harness,
     SessionConfig? sessions,
     ContextConfig? context,
     SecurityConfig? security,
@@ -252,6 +260,7 @@ class DartclawConfig {
     FeaturesConfig? features,
     ProjectConfig? projects,
     AlertsConfig? alerts,
+    DelegationConfig? delegation,
     Map<String, Object?>? extensions,
     List<String>? warnings,
   }) {
@@ -260,8 +269,8 @@ class DartclawConfig {
       agent: agent ?? this.agent,
       advisor: advisor ?? this.advisor,
       auth: auth ?? this.auth,
-      canvas: canvas ?? this.canvas,
       gateway: gateway ?? this.gateway,
+      harness: harness ?? this.harness,
       sessions: sessions ?? this.sessions,
       context: context ?? this.context,
       security: security ?? this.security,
@@ -283,6 +292,7 @@ class DartclawConfig {
       features: features ?? this.features,
       projects: projects ?? this.projects,
       alerts: alerts ?? this.alerts,
+      delegation: delegation ?? this.delegation,
       extensions: extensions ?? this.extensions,
       warnings: warnings ?? this.warnings,
     );
@@ -385,8 +395,13 @@ class DartclawConfig {
     final agent = _parseAgent(yaml, const AgentConfig.defaults(), warns);
     final advisor = _parseAdvisor(yaml, const AdvisorConfig.defaults(), warns);
     final auth = _parseAuth(yaml, const AuthConfig.defaults(), warns);
-    final canvas = _parseCanvas(yaml, const CanvasConfig.defaults(), warns);
     final gateway = _parseGateway(yaml, environment, const GatewayConfig.defaults(), warns);
+    final harness = _parseHarness(
+      yaml,
+      const HarnessConfig.defaults(),
+      warns,
+      workerTimeoutSeconds: server.workerTimeout,
+    );
     final sessions = _parseSessions(yaml, const SessionConfig.defaults(), warns);
     final context = _parseContext(yaml, const ContextConfig.defaults(), warns);
     final workspace = _parseWorkspace(yaml, const WorkspaceConfig.defaults(), warns);
@@ -407,6 +422,7 @@ class DartclawConfig {
     final features = _parseFeatures(yaml);
     final projects = parseProjectConfig(_sectionMap('projects', yaml, warns), warns);
     final alerts = _parseAlerts(yaml, const AlertsConfig.defaults(), warns);
+    final delegation = _parseDelegation(yaml, const DelegationConfig.defaults(), warns);
     _warnRetiredAndthenConfig(yaml, warns);
     final extensions = _parseExtensions(yaml, warns);
 
@@ -415,8 +431,8 @@ class DartclawConfig {
       agent: agent,
       advisor: advisor,
       auth: auth,
-      canvas: canvas,
       gateway: gateway,
+      harness: harness,
       sessions: sessions,
       context: context,
       security: security,
@@ -438,6 +454,7 @@ class DartclawConfig {
       features: features,
       projects: projects,
       alerts: alerts,
+      delegation: delegation,
       extensions: extensions,
       warnings: warns,
     );

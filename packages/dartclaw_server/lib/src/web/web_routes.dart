@@ -1,5 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart' show TaskEventService, TurnTraceService;
@@ -31,6 +31,7 @@ import '../task/agent_observer.dart';
 import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
+import '../turn_manager.dart' show TurnManager;
 import 'dashboard_page.dart';
 import 'page_registry.dart';
 import 'page_support.dart';
@@ -83,7 +84,6 @@ Router webRoutes(
   TaskEventService? taskEventService,
   TaskProgressTracker? progressTracker,
   ThreadBindingStore? threadBindingStore,
-  bool canvasEnabled = false,
   WorkflowService? workflowService,
   WorkflowDefinitionSource? workflowDefinitionSource,
 }) {
@@ -122,7 +122,6 @@ Router webRoutes(
       showMemory: visibility.showMemory,
       showScheduling: visibility.showScheduling,
       showTasks: visibility.showTasks,
-      showCanvas: canvasEnabled,
       showWorkflows: workflowService != null,
     );
   }
@@ -146,6 +145,7 @@ Router webRoutes(
     projectService: projectService,
     eventBus: eventBus,
     messages: messages,
+    turns: turns,
     agentObserver: agentObserver,
     traceService: traceService,
     taskEventService: taskEventService,
@@ -280,6 +280,7 @@ Router webRoutes(
         readOnly: isArchive,
         earliestCursor: earliestCursor,
         hasEarlierMessages: hasEarlierMessages,
+        turnStatus: turns?.turnStatus(id).toJson(),
       );
 
       if (wantsFragment(request)) {
@@ -375,6 +376,7 @@ Router webRoutes(
         cachedInputTokens: usage.cachedInputTokens,
         bannerHtml: restartBannerHtml(appDisplay.dataDir),
         recentTurns: recentTurns,
+        turnStatus: turns?.turnStatus(id).toJson(),
         appName: appDisplay.name,
       );
 

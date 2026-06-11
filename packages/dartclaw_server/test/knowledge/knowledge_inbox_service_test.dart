@@ -615,6 +615,7 @@ FakeTurnManager _turnsReturning(String responseText) {
           model,
           effort,
           maxTurns,
+          taskId,
           isHumanInput = false,
           allowedTools,
           readOnly = false,

@@ -49,6 +49,7 @@ AlertClassification? classifyAlert(DartclawEvent event) {
     ContainerStoppedEvent() => null,
     TaskReviewReadyEvent() => null,
     TaskEventCreatedEvent() => null,
+    TurnWaitStateChangedEvent() => null,
     SessionCreatedEvent() => null,
     SessionEndedEvent() => null,
     SessionErrorEvent() => null,

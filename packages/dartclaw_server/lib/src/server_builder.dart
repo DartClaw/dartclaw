@@ -13,7 +13,6 @@ import 'auth/token_service.dart';
 import 'behavior/behavior_file_service.dart';
 import 'behavior/heartbeat_scheduler.dart';
 import 'behavior/self_improvement_service.dart';
-import 'canvas/canvas_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/exploration_summarizer.dart';
@@ -71,7 +70,6 @@ class DartclawServerBuilder {
   SelfImprovementService? selfImprovement;
   UsageTracker? usageTracker;
   EventBus? eventBus;
-  CanvasService? canvasService;
 
   // Channels
   ChannelManager? channelManager;
@@ -169,6 +167,9 @@ class DartclawServerBuilder {
             usageTracker: usageTracker,
             stallTimeout: config?.governance.turnProgress.stallTimeout ?? Duration.zero,
             stallAction: config?.governance.turnProgress.stallAction ?? TurnProgressAction.warn,
+            turnMonitor: config?.harness.turnMonitor ?? const TurnMonitorConfig.defaults(),
+            globalTimeout: config == null ? null : Duration(seconds: config!.server.workerTimeout),
+            eventBus: eventBus,
           );
     resetService?.bindSessionContinuityResetter(_cachedTurns!.resetSessionContinuity);
     return _cachedTurns!;
@@ -253,7 +254,6 @@ class DartclawServerBuilder {
         eventBusSseBridge: bridge,
       ),
       web: ServerWebDeps(
-        canvasService: canvasService,
         workflowService: workflowService,
         workflowDefinitionSource: workflowDefinitionSource,
         contentGuardDisplay: contentGuardDisplay,
@@ -286,7 +286,6 @@ class DartclawServerBuilder {
       guardChain: guardChain,
       providerStatus: providerStatus,
       configWriter: configWriter,
-      canvasService: canvasService,
       workflowService: workflowService,
       projectService: projectService,
       contentGuardDisplay: contentGuardDisplay,

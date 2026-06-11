@@ -2,13 +2,10 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
-DartclawConfig _loadYaml(String yaml, {Map<String, String>? env}) {
-  return DartclawConfig.load(
-    configPath: 'dartclaw.yaml',
-    fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null,
-    env: {'HOME': '/tmp', ...?env},
-  );
-}
+import 'support/load_config.dart';
+
+DartclawConfig _loadYaml(String yaml, {Map<String, String>? env}) =>
+    loadYaml(yaml, configPath: 'dartclaw.yaml', env: {'HOME': '/tmp', ...?env});
 
 void main() {
   group('CredentialsConfig', () {

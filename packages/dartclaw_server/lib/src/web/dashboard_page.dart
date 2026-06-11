@@ -1,5 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show TaskEventService, TurnTraceService;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
 import 'package:shelf/shelf.dart';
@@ -10,6 +10,7 @@ import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../templates/sidebar.dart';
+import '../turn_manager.dart' show TurnManager;
 import 'sidebar_data_builder.dart';
 
 /// Base class for pages rendered in the dashboard shell.
@@ -45,6 +46,7 @@ class PageContext {
     this.projectService,
     this.eventBus,
     this.messages,
+    this.turns,
     this.agentObserver,
     this.traceService,
     this.taskEventService,
@@ -75,6 +77,7 @@ class PageContext {
   final ProjectService? projectService;
   final EventBus? eventBus;
   final MessageService? messages;
+  final TurnManager? turns;
   final AgentObserver? agentObserver;
   final TurnTraceService? traceService;
   final TaskEventService? taskEventService;

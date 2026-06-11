@@ -40,8 +40,8 @@ abstract class AgentHarness {
 
   /// Whether this harness registers and receives the `PreCompact` hook callback.
   ///
-  /// When true, [ContextMonitor] suppresses the heuristic `shouldFlush` check
-  /// because compaction signals are already available via hook callbacks.
+  /// When true, the host's flush heuristic (`shouldFlushForCompactionSignal`)
+  /// is suppressed because compaction signals already arrive via hook callbacks.
   bool get supportsPreCompactHook => false;
 
   /// Renders the native skill-activation line for prompts targeting this harness.

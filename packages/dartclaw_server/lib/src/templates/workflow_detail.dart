@@ -1,3 +1,5 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show humanizeSpan;
+
 import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
@@ -206,16 +208,8 @@ String _formatDuration(Object? startedAt, Object? completedAt) {
     final start = startedAt is DateTime ? startedAt : DateTime.parse(startedAt.toString());
     final end = completedAt != null
         ? (completedAt is DateTime ? completedAt : DateTime.parse(completedAt.toString()))
-        : DateTime.now();
-    final diff = end.difference(start);
-    if (diff.inHours > 0) {
-      final mins = diff.inMinutes % 60;
-      return '${diff.inHours}h ${mins}m';
-    }
-    if (diff.inMinutes > 0) {
-      return '${diff.inMinutes}m';
-    }
-    return '${diff.inSeconds}s';
+        : null;
+    return humanizeSpan(start, end, true);
   } catch (_) {
     return '--'; // Unparseable timestamp or null end time — fall back to placeholder.
   }

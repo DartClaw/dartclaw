@@ -1,14 +1,7 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:test/test.dart';
 
-// Helpers for config-via-YAML tests
-DartclawConfig _loadYaml(String yaml) {
-  return DartclawConfig.load(
-    configPath: 'dartclaw.yaml',
-    fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null,
-    env: {'HOME': '/tmp'},
-  );
-}
+import 'support/load_config.dart';
 
 void main() {
   group('GovernanceConfig', () {
@@ -124,7 +117,7 @@ void main() {
 
     group('YAML duration parsing (governance window fields)', () {
       test('integer minutes parsed directly', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   rate_limits:
     per_sender:
@@ -135,7 +128,7 @@ governance:
       });
 
       test('minute shorthand — 5m → 5', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   rate_limits:
     per_sender:
@@ -146,7 +139,7 @@ governance:
       });
 
       test('hour shorthand — 1h → 60', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   rate_limits:
     global:
@@ -157,7 +150,7 @@ governance:
       });
 
       test('hour shorthand — 2h → 120', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   rate_limits:
     global:
@@ -168,7 +161,7 @@ governance:
       });
 
       test('seconds shorthand — 30s → 0 (rounds down)', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   rate_limits:
     per_sender:
@@ -180,7 +173,7 @@ governance:
       });
 
       test('missing governance section → all defaults', () {
-        final config = _loadYaml('port: 3000\n');
+        final config = loadYaml('port: 3000\n');
         expect(config.governance.rateLimits.perSender.messages, 0);
         expect(config.governance.rateLimits.global.turns, 0);
         expect(config.governance.budget.dailyTokens, 0);
@@ -189,7 +182,7 @@ governance:
       });
 
       test('crowd_coding model and effort parse correctly', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   crowd_coding:
     model: haiku
@@ -199,8 +192,18 @@ governance:
         expect(config.governance.crowdCoding.effort, 'low');
       });
 
+      test('invalid type for governance.crowd_coding.model produces warning', () {
+        final config = loadYaml('''
+governance:
+  crowd_coding:
+    model: 42
+''');
+        expect(config.governance.crowdCoding.model, isNull);
+        expect(config.warnings, anyElement(contains('Invalid type for model')));
+      });
+
       test('invalid crowd_coding value warns and uses defaults', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   crowd_coding: true
 ''');
@@ -209,7 +212,7 @@ governance:
       });
 
       test('unrecognized crowd_coding model warns; effort passes through verbatim', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   crowd_coding:
     model: unknown-model
@@ -226,7 +229,7 @@ governance:
       });
 
       test('per_sender max_queued and max_pause_queued parse correctly', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   rate_limits:
     per_sender:
@@ -238,7 +241,7 @@ governance:
       });
 
       test('queue_strategy parses correctly', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   queue_strategy: fair
 ''');
@@ -246,7 +249,7 @@ governance:
       });
 
       test('turn_progress parses stall timeout and action', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   turn_progress:
     stall_timeout: 45s
@@ -260,7 +263,7 @@ governance:
       });
 
       test('invalid turn_progress action warns and keeps the default', () {
-        final config = _loadYaml('''
+        final config = loadYaml('''
 governance:
   turn_progress:
     stall_timeout: 30s
@@ -272,6 +275,44 @@ governance:
         expect(turnProgress.stallTimeout, const Duration(seconds: 30));
         expect(_enumName(turnProgress.stallAction), 'warn');
         expect(config.warnings, anyElement(contains('governance.turn_progress.stall_action')));
+      });
+
+      test('harness turn_monitor parses defaults and custom thresholds without replacing governance progress', () {
+        final defaults = loadYaml('');
+        expect(defaults.harness.turnMonitor.waitWarningAfter, const Duration(seconds: 30));
+        expect(defaults.harness.turnMonitor.stuckAfter, const Duration(seconds: 120));
+
+        final config = loadYaml('''
+worker_timeout: 300
+harness:
+  turn_monitor:
+    wait_warning_after: 45s
+    stuck_after: 90s
+governance:
+  turn_progress:
+    stall_timeout: 12s
+    stall_action: cancel
+''');
+
+        expect(config.harness.turnMonitor.waitWarningAfter, const Duration(seconds: 45));
+        expect(config.harness.turnMonitor.stuckAfter, const Duration(seconds: 90));
+        expect(config.governance.turnProgress.stallTimeout, const Duration(seconds: 12));
+        expect(config.governance.turnProgress.stallAction, TurnProgressAction.cancel);
+      });
+
+      test('harness turn_monitor validates positive ordered durations below worker timeout', () {
+        final config = loadYaml('''
+worker_timeout: 60
+harness:
+  turn_monitor:
+    wait_warning_after: 70s
+    stuck_after: 60s
+''');
+
+        expect(config.harness.turnMonitor.waitWarningAfter, const Duration(seconds: 30));
+        expect(config.harness.turnMonitor.stuckAfter, const Duration(seconds: 60) - const Duration(milliseconds: 1));
+        expect(config.warnings, anyElement(contains('wait_warning_after must be <= stuck_after')));
+        expect(config.warnings, anyElement(contains('stuck_after: must be below worker_timeout')));
       });
     });
 

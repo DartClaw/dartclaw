@@ -148,14 +148,22 @@ class ContextExtractor {
       final resolver = outputResolverFor(outputKey, config);
       switch (resolver) {
         case FileSystemOutput():
-          final hasInlineClaim = workflowContextPayload != null && workflowContextPayload.containsKey(outputKey);
+          // A step may declare a namespaced output key
+          // (`<stepId>.review_findings`, required when parallel steps would
+          // collide on a shared context key) while the invoking skill emits the
+          // bare canonical key (`review_findings`). Honor the agent's claim
+          // under either form, mirroring the dual-key acceptance already used
+          // for review counts (see findingsCountKeys). Each step extracts from
+          // its own session payload, so the bare alias cannot cross-contaminate
+          // a sibling step.
+          final claimKey = _fileSystemClaimKey(outputKey, step, workflowContextPayload);
           outputs[outputKey] = await _resolveFileSystemOutput(
             resolver,
             outputKey: outputKey,
             step: step,
             task: task,
-            inlinePayload: workflowContextPayload?[outputKey],
-            hasInlineClaim: hasInlineClaim,
+            inlinePayload: claimKey == null ? null : workflowContextPayload?[claimKey],
+            hasInlineClaim: claimKey != null,
             workflowContextPayload: workflowContextPayload,
           );
           continue;
@@ -376,6 +384,23 @@ class ContextExtractor {
     return false;
   }
 
+  /// Resolves which payload key carries the inline filesystem claim for
+  /// [outputKey], accepting a bare-suffix alias for a namespaced output.
+  ///
+  /// Prefers the exact key; when the output is namespaced as `<stepId>.<suffix>`
+  /// and the exact key is absent, falls back to the bare `<suffix>` the skill's
+  /// output contract emits. Returns null when neither form is present.
+  String? _fileSystemClaimKey(String outputKey, WorkflowStep step, Map<String, dynamic>? payload) {
+    if (payload == null) return null;
+    if (payload.containsKey(outputKey)) return outputKey;
+    final prefix = '${step.id}.';
+    if (outputKey.startsWith(prefix)) {
+      final bare = outputKey.substring(prefix.length);
+      if (bare.isNotEmpty && payload.containsKey(bare)) return bare;
+    }
+    return null;
+  }
+
   List<String> _claimedPaths(Object? payloadValue) {
     if (payloadValue == null) return const <String>[];
     if (payloadValue is String) {
@@ -459,18 +484,6 @@ class ContextExtractor {
     switch (config.type) {
       case ExtractionType.artifact:
         return _extractArtifactByName(task, config.pattern);
-      case ExtractionType.regex:
-        _log.warning(
-          'ExtractionType.regex not yet implemented for task ${task.id}; '
-          'falling back to default extraction',
-        );
-        return null;
-      case ExtractionType.jsonpath:
-        _log.warning(
-          'ExtractionType.jsonpath not yet implemented for task ${task.id}; '
-          'falling back to default extraction',
-        );
-        return null;
     }
   }
 

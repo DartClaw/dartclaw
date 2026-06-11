@@ -11,15 +11,7 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
-
-Request _jsonRequest(String method, String path, [Map<String, dynamic>? body]) {
-  return Request(
-    method,
-    Uri.parse('http://localhost$path'),
-    body: body == null ? null : jsonEncode(body),
-    headers: {'content-type': 'application/json'},
-  );
-}
+import 'api_test_helpers.dart' show jsonRequest;
 
 Request _formRequest(String method, String path, Map<String, String> body) {
   return Request(
@@ -84,7 +76,7 @@ void main() {
   });
 
   test('POST /api/sessions persists a provider override for the session', () async {
-    final response = await handler(_jsonRequest('POST', '/api/sessions', {'provider': 'codex'}));
+    final response = await handler(jsonRequest('POST', '/api/sessions', {'provider': 'codex'}));
 
     expect(response.statusCode, 201);
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
@@ -96,7 +88,7 @@ void main() {
   });
 
   test('POST /api/sessions rejects unavailable providers explicitly', () async {
-    final response = await handler(_jsonRequest('POST', '/api/sessions', {'provider': 'bogus'}));
+    final response = await handler(jsonRequest('POST', '/api/sessions', {'provider': 'bogus'}));
 
     expect(response.statusCode, 400);
     expect(await _errorCode(response), 'PROVIDER_UNAVAILABLE');

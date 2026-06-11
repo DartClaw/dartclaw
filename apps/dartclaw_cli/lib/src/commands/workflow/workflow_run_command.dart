@@ -15,7 +15,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent,
         WorkflowApprovalRequestedEvent;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkspaceService;
+import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SearchDbFactory, TaskDbFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -209,9 +209,6 @@ class WorkflowRunCommand extends Command<void> {
 
     final dataDir = config.server.dataDir;
     Directory(dataDir).createSync(recursive: true);
-
-    final workspace = WorkspaceService(dataDir: dataDir);
-    await workspace.migrate();
 
     final wiring = CliWorkflowWiring(
       config: config,

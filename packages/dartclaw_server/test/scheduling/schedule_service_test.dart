@@ -6,6 +6,8 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:test/test.dart';
 
+import '../delivery_test_support.dart';
+
 void main() {
   group('ScheduledJob.fromConfig', () {
     test('parses cron job', () {
@@ -217,7 +219,7 @@ void main() {
     });
 
     test('successful agent-backed job delivers assistant response text', () async {
-      final delivery = _RecordingDeliveryService(sessions: sessions);
+      final delivery = RecordingDeliveryService(sessions: sessions);
       turns.responseText = 'assistant summary';
       final announceJob = ScheduledJob.fromConfig({
         'id': 'announce-job',
@@ -303,7 +305,7 @@ void main() {
     test('failed turn outcome throws, triggering retry logic', () async {
       // Return a failed TurnOutcome — _executeWithRetry should throw
       turns.returnFailedOutcome = true;
-      final delivery = _RecordingDeliveryService(sessions: sessions);
+      final delivery = RecordingDeliveryService(sessions: sessions);
       final service = ScheduleService(turns: turns, sessions: sessions, jobs: [], delivery: delivery);
       service.start();
 
@@ -540,6 +542,7 @@ class _ConfigurableTurnManager implements TurnManager {
     String? model,
     String? effort,
     int? maxTurns,
+    String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
@@ -583,37 +586,6 @@ class _ConfigurableTurnManager implements TurnManager {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-Future<String> _noopTestChannelDispatch(
-  String sessionKey,
-  String message, {
-  String? senderJid,
-  String? senderDisplayName,
-}) async => '';
-
-class _RecordingDeliveryService extends DeliveryService {
-  final List<({DeliveryMode mode, String jobId, String result, String? webhookUrl})> calls =
-      <({DeliveryMode mode, String jobId, String result, String? webhookUrl})>[];
-
-  _RecordingDeliveryService({required super.sessions})
-    : super(
-        channelManager: ChannelManager(
-          queue: MessageQueue(dispatcher: _noopTestChannelDispatch),
-          config: const ChannelConfig.defaults(),
-        ),
-        sseBroadcast: SseBroadcast(),
-      );
-
-  @override
-  Future<void> deliver({
-    required DeliveryMode mode,
-    required String jobId,
-    required String result,
-    String? webhookUrl,
-  }) async {
-    calls.add((mode: mode, jobId: jobId, result: result, webhookUrl: webhookUrl));
-  }
 }
 
 class _FakeSessionService implements SessionService {

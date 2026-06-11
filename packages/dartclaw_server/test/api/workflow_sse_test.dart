@@ -4,14 +4,14 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show InMemoryDefinitionSource, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowService, WorkflowStep;
-import 'package:path/path.dart' as p;
+    show InMemoryDefinitionSource, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowStep;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'workflow_test_support.dart';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -103,41 +103,6 @@ Future<List<Map<String, dynamic>>> collectSseFramesWithAction(
   return frames;
 }
 
-class _FakeWorkflowService extends WorkflowService {
-  _FakeWorkflowService._super(
-    SqliteWorkflowRunRepository repository,
-    TaskService taskService,
-    MessageService messageService,
-    EventBus eventBus,
-    KvService kvService,
-    String dataDir,
-  ) : super.lifecycleOnly(
-        repository: repository,
-        taskService: taskService,
-        messageService: messageService,
-        eventBus: eventBus,
-        kvService: kvService,
-        dataDir: dataDir,
-      );
-
-  factory _FakeWorkflowService({
-    required Database db,
-    required TaskService taskService,
-    required EventBus eventBus,
-    required String dataDir,
-  }) {
-    final repo = SqliteWorkflowRunRepository(db);
-    final messages = MessageService(baseDir: p.join(dataDir, 'sessions'));
-    final kv = KvService(filePath: p.join(dataDir, 'kv.json'));
-    return _FakeWorkflowService._super(repo, taskService, messages, eventBus, kv, dataDir);
-  }
-
-  WorkflowRun? getResult;
-
-  @override
-  Future<WorkflowRun?> get(String runId) async => getResult;
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Tests
 // ──────────────────────────────────────────────────────────────────────────────
@@ -148,7 +113,7 @@ void main() {
   late SqliteTaskRepository taskRepo;
   late EventBus eventBus;
   late TaskService tasks;
-  late _FakeWorkflowService workflows;
+  late FakeWorkflowService workflows;
   late Handler handler;
   late InMemoryDefinitionSource definitions;
   late Directory tempDir;
@@ -161,7 +126,7 @@ void main() {
     tasks = TaskService(taskRepo, eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
 
-    workflows = _FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
     workflows.getResult = _makeRun();
 
     definitions = InMemoryDefinitionSource([_makeDefinition()]);

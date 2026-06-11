@@ -5,117 +5,91 @@ import 'package:test/test.dart';
 
 void main() {
   group('resolveChannelTurnOverrides', () {
-    test('per-channel override wins over scope and crowd coding defaults', () {
-      final config = DartclawConfig(
-        sessions: SessionConfig(
-          scopeConfig: SessionScopeConfig(
-            dmScope: DmScope.perChannelContact,
-            groupScope: GroupScope.shared,
-            model: 'sonnet',
-            effort: 'medium',
-            channels: {'google_chat': const ChannelScopeConfig(model: 'opus', effort: 'high')},
+    final crowdCodingConfig = DartclawConfig(
+      sessions: const SessionConfig(scopeConfig: SessionScopeConfig.defaults()),
+      governance: const GovernanceConfig(
+        crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
+      ),
+    );
+
+    final cases = [
+      (
+        name: 'per-channel override wins over scope and crowd coding defaults',
+        config: DartclawConfig(
+          sessions: SessionConfig(
+            scopeConfig: SessionScopeConfig(
+              dmScope: DmScope.perChannelContact,
+              groupScope: GroupScope.shared,
+              model: 'sonnet',
+              effort: 'medium',
+              channels: {'google_chat': const ChannelScopeConfig(model: 'opus', effort: 'high')},
+            ),
+          ),
+          governance: const GovernanceConfig(
+            crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
           ),
         ),
-        governance: const GovernanceConfig(
-          crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
-        ),
-      );
-
-      final overrides = resolveChannelTurnOverrides(
         sessionKey: SessionKey.groupShared(channelType: 'google_chat', groupId: 'spaces/AAA'),
-        config: config,
-      );
-
-      expect(overrides.model, 'opus');
-      expect(overrides.effort, 'high');
-    });
-
-    test('scope-level override applies when channel type is unavailable', () {
-      final config = DartclawConfig(
-        sessions: const SessionConfig(
-          scopeConfig: SessionScopeConfig(
-            dmScope: DmScope.perContact,
-            groupScope: GroupScope.shared,
-            model: 'sonnet',
-            effort: 'medium',
+        expectedModel: 'opus',
+        expectedEffort: 'high',
+      ),
+      (
+        name: 'scope-level override applies when channel type is unavailable',
+        config: DartclawConfig(
+          sessions: const SessionConfig(
+            scopeConfig: SessionScopeConfig(
+              dmScope: DmScope.perContact,
+              groupScope: GroupScope.shared,
+              model: 'sonnet',
+              effort: 'medium',
+            ),
+          ),
+          governance: const GovernanceConfig(
+            crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
           ),
         ),
-        governance: const GovernanceConfig(
-          crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
-        ),
-      );
-
-      final overrides = resolveChannelTurnOverrides(
         sessionKey: SessionKey.dmPerContact(peerId: 'alice@example.com'),
-        config: config,
-      );
-
-      expect(overrides.model, 'sonnet');
-      expect(overrides.effort, 'medium');
-    });
-
-    test('crowd coding default applies when no scope override exists', () {
-      final config = DartclawConfig(
-        sessions: const SessionConfig(scopeConfig: SessionScopeConfig.defaults()),
-        governance: const GovernanceConfig(
-          crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
-        ),
-      );
-
-      final overrides = resolveChannelTurnOverrides(
+        expectedModel: 'sonnet',
+        expectedEffort: 'medium',
+      ),
+      (
+        name: 'crowd coding default applies when no scope override exists',
+        config: crowdCodingConfig,
         sessionKey: SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us'),
-        config: config,
-      );
-
-      expect(overrides.model, 'haiku');
-      expect(overrides.effort, 'low');
-    });
-
-    test('returns null overrides when no model settings are configured', () {
-      const config = DartclawConfig.defaults();
-
-      final overrides = resolveChannelTurnOverrides(
+        expectedModel: 'haiku',
+        expectedEffort: 'low',
+      ),
+      (
+        name: 'returns null overrides when no model settings are configured',
+        config: const DartclawConfig.defaults(),
         sessionKey: SessionKey.groupShared(channelType: 'signal', groupId: 'group'),
-        config: config,
-      );
-
-      expect(overrides.model, isNull);
-      expect(overrides.effort, isNull);
-    });
-
-    test('crowd coding defaults do not apply to DM sessions', () {
-      final config = DartclawConfig(
-        sessions: const SessionConfig(scopeConfig: SessionScopeConfig.defaults()),
-        governance: const GovernanceConfig(
-          crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
-        ),
-      );
-
-      final overrides = resolveChannelTurnOverrides(
+        expectedModel: null,
+        expectedEffort: null,
+      ),
+      (
+        name: 'crowd coding defaults do not apply to DM sessions',
+        config: crowdCodingConfig,
         sessionKey: SessionKey.dmPerChannelContact(channelType: 'signal', peerId: '+123'),
-        config: config,
-      );
-
-      expect(overrides.model, isNull);
-      expect(overrides.effort, isNull);
-    });
-
-    test('non-channel sessions do not receive channel turn overrides', () {
-      final config = DartclawConfig(
-        sessions: const SessionConfig(scopeConfig: SessionScopeConfig.defaults()),
-        governance: const GovernanceConfig(
-          crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
-        ),
-      );
-
-      final overrides = resolveChannelTurnOverrides(
+        expectedModel: null,
+        expectedEffort: null,
+      ),
+      (
+        name: 'non-channel sessions do not receive channel turn overrides',
+        config: crowdCodingConfig,
         sessionKey: SessionKey.cronSession(jobId: 'daily-review'),
-        config: config,
-      );
+        expectedModel: null,
+        expectedEffort: null,
+      ),
+    ];
 
-      expect(overrides.model, isNull);
-      expect(overrides.effort, isNull);
-    });
+    for (final testCase in cases) {
+      test(testCase.name, () {
+        final overrides = resolveChannelTurnOverrides(sessionKey: testCase.sessionKey, config: testCase.config);
+
+        expect(overrides.model, testCase.expectedModel);
+        expect(overrides.effort, testCase.expectedEffort);
+      });
+    }
   });
 
   group('resolveChannelTurnOverrides with GroupConfigResolver', () {
@@ -123,129 +97,111 @@ void main() {
       type: [entry],
     });
 
-    test('per-group model+effort override wins over per-channel and crowd-coding', () {
-      final config = DartclawConfig(
-        sessions: SessionConfig(
-          scopeConfig: SessionScopeConfig(
-            dmScope: DmScope.perChannelContact,
-            groupScope: GroupScope.shared,
-            channels: {'whatsapp': const ChannelScopeConfig(model: 'opus', effort: 'high')},
+    final groupKey = SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us');
+    final crowdCodingConfig = DartclawConfig(
+      sessions: const SessionConfig(scopeConfig: SessionScopeConfig.defaults()),
+      governance: const GovernanceConfig(
+        crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
+      ),
+    );
+
+    final cases = [
+      (
+        name: 'per-group model+effort override wins over per-channel and crowd-coding',
+        config: DartclawConfig(
+          sessions: SessionConfig(
+            scopeConfig: SessionScopeConfig(
+              dmScope: DmScope.perChannelContact,
+              groupScope: GroupScope.shared,
+              channels: {'whatsapp': const ChannelScopeConfig(model: 'opus', effort: 'high')},
+            ),
+          ),
+          governance: const GovernanceConfig(
+            crowdCoding: CrowdCodingConfig(model: 'sonnet', effort: 'medium'),
           ),
         ),
-        governance: const GovernanceConfig(
-          crowdCoding: CrowdCodingConfig(model: 'sonnet', effort: 'medium'),
-        ),
-      );
-      final resolver = resolverWith(ChannelType.whatsapp, GroupEntry(id: 'group@g.us', model: 'haiku', effort: 'low'));
-
-      final overrides = resolveChannelTurnOverrides(
-        sessionKey: SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us'),
-        config: config,
-        groupConfigResolver: resolver,
-      );
-
-      expect(overrides.model, 'haiku');
-      expect(overrides.effort, 'low');
-    });
-
-    test('per-group effort-only override, model falls through to per-channel', () {
-      final config = DartclawConfig(
-        sessions: SessionConfig(
-          scopeConfig: SessionScopeConfig(
-            dmScope: DmScope.perChannelContact,
-            groupScope: GroupScope.shared,
-            channels: {'whatsapp': const ChannelScopeConfig(model: 'opus')},
+        sessionKey: groupKey,
+        resolver: resolverWith(ChannelType.whatsapp, GroupEntry(id: 'group@g.us', model: 'haiku', effort: 'low')),
+        expectedModel: 'haiku',
+        expectedEffort: 'low',
+      ),
+      (
+        name: 'per-group effort-only override, model falls through to per-channel',
+        config: DartclawConfig(
+          sessions: SessionConfig(
+            scopeConfig: SessionScopeConfig(
+              dmScope: DmScope.perChannelContact,
+              groupScope: GroupScope.shared,
+              channels: {'whatsapp': const ChannelScopeConfig(model: 'opus')},
+            ),
           ),
         ),
-      );
-      final resolver = resolverWith(ChannelType.whatsapp, GroupEntry(id: 'group@g.us', effort: 'high'));
-
-      final overrides = resolveChannelTurnOverrides(
-        sessionKey: SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us'),
-        config: config,
-        groupConfigResolver: resolver,
-      );
-
-      expect(overrides.model, 'opus');
-      expect(overrides.effort, 'high');
-    });
-
-    test('no per-group override (plain string entry) preserves crowd-coding fallback', () {
-      final config = DartclawConfig(
-        sessions: const SessionConfig(scopeConfig: SessionScopeConfig.defaults()),
-        governance: const GovernanceConfig(
-          crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
-        ),
-      );
-      // Plain-string equivalent: entry with no overrides — resolver returns null
-      final resolver = GroupConfigResolver.fromChannelEntries({
-        ChannelType.whatsapp: [const GroupEntry(id: 'group@g.us')],
-      });
-
-      final overrides = resolveChannelTurnOverrides(
-        sessionKey: SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us'),
-        config: config,
-        groupConfigResolver: resolver,
-      );
-
-      expect(overrides.model, 'haiku');
-      expect(overrides.effort, 'low');
-    });
-
-    test('null resolver leaves existing chain unchanged', () {
-      final config = DartclawConfig(
-        sessions: const SessionConfig(scopeConfig: SessionScopeConfig.defaults()),
-        governance: const GovernanceConfig(
-          crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
-        ),
-      );
-
-      final overrides = resolveChannelTurnOverrides(
-        sessionKey: SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us'),
-        config: config,
-      );
-
-      expect(overrides.model, 'haiku');
-      expect(overrides.effort, 'low');
-    });
-
-    test('DM session key with resolver does not apply per-group override', () {
-      final config = DartclawConfig(
-        sessions: const SessionConfig(scopeConfig: SessionScopeConfig.defaults()),
-        governance: const GovernanceConfig(
-          crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
-        ),
-      );
-      final resolver = resolverWith(ChannelType.whatsapp, GroupEntry(id: '+123', model: 'opus', effort: 'high'));
-
-      final overrides = resolveChannelTurnOverrides(
+        sessionKey: groupKey,
+        resolver: resolverWith(ChannelType.whatsapp, GroupEntry(id: 'group@g.us', effort: 'high')),
+        expectedModel: 'opus',
+        expectedEffort: 'high',
+      ),
+      (
+        name: 'no per-group override preserves crowd-coding fallback',
+        config: crowdCodingConfig,
+        sessionKey: groupKey,
+        resolver: resolverWith(ChannelType.whatsapp, const GroupEntry(id: 'group@g.us')),
+        expectedModel: 'haiku',
+        expectedEffort: 'low',
+      ),
+      (
+        name: 'null resolver leaves existing chain unchanged',
+        config: crowdCodingConfig,
+        sessionKey: groupKey,
+        resolver: null,
+        expectedModel: 'haiku',
+        expectedEffort: 'low',
+      ),
+      (
+        name: 'DM session key with resolver does not apply per-group override',
+        config: crowdCodingConfig,
         sessionKey: SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: '+123'),
-        config: config,
-        groupConfigResolver: resolver,
-      );
+        resolver: resolverWith(ChannelType.whatsapp, GroupEntry(id: '+123', model: 'opus', effort: 'high')),
+        expectedModel: null,
+        expectedEffort: null,
+      ),
+    ];
 
-      // DM — crowd-coding does not apply, per-group does not apply
-      expect(overrides.model, isNull);
-      expect(overrides.effort, isNull);
-    });
+    for (final testCase in cases) {
+      test(testCase.name, () {
+        final overrides = resolveChannelTurnOverrides(
+          sessionKey: testCase.sessionKey,
+          config: testCase.config,
+          groupConfigResolver: testCase.resolver,
+        );
+
+        expect(overrides.model, testCase.expectedModel);
+        expect(overrides.effort, testCase.expectedEffort);
+      });
+    }
   });
 
   group('channelTypeFromSessionKey', () {
-    test('extracts channel type from per-channel DM and group session keys', () {
-      expect(
-        channelTypeFromSessionKey(SessionKey.dmPerChannelContact(channelType: 'signal', peerId: '+123')),
-        'signal',
-      );
-      expect(
-        channelTypeFromSessionKey(SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'g', peerId: 'p')),
-        'whatsapp',
-      );
-    });
+    final cases = [
+      (
+        name: 'per-channel DM',
+        sessionKey: SessionKey.dmPerChannelContact(channelType: 'signal', peerId: '+123'),
+        expected: 'signal',
+      ),
+      (
+        name: 'per-member group',
+        sessionKey: SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'g', peerId: 'p'),
+        expected: 'whatsapp',
+      ),
+      (name: 'shared DM', sessionKey: SessionKey.dmShared(), expected: null),
+      (name: 'per-contact DM', sessionKey: SessionKey.dmPerContact(peerId: 'peer'), expected: null),
+      (name: 'malformed key', sessionKey: 'not-a-session-key', expected: null),
+    ];
 
-    test('returns null for channel-agnostic or malformed session keys', () {
-      expect(channelTypeFromSessionKey(SessionKey.dmShared()), isNull);
-      expect(channelTypeFromSessionKey(SessionKey.dmPerContact(peerId: 'peer')), isNull);
-      expect(channelTypeFromSessionKey('not-a-session-key'), isNull);
-    });
+    for (final testCase in cases) {
+      test(testCase.name, () {
+        expect(channelTypeFromSessionKey(testCase.sessionKey), testCase.expected);
+      });
+    }
   });
 }

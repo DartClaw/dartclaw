@@ -118,25 +118,22 @@ Router configApiRoutes({
 
   // POST /api/config/guards/<guard>/<field> — append an editable extension.
   router.post('/api/config/guards/<guard>/<field>', (Request request, String guard, String field) async {
-    if (!_guardEditorCanMutate(request)) {
-      return errorResponse(403, 'FORBIDDEN', 'Guard editing requires an admin user');
-    }
+    final denied = _requireGuardEditorAdmin(request, 'Guard editing requires an admin user');
+    if (denied != null) return denied;
     final parsedBody = await _parseJsonBody(request);
     if (parsedBody.error != null) return parsedBody.error;
     final body = parsedBody.body;
     if (body == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
     }
-    try {
-      final result = await guardEditor.createEntry(guard, field, body.containsKey('value') ? body['value'] : body);
-      return jsonResponse(201, result.toJson());
-    } on GuardEditorValidationException catch (e) {
-      return _guardEditorValidationResponse(e);
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
+    late final GuardEditorResult result;
+    return _writeConfigOrError(
+      () async {
+        result = await guardEditor.createEntry(guard, field, body.containsKey('value') ? body['value'] : body);
+      },
+      () => jsonResponse(201, result.toJson()),
+      onValidation: _guardEditorValidationResponse,
+    );
   });
 
   // PUT /api/config/guards/<guard>/<field>/<index> — replace an editable extension.
@@ -146,9 +143,8 @@ Router configApiRoutes({
     String field,
     String index,
   ) async {
-    if (!_guardEditorCanMutate(request)) {
-      return errorResponse(403, 'FORBIDDEN', 'Guard editing requires an admin user');
-    }
+    final denied = _requireGuardEditorAdmin(request, 'Guard editing requires an admin user');
+    if (denied != null) return denied;
     final parsedBody = await _parseJsonBody(request);
     if (parsedBody.error != null) return parsedBody.error;
     final body = parsedBody.body;
@@ -156,21 +152,19 @@ Router configApiRoutes({
     if (body == null || parsedIndex == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON and index must be numeric');
     }
-    try {
-      final result = await guardEditor.updateEntry(
-        guard,
-        field,
-        parsedIndex,
-        body.containsKey('value') ? body['value'] : body,
-      );
-      return jsonResponse(200, result.toJson());
-    } on GuardEditorValidationException catch (e) {
-      return _guardEditorValidationResponse(e);
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
+    late final GuardEditorResult result;
+    return _writeConfigOrError(
+      () async {
+        result = await guardEditor.updateEntry(
+          guard,
+          field,
+          parsedIndex,
+          body.containsKey('value') ? body['value'] : body,
+        );
+      },
+      () => jsonResponse(200, result.toJson()),
+      onValidation: _guardEditorValidationResponse,
+    );
   });
 
   // DELETE /api/config/guards/<guard>/<field>/<index> — remove an editable extension.
@@ -180,30 +174,26 @@ Router configApiRoutes({
     String field,
     String index,
   ) async {
-    if (!_guardEditorCanMutate(request)) {
-      return errorResponse(403, 'FORBIDDEN', 'Guard editing requires an admin user');
-    }
+    final denied = _requireGuardEditorAdmin(request, 'Guard editing requires an admin user');
+    if (denied != null) return denied;
     final parsedIndex = int.tryParse(index);
     if (parsedIndex == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Index must be numeric');
     }
-    try {
-      final result = await guardEditor.deleteEntry(guard, field, parsedIndex);
-      return jsonResponse(200, result.toJson());
-    } on GuardEditorValidationException catch (e) {
-      return _guardEditorValidationResponse(e);
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
+    late final GuardEditorResult result;
+    return _writeConfigOrError(
+      () async {
+        result = await guardEditor.deleteEntry(guard, field, parsedIndex);
+      },
+      () => jsonResponse(200, result.toJson()),
+      onValidation: _guardEditorValidationResponse,
+    );
   });
 
   // POST /api/config/guards/test — evaluate a sample through real guard semantics.
   router.post('/api/config/guards/test', (Request request) async {
-    if (!_guardEditorCanMutate(request)) {
-      return errorResponse(403, 'FORBIDDEN', 'Guard testing requires an admin user');
-    }
+    final denied = _requireGuardEditorAdmin(request, 'Guard testing requires an admin user');
+    if (denied != null) return denied;
     final parsedBody = await _parseJsonBody(request);
     if (parsedBody.error != null) return parsedBody.error;
     final body = parsedBody.body;
@@ -425,17 +415,10 @@ Router configApiRoutes({
     // Build updated array and write
     final updatedJobs = [...currentJobs.map((j) => Map<String, dynamic>.from(j)), newJob];
 
-    try {
-      await writer.updateFields({'scheduling.jobs': updatedJobs});
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
-
-    writeRestartPending(dataDir, ['scheduling.jobs']);
-
-    return jsonResponse(201, {'job': newJob, 'pendingRestart': true});
+    return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
+      writeRestartPending(dataDir, ['scheduling.jobs']);
+      return jsonResponse(201, {'job': newJob, 'pendingRestart': true});
+    });
   });
 
   // PUT /api/scheduling/jobs/<name> — update existing job
@@ -503,17 +486,10 @@ Router configApiRoutes({
       if (entry.key != 'name') job[entry.key] = entry.value;
     }
 
-    try {
-      await writer.updateFields({'scheduling.jobs': updatedJobs});
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
-
-    writeRestartPending(dataDir, ['scheduling.jobs']);
-
-    return jsonResponse(200, {'job': job, 'pendingRestart': true});
+    return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
+      writeRestartPending(dataDir, ['scheduling.jobs']);
+      return jsonResponse(200, {'job': job, 'pendingRestart': true});
+    });
   });
 
   // DELETE /api/scheduling/jobs/<name>
@@ -528,17 +504,10 @@ Router configApiRoutes({
     final updatedJobs = currentJobs.map((j) => Map<String, dynamic>.from(j)).toList();
     updatedJobs.removeAt(idx);
 
-    try {
-      await writer.updateFields({'scheduling.jobs': updatedJobs});
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
-
-    writeRestartPending(dataDir, ['scheduling.jobs']);
-
-    return jsonResponse(200, {'deleted': true, 'pendingRestart': true});
+    return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
+      writeRestartPending(dataDir, ['scheduling.jobs']);
+      return jsonResponse(200, {'deleted': true, 'pendingRestart': true});
+    });
   });
 
   // --- Automation scheduled task CRUD ---
@@ -604,17 +573,10 @@ Router configApiRoutes({
 
     final updatedJobs = [...currentJobs.map((j) => Map<String, dynamic>.from(j)), newJob];
 
-    try {
-      await writer.updateFields({'scheduling.jobs': updatedJobs});
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
-
-    writeRestartPending(dataDir, ['scheduling.jobs']);
-
-    return jsonResponse(201, {'task': newJob, 'pendingRestart': true});
+    return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
+      writeRestartPending(dataDir, ['scheduling.jobs']);
+      return jsonResponse(201, {'task': newJob, 'pendingRestart': true});
+    });
   });
 
   // PUT /api/scheduling/tasks/<id> — update existing scheduled task
@@ -662,17 +624,10 @@ Router configApiRoutes({
     if (body.containsKey('autoStart')) taskMap['auto_start'] = body['autoStart'];
     job['task'] = taskMap;
 
-    try {
-      await writer.updateFields({'scheduling.jobs': updatedJobs});
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
-
-    writeRestartPending(dataDir, ['scheduling.jobs']);
-
-    return jsonResponse(200, {'task': job, 'pendingRestart': true});
+    return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
+      writeRestartPending(dataDir, ['scheduling.jobs']);
+      return jsonResponse(200, {'task': job, 'pendingRestart': true});
+    });
   });
 
   // DELETE /api/scheduling/tasks/<id>
@@ -686,17 +641,10 @@ Router configApiRoutes({
     final updatedJobs = currentJobs.map((j) => Map<String, dynamic>.from(j)).toList();
     updatedJobs.removeAt(idx);
 
-    try {
-      await writer.updateFields({'scheduling.jobs': updatedJobs});
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
-
-    writeRestartPending(dataDir, ['scheduling.jobs']);
-
-    return jsonResponse(200, {'deleted': true, 'pendingRestart': true});
+    return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
+      writeRestartPending(dataDir, ['scheduling.jobs']);
+      return jsonResponse(200, {'deleted': true, 'pendingRestart': true});
+    });
   });
 
   // POST /api/system/restart — graceful restart
@@ -730,10 +678,7 @@ Router configApiRoutes({
       return errorResponse(503, 'SSE_UNAVAILABLE', 'SSE broadcast not configured');
     }
     final controller = sse.subscribe();
-    return Response.ok(
-      controller.stream,
-      headers: {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive'},
-    );
+    return Response.ok(controller.stream, headers: eventStreamHeaders);
   });
 
   // --- Allowlist CRUD endpoints ---
@@ -792,17 +737,11 @@ Router configApiRoutes({
 
     // Persist BEFORE mutating controller — if write fails, state stays consistent
     final updatedList = [...currentAllowlist, entry];
-    try {
-      await writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList);
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
-
-    // Write succeeded — now mutate live controller
-    controller?.addToAllowlist(entry);
-    return jsonResponse(200, {'added': true, 'allowlist': updatedList});
+    return _writeConfigOrError(() => writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList), () {
+      // Write succeeded — now mutate live controller
+      controller?.addToAllowlist(entry);
+      return jsonResponse(200, {'added': true, 'allowlist': updatedList});
+    });
   });
 
   // DELETE /api/config/channels/<type>/dm-allowlist
@@ -831,17 +770,11 @@ Router configApiRoutes({
 
     // Persist BEFORE mutating controller — if write fails, state stays consistent
     final updatedList = currentAllowlist.where((e) => e != entry).toList();
-    try {
-      await writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList);
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
-
-    // Write succeeded — now mutate live controller
-    controller?.removeFromAllowlist(entry);
-    return jsonResponse(200, {'removed': true, 'allowlist': updatedList});
+    return _writeConfigOrError(() => writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList), () {
+      // Write succeeded — now mutate live controller
+      controller?.removeFromAllowlist(entry);
+      return jsonResponse(200, {'removed': true, 'allowlist': updatedList});
+    });
   });
 
   // --- Group Allowlist CRUD endpoints (restart-required) ---
@@ -896,27 +829,21 @@ Router configApiRoutes({
     }
 
     final updated = [...current, entry];
-    try {
-      await writer.writeChannelAllowlist(type, 'group_allowlist', updated);
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
+    return _writeConfigOrError(() => writer.writeChannelAllowlist(type, 'group_allowlist', updated), () {
+      writeRestartPending(dataDir, ['channels.$type.group_allowlist']);
 
-    writeRestartPending(dataDir, ['channels.$type.group_allowlist']);
+      eventBus?.fire(
+        ConfigChangedEvent(
+          changedKeys: ['channels.$type.group_allowlist'],
+          oldValues: {'channels.$type.group_allowlist': current},
+          newValues: {'channels.$type.group_allowlist': updated},
+          requiresRestart: true,
+          timestamp: DateTime.now(),
+        ),
+      );
 
-    eventBus?.fire(
-      ConfigChangedEvent(
-        changedKeys: ['channels.$type.group_allowlist'],
-        oldValues: {'channels.$type.group_allowlist': current},
-        newValues: {'channels.$type.group_allowlist': updated},
-        requiresRestart: true,
-        timestamp: DateTime.now(),
-      ),
-    );
-
-    return jsonResponse(201, {'added': true, 'allowlist': updated});
+      return jsonResponse(201, {'added': true, 'allowlist': updated});
+    });
   });
 
   // DELETE /api/config/channels/<type>/group-allowlist
@@ -951,17 +878,10 @@ Router configApiRoutes({
     }
 
     final updated = current.where((e) => e != entry).toList();
-    try {
-      await writer.writeChannelAllowlist(type, 'group_allowlist', updated);
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
-
-    writeRestartPending(dataDir, ['channels.$type.group_allowlist']);
-
-    return jsonResponse(200, {'removed': true, 'allowlist': updated});
+    return _writeConfigOrError(() => writer.writeChannelAllowlist(type, 'group_allowlist', updated), () {
+      writeRestartPending(dataDir, ['channels.$type.group_allowlist']);
+      return jsonResponse(200, {'removed': true, 'allowlist': updated});
+    });
   });
 
   // --- DM Pairing endpoints ---
@@ -1019,21 +939,15 @@ Router configApiRoutes({
     final updatedList = [...controller.allowlist, pairing.jid];
 
     // Persist BEFORE mutating controller — if write fails, state stays consistent
-    try {
-      await writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList);
-    } on StateError catch (e) {
-      return errorResponse(500, 'BACKUP_FAILED', e.message);
-    } on FileSystemException catch (e) {
-      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
-    }
+    return _writeConfigOrError(() => writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList), () {
+      // Write succeeded — now confirm (mutates controller: removes pending + adds to allowlist)
+      final confirmed = controller.confirmPairing(code);
+      if (!confirmed) {
+        return errorResponse(404, 'NOT_FOUND', 'Pairing code not found or expired');
+      }
 
-    // Write succeeded — now confirm (mutates controller: removes pending + adds to allowlist)
-    final confirmed = controller.confirmPairing(code);
-    if (!confirmed) {
-      return errorResponse(404, 'NOT_FOUND', 'Pairing code not found or expired');
-    }
-
-    return jsonResponse(200, {'confirmed': true, 'senderId': pairing.jid});
+      return jsonResponse(200, {'confirmed': true, 'senderId': pairing.jid});
+    });
   });
 
   // POST /api/channels/<type>/dm-pairing/reject — reject a pairing
@@ -1163,6 +1077,34 @@ Future<({Map<String, dynamic>? body, Response? error})> _parseJsonBody(Request r
     _log.fine('Failed to parse JSON request body: $e');
     return (body: null, error: null);
   }
+}
+
+/// Runs [write], returning [onSuccess] on completion. Maps the shared config-write
+/// failure modes to their canonical responses: [StateError] → 500 `BACKUP_FAILED`,
+/// [FileSystemException] → 500 `WRITE_FAILED`. When [onValidation] is supplied, a
+/// [GuardEditorValidationException] is routed through it instead of propagating.
+Future<Response> _writeConfigOrError(
+  Future<void> Function() write,
+  Response Function() onSuccess, {
+  Response Function(GuardEditorValidationException)? onValidation,
+}) async {
+  try {
+    await write();
+    return onSuccess();
+  } on GuardEditorValidationException catch (e) {
+    if (onValidation == null) rethrow;
+    return onValidation(e);
+  } on StateError catch (e) {
+    return errorResponse(500, 'BACKUP_FAILED', e.message);
+  } on FileSystemException catch (e) {
+    return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
+  }
+}
+
+/// Returns a 403 response when [request] lacks guard-editor admin access, else null.
+Response? _requireGuardEditorAdmin(Request request, String message) {
+  if (_guardEditorCanMutate(request)) return null;
+  return errorResponse(403, 'FORBIDDEN', message);
 }
 
 Response _guardEditorValidationResponse(GuardEditorValidationException exception) {

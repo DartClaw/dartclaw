@@ -1,3 +1,5 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show humanizeDuration;
+
 import '../serve_command.dart' show WriteLine;
 
 /// Formats and writes structured workflow progress lines to a [WriteLine] sink.
@@ -35,7 +37,7 @@ class CliProgressPrinter {
   }
 
   void stepCompleted(int stepIndex, String stepId, Duration duration, int tokens, {String? displayScope}) {
-    final durationStr = _formatDuration(duration);
+    final durationStr = humanizeDuration(duration, dropZeroRemainder: false);
     final tokenStr = _formatTokens(tokens);
     _writeLine(
       '[step ${stepIndex + 1}/$totalSteps] ${_scopedStepId(stepId, displayScope)}: completed ($durationStr, $tokenStr)',
@@ -50,7 +52,7 @@ class CliProgressPrinter {
   }
 
   void workflowCompleted(int completedSteps, int tokens) {
-    final elapsed = _formatDuration(_stopwatch.elapsed);
+    final elapsed = humanizeDuration(_stopwatch.elapsed, dropZeroRemainder: false);
     final tokenStr = _formatTokens(tokens);
     _writeLine('[workflow] Completed: $completedSteps/$totalSteps steps ($elapsed, $tokenStr)');
   }
@@ -80,14 +82,6 @@ class CliProgressPrinter {
 
   void workflowCancelling() {
     _writeLine('[workflow] Cancelling...');
-  }
-
-  String _formatDuration(Duration d) {
-    if (d.inMinutes > 0) {
-      final secs = d.inSeconds % 60;
-      return '${d.inMinutes}m ${secs}s';
-    }
-    return '${d.inSeconds}s';
   }
 
   String _formatTokens(int tokens) {

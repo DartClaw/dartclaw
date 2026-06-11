@@ -22,7 +22,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowExecutor,
-        WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishStrategy,
@@ -33,8 +32,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowSerializationEnactedEvent,
         WorkflowStep,
         WorkflowStepOutputTransformer,
-        WorkflowTurnAdapter,
-        WorkflowTurnOutcome;
+        WorkflowTurnAdapter;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show
@@ -47,51 +45,30 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import 'workflow_executor_test_support.dart' show WorkflowExecutorHarness, standardTurnAdapter;
+
 void main() {
   group('S78 H16 serialize-remaining idempotency', () {
-    late Directory tempDir;
-    late SqliteTaskRepository taskRepository;
-    late SqliteAgentExecutionRepository agentExecutionRepository;
-    late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
-    late SqliteExecutionRepositoryTransactor executionRepositoryTransactor;
-    late SqliteWorkflowRunRepository repository;
-    late MessageService messageService;
-    late KvService kvService;
-    late EventBus eventBus;
-    late TaskService taskService;
-
-    setUp(() {
-      tempDir = Directory.systemTemp.createTempSync('dartclaw_s78_h16_test_');
-      Directory(p.join(tempDir.path, 'sessions')).createSync(recursive: true);
-
-      final db = sqlite3.openInMemory();
-      eventBus = EventBus();
-      taskRepository = SqliteTaskRepository(db);
-      agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
-      workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
-      executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(db);
-      repository = SqliteWorkflowRunRepository(db);
-      taskService = TaskService(
-        taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        executionTransactor: executionRepositoryTransactor,
-        eventBus: eventBus,
-      );
-      messageService = MessageService(baseDir: p.join(tempDir.path, 'sessions'));
-      kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
-    });
-
-    tearDown(() async {
-      await messageService.dispose();
-      await kvService.dispose();
-      await eventBus.dispose();
-      await taskService.dispose();
-      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-    });
+    final h = WorkflowExecutorHarness();
+    setUp(h.setUp);
+    tearDown(h.tearDown);
 
     test('resume after durable event flag does not re-fire serialization event', () async {
       const runEmittedKey = '_merge_resolve.serialize_remaining_event_emitted';
       const phaseKey = '_merge_resolve.pipeline.serialize_remaining_phase';
+
+      // First-run wiring comes from the shared harness; the resume block below
+      // opens a SECOND in-memory db to simulate a crash/restart and must stay local.
+      final tempDir = h.tempDir;
+      var taskRepository = h.taskRepository;
+      var agentExecutionRepository = h.agentExecutionRepository;
+      var workflowStepExecutionRepository = h.workflowStepExecutionRepository;
+      var executionRepositoryTransactor = h.executionRepositoryTransactor;
+      var repository = h.repository;
+      final messageService = h.messageService;
+      final kvService = h.kvService;
+      var eventBus = h.eventBus;
+      var taskService = h.taskService;
 
       final definition = _mergeResolveDefinition(maxParallel: 3);
       final run = _makeRun(definition);
@@ -159,6 +136,16 @@ void main() {
         executionTransactor: executionRepositoryTransactor,
         eventBus: eventBus,
       );
+      // Hand the resumed-db instances back to the harness so its tearDown
+      // disposes this (second) set — the first set was disposed above.
+      h.eventBus = eventBus;
+      h.taskService = taskService;
+      h.taskRepository = taskRepository;
+      h.agentExecutionRepository = agentExecutionRepository;
+      h.workflowStepExecutionRepository = workflowStepExecutionRepository;
+      h.executionRepositoryTransactor = executionRepositoryTransactor;
+      h.repository = repository;
+      h.db = resumedDb;
 
       final resumedRun = crashSnapshot.copyWith(
         status: WorkflowRunStatus.running,
@@ -290,12 +277,7 @@ WorkflowExecutor _makeExecutor({
 }
 
 WorkflowTurnAdapter _adapter({required Set<String> conflictingStoryIds}) {
-  return WorkflowTurnAdapter(
-    reserveTurn: (_) => Future.value('turn-1'),
-    executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-    waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-    initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-        const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+  return standardTurnAdapter(
     promoteWorkflowBranch:
         ({
           required runId,

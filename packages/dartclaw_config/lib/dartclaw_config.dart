@@ -7,7 +7,6 @@ export 'src/advisor_config.dart' show AdvisorConfig;
 export 'src/agent_config.dart' show AgentConfig;
 export 'src/alerts_config.dart' show AlertsConfig, AlertTarget;
 export 'src/auth_config.dart' show AuthConfig;
-export 'src/canvas_config.dart' show CanvasConfig, CanvasShareConfig, CanvasWorkshopConfig;
 export 'src/claude_provider_options.dart' show ClaudeProviderOptions;
 export 'src/config_delta.dart' show ConfigDelta;
 export 'src/config_notifier.dart' show ConfigNotifier;
@@ -18,9 +17,21 @@ export 'src/context_config.dart' show ContextConfig;
 export 'src/credential_registry.dart' show CredentialRegistry;
 export 'src/credentials_config.dart' show CredentialsConfig, CredentialEntry, CredentialType;
 export 'src/dartclaw_config.dart' show DartclawConfig;
+export 'src/delegation_config.dart'
+    show DelegationAgentConfig, DelegationBudgetAccounting, DelegationConfig, DelegationRateLimitConfig;
 export 'src/duration_parser.dart' show tryParseDuration;
 export 'src/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
 export 'src/gateway_config.dart' show GatewayConfig, ReloadConfig;
+export 'src/harness_config.dart'
+    show
+        HarnessConfig,
+        TurnMonitorConfig,
+        AcpAgentConfig,
+        AcpVerifiedTargetProfile,
+        AcpAgentTopology,
+        AcpConfig,
+        AcpContainerProfile,
+        AcpSecurityClassification;
 export 'src/github_config.dart'
     show GitHubWebhookConfig, GitHubWorkflowTrigger, ensureGitHubWebhookConfigRegistered, parseGitHubWebhookConfig;
 export 'src/governance_config.dart'
@@ -68,6 +79,7 @@ export 'src/workflow_config.dart'
 export 'src/workspace_config.dart' show WorkspaceConfig;
 export 'src/path_utils.dart' show expandHome;
 export 'src/workflow_run_status.dart' show WorkflowRunStatus;
+export 'src/yaml_type_safe_reader.dart' show readString, readInt, readBool, readStringList, readMap, readField;
 export 'src/project_runtime.dart' show CloneStrategy, PrConfig, PrStrategy, Project, ProjectAuthStatus, ProjectStatus;
 export 'src/agent_execution.dart' show AgentExecution;
 export 'src/agent_execution_repository.dart' show AgentExecutionRepository;

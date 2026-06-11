@@ -1,3 +1,4 @@
+import 'package:dartclaw_config/dartclaw_config.dart' show readString;
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'signal_dm_access.dart';
@@ -91,20 +92,9 @@ class SignalConfig {
       },
     );
 
-    final phone = yaml['phone_number'];
-    if (phone != null && phone is! String) {
-      warns.add('Invalid type for signal.phone_number: "${phone.runtimeType}" — using default');
-    }
-
-    final executable = yaml['executable'];
-    if (executable != null && executable is! String) {
-      warns.add('Invalid type for signal.executable: "${executable.runtimeType}" — using default');
-    }
-
-    final host = yaml['host'];
-    if (host != null && host is! String) {
-      warns.add('Invalid type for signal.host: "${host.runtimeType}" — using default');
-    }
+    final phoneNumber = readString('phone_number', yaml, warns, defaultValue: '', warnKey: 'signal.phone_number')!;
+    final executable = readString('executable', yaml, warns, defaultValue: 'signal-cli', warnKey: 'signal.executable')!;
+    final host = readString('host', yaml, warns, defaultValue: '127.0.0.1', warnKey: 'signal.host')!;
     var port = 8080;
     final portRaw = yaml['port'];
     if (portRaw is int) {
@@ -119,9 +109,9 @@ class SignalConfig {
 
     return SignalConfig(
       enabled: common.enabled,
-      phoneNumber: phone is String ? phone : '',
-      executable: executable is String ? executable : 'signal-cli',
-      host: host is String ? host : '127.0.0.1',
+      phoneNumber: phoneNumber,
+      executable: executable,
+      host: host,
       port: port,
       maxChunkSize: common.maxChunkSize,
       dmAccess: common.dmAccess,

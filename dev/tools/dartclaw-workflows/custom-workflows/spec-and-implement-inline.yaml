@@ -112,15 +112,42 @@ steps:
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     inputs: [spec_path]
     prompt: >-
-      --mode mixed --auto
+      --mode gap --auto
       --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
       Review implementation of {{context.spec_path}}. Scope by the FIS –
       assess only the working-tree state implementing this spec; the live
       checkout may contain unrelated operator work, so do not flag it.
     outputs:
-      review_findings: review_report_path
+      integrated-review.review_findings: review_report_path
       integrated-review.findings_count: findings_count
       integrated-review.gating_findings_count: gating_findings_count
+
+  - id: integrated-review-council
+    name: Integrated Review with Council
+    skill: andthen:review
+    parallel: true
+    # Advisory extra-perspective pass: the gap + architecture reviews carry the
+    # gating signal, and the council writes its report to the reviews
+    # output-dir regardless. A council flake (provider stall, output-capture
+    # edge case) must not abort the parallel barrier, so continue past its
+    # failure; its real findings still gate via the aggregator.
+    onFailure: continue
+    maxRetries: 1
+    provider: claude
+    model: opus[1m]
+    effort: xhigh
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    inputs: [spec_path]
+    prompt: >-
+      --mode code,security --council --auto
+      --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+      Review implementation of {{context.spec_path}}. Scope by the FIS –
+      assess only the working-tree state implementing this spec; the live
+      checkout may contain unrelated operator work, so do not flag it.
+    outputs:
+      integrated-review-council.review_findings: review_report_path
+      integrated-review-council.findings_count: findings_count
+      integrated-review-council.gating_findings_count: gating_findings_count
 
   - id: architecture-review
     name: Architecture Review
@@ -135,14 +162,14 @@ steps:
       only packages this spec touched in the working tree; ignore unrelated
       operator work in other parts of the live checkout.
     outputs:
-      architecture_review_findings: review_report_path
+      architecture-review.review_findings: review_report_path
       architecture-review.findings_count: findings_count
       architecture-review.gating_findings_count: gating_findings_count
 
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [integrated-review, architecture-review]
+    aggregateReviews: [integrated-review, integrated-review-council, architecture-review]
     outputs:
       review_findings: review_report_path
       findings_count: findings_count
@@ -170,7 +197,7 @@ steps:
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
         inputs: [spec_path, remediation_summary]
         prompt: >-
-          --mode mixed --auto
+          --mode gap,code,security --auto
           --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
           Review implementation of {{context.spec_path}}. Scope by the FIS
           – assess only the working-tree state implementing this spec; the

@@ -133,7 +133,6 @@ class ServerObservabilityDeps {
 }
 
 class ServerWebDeps {
-  final CanvasService? canvasService;
   final WorkflowService? workflowService;
   final WorkflowDefinitionSource? workflowDefinitionSource;
   final ContentGuardDisplayParams contentGuardDisplay;
@@ -143,7 +142,6 @@ class ServerWebDeps {
   final AppDisplayParams appDisplay;
 
   const ServerWebDeps({
-    required this.canvasService,
     required this.workflowService,
     required this.workflowDefinitionSource,
     required this.contentGuardDisplay,
@@ -192,7 +190,6 @@ void registerServerSystemPages(
   required GuardChain? guardChain,
   required ProviderStatusService? providerStatus,
   required ConfigWriter? configWriter,
-  required CanvasService? canvasService,
   required WorkflowService? workflowService,
   required ProjectService? projectService,
   required ContentGuardDisplayParams contentGuardDisplay,
@@ -226,7 +223,6 @@ void registerServerSystemPages(
     showMemory: visibility.showMemory,
     showScheduling: visibility.showScheduling,
     showTasks: visibility.showTasks,
-    showCanvas: canvasService != null,
     showWorkflows: workflowService != null,
     projectService: projectService,
   );

@@ -78,6 +78,70 @@ final class ToolResultEvent extends BridgeEvent {
   String toString() => 'ToolResultEvent(toolId: $toolId, output: $output, isError: $isError)';
 }
 
+/// Provider requested host-side approval before continuing a turn.
+final class ToolApprovalWaitEvent extends BridgeEvent {
+  /// Provider-specific approval request identifier.
+  final String requestId;
+
+  /// Tool name requiring approval.
+  final String toolName;
+
+  /// Creates a tool-approval wait event.
+  ToolApprovalWaitEvent({required this.requestId, required this.toolName});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ToolApprovalWaitEvent && other.requestId == requestId && other.toolName == toolName;
+
+  @override
+  int get hashCode => Object.hash(requestId, toolName);
+
+  @override
+  String toString() => 'ToolApprovalWaitEvent(requestId: $requestId, toolName: $toolName)';
+}
+
+/// Provider approval request has been answered by the host.
+final class ToolApprovalResolvedEvent extends BridgeEvent {
+  /// Provider-specific approval request identifier.
+  final String requestId;
+
+  /// Creates a tool-approval resolved event.
+  ToolApprovalResolvedEvent({required this.requestId});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is ToolApprovalResolvedEvent && other.requestId == requestId;
+
+  @override
+  int get hashCode => requestId.hashCode;
+
+  @override
+  String toString() => 'ToolApprovalResolvedEvent(requestId: $requestId)';
+}
+
+/// Non-response progress emitted by an agent provider.
+final class ProviderProgressBridgeEvent extends BridgeEvent {
+  /// Provider-specific progress kind.
+  final String kind;
+
+  /// Human-readable progress text.
+  final String text;
+
+  /// Creates a provider progress event.
+  ProviderProgressBridgeEvent({required this.kind, required this.text});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is ProviderProgressBridgeEvent && other.kind == kind && other.text == text;
+
+  @override
+  int get hashCode => Object.hash(kind, text);
+
+  @override
+  String toString() => 'ProviderProgressBridgeEvent(kind: $kind, text: $text)';
+}
+
 /// Initialization metadata from the agent subprocess.
 final class SystemInitEvent extends BridgeEvent {
   /// Maximum context window reported by the runtime.

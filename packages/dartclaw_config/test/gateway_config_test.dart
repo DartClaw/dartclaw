@@ -1,23 +1,18 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:test/test.dart';
 
-DartclawConfig _loadYaml(String yaml) {
-  return DartclawConfig.load(
-    fileReader: (path) => path == '/tmp/.dartclaw/dartclaw.yaml' ? yaml : null,
-    env: {'HOME': '/tmp'},
-  );
-}
+import 'support/load_config.dart';
 
 void main() {
   group('ReloadConfig', () {
     test('defaults when gateway.reload absent', () {
-      final config = _loadYaml('port: 3000\n');
+      final config = loadYaml('port: 3000\n');
       expect(config.gateway.reload.mode, 'signal');
       expect(config.gateway.reload.debounceMs, 500);
     });
 
     test('parses valid mode: auto', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 gateway:
   reload:
     mode: auto
@@ -27,7 +22,7 @@ gateway:
     });
 
     test('parses valid mode: off', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 gateway:
   reload:
     mode: off
@@ -36,7 +31,7 @@ gateway:
     });
 
     test('parses valid mode: signal', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 gateway:
   reload:
     mode: signal
@@ -45,7 +40,7 @@ gateway:
     });
 
     test('invalid mode produces warning and uses default', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 gateway:
   reload:
     mode: invalid_mode
@@ -55,7 +50,7 @@ gateway:
     });
 
     test('parses debounce_ms', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 gateway:
   reload:
     mode: auto
@@ -65,7 +60,7 @@ gateway:
     });
 
     test('debounce_ms below minimum produces warning and uses default', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 gateway:
   reload:
     debounce_ms: 50
@@ -75,7 +70,7 @@ gateway:
     });
 
     test('invalid debounce_ms type produces warning and uses default', () {
-      final config = _loadYaml('''
+      final config = loadYaml('''
 gateway:
   reload:
     debounce_ms: "fast"
@@ -109,6 +104,51 @@ gateway:
       const a = ReloadConfig(mode: 'auto', debounceMs: 1000);
       const b = ReloadConfig(mode: 'auto', debounceMs: 1000);
       expect(a, equals(b));
+    });
+  });
+
+  group('gateway/auth flat keys', () {
+    test('gateway.hsts defaults to false when unset', () {
+      final config = loadNoFile();
+      expect(config.gateway.hsts, isFalse);
+    });
+
+    test('auth.cookie_secure defaults to false when unset', () {
+      final config = loadNoFile();
+      expect(config.auth.cookieSecure, isFalse);
+    });
+
+    test('auth.trusted_proxies defaults to empty when unset', () {
+      final config = loadNoFile();
+      expect(config.auth.trustedProxies, isEmpty);
+    });
+
+    test('auth.cookie_secure parses when configured', () {
+      final config = loadYaml('auth:\n  cookie_secure: true\n');
+      expect(config.auth.cookieSecure, isTrue);
+    });
+
+    test('auth.trusted_proxies parses when configured', () {
+      final config = loadYaml('auth:\n  trusted_proxies:\n    - 192.168.1.100\n    - 192.168.1.101\n');
+      expect(config.auth.trustedProxies, ['192.168.1.100', '192.168.1.101']);
+    });
+
+    test('auth.cookie_secure invalid type collects warning and uses default', () {
+      final config = loadYaml('auth:\n  cookie_secure: yes\n');
+      expect(config.auth.cookieSecure, isFalse);
+      expect(config.warnings, anyElement(contains('Invalid type for cookie_secure')));
+    });
+
+    test('auth.trusted_proxies invalid type collects warning and uses default', () {
+      final config = loadYaml('auth:\n  trusted_proxies: 192.168.1.100\n');
+      expect(config.auth.trustedProxies, isEmpty);
+      expect(config.warnings, anyElement(contains('Invalid type for trusted_proxies')));
+    });
+
+    test('gateway.hsts invalid type collects warning and uses default', () {
+      final config = loadYaml('gateway:\n  hsts: yes\n');
+      expect(config.gateway.hsts, isFalse);
+      expect(config.warnings, anyElement(contains('Invalid type for hsts')));
     });
   });
 }

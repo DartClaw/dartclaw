@@ -1,25 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import '../connected_command_support.dart';
 
-import '../../dartclaw_api_client.dart';
-import '../cli_global_options.dart';
-import '../config_loader.dart';
-import '../serve_command.dart' show ExitFn, WriteLine;
-
-class WorkflowCancelCommand extends Command<void> {
-  final DartclawConfig? _config;
-  final DartclawApiClient? _apiClient;
-  final WriteLine _writeLine;
-  final ExitFn _exitFn;
-
-  WorkflowCancelCommand({DartclawConfig? config, DartclawApiClient? apiClient, WriteLine? writeLine, ExitFn? exitFn})
-    : _config = config,
-      _apiClient = apiClient,
-      _writeLine = writeLine ?? stdout.writeln,
-      _exitFn = exitFn ?? exit {
+class WorkflowCancelCommand extends ConnectedCommand {
+  WorkflowCancelCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('feedback', help: 'Optional rejection or cancellation feedback')
       ..addFlag('json', negatable: false, help: 'Output as JSON');
@@ -35,46 +19,20 @@ class WorkflowCancelCommand extends Command<void> {
   String get invocation => '${runner!.executableName} workflow cancel <runId>';
 
   @override
-  Future<void> run() async {
-    final runId = _requireRunId();
-    final apiClient = _resolveApiClient();
-    try {
-      await apiClient.post(
-        '/api/workflows/runs/$runId/cancel',
-        body: {
-          if ((argResults!['feedback'] as String?)?.trim().isNotEmpty == true)
-            'feedback': (argResults!['feedback'] as String).trim(),
-        },
-      );
-      final updated = await apiClient.getObject('/api/workflows/runs/$runId');
-      if (argResults!['json'] as bool) {
-        _writeLine(const JsonEncoder.withIndent('  ').convert(updated));
-      } else {
-        _writeLine('Workflow ${updated['id']} cancelled (${updated['status']}).');
-      }
-    } on DartclawApiException catch (error) {
-      _writeLine(error.message);
-      _exitFn(1);
-    }
-  }
-
-  String _requireRunId() {
-    final args = argResults!.rest;
-    if (args.isEmpty) {
-      throw UsageException('Run ID required', usage);
-    }
-    return args.first;
-  }
-
-  DartclawApiClient _resolveApiClient() {
-    if (_apiClient != null) {
-      return _apiClient;
-    }
-    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
-    return DartclawApiClient.fromConfig(
-      config: config,
-      serverOverride: serverOverride(globalResults),
-      tokenOverride: globalOptionString(globalResults, 'token'),
+  Future<void> run() => runConnected((apiClient) async {
+    final runId = requirePositionalArg('Run ID required');
+    await apiClient.post(
+      '/api/workflows/runs/$runId/cancel',
+      body: {
+        if ((argResults!['feedback'] as String?)?.trim().isNotEmpty == true)
+          'feedback': (argResults!['feedback'] as String).trim(),
+      },
     );
-  }
+    final updated = await apiClient.getObject('/api/workflows/runs/$runId');
+    if (argResults!['json'] as bool) {
+      writeLine(const JsonEncoder.withIndent('  ').convert(updated));
+    } else {
+      writeLine('Workflow ${updated['id']} cancelled (${updated['status']}).');
+    }
+  });
 }

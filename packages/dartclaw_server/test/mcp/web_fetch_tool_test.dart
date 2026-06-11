@@ -3,24 +3,8 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/mcp/web_fetch_tool.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeContentClassifier;
 import 'package:test/test.dart';
-
-// ---------------------------------------------------------------------------
-// Test doubles
-// ---------------------------------------------------------------------------
-
-class _FakeClassifier implements ContentClassifier {
-  String result;
-  bool shouldThrow;
-
-  _FakeClassifier({this.result = 'safe', this.shouldThrow = false});
-
-  @override
-  Future<String> classify(String content, {Duration timeout = const Duration(seconds: 15)}) async {
-    if (shouldThrow) throw Exception('classification unavailable');
-    return result;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Test HTTP server helpers
@@ -357,7 +341,7 @@ void main() {
       });
 
       test('safe content returns text result', () async {
-        final classifier = _FakeClassifier(result: 'safe');
+        final classifier = FakeContentClassifier(result: 'safe');
         final tool = _noSsrfTool(classifier: classifier);
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultText>());
@@ -365,7 +349,7 @@ void main() {
       });
 
       test('blocked content returns error result', () async {
-        final classifier = _FakeClassifier(result: 'prompt_injection');
+        final classifier = FakeContentClassifier(result: 'prompt_injection');
         final tool = _noSsrfTool(classifier: classifier);
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultError>());
@@ -374,7 +358,7 @@ void main() {
       });
 
       test('classifier error with failOpen=true returns content', () async {
-        final classifier = _FakeClassifier(shouldThrow: true);
+        final classifier = FakeContentClassifier(shouldThrow: true);
         final tool = _noSsrfTool(classifier: classifier, failOpenOnClassification: true);
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultText>());
@@ -382,7 +366,7 @@ void main() {
       });
 
       test('classifier error with failOpen=false returns error', () async {
-        final classifier = _FakeClassifier(shouldThrow: true);
+        final classifier = FakeContentClassifier(shouldThrow: true);
         final tool = _noSsrfTool(classifier: classifier, failOpenOnClassification: false);
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultError>());

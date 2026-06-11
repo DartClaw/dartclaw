@@ -3,11 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/src/harness/agent_harness.dart';
+import 'package:dartclaw_core/src/bridge/bridge_events.dart';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
-import 'package:dartclaw_core/src/harness/process_types.dart';
 import 'package:dartclaw_core/src/harness/tool_policy.dart';
-import 'package:dartclaw_core/src/container/container_executor.dart';
 import 'package:dartclaw_core/src/worker/worker_state.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess;
 import 'package:dartclaw_security/dartclaw_security.dart';
@@ -15,169 +14,7 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-/// Creates a [FakeProcess] whose stdout uses a non-broadcast [StreamController].
-///
-/// Non-broadcast controllers buffer events, so [scheduleMicrotask] emission
-/// before the harness subscribes is still delivered — matching the original
-/// hand-rolled local FakeProcess behavior.
-FakeProcess _makeProcess() => FakeProcess(stdoutController: StreamController<List<int>>());
-
-/// Creates a [CapturingFakeProcess] with a non-broadcast stdout controller.
-CapturingFakeProcess _makeCapturingProcess() => CapturingFakeProcess(stdoutController: StreamController<List<int>>());
-
-/// [FakeProcess] variant that tracks all kill signals for SIGKILL escalation tests.
-class _KillTrackingFakeProcess extends FakeProcess {
-  final List<ProcessSignal> killSignals = [];
-  final bool _completeExitOnKill;
-  final int _killExitCode;
-
-  _KillTrackingFakeProcess({bool completeExitOnKill = false, int killExitCode = 0})
-    : _completeExitOnKill = completeExitOnKill,
-      _killExitCode = killExitCode,
-      super(stdoutController: StreamController<List<int>>());
-
-  @override
-  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
-    killSignals.add(signal);
-    if (_completeExitOnKill) exit(_killExitCode);
-    return true;
-  }
-}
-
-class _RecordingGuard extends Guard {
-  GuardContext? lastContext;
-
-  @override
-  String get name => 'recording-guard';
-
-  @override
-  String get category => 'test';
-
-  @override
-  Future<GuardVerdict> evaluate(GuardContext context) async {
-    lastContext = context;
-    return GuardVerdict.pass();
-  }
-}
-
-class _FakeClaudeContainerExecutor implements ContainerExecutor {
-  @override
-  final String profileId = 'workspace';
-
-  @override
-  final String workingDir = '/workspace';
-
-  @override
-  final bool hasProjectMount = true;
-
-  final String hostRoot;
-  final String containerRoot;
-  late List<String> lastCommand;
-
-  _FakeClaudeContainerExecutor({required this.hostRoot, required this.containerRoot});
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
-
-  @override
-  Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
-    lastCommand = List<String>.from(command);
-    final fake = _makeProcess();
-    scheduleMicrotask(() {
-      fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-    });
-    Future.delayed(const Duration(milliseconds: 20), () {
-      fake.emitStdout(
-        jsonEncode({
-          'type': 'result',
-          'result': 'ok',
-          'cost_usd': 0.01,
-          'duration_ms': 50,
-          'duration_api_ms': 20,
-          'num_turns': 1,
-          'is_error': false,
-          'session_id': 'container-session',
-        }),
-      );
-    });
-    return fake;
-  }
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  String? containerPathForHostPath(String hostPath) {
-    final normalizedHostPath = File(hostPath).absolute.path;
-    final normalizedHostRoot = Directory(hostRoot).absolute.path;
-    if (normalizedHostPath == normalizedHostRoot) {
-      return containerRoot;
-    }
-    if (!normalizedHostPath.startsWith('$normalizedHostRoot${Platform.pathSeparator}')) {
-      return null;
-    }
-    final relative = normalizedHostPath.substring(normalizedHostRoot.length + 1).replaceAll('\\', '/');
-    return '$containerRoot/$relative';
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Creates a [ProcessResult] with the given exit code and stdout.
-ProcessResult _result({int exitCode = 0, String stdout = ''}) => ProcessResult(0, exitCode, stdout, '');
-
-/// Builds a harness with common test defaults. Callers can override
-/// individual factories as needed.
-ClaudeCodeHarness _buildHarness({
-  ProcessFactory? processFactory,
-  CommandProbe? commandProbe,
-  DelayFactory? delayFactory,
-  Map<String, String>? environment,
-  Map<String, dynamic>? providerOptions,
-  HarnessConfig harnessConfig = const HarnessConfig(),
-  Duration killGracePeriod = Duration.zero,
-}) {
-  return ClaudeCodeHarness(
-    cwd: '/tmp',
-    processFactory: processFactory ?? _defaultProcessFactory,
-    commandProbe: commandProbe ?? _defaultCommandProbe,
-    delayFactory: delayFactory ?? _noOpDelay,
-    environment: environment ?? {'ANTHROPIC_API_KEY': 'sk-test-key'},
-    providerOptions: providerOptions,
-    harnessConfig: harnessConfig,
-    killGracePeriod: killGracePeriod,
-  );
-}
-
-/// Default process factory that returns a FakeProcess which immediately
-/// emits the initialize control_response on stdout.
-Future<Process> _defaultProcessFactory(
-  String executable,
-  List<String> arguments, {
-  String? workingDirectory,
-  Map<String, String>? environment,
-  bool includeParentEnvironment = true,
-}) async {
-  final fake = _makeProcess();
-  // Schedule init response so _sendInitialize completes.
-  scheduleMicrotask(() {
-    fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-  });
-  return fake;
-}
-
-/// Default command probe — succeeds for both `--version` and `auth status`.
-Future<ProcessResult> _defaultCommandProbe(String exe, List<String> args) async {
-  return _result(exitCode: 0, stdout: '1.0.0');
-}
-
-/// Delay factory that completes immediately (no real waiting in tests).
-Future<void> _noOpDelay(Duration _) async {}
+import 'harness_test_support.dart';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -232,12 +69,12 @@ void main() {
         String? probeExe;
         List<String>? probeArgs;
 
-        final h = _buildHarness(
+        final h = buildClaudeHarness(
           commandProbe: (exe, args) async {
             probeCalled = true;
             probeExe = exe;
             probeArgs = args;
-            return _result(exitCode: 0, stdout: '1.0.0');
+            return processResult(exitCode: 0, stdout: '1.0.0');
           },
         );
 
@@ -250,7 +87,7 @@ void main() {
       });
 
       test('throws StateError when commandProbe reports binary missing', () async {
-        final h = _buildHarness(commandProbe: (exe, args) async => _result(exitCode: 1));
+        final h = buildClaudeHarness(commandProbe: (exe, args) async => processResult(exitCode: 1));
         addTeardownAsync(() => h.dispose());
 
         await expectLater(h.start(), throwsA(isA<StateError>()));
@@ -258,13 +95,13 @@ void main() {
 
       test('throws when ANTHROPIC_API_KEY missing and OAuth check fails', () async {
         var callCount = 0;
-        final h = _buildHarness(
+        final h = buildClaudeHarness(
           environment: {}, // no API key
           commandProbe: (exe, args) async {
             callCount++;
-            if (args.contains('--version')) return _result(exitCode: 0);
+            if (args.contains('--version')) return processResult(exitCode: 0);
             // auth status check fails
-            return _result(exitCode: 1);
+            return processResult(exitCode: 1);
           },
         );
         addTeardownAsync(() => h.dispose());
@@ -278,7 +115,7 @@ void main() {
       });
 
       test('transitions state from stopped to idle on success', () async {
-        final h = _buildHarness();
+        final h = buildClaudeHarness();
         addTeardownAsync(() => h.dispose());
 
         expect(h.state, WorkerState.stopped);
@@ -287,7 +124,7 @@ void main() {
       });
 
       test('is idempotent when already idle', () async {
-        final h = _buildHarness();
+        final h = buildClaudeHarness();
         addTeardownAsync(() => h.dispose());
 
         await h.start();
@@ -299,16 +136,9 @@ void main() {
       });
 
       test('throws when called while busy', () async {
-        final fakeProcess = _makeProcess();
+        final fakeProcess = makeClaudeFakeProcess();
 
-        final h = _buildHarness(
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            scheduleMicrotask(() {
-              fakeProcess.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fakeProcess;
-          },
-        );
+        final h = buildClaudeHarness(processFactory: capturingInitFactory(process: fakeProcess));
         addTeardownAsync(() => h.dispose());
 
         await h.start();
@@ -338,18 +168,15 @@ void main() {
         List<String>? capturedArgs;
         Map<String, String>? capturedEnv;
 
-        final h = _buildHarness(
+        final h = buildClaudeHarness(
           environment: {'ANTHROPIC_API_KEY': 'sk-test', 'CLAUDECODE': 'nested', 'HOME': '/home/user'},
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            capturedExe = exe;
-            capturedArgs = args;
-            capturedEnv = environment;
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
+          processFactory: capturingInitFactory(
+            onSpawn: (spawn) {
+              capturedExe = spawn.exe;
+              capturedArgs = spawn.args;
+              capturedEnv = spawn.environment;
+            },
+          ),
         );
         addTeardownAsync(() => h.dispose());
 
@@ -373,16 +200,13 @@ void main() {
       test('writes MCP config with owner-only permissions', () async {
         List<String>? capturedArgs;
 
-        final h = _buildHarness(
+        final h = buildClaudeHarness(
           harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3333/mcp', mcpGatewayToken: 'test-token'),
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            capturedArgs = args;
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
+          processFactory: capturingInitFactory(
+            onSpawn: (spawn) {
+              capturedArgs = spawn.args;
+            },
+          ),
         );
         addTeardownAsync(() => h.dispose());
 
@@ -397,22 +221,7 @@ void main() {
       });
 
       test('uses native --permission-mode when configured via provider options', () async {
-        List<String>? capturedArgs;
-
-        final h = _buildHarness(
-          providerOptions: const {'permissionMode': 'dontAsk'},
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            capturedArgs = args;
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
-        );
-        addTeardownAsync(() => h.dispose());
-
-        await h.start();
+        final capturedArgs = await startHarnessAndCaptureArgs(providerOptions: const {'permissionMode': 'dontAsk'});
 
         expect(capturedArgs, containsAll(['--permission-mode', 'dontAsk']));
         expect(capturedArgs, isNot(contains('--dangerously-skip-permissions')));
@@ -420,52 +229,29 @@ void main() {
       });
 
       test('uses stdio permission bridge for interactive native permission modes', () async {
-        List<String>? capturedArgs;
-
-        final h = _buildHarness(
-          providerOptions: const {'permissionMode': 'plan'},
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            capturedArgs = args;
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
-        );
-        addTeardownAsync(() => h.dispose());
-
-        await h.start();
+        final capturedArgs = await startHarnessAndCaptureArgs(providerOptions: const {'permissionMode': 'plan'});
 
         expect(capturedArgs, containsAll(['--permission-mode', 'plan']));
         expect(capturedArgs, containsAll(['--permission-prompt-tool', 'stdio']));
         expect(capturedArgs, isNot(contains('--dangerously-skip-permissions')));
       });
 
-      test('throws for unsupported Claude permissionMode values', () async {
-        final h = _buildHarness(providerOptions: const {'permissionMode': 'dontask'});
-        addTeardownAsync(() => h.dispose());
+      for (final testCase in const [(name: 'unsupported', value: 'dontask'), (name: 'non-string', value: 7)]) {
+        test('throws for ${testCase.name} Claude permissionMode values', () async {
+          final h = buildClaudeHarness(providerOptions: {'permissionMode': testCase.value});
+          addTeardownAsync(() => h.dispose());
 
-        await expectLater(
-          h.start(),
-          throwsA(isA<StateError>().having((e) => e.message, 'message', contains('Unsupported Claude permissionMode'))),
-        );
-      });
-
-      test('throws for non-string Claude permissionMode values', () async {
-        final h = _buildHarness(providerOptions: const {'permissionMode': 7});
-        addTeardownAsync(() => h.dispose());
-
-        await expectLater(
-          h.start(),
-          throwsA(isA<StateError>().having((e) => e.message, 'message', contains('Unsupported Claude permissionMode'))),
-        );
-      });
+          await expectLater(
+            h.start(),
+            throwsA(
+              isA<StateError>().having((e) => e.message, 'message', contains('Unsupported Claude permissionMode')),
+            ),
+          );
+        });
+      }
 
       test('passes structured Claude settings via --settings JSON when configured', () async {
-        List<String>? capturedArgs;
-
-        final h = _buildHarness(
+        final capturedArgs = await startHarnessAndCaptureArgs(
           providerOptions: const {
             'sandbox': {'enabled': true, 'autoAllowBashIfSandboxed': true, 'failIfUnavailable': true},
             'permissions': {
@@ -473,22 +259,9 @@ void main() {
               'deny': ['Read(./.env)'],
             },
           },
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            capturedArgs = args;
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
         );
-        addTeardownAsync(() => h.dispose());
 
-        await h.start();
-
-        final settingsIndex = capturedArgs!.indexOf('--settings');
-        expect(settingsIndex, isNonNegative);
-        final decoded = jsonDecode(capturedArgs![settingsIndex + 1]) as Map<String, dynamic>;
+        final decoded = decodedSettings(capturedArgs);
         expect(decoded['sandbox'], {'enabled': true, 'autoAllowBashIfSandboxed': true, 'failIfUnavailable': true});
         expect(decoded['permissions'], {
           'allow': ['Bash(git *)'],
@@ -497,9 +270,7 @@ void main() {
       });
 
       test('deep-merges base Claude settings with structured sandbox and permissions', () async {
-        List<String>? capturedArgs;
-
-        final h = _buildHarness(
+        final capturedArgs = await startHarnessAndCaptureArgs(
           providerOptions: const {
             'settings': {
               'permissions': {'defaultMode': 'plan'},
@@ -510,21 +281,9 @@ void main() {
               'allow': ['Bash(git *)'],
             },
           },
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            capturedArgs = args;
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
         );
-        addTeardownAsync(() => h.dispose());
 
-        await h.start();
-
-        final settingsIndex = capturedArgs!.indexOf('--settings');
-        final decoded = jsonDecode(capturedArgs![settingsIndex + 1]) as Map<String, dynamic>;
+        final decoded = decodedSettings(capturedArgs);
         expect(decoded['permissions'], {
           'defaultMode': 'plan',
           'allow': ['Bash(git *)'],
@@ -533,9 +292,7 @@ void main() {
       });
 
       test('merges raw JSON settings string with structured sandbox and permissions', () async {
-        List<String>? capturedArgs;
-
-        final h = _buildHarness(
+        final capturedArgs = await startHarnessAndCaptureArgs(
           providerOptions: const {
             'settings': '{"permissions":{"defaultMode":"plan"},"sandbox":{"failIfUnavailable":true}}',
             'sandbox': {'enabled': true},
@@ -543,21 +300,9 @@ void main() {
               'allow': ['Bash(git *)'],
             },
           },
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            capturedArgs = args;
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
         );
-        addTeardownAsync(() => h.dispose());
 
-        await h.start();
-
-        final settingsIndex = capturedArgs!.indexOf('--settings');
-        final decoded = jsonDecode(capturedArgs![settingsIndex + 1]) as Map<String, dynamic>;
+        final decoded = decodedSettings(capturedArgs);
         expect(decoded['permissions'], {
           'defaultMode': 'plan',
           'allow': ['Bash(git *)'],
@@ -566,28 +311,15 @@ void main() {
       });
 
       test('preserves path-based settings when structured overlays are also configured', () async {
-        List<String>? capturedArgs;
-
-        final h = _buildHarness(
+        final capturedArgs = await startHarnessAndCaptureArgs(
           providerOptions: const {
             'settings': '/tmp/claude-settings.json',
             'sandbox': {'enabled': true},
           },
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            capturedArgs = args;
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
         );
-        addTeardownAsync(() => h.dispose());
 
-        await h.start();
-
-        final settingsIndex = capturedArgs!.indexOf('--settings');
-        expect(capturedArgs![settingsIndex + 1], '/tmp/claude-settings.json');
+        final settingsIndex = capturedArgs.indexOf('--settings');
+        expect(capturedArgs[settingsIndex + 1], '/tmp/claude-settings.json');
       });
 
       test('translates path-based settings for containerized execution', () async {
@@ -597,15 +329,15 @@ void main() {
             await hostRoot.delete(recursive: true);
           }
         });
-        final container = _FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
+        final container = FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
         final settingsPath = p.join(hostRoot.path, 'claude-settings.json');
         File(settingsPath).writeAsStringSync('{}');
 
         final h = ClaudeCodeHarness(
           cwd: hostRoot.path,
-          processFactory: _defaultProcessFactory,
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          processFactory: defaultClaudeProcessFactory,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
           providerOptions: {
             'settings': settingsPath,
@@ -627,15 +359,15 @@ void main() {
             await hostRoot.delete(recursive: true);
           }
         });
-        final container = _FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
+        final container = FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
         final settingsPath = p.join(hostRoot.path, 'claude-settings.json');
         File(settingsPath).writeAsStringSync('{}');
 
         final h = ClaudeCodeHarness(
           cwd: hostRoot.path,
-          processFactory: _defaultProcessFactory,
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          processFactory: defaultClaudeProcessFactory,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
           providerOptions: {'settings': settingsPath},
           containerManager: container,
@@ -658,13 +390,13 @@ void main() {
         final settingsPath = p.join(taskDir.path, '.claude', 'settings.json');
         Directory(p.dirname(settingsPath)).createSync(recursive: true);
         File(settingsPath).writeAsStringSync('{}');
-        final container = _FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
+        final container = FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
 
         final h = ClaudeCodeHarness(
           cwd: hostRoot.path,
-          processFactory: _defaultProcessFactory,
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          processFactory: defaultClaudeProcessFactory,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
           providerOptions: const {'settings': '.claude/settings.json'},
           containerManager: container,
@@ -689,29 +421,11 @@ void main() {
       test('restarts in the requested working directory before a task turn', () async {
         final workingDirectories = <String?>[];
 
-        final h = _buildHarness(
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            workingDirectories.add(workingDirectory);
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            Future.delayed(const Duration(milliseconds: 20), () {
-              fake.emitStdout(
-                jsonEncode({
-                  'type': 'result',
-                  'result': 'test response',
-                  'cost_usd': 0.01,
-                  'duration_ms': 100,
-                  'duration_api_ms': 50,
-                  'num_turns': 1,
-                  'is_error': false,
-                  'session_id': 'test-session',
-                }),
-              );
-            });
-            return fake;
-          },
+        final h = buildClaudeHarness(
+          processFactory: resultEmittingFactory(
+            result: const {'result': 'test response', 'cost_usd': 0.01, 'duration_ms': 100, 'duration_api_ms': 50},
+            onSpawn: (spawn) => workingDirectories.add(spawn.workingDirectory),
+          ),
         );
         addTeardownAsync(() => h.dispose());
 
@@ -733,16 +447,9 @@ void main() {
 
     group('state transitions', () {
       test('crashed state on unexpected process exit', () async {
-        final fakeProcess = _makeProcess();
+        final fakeProcess = makeClaudeFakeProcess();
 
-        final h = _buildHarness(
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            scheduleMicrotask(() {
-              fakeProcess.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fakeProcess;
-          },
-        );
+        final h = buildClaudeHarness(processFactory: capturingInitFactory(process: fakeProcess));
         addTeardownAsync(() => h.dispose());
 
         await h.start();
@@ -757,7 +464,7 @@ void main() {
       });
 
       test('stop() transitions from idle to stopped', () async {
-        final h = _buildHarness();
+        final h = buildClaudeHarness();
         addTeardownAsync(() => h.dispose());
 
         await h.start();
@@ -768,7 +475,7 @@ void main() {
       });
 
       test('stop() from stopped is safe', () async {
-        final h = _buildHarness();
+        final h = buildClaudeHarness();
         expect(h.state, WorkerState.stopped);
         await h.stop();
         expect(h.state, WorkerState.stopped);
@@ -776,7 +483,7 @@ void main() {
 
       test('resetSessionContinuity stops the warm provider process', () async {
         final processes = <FakeProcess>[];
-        final h = _buildHarness(
+        final h = buildClaudeHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             final fake = FakeProcess(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
             processes.add(fake);
@@ -806,7 +513,7 @@ void main() {
 
     group('dispose()', () {
       test('transitions to stopped and closes event stream', () async {
-        final h = _buildHarness();
+        final h = buildClaudeHarness();
         await h.start();
         expect(h.state, WorkerState.idle);
 
@@ -821,7 +528,7 @@ void main() {
       });
 
       test('is idempotent', () async {
-        final h = _buildHarness();
+        final h = buildClaudeHarness();
         await h.start();
 
         await h.dispose();
@@ -830,16 +537,9 @@ void main() {
       });
 
       test('kills the spawned process', () async {
-        final fakeProcess = _makeProcess();
+        final fakeProcess = makeClaudeFakeProcess();
 
-        final h = _buildHarness(
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            scheduleMicrotask(() {
-              fakeProcess.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fakeProcess;
-          },
-        );
+        final h = buildClaudeHarness(processFactory: capturingInitFactory(process: fakeProcess));
 
         await h.start();
 
@@ -874,16 +574,13 @@ void main() {
       test('spawn args include --append-system-prompt when configured', () async {
         List<String>? capturedArgs;
 
-        final h = _buildHarness(
+        final h = buildClaudeHarness(
           harnessConfig: const HarnessConfig(appendSystemPrompt: 'test behavior prompt'),
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            capturedArgs = args;
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
+          processFactory: capturingInitFactory(
+            onSpawn: (spawn) {
+              capturedArgs = spawn.args;
+            },
+          ),
         );
         addTeardownAsync(() => h.dispose());
 
@@ -898,15 +595,12 @@ void main() {
       test('spawn args omit --append-system-prompt when not configured', () async {
         List<String>? capturedArgs;
 
-        final h = _buildHarness(
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            capturedArgs = args;
-            final fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
+        final h = buildClaudeHarness(
+          processFactory: capturingInitFactory(
+            onSpawn: (spawn) {
+              capturedArgs = spawn.args;
+            },
+          ),
         );
         addTeardownAsync(() => h.dispose());
 
@@ -919,9 +613,9 @@ void main() {
       test('JSONL payload omits system_prompt for append-strategy harness', () async {
         late CapturingFakeProcess fake;
 
-        final h = _buildHarness(
+        final h = buildClaudeHarness(
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = _makeCapturingProcess();
+            fake = makeCapturingClaudeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -973,10 +667,10 @@ void main() {
       test('can_use_tool denies when dontAsk mode unexpectedly emits a native permission request', () async {
         late CapturingFakeProcess fake;
 
-        final h = _buildHarness(
+        final h = buildClaudeHarness(
           providerOptions: const {'permissionMode': 'dontAsk'},
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = _makeCapturingProcess();
+            fake = makeCapturingClaudeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
@@ -1003,7 +697,7 @@ void main() {
       });
 
       test('PreToolUse maps Claude tool names before guard evaluation and preserves raw provider name', () async {
-        final guard = _RecordingGuard();
+        final guard = RecordingGuard();
         late CapturingFakeProcess fake;
         List<String>? capturedArgs;
 
@@ -1011,18 +705,21 @@ void main() {
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             capturedArgs = args;
-            fake = _makeCapturingProcess();
+            fake = makeCapturingClaudeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
             return fake;
           },
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
           guardChain: GuardChain(guards: [guard]),
         );
         addTeardownAsync(() => h.dispose());
+        final events = <BridgeEvent>[];
+        final sub = h.events.listen(events.add);
+        addTeardownAsync(() => sub.cancel());
 
         await h.start();
         expect(capturedArgs, isNot(contains('--setting-sources')));
@@ -1048,6 +745,18 @@ void main() {
         expect(guard.lastContext!.rawProviderToolName, 'Bash');
         expect(guard.lastContext!.toolInput, {'command': 'git status'});
         expect(
+          events,
+          contains(
+            isA<ToolApprovalWaitEvent>()
+                .having((event) => event.requestId, 'requestId', 'req-hook')
+                .having((event) => event.toolName, 'toolName', 'Bash'),
+          ),
+        );
+        expect(
+          events,
+          contains(isA<ToolApprovalResolvedEvent>().having((event) => event.requestId, 'requestId', 'req-hook')),
+        );
+        expect(
           fake.capturedStdinJson,
           contains(
             containsPair(
@@ -1058,8 +767,66 @@ void main() {
         );
       });
 
+      test('PreToolUse does not emit approval resolved when hook response write fails', () async {
+        final guard = RecordingGuard();
+        final fake = FailingWriteClaudeProcess();
+        List<String>? capturedArgs;
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          guardChain: GuardChain(guards: [guard]),
+        );
+        addTeardownAsync(() => h.dispose());
+        final events = <BridgeEvent>[];
+        final sub = h.events.listen(events.add);
+        addTeardownAsync(() => sub.cancel());
+
+        await h.start();
+        expect(capturedArgs, isNot(contains('--setting-sources')));
+        fake.failWrites = true;
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'req-hook-fails',
+            'request': {
+              'subtype': 'hook_callback',
+              'input': {
+                'hook_event_name': 'PreToolUse',
+                'tool_name': 'Bash',
+                'tool_input': {'command': 'git status'},
+              },
+            },
+          }),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(
+          events,
+          contains(
+            isA<ToolApprovalWaitEvent>()
+                .having((event) => event.requestId, 'requestId', 'req-hook-fails')
+                .having((event) => event.toolName, 'toolName', 'Bash'),
+          ),
+        );
+        expect(
+          events.whereType<ToolApprovalResolvedEvent>().map((event) => event.requestId),
+          isNot(contains('req-hook-fails')),
+        );
+      });
+
       test('PreToolUse evaluates unmapped Claude tools under claude: prefix and logs warning', () async {
-        final guard = _RecordingGuard();
+        final guard = RecordingGuard();
         final records = <LogRecord>[];
         final oldLevel = Logger.root.level;
         late CapturingFakeProcess fake;
@@ -1073,14 +840,14 @@ void main() {
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = _makeCapturingProcess();
+            fake = makeCapturingClaudeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
             return fake;
           },
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
           guardChain: GuardChain(guards: [guard]),
         );
@@ -1131,14 +898,14 @@ void main() {
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = _makeCapturingProcess();
+            fake = makeCapturingClaudeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
             return fake;
           },
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
         );
         h.onCompactionStarting = (sid, trigger) {
@@ -1174,21 +941,9 @@ void main() {
       test('compact_boundary stdout message invokes onCompactionCompleted with trigger and preTokens', () async {
         String? capturedTrigger;
         int? capturedPreTokens;
-        late FakeProcess fake;
+        final fake = makeClaudeFakeProcess();
 
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
-        );
+        final h = buildClaudeHarness(processFactory: capturingInitFactory(process: fake));
         h.onCompactionCompleted = (trigger, preTokens) {
           capturedTrigger = trigger;
           capturedPreTokens = preTokens;
@@ -1209,21 +964,9 @@ void main() {
       test('compact_boundary with null pre_tokens calls onCompactionCompleted with null', () async {
         int? callCount = 0;
         int? capturedPreTokens = -1; // sentinel
-        late FakeProcess fake;
+        final fake = makeClaudeFakeProcess();
 
-        final h = ClaudeCodeHarness(
-          cwd: '/tmp',
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = _makeProcess();
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
-          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
-        );
+        final h = buildClaudeHarness(processFactory: capturingInitFactory(process: fake));
         h.onCompactionCompleted = (trigger, preTokens) {
           callCount = (callCount ?? 0) + 1;
           capturedPreTokens = preTokens;
@@ -1250,14 +993,14 @@ void main() {
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            fake = _makeCapturingProcess();
+            fake = makeCapturingClaudeProcess();
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
             });
             return fake;
           },
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
         );
         addTeardownAsync(() => h.dispose());
@@ -1279,19 +1022,14 @@ void main() {
 
     group('SIGKILL escalation', () {
       test('stop() escalates to SIGKILL when process does not exit after SIGTERM', () async {
-        final fake = _KillTrackingFakeProcess();
+        final fake = KillTrackingFakeProcess();
 
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           killGracePeriod: const Duration(milliseconds: 50),
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          processFactory: capturingInitFactory(process: fake),
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: {'ANTHROPIC_API_KEY': 'sk-test-key'},
         );
 
@@ -1313,19 +1051,14 @@ void main() {
       });
 
       test('stop() does not escalate to SIGKILL when process exits promptly on SIGTERM', () async {
-        final fake = _KillTrackingFakeProcess(completeExitOnKill: true);
+        final fake = KillTrackingFakeProcess(completeExitOnKill: true);
 
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           killGracePeriod: const Duration(seconds: 5),
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          processFactory: capturingInitFactory(process: fake),
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: {'ANTHROPIC_API_KEY': 'sk-test-key'},
         );
 
@@ -1348,7 +1081,7 @@ void main() {
 
         Future<Process> makeProcess() async {
           spawnCount++;
-          final fake = _makeCapturingProcess();
+          final fake = makeCapturingClaudeProcess();
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });
@@ -1375,8 +1108,8 @@ void main() {
           harnessConfig: const HarnessConfig(effort: null),
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
               makeProcess(),
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
         );
         addTeardownAsync(() => h.dispose());
@@ -1404,7 +1137,7 @@ void main() {
 
         Future<Process> makeProcess() async {
           spawnCount++;
-          final fake = _makeProcess();
+          final fake = makeClaudeFakeProcess();
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });
@@ -1430,8 +1163,8 @@ void main() {
           harnessConfig: const HarnessConfig(effort: 'low'),
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
               makeProcess(),
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
         );
         addTeardownAsync(() => h.dispose());
@@ -1464,7 +1197,7 @@ void main() {
 
         Future<Process> makeProcess() async {
           spawnCount++;
-          final fake = _makeCapturingProcess();
+          final fake = makeCapturingClaudeProcess();
           lastFake = fake;
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
@@ -1492,8 +1225,8 @@ void main() {
           harnessConfig: const HarnessConfig(model: 'sonnet'),
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
               makeProcess(),
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
         );
         addTeardownAsync(() => h.dispose());
@@ -1548,7 +1281,7 @@ void main() {
         addTearDown(sub.cancel);
 
         Future<Process> makeProcess() async {
-          final fake = _makeProcess();
+          final fake = makeClaudeFakeProcess();
           scheduleMicrotask(() {
             fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
           });
@@ -1574,8 +1307,8 @@ void main() {
           harnessConfig: const HarnessConfig(model: 'sonnet'),
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
               makeProcess(),
-          commandProbe: _defaultCommandProbe,
-          delayFactory: _noOpDelay,
+          commandProbe: defaultClaudeCommandProbe,
+          delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
         );
         addTeardownAsync(() => h.dispose());

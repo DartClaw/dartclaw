@@ -30,6 +30,7 @@ abstract interface class TurnManager {
     String? model,
     String? effort,
     int? maxTurns,
+    String? taskId,
     bool isHumanInput = false,
     PromptScope? promptScope,
   });
@@ -56,6 +57,7 @@ abstract interface class TurnManager {
     String? model,
     String? effort,
     int? maxTurns,
+    String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,

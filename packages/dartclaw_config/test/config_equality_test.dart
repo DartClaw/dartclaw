@@ -69,6 +69,72 @@ void main() {
       });
     });
 
+    group('HarnessConfig', () {
+      test('ACP agent registrations participate in equality', () {
+        const a = HarnessConfig(
+          acp: AcpConfig(
+            agents: {
+              'goose': AcpAgentConfig(
+                binary: 'goose',
+                args: ['acp'],
+                topology: AcpAgentTopology.direct,
+                modelProvider: 'anthropic',
+                verification: 'evidence',
+                requiresGuardMediation: true,
+                requiredBuiltins: ['developer'],
+              ),
+            },
+          ),
+        );
+        const b = HarnessConfig(
+          acp: AcpConfig(
+            agents: {
+              'goose': AcpAgentConfig(
+                binary: 'goose',
+                args: ['acp'],
+                topology: AcpAgentTopology.direct,
+                modelProvider: 'anthropic',
+                verification: 'evidence',
+                requiresGuardMediation: true,
+                requiredBuiltins: ['developer'],
+              ),
+            },
+          ),
+        );
+        const c = HarnessConfig(
+          acp: AcpConfig(agents: {'vibe': AcpAgentConfig(binary: 'vibe-acp')}),
+        );
+
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+        expect(a, isNot(equals(c)));
+      });
+    });
+
+    group('DelegationConfig', () {
+      test('allowlist and budget fields participate in equality', () {
+        const a = DelegationConfig(
+          enabled: true,
+          agents: [DelegationAgentConfig(id: 'goose', requireGuardMediation: true)],
+          maxBudgetTokens: 50000,
+          budgetAccounting: DelegationBudgetAccounting.estimateIfUnreported,
+          rateLimit: DelegationRateLimitConfig(maxPerMinute: 6),
+        );
+        const b = DelegationConfig(
+          enabled: true,
+          agents: [DelegationAgentConfig(id: 'goose', requireGuardMediation: true)],
+          maxBudgetTokens: 50000,
+          budgetAccounting: DelegationBudgetAccounting.estimateIfUnreported,
+          rateLimit: DelegationRateLimitConfig(maxPerMinute: 6),
+        );
+        const c = DelegationConfig(enabled: true, agents: [DelegationAgentConfig(id: 'codex')]);
+
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+        expect(a, isNot(equals(c)));
+      });
+    });
+
     group('WorkspaceConfig', () {
       test('equal instances match', () {
         const a = WorkspaceConfig(gitSyncEnabled: false);

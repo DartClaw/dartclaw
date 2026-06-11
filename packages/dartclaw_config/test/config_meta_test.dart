@@ -3,358 +3,288 @@ import 'package:test/test.dart';
 
 void main() {
   group('ConfigMeta', () {
-    group('registry completeness', () {
-      setUp(DartclawConfig.clearExtensionParsers);
-      tearDown(DartclawConfig.clearExtensionParsers);
+    setUp(DartclawConfig.clearExtensionParsers);
+    tearDown(DartclawConfig.clearExtensionParsers);
 
-      test('fields map is non-empty', () {
-        expect(ConfigMeta.fields, isNotEmpty);
-      });
+    test('registry is complete and internally consistent', () {
+      expect(ConfigMeta.fields, isNotEmpty);
+      for (final entry in ConfigMeta.fields.entries) {
+        expect(entry.value.yamlPath, isNotEmpty, reason: 'yamlPath empty for ${entry.key}');
+        expect(entry.value.jsonKey, isNotEmpty, reason: 'jsonKey empty for ${entry.key}');
+        expect(entry.key, entry.value.yamlPath, reason: 'key mismatch for ${entry.key}');
+      }
 
-      test('every field has non-empty yamlPath and jsonKey', () {
-        for (final entry in ConfigMeta.fields.entries) {
-          expect(entry.value.yamlPath, isNotEmpty, reason: 'yamlPath empty for ${entry.key}');
-          expect(entry.value.jsonKey, isNotEmpty, reason: 'jsonKey empty for ${entry.key}');
-        }
-      });
-
-      test('map keys match yamlPath values', () {
-        for (final entry in ConfigMeta.fields.entries) {
-          expect(entry.key, equals(entry.value.yamlPath), reason: 'key mismatch for ${entry.key}');
-        }
-      });
-
-      test('all spec fields are registered', () {
-        // Live fields
-        expect(ConfigMeta.fields, contains('scheduling.heartbeat.enabled'));
-        expect(ConfigMeta.fields, contains('workspace.git_sync.enabled'));
-        expect(ConfigMeta.fields, contains('workspace.git_sync.push_enabled'));
-
-        // Restart fields
-        expect(ConfigMeta.fields, contains('port'));
-        expect(ConfigMeta.fields, contains('host'));
-        expect(ConfigMeta.fields, contains('data_dir'));
-        expect(ConfigMeta.fields, contains('source_dir'));
-        expect(ConfigMeta.fields, contains('static_dir'));
-        expect(ConfigMeta.fields, contains('templates_dir'));
-        expect(ConfigMeta.fields, contains('workflow.workspace_dir'));
-        expect(ConfigMeta.fields, contains('worker_timeout'));
-        // memory_max_bytes was removed — top-level field no longer registered
-        expect(ConfigMeta.fields, isNot(contains('memory_max_bytes')));
-        expect(ConfigMeta.fields, contains('agent.model'));
-        expect(ConfigMeta.fields, contains('agent.max_turns'));
-        expect(ConfigMeta.fields, contains('agent.effort'));
-        expect(ConfigMeta.fields, contains('auth.cookie_secure'));
-        expect(ConfigMeta.fields, contains('auth.trusted_proxies'));
-        expect(ConfigMeta.fields, contains('tasks.max_concurrent'));
-        expect(ConfigMeta.fields, contains('tasks.artifact_retention_days'));
-        expect(ConfigMeta.fields, contains('tasks.worktree.base_ref'));
-        expect(ConfigMeta.fields, contains('tasks.worktree.stale_timeout_hours'));
-        expect(ConfigMeta.fields, contains('tasks.worktree.merge_strategy'));
-        expect(ConfigMeta.fields, contains('tasks.completion_action'));
-        expect(ConfigMeta.fields, contains('concurrency.max_parallel_turns'));
-        expect(ConfigMeta.fields, contains('guard_audit.max_retention_days'));
-        expect(ConfigMeta.fields, contains('sessions.reset_hour'));
-        expect(ConfigMeta.fields, contains('sessions.idle_timeout_minutes'));
-        expect(ConfigMeta.fields, contains('logging.level'));
-        expect(ConfigMeta.fields, contains('logging.format'));
-        expect(ConfigMeta.fields, contains('scheduling.heartbeat.interval_minutes'));
-        expect(ConfigMeta.fields, contains('context.reserve_tokens'));
-        expect(ConfigMeta.fields, contains('context.max_result_bytes'));
-        expect(ConfigMeta.fields, contains('context.warning_threshold'));
-        expect(ConfigMeta.fields, contains('context.exploration_summary_threshold'));
-        expect(ConfigMeta.fields, contains('context.compact_instructions'));
-        expect(ConfigMeta.fields, contains('search.backend'));
-        expect(ConfigMeta.fields, contains('search.qmd.host'));
-        expect(ConfigMeta.fields, contains('search.qmd.port'));
-        expect(ConfigMeta.fields, contains('search.default_depth'));
-        expect(ConfigMeta.fields, contains('logging.file'));
-        expect(ConfigMeta.fields, contains('logging.redact_patterns'));
-        expect(ConfigMeta.fields, contains('guards.content.enabled'));
-        expect(ConfigMeta.fields, contains('guards.content.classifier'));
-        expect(ConfigMeta.fields, contains('guards.content.model'));
-        expect(ConfigMeta.fields, contains('guards.content.max_bytes'));
-        expect(ConfigMeta.fields, contains('guards.input_sanitizer.enabled'));
-        expect(ConfigMeta.fields, contains('guards.input_sanitizer.channels_only'));
-        expect(ConfigMeta.fields, contains('memory.pruning.enabled'));
-        expect(ConfigMeta.fields, contains('memory.pruning.archive_after_days'));
-        expect(ConfigMeta.fields, contains('memory.pruning.schedule'));
-        expect(ConfigMeta.fields, contains('usage.budget_warning_tokens'));
-        expect(ConfigMeta.fields, contains('usage.max_file_size_bytes'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.enabled'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.service_account'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.oauth_credentials'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.audience.type'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.audience.value'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.webhook_path'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.bot_user'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.typing_indicator'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.quote_reply'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.dm_access'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.dm_allowlist'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.group_access'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.group_allowlist'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.require_mention'));
-        expect(ConfigMeta.fields, contains('channels.whatsapp.task_trigger.enabled'));
-        expect(ConfigMeta.fields, contains('channels.whatsapp.task_trigger.prefix'));
-        expect(ConfigMeta.fields, contains('channels.whatsapp.task_trigger.default_type'));
-        expect(ConfigMeta.fields, contains('channels.whatsapp.task_trigger.auto_start'));
-        expect(ConfigMeta.fields, contains('channels.signal.task_trigger.enabled'));
-        expect(ConfigMeta.fields, contains('channels.signal.task_trigger.prefix'));
-        expect(ConfigMeta.fields, contains('channels.signal.task_trigger.default_type'));
-        expect(ConfigMeta.fields, contains('channels.signal.task_trigger.auto_start'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.task_trigger.enabled'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.task_trigger.prefix'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.task_trigger.default_type'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.task_trigger.auto_start'));
-
-        // Google Chat — Pub/Sub
-        expect(ConfigMeta.fields, contains('channels.google_chat.pubsub.project_id'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.pubsub.subscription'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.pubsub.poll_interval_seconds'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.pubsub.max_messages_per_pull'));
-        // Google Chat — Space Events
-        expect(ConfigMeta.fields, contains('channels.google_chat.space_events.enabled'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.space_events.pubsub_topic'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.space_events.event_types'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.space_events.include_resource'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.space_events.auth_mode'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.feedback.enabled'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.feedback.min_feedback_delay'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.feedback.status_interval'));
-        expect(ConfigMeta.fields, contains('channels.google_chat.feedback.status_style'));
-        expect(ConfigMeta.fields, contains('governance.queue_strategy'));
-        expect(ConfigMeta.fields, contains('governance.turn_progress.stall_timeout'));
-        expect(ConfigMeta.fields, contains('governance.turn_progress.stall_action'));
-        expect(ConfigMeta.fields, contains('governance.crowd_coding.model'));
-        expect(ConfigMeta.fields, contains('governance.crowd_coding.effort'));
-        expect(ConfigMeta.fields, contains('governance.rate_limits.per_sender.max_queued'));
-        expect(ConfigMeta.fields, contains('governance.rate_limits.per_sender.max_pause_queued'));
-        expect(ConfigMeta.fields, contains('advisor.enabled'));
-        expect(ConfigMeta.fields, contains('advisor.model'));
-        expect(ConfigMeta.fields, contains('advisor.effort'));
-        expect(ConfigMeta.fields, contains('advisor.triggers'));
-        expect(ConfigMeta.fields, contains('advisor.periodic_interval_minutes'));
-        expect(ConfigMeta.fields, contains('advisor.max_window_turns'));
-        expect(ConfigMeta.fields, contains('advisor.max_prior_reflections'));
-
-        // Alerts fields (live-mutable)
-        expect(ConfigMeta.fields, contains('alerts.enabled'));
-        expect(ConfigMeta.fields, contains('alerts.cooldown_seconds'));
-        expect(ConfigMeta.fields, contains('alerts.burst_threshold'));
-
-        // Readonly fields
-        expect(ConfigMeta.fields, contains('gateway.auth_mode'));
-        expect(ConfigMeta.fields, contains('gateway.token'));
-        expect(ConfigMeta.fields, contains('gateway.hsts'));
-      });
-
-      test('field metadata roots are backed by built-in keys or registered extension parsers', () {
-        ensureGitHubWebhookConfigRegistered();
-        final metadataRoots = ConfigMeta.fields.keys.map((path) => path.split('.').first).toSet();
-        final parserRoots = {
-          ...DartclawConfig.knownTopLevelKeysForTesting(),
-          ...DartclawConfig.registeredExtensionKeysForTesting(),
-        };
-
-        expect(metadataRoots.difference(parserRoots), isEmpty);
-        expect(DartclawConfig.registeredExtensionKeysForTesting(), contains('github'));
-      });
+      final expectedFields = {
+        'scheduling.heartbeat.enabled',
+        'workspace.git_sync.enabled',
+        'workspace.git_sync.push_enabled',
+        'port',
+        'host',
+        'data_dir',
+        'source_dir',
+        'static_dir',
+        'templates_dir',
+        'workflow.workspace_dir',
+        'worker_timeout',
+        'agent.model',
+        'agent.max_turns',
+        'agent.effort',
+        'auth.cookie_secure',
+        'auth.trusted_proxies',
+        'tasks.max_concurrent',
+        'tasks.artifact_retention_days',
+        'tasks.worktree.base_ref',
+        'tasks.worktree.stale_timeout_hours',
+        'tasks.worktree.merge_strategy',
+        'tasks.completion_action',
+        'concurrency.max_parallel_turns',
+        'guard_audit.max_retention_days',
+        'sessions.reset_hour',
+        'sessions.idle_timeout_minutes',
+        'logging.level',
+        'logging.format',
+        'scheduling.heartbeat.interval_minutes',
+        'context.reserve_tokens',
+        'context.max_result_bytes',
+        'context.warning_threshold',
+        'context.exploration_summary_threshold',
+        'context.compact_instructions',
+        'search.backend',
+        'search.qmd.host',
+        'search.qmd.port',
+        'search.default_depth',
+        'logging.file',
+        'logging.redact_patterns',
+        'guards.content.enabled',
+        'guards.content.classifier',
+        'guards.content.model',
+        'guards.content.max_bytes',
+        'guards.input_sanitizer.enabled',
+        'guards.input_sanitizer.channels_only',
+        'memory.pruning.enabled',
+        'memory.pruning.archive_after_days',
+        'memory.pruning.schedule',
+        'usage.budget_warning_tokens',
+        'usage.max_file_size_bytes',
+        'channels.google_chat.enabled',
+        'channels.google_chat.service_account',
+        'channels.google_chat.oauth_credentials',
+        'channels.google_chat.audience.type',
+        'channels.google_chat.audience.value',
+        'channels.google_chat.webhook_path',
+        'channels.google_chat.bot_user',
+        'channels.google_chat.typing_indicator',
+        'channels.google_chat.quote_reply',
+        'channels.google_chat.dm_access',
+        'channels.google_chat.dm_allowlist',
+        'channels.google_chat.group_access',
+        'channels.google_chat.group_allowlist',
+        'channels.google_chat.require_mention',
+        'channels.whatsapp.task_trigger.enabled',
+        'channels.whatsapp.task_trigger.prefix',
+        'channels.whatsapp.task_trigger.default_type',
+        'channels.whatsapp.task_trigger.auto_start',
+        'channels.signal.task_trigger.enabled',
+        'channels.signal.task_trigger.prefix',
+        'channels.signal.task_trigger.default_type',
+        'channels.signal.task_trigger.auto_start',
+        'channels.google_chat.task_trigger.enabled',
+        'channels.google_chat.task_trigger.prefix',
+        'channels.google_chat.task_trigger.default_type',
+        'channels.google_chat.task_trigger.auto_start',
+        'channels.google_chat.pubsub.project_id',
+        'channels.google_chat.pubsub.subscription',
+        'channels.google_chat.pubsub.poll_interval_seconds',
+        'channels.google_chat.pubsub.max_messages_per_pull',
+        'channels.google_chat.space_events.enabled',
+        'channels.google_chat.space_events.pubsub_topic',
+        'channels.google_chat.space_events.event_types',
+        'channels.google_chat.space_events.include_resource',
+        'channels.google_chat.feedback.enabled',
+        'channels.google_chat.feedback.min_feedback_delay',
+        'channels.google_chat.feedback.status_interval',
+        'channels.google_chat.feedback.status_style',
+        'governance.queue_strategy',
+        'harness.turn_monitor.wait_warning_after',
+        'harness.turn_monitor.stuck_after',
+        'governance.turn_progress.stall_timeout',
+        'governance.turn_progress.stall_action',
+        'governance.crowd_coding.model',
+        'governance.crowd_coding.effort',
+        'governance.rate_limits.per_sender.max_queued',
+        'governance.rate_limits.per_sender.max_pause_queued',
+        'advisor.enabled',
+        'advisor.model',
+        'advisor.effort',
+        'advisor.triggers',
+        'advisor.periodic_interval_minutes',
+        'advisor.max_window_turns',
+        'advisor.max_prior_reflections',
+        'alerts.enabled',
+        'alerts.cooldown_seconds',
+        'alerts.burst_threshold',
+        'delegation.enabled',
+        'delegation.agents',
+        'delegation.max_budget_tokens',
+        'delegation.budget_accounting',
+        'delegation.rate_limit.max_per_minute',
+        'gateway.auth_mode',
+        'gateway.token',
+        'gateway.hsts',
+      };
+      for (final field in expectedFields) {
+        expect(ConfigMeta.fields, contains(field), reason: field);
+      }
+      expect(ConfigMeta.fields, isNot(contains('memory_max_bytes')));
     });
 
-    group('mutability classification', () {
-      test('classifies live fields correctly', () {
-        expect(ConfigMeta.fields['scheduling.heartbeat.enabled']!.mutability, ConfigMutability.live);
-        expect(ConfigMeta.fields['workspace.git_sync.enabled']!.mutability, ConfigMutability.live);
-        expect(ConfigMeta.fields['workspace.git_sync.push_enabled']!.mutability, ConfigMutability.live);
-        expect(ConfigMeta.fields['sessions.dm_scope']!.mutability, ConfigMutability.live);
-        expect(ConfigMeta.fields['sessions.group_scope']!.mutability, ConfigMutability.live);
-      });
+    test('field metadata roots are backed by built-in keys or registered extension parsers', () {
+      ensureGitHubWebhookConfigRegistered();
+      final metadataRoots = ConfigMeta.fields.keys.map((path) => path.split('.').first).toSet();
+      final parserRoots = {
+        ...DartclawConfig.knownTopLevelKeysForTesting(),
+        ...DartclawConfig.registeredExtensionKeysForTesting(),
+      };
 
-      test('classifies reloadable fields correctly', () {
-        expect(ConfigMeta.fields['alerts.enabled']!.mutability, ConfigMutability.reloadable);
-        expect(ConfigMeta.fields['alerts.cooldown_seconds']!.mutability, ConfigMutability.reloadable);
-        expect(ConfigMeta.fields['alerts.burst_threshold']!.mutability, ConfigMutability.reloadable);
-      });
-
-      test('classifies restart fields correctly', () {
-        expect(ConfigMeta.fields['port']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['agent.model']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['auth.cookie_secure']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['auth.trusted_proxies']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['gateway.hsts']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['tasks.artifact_retention_days']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['tasks.completion_action']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['guard_audit.max_retention_days']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['context.exploration_summary_threshold']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['context.compact_instructions']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['workflow.workspace_dir']!.mutability, ConfigMutability.restart);
-      });
-
-      test('context.warning_threshold is live-mutable with range 50-99', () {
-        final meta = ConfigMeta.fields['context.warning_threshold']!;
-        expect(meta.mutability, ConfigMutability.live);
-        expect(meta.type, ConfigFieldType.int_);
-        expect(meta.min, 50);
-        expect(meta.max, 99);
-      });
-
-      test('context.exploration_summary_threshold has min 1000', () {
-        final meta = ConfigMeta.fields['context.exploration_summary_threshold']!;
-        expect(meta.type, ConfigFieldType.int_);
-        expect(meta.min, 1000);
-      });
-
-      test('context.compact_instructions is nullable string', () {
-        final meta = ConfigMeta.fields['context.compact_instructions']!;
-        expect(meta.type, ConfigFieldType.string);
-        expect(meta.nullable, true);
-      });
-
-      test('classifies readonly fields correctly', () {
-        expect(ConfigMeta.fields['gateway.auth_mode']!.mutability, ConfigMutability.readonly);
-        expect(ConfigMeta.fields['gateway.token']!.mutability, ConfigMutability.readonly);
-      });
-
-      test('task trigger fields are restart', () {
-        expect(ConfigMeta.fields['channels.whatsapp.task_trigger.enabled']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['channels.signal.task_trigger.prefix']!.mutability, ConfigMutability.restart);
-        expect(
-          ConfigMeta.fields['channels.google_chat.task_trigger.default_type']!.mutability,
-          ConfigMutability.restart,
-        );
-        expect(ConfigMeta.fields['channels.google_chat.task_trigger.auto_start']!.mutability, ConfigMutability.restart);
-      });
-
-      test('task trigger default_type uses string metadata to preserve custom values', () {
-        expect(ConfigMeta.fields['channels.whatsapp.task_trigger.default_type']!.type, ConfigFieldType.string);
-        expect(ConfigMeta.fields['channels.signal.task_trigger.default_type']!.type, ConfigFieldType.string);
-        expect(ConfigMeta.fields['channels.google_chat.task_trigger.default_type']!.type, ConfigFieldType.string);
-      });
-
-      test('advisor metadata uses restart mutability and correct bounds', () {
-        expect(ConfigMeta.fields['advisor.enabled']!.mutability, ConfigMutability.restart);
-        expect(ConfigMeta.fields['advisor.periodic_interval_minutes']!.min, 1);
-        expect(ConfigMeta.fields['advisor.max_window_turns']!.max, 100);
-        expect(ConfigMeta.fields['advisor.max_prior_reflections']!.max, 20);
-      });
+      expect(metadataRoots.difference(parserRoots), isEmpty);
+      expect(DartclawConfig.registeredExtensionKeysForTesting(), contains('github'));
     });
 
-    group('JSON key mapping', () {
-      test('byJsonKey contains all fields', () {
-        expect(ConfigMeta.byJsonKey.length, equals(ConfigMeta.fields.length));
-      });
+    test('mutability and type classification matches config surface contracts', () {
+      final mutabilityCases = <({String field, ConfigMutability mutability})>[
+        (field: 'scheduling.heartbeat.enabled', mutability: ConfigMutability.live),
+        (field: 'workspace.git_sync.enabled', mutability: ConfigMutability.live),
+        (field: 'workspace.git_sync.push_enabled', mutability: ConfigMutability.live),
+        (field: 'sessions.dm_scope', mutability: ConfigMutability.live),
+        (field: 'sessions.group_scope', mutability: ConfigMutability.live),
+        (field: 'alerts.enabled', mutability: ConfigMutability.reloadable),
+        (field: 'alerts.cooldown_seconds', mutability: ConfigMutability.reloadable),
+        (field: 'alerts.burst_threshold', mutability: ConfigMutability.reloadable),
+        (field: 'port', mutability: ConfigMutability.restart),
+        (field: 'agent.model', mutability: ConfigMutability.restart),
+        (field: 'auth.cookie_secure', mutability: ConfigMutability.restart),
+        (field: 'auth.trusted_proxies', mutability: ConfigMutability.restart),
+        (field: 'gateway.hsts', mutability: ConfigMutability.restart),
+        (field: 'tasks.artifact_retention_days', mutability: ConfigMutability.restart),
+        (field: 'tasks.completion_action', mutability: ConfigMutability.restart),
+        (field: 'guard_audit.max_retention_days', mutability: ConfigMutability.restart),
+        (field: 'context.exploration_summary_threshold', mutability: ConfigMutability.restart),
+        (field: 'context.compact_instructions', mutability: ConfigMutability.restart),
+        (field: 'workflow.workspace_dir', mutability: ConfigMutability.restart),
+        (field: 'delegation.enabled', mutability: ConfigMutability.restart),
+        (field: 'gateway.auth_mode', mutability: ConfigMutability.readonly),
+        (field: 'gateway.token', mutability: ConfigMutability.readonly),
+        (field: 'channels.whatsapp.task_trigger.enabled', mutability: ConfigMutability.restart),
+        (field: 'channels.signal.task_trigger.prefix', mutability: ConfigMutability.restart),
+        (field: 'channels.google_chat.task_trigger.default_type', mutability: ConfigMutability.restart),
+        (field: 'channels.google_chat.task_trigger.auto_start', mutability: ConfigMutability.restart),
+        (field: 'advisor.enabled', mutability: ConfigMutability.restart),
+      ];
+      for (final (:field, :mutability) in mutabilityCases) {
+        expect(ConfigMeta.fields[field]!.mutability, mutability, reason: field);
+      }
 
-      test('scheduling.heartbeat.interval_minutes maps correctly', () {
-        expect(
-          ConfigMeta.fields['scheduling.heartbeat.interval_minutes']!.jsonKey,
-          equals('scheduling.heartbeat.intervalMinutes'),
-        );
-      });
+      final typeCases = <({String field, ConfigFieldType type})>[
+        (field: 'delegation.agents', type: ConfigFieldType.objectList),
+        (field: 'context.warning_threshold', type: ConfigFieldType.int_),
+        (field: 'context.exploration_summary_threshold', type: ConfigFieldType.int_),
+        (field: 'context.compact_instructions', type: ConfigFieldType.string),
+        (field: 'channels.whatsapp.task_trigger.default_type', type: ConfigFieldType.string),
+        (field: 'channels.signal.task_trigger.default_type', type: ConfigFieldType.string),
+        (field: 'channels.google_chat.task_trigger.default_type', type: ConfigFieldType.string),
+      ];
+      for (final (:field, :type) in typeCases) {
+        expect(ConfigMeta.fields[field]!.type, type, reason: field);
+      }
 
-      test('agent.max_turns maps to agent.maxTurns', () {
-        expect(ConfigMeta.fields['agent.max_turns']!.jsonKey, equals('agent.maxTurns'));
-        expect(ConfigMeta.fields['agent.provider']!.jsonKey, equals('agent.provider'));
-      });
-
-      test('concurrency.max_parallel_turns maps correctly', () {
-        expect(ConfigMeta.fields['concurrency.max_parallel_turns']!.jsonKey, equals('concurrency.maxParallelTurns'));
-      });
-
-      test('new retention fields map correctly', () {
-        expect(ConfigMeta.fields['guard_audit.max_retention_days']!.jsonKey, equals('guardAudit.maxRetentionDays'));
-        expect(ConfigMeta.fields['tasks.artifact_retention_days']!.jsonKey, equals('tasks.artifactRetentionDays'));
-        expect(ConfigMeta.fields['tasks.completion_action']!.jsonKey, equals('tasks.completionAction'));
-      });
-
-      test('byJsonKey lookup works', () {
-        final meta = ConfigMeta.byJsonKey['scheduling.heartbeat.intervalMinutes'];
-        expect(meta, isNotNull);
-        expect(meta!.yamlPath, equals('scheduling.heartbeat.interval_minutes'));
-      });
-
-      test('google chat oauth credentials maps correctly', () {
-        expect(
-          ConfigMeta.fields['channels.google_chat.oauth_credentials']!.jsonKey,
-          equals('channels.googleChat.oauthCredentials'),
-        );
-      });
-
-      test('workspace and quote-reply fields map correctly', () {
-        expect(ConfigMeta.fields['source_dir']!.jsonKey, equals('sourceDir'));
-        expect(ConfigMeta.fields['static_dir']!.jsonKey, equals('staticDir'));
-        expect(ConfigMeta.fields['templates_dir']!.jsonKey, equals('templatesDir'));
-        expect(ConfigMeta.fields['workflow.workspace_dir']!.jsonKey, equals('workflow.workspaceDir'));
-        expect(
-          ConfigMeta.fields['workflow.defaults.reviewer.model']!.jsonKey,
-          equals('workflow.defaults.reviewer.model'),
-        );
-        expect(
-          ConfigMeta.fields['channels.google_chat.quote_reply']!.jsonKey,
-          equals('channels.googleChat.quoteReplyMode'),
-        );
-        expect(
-          ConfigMeta.fields['channels.google_chat.feedback.status_interval']!.jsonKey,
-          equals('channels.googleChat.feedback.statusInterval'),
-        );
-        expect(
-          ConfigMeta.fields['governance.turn_progress.stall_timeout']!.jsonKey,
-          equals('governance.turnProgress.stallTimeout'),
-        );
-      });
+      expect(ConfigMeta.fields['delegation.budget_accounting']!.allowedValues, [
+        'provider_reported',
+        'estimate_if_unreported',
+      ]);
+      expect(ConfigMeta.fields['context.warning_threshold']!.min, 50);
+      expect(ConfigMeta.fields['context.warning_threshold']!.max, 99);
+      expect(ConfigMeta.fields['context.exploration_summary_threshold']!.min, 1000);
+      expect(ConfigMeta.fields['context.compact_instructions']!.nullable, true);
+      expect(ConfigMeta.fields['advisor.periodic_interval_minutes']!.min, 1);
+      expect(ConfigMeta.fields['advisor.max_window_turns']!.max, 100);
+      expect(ConfigMeta.fields['advisor.max_prior_reflections']!.max, 20);
     });
 
-    group('helpers', () {
-      test('isKnown returns correct values', () {
-        expect(ConfigMeta.isKnown('port'), isTrue);
-        expect(ConfigMeta.isKnown('nonexistent'), isFalse);
-      });
+    test('JSON key mapping is complete and stable for representative fields', () {
+      expect(ConfigMeta.byJsonKey.length, ConfigMeta.fields.length);
+      final cases = {
+        'scheduling.heartbeat.interval_minutes': 'scheduling.heartbeat.intervalMinutes',
+        'agent.max_turns': 'agent.maxTurns',
+        'agent.provider': 'agent.provider',
+        'concurrency.max_parallel_turns': 'concurrency.maxParallelTurns',
+        'guard_audit.max_retention_days': 'guardAudit.maxRetentionDays',
+        'tasks.artifact_retention_days': 'tasks.artifactRetentionDays',
+        'tasks.completion_action': 'tasks.completionAction',
+        'channels.google_chat.oauth_credentials': 'channels.googleChat.oauthCredentials',
+        'source_dir': 'sourceDir',
+        'static_dir': 'staticDir',
+        'templates_dir': 'templatesDir',
+        'workflow.workspace_dir': 'workflow.workspaceDir',
+        'workflow.defaults.reviewer.model': 'workflow.defaults.reviewer.model',
+        'channels.google_chat.quote_reply': 'channels.googleChat.quoteReplyMode',
+        'channels.google_chat.feedback.status_interval': 'channels.googleChat.feedback.statusInterval',
+        'governance.turn_progress.stall_timeout': 'governance.turnProgress.stallTimeout',
+        'harness.turn_monitor.wait_warning_after': 'harness.turnMonitor.waitWarningAfter',
+      };
+      for (final entry in cases.entries) {
+        expect(ConfigMeta.fields[entry.key]!.jsonKey, entry.value, reason: entry.key);
+      }
 
-      test('isWritable returns correct values', () {
-        expect(ConfigMeta.isWritable('port'), isTrue);
-        expect(ConfigMeta.isWritable('scheduling.heartbeat.enabled'), isTrue);
-        expect(ConfigMeta.isWritable('channels.whatsapp.task_trigger.enabled'), isTrue);
-        expect(ConfigMeta.isWritable('channels.signal.task_trigger.prefix'), isTrue);
-        expect(ConfigMeta.isWritable('channels.google_chat.task_trigger.default_type'), isTrue);
-        expect(ConfigMeta.isWritable('agent.provider'), isTrue);
-        expect(ConfigMeta.isWritable('workflow.workspace_dir'), isTrue);
-        expect(ConfigMeta.isWritable('workflow.defaults.workflow.provider'), isTrue);
-        expect(ConfigMeta.isWritable('gateway.auth_mode'), isFalse);
-        expect(ConfigMeta.isWritable('nonexistent'), isFalse);
-      });
+      final meta = ConfigMeta.byJsonKey['scheduling.heartbeat.intervalMinutes'];
+      expect(meta, isNotNull);
+      expect(meta!.yamlPath, 'scheduling.heartbeat.interval_minutes');
+    });
 
-      test('forMutability returns expected live fields', () {
-        final live = ConfigMeta.forMutability(ConfigMutability.live).toList();
-        expect(live, hasLength(6));
-        final paths = live.map((f) => f.yamlPath).toSet();
-        expect(
-          paths,
-          containsAll([
-            'sessions.dm_scope',
-            'sessions.group_scope',
-            'scheduling.heartbeat.enabled',
-            'workspace.git_sync.enabled',
-            'workspace.git_sync.push_enabled',
-            'context.warning_threshold',
-          ]),
-        );
-      });
+    test('helper APIs report known, writable, and mutability-filtered fields', () {
+      expect(ConfigMeta.isKnown('port'), isTrue);
+      expect(ConfigMeta.isKnown('nonexistent'), isFalse);
 
-      test('forMutability readonly returns gateway and Google Chat credential fields', () {
-        final ro = ConfigMeta.forMutability(ConfigMutability.readonly).toList();
-        expect(ro, hasLength(5));
-        final paths = ro.map((f) => f.yamlPath).toSet();
-        expect(
-          paths,
-          containsAll([
-            'gateway.auth_mode',
-            'gateway.token',
-            'channels.google_chat.service_account',
-            'channels.google_chat.audience.type',
-            'channels.google_chat.audience.value',
-          ]),
-        );
-      });
+      for (final field in [
+        'port',
+        'scheduling.heartbeat.enabled',
+        'channels.whatsapp.task_trigger.enabled',
+        'channels.signal.task_trigger.prefix',
+        'channels.google_chat.task_trigger.default_type',
+        'agent.provider',
+        'workflow.workspace_dir',
+        'workflow.defaults.workflow.provider',
+      ]) {
+        expect(ConfigMeta.isWritable(field), isTrue, reason: field);
+      }
+      expect(ConfigMeta.isWritable('gateway.auth_mode'), isFalse);
+      expect(ConfigMeta.isWritable('nonexistent'), isFalse);
+
+      final live = ConfigMeta.forMutability(ConfigMutability.live).map((field) => field.yamlPath).toSet();
+      expect(live, hasLength(6));
+      expect(
+        live,
+        containsAll([
+          'sessions.dm_scope',
+          'sessions.group_scope',
+          'scheduling.heartbeat.enabled',
+          'workspace.git_sync.enabled',
+          'workspace.git_sync.push_enabled',
+          'context.warning_threshold',
+        ]),
+      );
+
+      final readonly = ConfigMeta.forMutability(ConfigMutability.readonly).map((field) => field.yamlPath).toSet();
+      expect(readonly, hasLength(5));
+      expect(
+        readonly,
+        containsAll([
+          'gateway.auth_mode',
+          'gateway.token',
+          'channels.google_chat.service_account',
+          'channels.google_chat.audience.type',
+          'channels.google_chat.audience.value',
+        ]),
+      );
     });
   });
 }

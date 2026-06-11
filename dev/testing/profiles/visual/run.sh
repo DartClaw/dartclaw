@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start DartClaw with the visual testing profile (desktop visual smoke).
 # Turns on feature-visibility flags so Health, Settings, Memory, Scheduling,
-# Tasks, Projects, Workflows, Canvas surfaces all render with seeded content.
+# Tasks, Projects, Workflows surfaces all render with seeded content.
 #
 # Usage: bash dev/testing/profiles/visual/run.sh [extra args...]
 # Example: bash dev/testing/profiles/visual/run.sh --port 4000

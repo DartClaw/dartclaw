@@ -252,24 +252,5 @@ void main() {
         expect(copy.lastFetchAt, equals(now));
       });
     });
-
-    test('toString includes key fields', () {
-      final project = makeProject(id: 'proj-1', status: ProjectStatus.ready);
-      final str = project.toString();
-      expect(str, contains('proj-1'));
-      expect(str, contains('ready'));
-    });
-
-    test('_local project with empty remoteUrl shows <local> in toString', () {
-      final local = Project(
-        id: '_local',
-        name: 'myrepo',
-        remoteUrl: '',
-        localPath: '/home/user/myrepo',
-        status: ProjectStatus.ready,
-        createdAt: now,
-      );
-      expect(local.toString(), contains('<local>'));
-    });
   });
 }

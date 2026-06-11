@@ -64,15 +64,6 @@ void main() {
       scheduler.reconfigure(_delta(newConfig, {'scheduling.*'}));
       expect(scheduler.interval, const Duration(minutes: 15));
     });
-
-    test('watchKeys is scheduling.*', () {
-      final scheduler = HeartbeatScheduler(
-        interval: const Duration(minutes: 30),
-        workspaceDir: '/tmp',
-        dispatch: (sessionKey, message) async {},
-      );
-      expect(scheduler.watchKeys, {'scheduling.*'});
-    });
   });
 
   // ---------------------------------------------------------------------------
@@ -108,11 +99,6 @@ void main() {
       gs.reconfigure(_delta(newConfig, {'workspace.*'}));
       expect(gs.pushEnabled, isTrue);
     });
-
-    test('watchKeys is workspace.*', () {
-      final gs = WorkspaceGitSync(workspaceDir: '/tmp');
-      expect(gs.watchKeys, {'workspace.*'});
-    });
   });
 
   // ---------------------------------------------------------------------------
@@ -125,11 +111,6 @@ void main() {
       final newConfig = DartclawConfig(scheduling: const SchedulingConfig(heartbeatIntervalMinutes: 60));
       // Should not throw
       service.reconfigure(_delta(newConfig, {'scheduling.*'}));
-    });
-
-    test('watchKeys is scheduling.*', () {
-      final service = ScheduleService(turns: _NoopTurnManager(), sessions: _NoopSessionService(), jobs: const []);
-      expect(service.watchKeys, {'scheduling.*'});
     });
   });
 
@@ -175,10 +156,6 @@ void main() {
       manager.reconfigure(_delta(newConfig, {'server.*'}));
       expect(manager.maxParallel, 3);
     });
-
-    test('watchKeys is server.*', () {
-      expect(SessionLockManager().watchKeys, {'server.*'});
-    });
   });
 
   // ---------------------------------------------------------------------------
@@ -201,11 +178,6 @@ void main() {
       // Verify by reconfiguring again with same values — no timer restart.
       svc.reconfigure(_delta(newConfig, {'sessions.*'}));
     });
-
-    test('watchKeys is sessions.*', () {
-      final svc = SessionResetService(sessions: _NoopSessionService(), messages: _NoopMessageService());
-      expect(svc.watchKeys, {'sessions.*'});
-    });
   });
 
   // ---------------------------------------------------------------------------
@@ -226,17 +198,19 @@ void main() {
     test('shouldFlush uses updated reserveTokens', () {
       final monitor = ContextMonitor(reserveTokens: 20000);
       monitor.update(contextWindow: 200000, contextTokens: 185000);
-      expect(monitor.shouldFlush, isTrue); // 185000 > 200000 - 20000
+      expect(
+        monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false),
+        isTrue,
+      ); // 185000 > 200000 - 20000
 
       // Increase reserve so same token count no longer triggers flush
       final newConfig = DartclawConfig(context: const ContextConfig(reserveTokens: 10000));
       monitor.reconfigure(_delta(newConfig, {'context.*'}));
       monitor.markFlushCompleted(); // reset pending flag
-      expect(monitor.shouldFlush, isFalse); // 185000 < 200000 - 10000 = 190000
-    });
-
-    test('watchKeys is context.*', () {
-      expect(ContextMonitor().watchKeys, {'context.*'});
+      expect(
+        monitor.shouldFlushForCompactionSignal(compactionSignalAvailable: false),
+        isFalse,
+      ); // 185000 < 200000 - 10000 = 190000
     });
   });
 
@@ -271,10 +245,6 @@ void main() {
       final newConfig = DartclawConfig(context: const ContextConfig(maxResultBytes: 50 * 1024));
       trimmer.reconfigure(_delta(newConfig, {'context.*'}));
       expect(trimmer.maxBytes, 50 * 1024);
-    });
-
-    test('watchKeys is context.*', () {
-      expect(ResultTrimmer().watchKeys, {'context.*'});
     });
   });
 

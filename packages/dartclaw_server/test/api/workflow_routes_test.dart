@@ -14,118 +14,14 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowLoop,
         WorkflowRun,
         WorkflowRunStatus,
-        WorkflowService,
         WorkflowStep,
         WorkflowVariable;
-import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Test fakes
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// Fake [WorkflowService] that extends the concrete class with no-op deps
-/// and overrides all public methods to return pre-configured responses.
-class FakeWorkflowService extends WorkflowService {
-  FakeWorkflowService._super(
-    SqliteWorkflowRunRepository repository,
-    TaskService taskService,
-    MessageService messageService,
-    EventBus eventBus,
-    KvService kvService,
-    String dataDir,
-  ) : super.lifecycleOnly(
-        repository: repository,
-        taskService: taskService,
-        messageService: messageService,
-        eventBus: eventBus,
-        kvService: kvService,
-        dataDir: dataDir,
-      );
-
-  factory FakeWorkflowService({
-    required Database db,
-    required TaskService taskService,
-    required EventBus eventBus,
-    required String dataDir,
-  }) {
-    final repo = SqliteWorkflowRunRepository(db);
-    final messages = MessageService(baseDir: p.join(dataDir, 'sessions'));
-    final kv = KvService(filePath: p.join(dataDir, 'kv.json'));
-    return FakeWorkflowService._super(repo, taskService, messages, eventBus, kv, dataDir);
-  }
-
-  // Configurable responses.
-  WorkflowRun? startResult;
-  WorkflowRun? getResult;
-  List<WorkflowRun> listResult = [];
-  WorkflowRun? pauseResult;
-  WorkflowRun? resumeResult;
-  bool throwOnPause = false;
-  bool throwOnResume = false;
-  bool throwOnCancel = false;
-  Object? startError;
-  String? lastProjectId;
-  bool lastAllowDirtyLocalPath = false;
-
-  final List<String> calls = [];
-
-  @override
-  Future<WorkflowRun> start(
-    WorkflowDefinition definition,
-    Map<String, String> variables, {
-    String? projectId,
-    bool allowDirtyLocalPath = false,
-    bool headless = false,
-  }) async {
-    calls.add('start:${definition.name}');
-    if (startError != null) {
-      throw startError!;
-    }
-    lastProjectId = projectId;
-    lastAllowDirtyLocalPath = allowDirtyLocalPath;
-    return startResult!;
-  }
-
-  @override
-  Future<WorkflowRun?> get(String runId) async {
-    calls.add('get:$runId');
-    return getResult;
-  }
-
-  @override
-  Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) async {
-    calls.add('list:$status:$definitionName');
-    return listResult;
-  }
-
-  @override
-  Future<WorkflowRun> pause(String runId) async {
-    calls.add('pause:$runId');
-    if (throwOnPause) throw StateError('Cannot pause: invalid state');
-    return pauseResult!;
-  }
-
-  @override
-  Future<WorkflowRun> resume(String runId) async {
-    calls.add('resume:$runId');
-    if (throwOnResume) throw StateError('Cannot resume: invalid state');
-    return resumeResult!;
-  }
-
-  String? lastCancelFeedback;
-
-  @override
-  Future<void> cancel(String runId, {String? feedback}) async {
-    calls.add('cancel:$runId');
-    lastCancelFeedback = feedback;
-    if (throwOnCancel) throw StateError('Cannot cancel: invalid state');
-  }
-}
+import 'workflow_test_support.dart';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Test helpers
@@ -203,6 +99,7 @@ void main() {
   late TaskService tasks;
   late FakeWorkflowService workflows;
   late Handler handler;
+  late ApiRouteTestClient api;
   late InMemoryDefinitionSource definitions;
   late Directory tempDir;
 
@@ -218,6 +115,7 @@ void main() {
     definitions = InMemoryDefinitionSource([def]);
 
     workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows.recordListCalls = true;
     workflows.startResult = _makeRun();
     workflows.getResult = _makeRun();
     workflows.listResult = [_makeRun()];
@@ -225,6 +123,7 @@ void main() {
     workflows.resumeResult = _makeRun(status: WorkflowRunStatus.running);
 
     handler = workflowRoutes(workflows, tasks, definitions).call;
+    api = ApiRouteTestClient(handler);
   });
 
   tearDown(() async {
@@ -242,105 +141,110 @@ void main() {
 
   group('POST /api/workflows/run', () {
     test('creates run with valid definition and variables', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/workflows/run',
+        json: {
           'definition': 'spec-and-implement',
           'variables': {'FEATURE': 'User pagination'},
-        }),
+        },
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
-      final body = decodeObject(await response.readAsString());
       expect(body['id'], 'run-001');
       expect(body['status'], 'running');
       expect(workflows.calls, contains('start:spec-and-implement'));
     });
 
     test('returns 400 for missing definition field', () async {
-      final response = await handler(jsonRequest('POST', '/api/workflows/run', {'variables': {}}));
+      final code = await api.expectJsonErrorCode('POST', '/api/workflows/run', json: {'variables': {}}, status: 400);
 
-      expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(code, 'INVALID_INPUT');
     });
 
     test('returns 400 when definition field is not a string', () async {
-      final response = await handler(jsonRequest('POST', '/api/workflows/run', {'definition': 42}));
+      final code = await api.expectJsonErrorCode('POST', '/api/workflows/run', json: {'definition': 42}, status: 400);
 
-      expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(code, 'INVALID_INPUT');
     });
 
     test('returns 404 for unknown definition name', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {'definition': 'does-not-exist', 'variables': {}}),
+      final code = await api.expectJsonErrorCode(
+        'POST',
+        '/api/workflows/run',
+        json: {'definition': 'does-not-exist', 'variables': {}},
+        status: 404,
       );
 
-      expect(response.statusCode, 404);
-      expect(await errorCode(response), 'DEFINITION_NOT_FOUND');
+      expect(code, 'DEFINITION_NOT_FOUND');
     });
 
     test('returns 400 for missing required variable', () async {
       // FEATURE is required and has no default.
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {'definition': 'spec-and-implement', 'variables': {}}),
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/workflows/run',
+        json: {'definition': 'spec-and-implement', 'variables': {}},
+        status: 400,
       );
 
-      expect(response.statusCode, 400);
-      final body = decodeObject(await response.readAsString());
       final error = body['error'] as Map<String, dynamic>;
       expect(error['code'], 'INVALID_INPUT');
       expect((error['details']['missingVariables'] as List), contains('FEATURE'));
     });
 
     test('returns 400 for invalid JSON body', () async {
-      final response = await handler(
-        Request(
-          'POST',
-          Uri.parse('http://localhost/api/workflows/run'),
-          body: '{ not valid json',
-          headers: {'content-type': 'application/json'},
-        ),
+      final code = await api.expectJsonErrorCode(
+        'POST',
+        '/api/workflows/run',
+        body: '{ not valid json',
+        headers: {'content-type': 'application/json'},
+        status: 400,
       );
 
-      expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(code, 'INVALID_INPUT');
     });
 
     test('returns 400 when variables field is not a map', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {'definition': 'spec-and-implement', 'variables': 'not-a-map'}),
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/workflows/run',
+        json: {'definition': 'spec-and-implement', 'variables': 'not-a-map'},
+        status: 400,
       );
 
-      expect(response.statusCode, 400);
-      final body = decodeObject(await response.readAsString());
       final error = body['error'] as Map<String, dynamic>;
       expect(error['code'], 'INVALID_INPUT');
       expect(error['details']['field'], 'variables');
     });
 
     test('passes project to service', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {
+      await api.expectResponse(
+        'POST',
+        '/api/workflows/run',
+        json: {
           'definition': 'spec-and-implement',
           'variables': {'FEATURE': 'Pagination'},
           'project': 'my-project',
-        }),
+        },
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
       expect(workflows.lastProjectId, 'my-project');
     });
 
     test('passes allowDirtyLocalPath to the workflow service', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {
+      await api.expectResponse(
+        'POST',
+        '/api/workflows/run',
+        json: {
           'definition': 'spec-and-implement',
           'variables': {'FEATURE': 'Pagination'},
           'allowDirtyLocalPath': true,
-        }),
+        },
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
       expect(workflows.lastAllowDirtyLocalPath, isTrue);
     });
 
@@ -349,15 +253,17 @@ void main() {
         'Local-path project "alpha" is not safe to mutate: observed branch "feature/local", expected "main", dirty path count 1. Re-run with --allow-dirty-localpath to override.',
       );
 
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {
+      final code = await api.expectJsonErrorCode(
+        'POST',
+        '/api/workflows/run',
+        json: {
           'definition': 'spec-and-implement',
           'variables': {'FEATURE': 'Pagination'},
-        }),
+        },
+        status: 409,
       );
 
-      expect(response.statusCode, 409);
-      expect(await errorCode(response), 'WORKFLOW_PRECONDITION_FAILED');
+      expect(code, 'WORKFLOW_PRECONDITION_FAILED');
     });
 
     test('remote strict ref failures return workflow precondition failed', () async {
@@ -365,27 +271,30 @@ void main() {
         "git fetch failed for \"alpha\" (ref: missing/ref): fatal: couldn't find remote ref",
       );
 
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {
+      final code = await api.expectJsonErrorCode(
+        'POST',
+        '/api/workflows/run',
+        json: {
           'definition': 'spec-and-implement',
           'variables': {'FEATURE': 'Pagination'},
-        }),
+        },
+        status: 409,
       );
 
-      expect(response.statusCode, 409);
-      expect(await errorCode(response), 'WORKFLOW_PRECONDITION_FAILED');
+      expect(code, 'WORKFLOW_PRECONDITION_FAILED');
     });
 
     test('optional variable with default can be omitted', () async {
       // PROJECT has no default (null) and is not required — should succeed without it.
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {
+      await api.expectResponse(
+        'POST',
+        '/api/workflows/run',
+        json: {
           'definition': 'spec-and-implement',
           'variables': {'FEATURE': 'Pagination'},
-        }),
+        },
+        status: 201,
       );
-
-      expect(response.statusCode, 201);
     });
 
     test('definition with default value succeeds when not provided', () async {
@@ -402,15 +311,17 @@ void main() {
       );
       final src = InMemoryDefinitionSource([defWithDefault]);
       final h = workflowRoutes(workflows, tasks, src).call;
+      final localApi = ApiRouteTestClient(h);
 
-      final response = await h(
-        jsonRequest('POST', '/api/workflows/run', {
+      await localApi.expectResponse(
+        'POST',
+        '/api/workflows/run',
+        json: {
           'definition': 'with-defaults',
           'variables': {'FEATURE': 'Search'},
-        }),
+        },
+        status: 201,
       );
-
-      expect(response.statusCode, 201);
     });
   });
 

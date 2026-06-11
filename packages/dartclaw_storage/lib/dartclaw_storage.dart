@@ -31,7 +31,7 @@ export 'src/search/qmd_manager.dart' show QmdManager;
 export 'src/search/wiki_search_source.dart' show WikiSearchSource;
 
 // Knowledge
-export 'src/knowledge/known_systems.dart' show knownSystems, normalizeKnowledgeEntity;
+export 'src/knowledge/known_systems.dart' show normalizeKnowledgeEntity;
 export 'src/knowledge/temporal_knowledge_graph_service.dart'
     show TemporalKnowledgeGraphService, KnowledgeFact, KnowledgeContradiction;
 

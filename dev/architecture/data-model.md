@@ -30,7 +30,7 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 ├── dartclaw.yaml                     # [YAML]   Config (live + reloadable + restart-required fields)
 ├── kv.json                           # [JSON]   Global key-value store
 ├── search.db                         # [SQLite] FTS5 search index (REBUILDABLE)
-├── tasks.db                          # [SQLite] Tasks + agent_executions + workflow_step_executions + goals + artifacts + turns + task_events (AUTHORITATIVE)
+├── tasks.db                          # [SQLite] Tasks + agent_executions + workflow_step_executions + goals + artifacts + turns + task_events + kg_facts (AUTHORITATIVE)
 ├── state.db                          # [SQLite] Active turn recovery state (TRANSIENT)
 ├── projects.json                     # [JSON]   Project registry (atomic writes)
 ├── audit-YYYY-MM-DD.ndjson           # [NDJSON] Guard audit log partitions with retention cleanup
@@ -528,7 +528,7 @@ TurnTrace (turns table)
 **Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Zero latency impact on the turn lifecycle. Traces survive entity deletion (no foreign keys).
 **Package**: `dartclaw_models` (`ToolCallRecord`), `dartclaw_storage` (`TurnTraceService`)
 
-**Multi-service co-location note**: `tasks.db` contains six task-domain tables (`tasks`, `agent_executions`, `workflow_step_executions`, `task_artifacts`, `turns`, `task_events`) managed by cooperating services (`SqliteTaskRepository`, `SqliteAgentExecutionRepository`, `SqliteWorkflowStepExecutionRepository`, `TurnTraceService`, `TaskEventService`). Each service uses idempotent bootstrap DDL; destructive migrations require explicit coordination across those services because task-owned runtime columns can move into the shared execution tables.
+**Multi-service co-location note**: `tasks.db` contains eight tables (`tasks`, `agent_executions`, `workflow_step_executions`, `task_artifacts`, `turns`, `task_events`, `goals`, and `kg_facts` plus its `kg_facts_lookup` index) managed by cooperating services (`SqliteTaskRepository`, `SqliteAgentExecutionRepository`, `SqliteWorkflowStepExecutionRepository`, `TurnTraceService`, `TaskEventService`, `SqliteGoalRepository`, `TemporalKnowledgeGraphService`). Each service uses idempotent bootstrap DDL; destructive migrations require explicit coordination across those services because task-owned runtime columns can move into the shared execution tables.
 
 ### Task Event
 

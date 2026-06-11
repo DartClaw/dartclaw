@@ -2,7 +2,7 @@ part of 'service_wiring.dart';
 
 final _mcpToolsLog = Logger('ServiceWiring');
 
-(WorkshopCanvasSubscriber?, AdvisorSubscriber?) _registerMcpTools(
+AdvisorSubscriber? _registerMcpTools(
   DartclawConfig config,
   _WiringContext ctx,
   DartclawServer server,
@@ -10,11 +10,10 @@ final _mcpToolsLog = Logger('ServiceWiring');
   StorageWiring storage,
   SecurityWiring security,
   ChannelWiring channel,
-  CanvasService? canvasService,
 ) {
   final handlers = harness.memoryHandlers;
+  server.registerTool(DelegateToAgentTool(config: config, pool: harness.pool));
   server.registerTool(SessionsSendTool(delegate: harness.sessionDelegate));
-  server.registerTool(SessionsSpawnTool(delegate: harness.sessionDelegate));
   server.registerTool(MemorySaveTool(handler: handlers.onSave));
   server.registerTool(MemorySearchTool(handler: handlers.onSearch));
   server.registerTool(MemoryReadTool(handler: handlers.onRead));
@@ -36,38 +35,6 @@ final _mcpToolsLog = Logger('ServiceWiring');
   server.registerTool(
     WebFetchTool(classifier: security.contentClassifier, failOpenOnClassification: security.contentGuardFailOpen),
   );
-  if (canvasService != null) {
-    server.registerTool(
-      CanvasTool(
-        canvasService: canvasService,
-        sessionKey: SessionKey.webSession(),
-        baseUrl: config.server.baseUrl,
-        defaultPermission: config.canvas.share.defaultPermission == 'view'
-            ? CanvasPermission.view
-            : CanvasPermission.interact,
-        defaultTtl: Duration(minutes: config.canvas.share.defaultTtlMinutes),
-      ),
-    );
-  }
-
-  WorkshopCanvasSubscriber? workshopCanvasSubscriber;
-  if (canvasService != null &&
-      (config.canvas.workshopMode.taskBoard ||
-          config.canvas.workshopMode.showContributorStats ||
-          config.canvas.workshopMode.showBudgetBar)) {
-    workshopCanvasSubscriber = WorkshopCanvasSubscriber(
-      canvasService: canvasService,
-      taskService: storage.taskService,
-      usageTracker: harness.usageTracker,
-      sessionKey: SessionKey.webSession(),
-      dailyBudgetTokens: config.governance.budget.dailyTokens,
-      serverStartTime: DateTime.now(),
-      taskBoardEnabled: config.canvas.workshopMode.taskBoard,
-      statsBarEnabled: config.canvas.workshopMode.showContributorStats || config.canvas.workshopMode.showBudgetBar,
-      threadBindings: channel.threadBindingStore,
-    );
-    workshopCanvasSubscriber.subscribe(ctx.eventBus);
-  }
 
   AdvisorSubscriber? advisorSubscriber;
   if (config.advisor.enabled) {
@@ -79,8 +46,6 @@ final _mcpToolsLog = Logger('ServiceWiring');
       eventBus: ctx.eventBus,
       traceService: storage.traceService,
       threadBindings: channel.threadBindingStore,
-      canvasService: canvasService,
-      canvasSessionKey: SessionKey.webSession(),
       triggers: config.advisor.triggers,
       periodicIntervalMinutes: config.advisor.periodicIntervalMinutes,
       maxWindowTurns: config.advisor.maxWindowTurns,
@@ -118,5 +83,5 @@ final _mcpToolsLog = Logger('ServiceWiring');
     }
   }
 
-  return (workshopCanvasSubscriber, advisorSubscriber);
+  return advisorSubscriber;
 }

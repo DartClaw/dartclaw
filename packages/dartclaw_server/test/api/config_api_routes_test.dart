@@ -13,22 +13,20 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:test/test.dart';
 
+import '../whatsapp_test_support.dart';
+import 'api_test_helpers.dart';
+
 void main() {
   late Directory tempDir;
   late String configPath;
   late String dataDir;
 
-  setUp(() {
-    tempDir = Directory.systemTemp.createTempSync('config_api_test_');
-    configPath = p.join(tempDir.path, 'dartclaw.yaml');
-    dataDir = p.join(tempDir.path, 'data');
-    Directory(dataDir).createSync();
-
-    // Write a minimal valid YAML config
+  void writeConfigYaml([String extra = '']) {
+    final trimmedExtra = extra.trimRight();
     File(configPath).writeAsStringSync('''
 port: 3000
 host: localhost
-scheduling:
+${trimmedExtra.isEmpty ? '' : '$trimmedExtra\n'}scheduling:
   heartbeat:
     enabled: true
     interval_minutes: 30
@@ -38,6 +36,15 @@ workspace:
     enabled: true
     push_enabled: true
 ''');
+  }
+
+  setUp(() {
+    tempDir = Directory.systemTemp.createTempSync('config_api_test_');
+    configPath = p.join(tempDir.path, 'dartclaw.yaml');
+    dataDir = p.join(tempDir.path, 'data');
+    Directory(dataDir).createSync();
+
+    writeConfigYaml();
   });
 
   tearDown(() {
@@ -82,28 +89,15 @@ workspace:
     final writer = ConfigWriter(configPath: configPath);
     final validator = const ConfigValidator();
 
-    // Write channel config to YAML so allowlist persistence works
-    File(configPath).writeAsStringSync('''
-port: 3000
-host: localhost
+    writeConfigYaml('''
 channels:
   whatsapp:
     enabled: true
     dm_access: pairing
-    dm_allowlist: []
-scheduling:
-  heartbeat:
-    enabled: true
-    interval_minutes: 30
-  jobs: []
-workspace:
-  git_sync:
-    enabled: true
-    push_enabled: true
-''');
+    dm_allowlist: []''');
 
     final waChannel = WhatsAppChannel(
-      gowa: _FakeGowaManager(),
+      gowa: FakeGowaManager(),
       config: const WhatsAppConfig(enabled: true),
       dmAccess: dmAccessController,
       mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
@@ -120,51 +114,12 @@ workspace:
     );
   }
 
-  Future<Response> get(Router router, String path) {
-    final request = Request('GET', Uri.parse('http://localhost$path'));
-    return router.call(request);
+  ApiRouteTestClient api(Router router) {
+    return ApiRouteTestClient(router.call);
   }
 
-  Future<Response> patch(Router router, String path, Map<String, dynamic> body) {
-    final request = withAdminAuthContext(
-      Request(
-        'PATCH',
-        Uri.parse('http://localhost$path'),
-        body: jsonEncode(body),
-        headers: {'content-type': 'application/json'},
-      ),
-    );
-    return router.call(request);
-  }
-
-  Future<Response> post(Router router, String path, Map<String, dynamic> body) {
-    final request = Request(
-      'POST',
-      Uri.parse('http://localhost$path'),
-      body: jsonEncode(body),
-      headers: {'content-type': 'application/json'},
-    );
-    return router.call(request);
-  }
-
-  Future<Response> put(Router router, String path, Map<String, dynamic> body) {
-    final request = Request(
-      'PUT',
-      Uri.parse('http://localhost$path'),
-      body: jsonEncode(body),
-      headers: {'content-type': 'application/json'},
-    );
-    return router.call(request);
-  }
-
-  Future<Response> delete(Router router, String path) {
-    final request = Request('DELETE', Uri.parse('http://localhost$path'));
-    return router.call(request);
-  }
-
-  Future<Map<String, dynamic>> readJson(Response response) async {
-    final body = await response.readAsString();
-    return jsonDecode(body) as Map<String, dynamic>;
+  ApiRouteTestClient adminApi(Router router) {
+    return ApiRouteTestClient((request) => router.call(withAdminAuthContext(request)));
   }
 
   Future<String> nextSseFrame(StreamIterator<String> iterator) async {
@@ -203,10 +158,9 @@ workspace:
   group('GET /api/config', () {
     test('returns 200 with full config JSON', () async {
       final router = createRouter();
-      final response = await get(router, '/api/config');
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
+      final json = await api(router).expectJsonObject('GET', '/api/config');
+
       expect(json['port'], 3000);
       expect(json['host'], 'localhost');
       expect(json.containsKey('_meta'), isTrue);
@@ -214,8 +168,7 @@ workspace:
 
     test('contains _meta.fields map', () async {
       final router = createRouter();
-      final response = await get(router, '/api/config');
-      final json = await readJson(response);
+      final json = await api(router).expectJsonObject('GET', '/api/config');
 
       final meta = json['_meta'] as Map<String, dynamic>;
       expect(meta.containsKey('fields'), isTrue);
@@ -224,76 +177,42 @@ workspace:
       expect(fields.containsKey('scheduling.heartbeat.enabled'), isTrue);
     });
 
-    test('contains _meta.lastBackup (null when no backup)', () async {
-      final router = createRouter();
-      final response = await get(router, '/api/config');
-      final json = await readJson(response);
-
-      final meta = json['_meta'] as Map<String, dynamic>;
-      expect(meta['lastBackup'], isNull);
-    });
-
-    test('contains _meta.restartPending (false when no pending file)', () async {
-      final router = createRouter();
-      final response = await get(router, '/api/config');
-      final json = await readJson(response);
-
-      final meta = json['_meta'] as Map<String, dynamic>;
-      expect(meta['restartPending'], false);
-      expect(meta['pendingFields'], isEmpty);
-    });
+    for (final testCase in const [
+      (name: 'lastBackup null when no backup', key: 'lastBackup', expected: null),
+      (name: 'restartPending false when no pending file', key: 'restartPending', expected: false),
+    ]) {
+      test('contains _meta.${testCase.name}', () async {
+        final json = await api(createRouter()).expectJsonObject('GET', '/api/config');
+        final meta = json['_meta'] as Map<String, dynamic>;
+        expect(meta[testCase.key], testCase.expected);
+        if (testCase.key == 'restartPending') expect(meta['pendingFields'], isEmpty);
+      });
+    }
 
     test('gateway.token is masked', () async {
-      // Write gateway token into YAML so fresh config load picks it up
-      File(configPath).writeAsStringSync('''
-port: 3000
-host: localhost
+      writeConfigYaml('''
 gateway:
-  token: secret-token
-scheduling:
-  heartbeat:
-    enabled: true
-    interval_minutes: 30
-  jobs: []
-workspace:
-  git_sync:
-    enabled: true
-    push_enabled: true
-''');
+  token: secret-token''');
       final router = createRouter(
         config: const DartclawConfig(gateway: GatewayConfig(token: 'secret-token')),
       );
-      final response = await get(router, '/api/config');
-      final json = await readJson(response);
+      final json = await api(router).expectJsonObject('GET', '/api/config');
 
       final gateway = json['gateway'] as Map<String, dynamic>;
       expect(gateway['token'], '***');
     });
 
     test('google chat inline service account is redacted in API response', () async {
-      File(configPath).writeAsStringSync('''
-port: 3000
-host: localhost
+      writeConfigYaml('''
 channels:
   google_chat:
     enabled: true
     service_account: '{"type":"service_account","client_email":"chat-bot@example.iam.gserviceaccount.com","private_key":"secret"}'
     audience:
       type: project-number
-      value: '123456789'
-scheduling:
-  heartbeat:
-    enabled: true
-    interval_minutes: 30
-  jobs: []
-workspace:
-  git_sync:
-    enabled: true
-    push_enabled: true
-''');
+      value: "123456789"''');
       final router = createRouter();
-      final response = await get(router, '/api/config');
-      final json = await readJson(response);
+      final json = await api(router).expectJsonObject('GET', '/api/config');
 
       final channels = json['channels'] as Map<String, dynamic>;
       final googleChat = channels['googleChat'] as Map<String, dynamic>;
@@ -301,28 +220,15 @@ workspace:
     });
 
     test('whatsapp config is serialized from parsed typed config', () async {
-      File(configPath).writeAsStringSync('''
-port: 3000
-host: localhost
+      writeConfigYaml('''
 channels:
   whatsapp:
     enabled: nope
     dm_access: invalid
     group_access: invalid
-    require_mention: invalid
-scheduling:
-  heartbeat:
-    enabled: true
-    interval_minutes: 30
-  jobs: []
-workspace:
-  git_sync:
-    enabled: true
-    push_enabled: true
-''');
+    require_mention: invalid''');
       final router = createRouter();
-      final response = await get(router, '/api/config');
-      final json = await readJson(response);
+      final json = await api(router).expectJsonObject('GET', '/api/config');
 
       final channels = json['channels'] as Map<String, dynamic>;
       final whatsapp = channels['whatsapp'] as Map<String, dynamic>;
@@ -333,26 +239,13 @@ workspace:
     });
 
     test('github config is loaded from disk via the typed extension parser', () async {
-      File(configPath).writeAsStringSync('''
-port: 3000
-host: localhost
+      writeConfigYaml('''
 github:
   enabled: true
   webhook_secret: secret
-  webhook_path: /hooks/github
-scheduling:
-  heartbeat:
-    enabled: true
-    interval_minutes: 30
-  jobs: []
-workspace:
-  git_sync:
-    enabled: true
-    push_enabled: true
-''');
+  webhook_path: /hooks/github''');
       final router = createRouter();
-      final response = await get(router, '/api/config');
-      final json = await readJson(response);
+      final json = await api(router).expectJsonObject('GET', '/api/config');
 
       final github = json['github'] as Map<String, dynamic>;
       expect(github['enabled'], isTrue);
@@ -370,10 +263,8 @@ workspace:
       ]);
       final router = createRouter();
 
-      final response = await get(router, '/api/scheduling/jobs');
+      final body = await api(router).expectJsonList('GET', '/api/scheduling/jobs');
 
-      expect(response.statusCode, 200);
-      final body = jsonDecode(await response.readAsString()) as List<dynamic>;
       expect(body, hasLength(1));
       expect((body.single as Map<String, dynamic>)['name'], 'daily-summary');
     });
@@ -384,38 +275,28 @@ workspace:
       ]);
       final router = createRouter();
 
-      final response = await get(router, '/api/scheduling/jobs/daily-summary');
+      final body = await api(router).expectJsonObject('GET', '/api/scheduling/jobs/daily-summary');
 
-      expect(response.statusCode, 200);
-      final body = await readJson(response);
       expect(body['name'], 'daily-summary');
     });
 
     test('returns 404 when a job does not exist', () async {
       final router = createRouter();
 
-      final response = await get(router, '/api/scheduling/jobs/missing');
+      final code = await api(router).expectJsonErrorCode('GET', '/api/scheduling/jobs/missing', status: 404);
 
-      expect(response.statusCode, 404);
-      final body = await readJson(response);
-      expect((body['error'] as Map<String, dynamic>)['code'], 'JOB_NOT_FOUND');
+      expect(code, 'JOB_NOT_FOUND');
     });
   });
 
   group('PATCH /api/config — validation', () {
     test('request without admin context returns 403 before mutating config', () async {
       final router = createRouter();
-      final request = Request(
-        'PATCH',
-        Uri.parse('http://localhost/api/config'),
-        body: jsonEncode({'guards.content.enabled': false}),
-        headers: {'content-type': 'application/json'},
-      );
+      final json = await api(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'guards.content.enabled': false}, status: 403);
 
-      final response = await router.call(request);
-
-      expect(response.statusCode, 403);
-      expect(await readJson(response), containsPair('error', containsPair('code', 'FORBIDDEN')));
+      expect(json, containsPair('error', containsPair('code', 'FORBIDDEN')));
     });
 
     test('no-auth pipeline (auth_mode: none) lets an unauthenticated request patch config', () async {
@@ -424,83 +305,52 @@ workspace:
       // localAdminMiddleware is what the server installs when auth is disabled;
       // without it the admin gate above would 403 every request in no-auth mode.
       final handler = const Pipeline().addMiddleware(localAdminMiddleware()).addHandler(router.call);
-      final request = Request(
-        'PATCH',
-        Uri.parse('http://localhost/api/config'),
-        body: jsonEncode({'scheduling.heartbeat.enabled': false}),
-        headers: {'content-type': 'application/json'},
-      );
+      final json = await ApiRouteTestClient(
+        handler,
+      ).expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false});
 
-      final response = await handler(request);
-
-      expect(response.statusCode, 200);
-      expect((await readJson(response))['applied'], ['scheduling.heartbeat.enabled']);
+      expect(json['applied'], ['scheduling.heartbeat.enabled']);
       expect(runtime.heartbeatEnabled, false);
     });
 
     test('empty body returns 400', () async {
       final router = createRouter();
-      final request = withAdminAuthContext(
-        Request(
-          'PATCH',
-          Uri.parse('http://localhost/api/config'),
-          body: '{}',
-          headers: {'content-type': 'application/json'},
-        ),
-      );
-      final response = await router.call(request);
-      expect(response.statusCode, 400);
+
+      await adminApi(router).expectResponse('PATCH', '/api/config', json: const <String, dynamic>{}, status: 400);
     });
 
-    test('unknown field returns 400 with error', () async {
-      final router = createRouter();
-      final response = await patch(router, '/api/config', {'nonexistent_field': 42});
-      expect(response.statusCode, 400);
+    for (final testCase in const [
+      (name: 'unknown field', patch: {'nonexistent_field': 42}, field: 'nonexistent_field'),
+      (name: 'read-only field', patch: {'gateway.auth_mode': 'none'}, field: 'gateway.auth_mode'),
+      (name: 'invalid value (port 0)', patch: {'port': 0}, field: 'port'),
+    ]) {
+      test('${testCase.name} returns 400 with field error', () async {
+        final json = await adminApi(
+          createRouter(),
+        ).expectJsonObject('PATCH', '/api/config', json: testCase.patch, status: 400);
 
-      final json = await readJson(response);
-      final errors = json['errors'] as List;
-      expect(errors, hasLength(1));
-      expect((errors[0] as Map)['field'], 'nonexistent_field');
-    });
-
-    test('read-only field returns 400', () async {
-      final router = createRouter();
-      final response = await patch(router, '/api/config', {'gateway.auth_mode': 'none'});
-      expect(response.statusCode, 400);
-
-      final json = await readJson(response);
-      final errors = json['errors'] as List;
-      expect(errors, isNotEmpty);
-      expect((errors[0] as Map)['field'], 'gateway.auth_mode');
-    });
-
-    test('invalid value (port 0) returns 400', () async {
-      final router = createRouter();
-      final response = await patch(router, '/api/config', {'port': 0});
-      expect(response.statusCode, 400);
-
-      final json = await readJson(response);
-      final errors = json['errors'] as List;
-      expect(errors, hasLength(1));
-      expect((errors[0] as Map)['field'], 'port');
-    });
+        final errors = json['errors'] as List;
+        expect(errors, isNotEmpty);
+        expect((errors.first as Map)['field'], testCase.field);
+      });
+    }
 
     test('scheduling.jobs key returns 400', () async {
       final router = createRouter();
-      final response = await patch(router, '/api/config', {'scheduling.jobs': []});
-      expect(response.statusCode, 400);
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'scheduling.jobs': []}, status: 400);
 
-      final json = await readJson(response);
       expect(json['error']['code'], 'INVALID_INPUT');
       expect(json['error']['message'], contains('job CRUD'));
     });
 
     test('enabling google chat without required auth fields returns 400', () async {
       final router = createRouter();
-      final response = await patch(router, '/api/config', {'channels.google_chat.enabled': true});
-      expect(response.statusCode, 400);
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'channels.google_chat.enabled': true}, status: 400);
 
-      final json = await readJson(response);
       final errors = json['errors'] as List;
       final fields = errors.map((error) => (error as Map<String, dynamic>)['field']).toSet();
       expect(
@@ -515,53 +365,42 @@ workspace:
 
     test('enabling github without a webhook secret returns 400', () async {
       final router = createRouter();
-      final response = await patch(router, '/api/config', {'github.enabled': true});
-      expect(response.statusCode, 400);
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'github.enabled': true}, status: 400);
 
-      final json = await readJson(response);
       final errors = json['errors'] as List;
       expect(errors, hasLength(1));
       expect((errors.single as Map<String, dynamic>)['field'], 'github.webhook_secret');
     });
 
     test('enabling github succeeds when webhook secret already exists in current config', () async {
-      File(configPath).writeAsStringSync('''
-port: 3000
-host: localhost
+      writeConfigYaml('''
 github:
   enabled: false
-  webhook_secret: secret
-scheduling:
-  heartbeat:
-    enabled: true
-    interval_minutes: 30
-  jobs: []
-workspace:
-  git_sync:
-    enabled: true
-    push_enabled: true
-''');
+  webhook_secret: secret''');
       final router = createRouter();
-      final response = await patch(router, '/api/config', {'github.enabled': true});
-      expect(response.statusCode, 200);
+      await adminApi(router).expectJsonObject('PATCH', '/api/config', json: {'github.enabled': true});
     });
 
     test('github triggers can be updated through the config API', () async {
       final router = createRouter();
-      final response = await patch(router, '/api/config', {
-        'github.triggers': [
-          {
-            'event': 'pull_request',
-            'workflow': 'code-review',
-            'actions': ['opened'],
-            'labels': ['needs-review'],
-          },
-        ],
-      });
-      expect(response.statusCode, 200);
+      await adminApi(router).expectJsonObject(
+        'PATCH',
+        '/api/config',
+        json: {
+          'github.triggers': [
+            {
+              'event': 'pull_request',
+              'workflow': 'code-review',
+              'actions': ['opened'],
+              'labels': ['needs-review'],
+            },
+          ],
+        },
+      );
 
-      final getResponse = await get(router, '/api/config');
-      final json = await readJson(getResponse);
+      final json = await api(router).expectJsonObject('GET', '/api/config');
       final github = json['github'] as Map<String, dynamic>;
       expect((github['triggers'] as List).single, {
         'event': 'pull_request',
@@ -573,44 +412,36 @@ workspace:
 
     test('invalid github trigger payload returns 400', () async {
       final router = createRouter();
-      final response = await patch(router, '/api/config', {
-        'github.triggers': [
-          {
-            'event': 'pull_request',
-            'workflow': '',
-            'actions': ['opened'],
-          },
-        ],
-      });
-      expect(response.statusCode, 400);
+      await adminApi(router).expectJsonObject(
+        'PATCH',
+        '/api/config',
+        json: {
+          'github.triggers': [
+            {
+              'event': 'pull_request',
+              'workflow': '',
+              'actions': ['opened'],
+            },
+          ],
+        },
+        status: 400,
+      );
     });
 
     test('clearing google chat service account fails when channel is already enabled', () async {
-      File(configPath).writeAsStringSync('''
-port: 3000
-host: localhost
+      writeConfigYaml('''
 channels:
   google_chat:
     enabled: true
     service_account: /tmp/google-service-account.json
     audience:
       type: project-number
-      value: '123456789'
-scheduling:
-  heartbeat:
-    enabled: true
-    interval_minutes: 30
-  jobs: []
-workspace:
-  git_sync:
-    enabled: true
-    push_enabled: true
-''');
+      value: "123456789"''');
       final router = createRouter();
-      final response = await patch(router, '/api/config', {'channels.google_chat.service_account': '   '});
-      expect(response.statusCode, 400);
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'channels.google_chat.service_account': '   '}, status: 400);
 
-      final json = await readJson(response);
       final errors = json['errors'] as List;
       expect((errors.first as Map<String, dynamic>)['field'], 'channels.google_chat.service_account');
     });
@@ -620,10 +451,10 @@ workspace:
     test('heartbeat toggle applied immediately, no restart.pending', () async {
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
       final router = createRouter(runtime: runtime);
-      final response = await patch(router, '/api/config', {'scheduling.heartbeat.enabled': false});
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['applied'], ['scheduling.heartbeat.enabled']);
       expect(json['pendingRestart'], isEmpty);
 
@@ -665,9 +496,9 @@ workspace:
       );
       expect(before, SessionKey.dmPerContact(peerId: 'alice@s.whatsapp.net'));
 
-      final response = await patch(router, '/api/config', {'sessions.dm_scope': 'shared'});
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'sessions.dm_scope': 'shared'});
       expect(json['applied'], ['sessions.dm_scope']);
       expect(json['pendingRestart'], isEmpty);
 
@@ -685,10 +516,10 @@ workspace:
       ConfigChangeSubscriber(runtimeConfig: runtime, contextMonitor: contextMonitor).subscribe(eventBus);
       final router = createRouter(runtime: runtime, eventBus: eventBus);
 
-      final response = await patch(router, '/api/config', {'context.warning_threshold': 90});
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'context.warning_threshold': 90});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['applied'], contains('context.warning_threshold'));
       expect(json['pendingRestart'], isEmpty);
       expect(contextMonitor.warningThreshold, 90);
@@ -699,40 +530,32 @@ workspace:
   });
 
   group('PATCH /api/config — restart fields', () {
-    test('exploration_summary_threshold written to YAML and restart.pending created', () async {
-      final router = createRouter();
-      final response = await patch(router, '/api/config', {'context.exploration_summary_threshold': 50000});
+    for (final testCase in const [
+      (
+        field: 'context.exploration_summary_threshold',
+        patch: {'context.exploration_summary_threshold': 50000},
+        yamlFragment: '50000',
+      ),
+      (
+        field: 'context.compact_instructions',
+        patch: {'context.compact_instructions': 'Keep user prefs'},
+        yamlFragment: 'Keep user prefs',
+      ),
+    ]) {
+      test('${testCase.field} written to YAML and restart.pending created', () async {
+        final json = await adminApi(createRouter()).expectJsonObject('PATCH', '/api/config', json: testCase.patch);
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
-      expect(json['applied'], isEmpty);
-      expect(json['pendingRestart'], contains('context.exploration_summary_threshold'));
-
-      final yaml = File(configPath).readAsStringSync();
-      expect(yaml, contains('50000'));
-      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), true);
-    });
-
-    test('compact_instructions written to YAML and restart.pending created', () async {
-      final router = createRouter();
-      final response = await patch(router, '/api/config', {'context.compact_instructions': 'Keep user prefs'});
-
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
-      expect(json['applied'], isEmpty);
-      expect(json['pendingRestart'], contains('context.compact_instructions'));
-
-      final yaml = File(configPath).readAsStringSync();
-      expect(yaml, contains('Keep user prefs'));
-      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), true);
-    });
+        expect(json['applied'], isEmpty);
+        expect(json['pendingRestart'], contains(testCase.field));
+        expect(File(configPath).readAsStringSync(), contains(testCase.yamlFragment));
+        expect(File(p.join(dataDir, 'restart.pending')).existsSync(), true);
+      });
+    }
 
     test('port change written to YAML and restart.pending created', () async {
       final router = createRouter();
-      final response = await patch(router, '/api/config', {'port': 3001});
+      final json = await adminApi(router).expectJsonObject('PATCH', '/api/config', json: {'port': 3001});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['applied'], isEmpty);
       expect(json['pendingRestart'], ['port']);
 
@@ -752,10 +575,10 @@ workspace:
     test('live + restart fields both handled', () async {
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
       final router = createRouter(runtime: runtime);
-      final response = await patch(router, '/api/config', {'scheduling.heartbeat.enabled': false, 'port': 3001});
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false, 'port': 3001});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['applied'], ['scheduling.heartbeat.enabled']);
       expect(json['pendingRestart'], ['port']);
 
@@ -768,8 +591,8 @@ workspace:
     test('multiple PATCHes accumulate pending fields', () async {
       final router = createRouter();
 
-      await patch(router, '/api/config', {'port': 3001});
-      await patch(router, '/api/config', {'host': '0.0.0.0'});
+      await adminApi(router).expectJsonObject('PATCH', '/api/config', json: {'port': 3001});
+      await adminApi(router).expectJsonObject('PATCH', '/api/config', json: {'host': '0.0.0.0'});
 
       final pendingFile = File(p.join(dataDir, 'restart.pending'));
       final pending = jsonDecode(pendingFile.readAsStringSync()) as Map;
@@ -781,15 +604,13 @@ workspace:
   group('Job CRUD', () {
     test('POST creates a new job', () async {
       final router = createRouter();
-      final response = await post(router, '/api/scheduling/jobs', {
-        'name': 'test-job',
-        'schedule': '0 7 * * *',
-        'prompt': 'Hello world',
-        'delivery': 'announce',
-      });
+      final json = await api(router).expectJsonObject(
+        'POST',
+        '/api/scheduling/jobs',
+        json: {'name': 'test-job', 'schedule': '0 7 * * *', 'prompt': 'Hello world', 'delivery': 'announce'},
+        status: 201,
+      );
 
-      expect(response.statusCode, 201);
-      final json = await readJson(response);
       expect(json['job']['name'], 'test-job');
       expect(json['pendingRestart'], true);
 
@@ -804,37 +625,36 @@ workspace:
       writeJobsToYaml(jobs);
       final config = DartclawConfig(scheduling: SchedulingConfig(jobs: jobs));
       final router = createRouter(config: config);
-      final response = await post(router, '/api/scheduling/jobs', {
-        'name': 'existing',
-        'schedule': '0 8 * * *',
-        'prompt': 'hi',
-        'delivery': 'announce',
-      });
-
-      expect(response.statusCode, 409);
+      await api(router).expectResponse(
+        'POST',
+        '/api/scheduling/jobs',
+        json: {'name': 'existing', 'schedule': '0 8 * * *', 'prompt': 'hi', 'delivery': 'announce'},
+        status: 409,
+      );
     });
 
     test('POST with missing required field returns 400', () async {
       final router = createRouter();
-      final response = await post(router, '/api/scheduling/jobs', {
-        'name': 'test-job',
-        // missing schedule, prompt, delivery
-      });
-
-      expect(response.statusCode, 400);
+      await api(router).expectResponse(
+        'POST',
+        '/api/scheduling/jobs',
+        json: {
+          'name': 'test-job',
+          // missing schedule, prompt, delivery
+        },
+        status: 400,
+      );
     });
 
     test('POST with invalid cron returns 400', () async {
       final router = createRouter();
-      final response = await post(router, '/api/scheduling/jobs', {
-        'name': 'test-job',
-        'schedule': 'not-a-cron',
-        'prompt': 'Hello',
-        'delivery': 'announce',
-      });
+      final json = await api(router).expectJsonObject(
+        'POST',
+        '/api/scheduling/jobs',
+        json: {'name': 'test-job', 'schedule': 'not-a-cron', 'prompt': 'Hello', 'delivery': 'announce'},
+        status: 400,
+      );
 
-      expect(response.statusCode, 400);
-      final json = await readJson(response);
       expect(json['error']['message'], contains('cron'));
     });
 
@@ -845,10 +665,10 @@ workspace:
       writeJobsToYaml(jobs);
       final config = DartclawConfig(scheduling: SchedulingConfig(jobs: jobs));
       final router = createRouter(config: config);
-      final response = await put(router, '/api/scheduling/jobs/my-job', {'schedule': '0 8 * * *'});
+      final json = await api(
+        router,
+      ).expectJsonObject('PUT', '/api/scheduling/jobs/my-job', json: {'schedule': '0 8 * * *'});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['job']['schedule'], '0 8 * * *');
       expect(json['job']['name'], 'my-job');
       expect(json['pendingRestart'], true);
@@ -856,9 +676,9 @@ workspace:
 
     test('PUT non-existent job returns 404', () async {
       final router = createRouter();
-      final response = await put(router, '/api/scheduling/jobs/nonexistent', {'schedule': '0 8 * * *'});
-
-      expect(response.statusCode, 404);
+      await api(
+        router,
+      ).expectResponse('PUT', '/api/scheduling/jobs/nonexistent', json: {'schedule': '0 8 * * *'}, status: 404);
     });
 
     test('DELETE removes job', () async {
@@ -868,19 +688,15 @@ workspace:
       writeJobsToYaml(jobs);
       final config = DartclawConfig(scheduling: SchedulingConfig(jobs: jobs));
       final router = createRouter(config: config);
-      final response = await delete(router, '/api/scheduling/jobs/my-job');
+      final json = await api(router).expectJsonObject('DELETE', '/api/scheduling/jobs/my-job');
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['deleted'], true);
       expect(json['pendingRestart'], true);
     });
 
     test('DELETE non-existent job returns 404', () async {
       final router = createRouter();
-      final response = await delete(router, '/api/scheduling/jobs/nonexistent');
-
-      expect(response.statusCode, 404);
+      await api(router).expectResponse('DELETE', '/api/scheduling/jobs/nonexistent', status: 404);
     });
   });
 
@@ -918,16 +734,19 @@ workspace:
   group('Task Job CRUD via scheduling.jobs', () {
     test('POST /api/scheduling/tasks creates entry under scheduling.jobs', () async {
       final router = createRouter();
-      final response = await post(router, '/api/scheduling/tasks', {
-        'id': 'daily-review',
-        'schedule': '0 9 * * 1-5',
-        'title': 'Daily review',
-        'description': 'Review open items',
-        'type': 'research',
-      });
+      final json = await api(router).expectJsonObject(
+        'POST',
+        '/api/scheduling/tasks',
+        json: {
+          'id': 'daily-review',
+          'schedule': '0 9 * * 1-5',
+          'title': 'Daily review',
+          'description': 'Review open items',
+          'type': 'research',
+        },
+        status: 201,
+      );
 
-      expect(response.statusCode, 201);
-      final json = await readJson(response);
       expect(json['task']['id'], 'daily-review');
       expect(json['task']['type'], 'task');
       expect(json['pendingRestart'], true);
@@ -949,15 +768,18 @@ workspace:
         },
       ]);
       final router = createRouter();
-      final response = await post(router, '/api/scheduling/tasks', {
-        'id': 'existing-task',
-        'schedule': '0 10 * * *',
-        'title': 'Another',
-        'description': 'Desc',
-        'type': 'research',
-      });
-
-      expect(response.statusCode, 409);
+      await api(router).expectResponse(
+        'POST',
+        '/api/scheduling/tasks',
+        json: {
+          'id': 'existing-task',
+          'schedule': '0 10 * * *',
+          'title': 'Another',
+          'description': 'Desc',
+          'type': 'research',
+        },
+        status: 409,
+      );
     });
 
     test('PUT /api/scheduling/tasks/<id> updates task job in scheduling.jobs', () async {
@@ -969,10 +791,10 @@ workspace:
         },
       ]);
       final router = createRouter();
-      final response = await put(router, '/api/scheduling/tasks/my-task', {'enabled': false, 'title': 'New title'});
+      final json = await api(
+        router,
+      ).expectJsonObject('PUT', '/api/scheduling/tasks/my-task', json: {'enabled': false, 'title': 'New title'});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['task']['enabled'], false);
       expect(json['task']['task']['title'], 'New title');
       expect(json['pendingRestart'], true);
@@ -985,9 +807,9 @@ workspace:
 
     test('PUT /api/scheduling/tasks/<id> returns 404 for missing task', () async {
       final router = createRouter();
-      final response = await put(router, '/api/scheduling/tasks/nonexistent', {'enabled': false});
-
-      expect(response.statusCode, 404);
+      await api(
+        router,
+      ).expectResponse('PUT', '/api/scheduling/tasks/nonexistent', json: {'enabled': false}, status: 404);
     });
 
     test('DELETE /api/scheduling/tasks/<id> removes from scheduling.jobs', () async {
@@ -999,10 +821,8 @@ workspace:
         },
       ]);
       final router = createRouter();
-      final response = await delete(router, '/api/scheduling/tasks/removable-task');
+      final json = await api(router).expectJsonObject('DELETE', '/api/scheduling/tasks/removable-task');
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['deleted'], true);
       expect(json['pendingRestart'], true);
 
@@ -1014,22 +834,23 @@ workspace:
 
     test('DELETE /api/scheduling/tasks/<id> returns 404 for missing task', () async {
       final router = createRouter();
-      final response = await delete(router, '/api/scheduling/tasks/nonexistent');
-
-      expect(response.statusCode, 404);
+      await api(router).expectResponse('DELETE', '/api/scheduling/tasks/nonexistent', status: 404);
     });
 
     test('POST /api/scheduling/jobs with type: task does not require delivery', () async {
       final router = createRouter();
-      final response = await post(router, '/api/scheduling/jobs', {
-        'name': 'scheduled-coding-task',
-        'type': 'task',
-        'schedule': '0 10 * * *',
-        'task': {'title': 'Coding task', 'description': 'Do some coding', 'task_type': 'coding'},
-      });
+      final json = await api(router).expectJsonObject(
+        'POST',
+        '/api/scheduling/jobs',
+        json: {
+          'name': 'scheduled-coding-task',
+          'type': 'task',
+          'schedule': '0 10 * * *',
+          'task': {'title': 'Coding task', 'description': 'Do some coding', 'task_type': 'coding'},
+        },
+        status: 201,
+      );
 
-      expect(response.statusCode, 201);
-      final json = await readJson(response);
       expect(json['job']['name'], 'scheduled-coding-task');
       expect(json['job']['type'], 'task');
       // delivery should not be present for task-type jobs
@@ -1060,10 +881,10 @@ workspace:
     push_enabled: true
 ''');
       final router = createRouter();
-      final response = await put(router, '/api/scheduling/jobs/job-with-id', {'enabled': false});
+      final json = await api(
+        router,
+      ).expectJsonObject('PUT', '/api/scheduling/jobs/job-with-id', json: {'enabled': false});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['job']['enabled'], false);
     });
   });
@@ -1073,11 +894,10 @@ workspace:
       final router = createRouter();
 
       // PATCH a restart field
-      await patch(router, '/api/config', {'port': 3001});
+      await adminApi(router).expectJsonObject('PATCH', '/api/config', json: {'port': 3001});
 
       // GET should show restartPending = true
-      final response = await get(router, '/api/config');
-      final json = await readJson(response);
+      final json = await api(router).expectJsonObject('GET', '/api/config');
       final meta = json['_meta'] as Map<String, dynamic>;
 
       expect(meta['restartPending'], true);
@@ -1089,10 +909,8 @@ workspace:
     test('GET returns empty pending list when no pairings', () async {
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await get(router, '/api/channels/whatsapp/dm-pairing');
+      final json = await api(router).expectJsonObject('GET', '/api/channels/whatsapp/dm-pairing');
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['pending'], isEmpty);
       expect(json['total'], 0);
     });
@@ -1101,10 +919,8 @@ workspace:
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       ctrl.createPairing('+15551234567', displayName: 'Alice');
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await get(router, '/api/channels/whatsapp/dm-pairing');
+      final json = await api(router).expectJsonObject('GET', '/api/channels/whatsapp/dm-pairing');
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['total'], 1);
       final pending = json['pending'] as List;
       expect(pending.first['senderId'], '+15551234567');
@@ -1117,10 +933,10 @@ workspace:
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final pairing = ctrl.createPairing('+15551234567', displayName: 'Alice')!;
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await post(router, '/api/channels/whatsapp/dm-pairing/confirm', {'code': pairing.code});
+      final json = await api(
+        router,
+      ).expectJsonObject('POST', '/api/channels/whatsapp/dm-pairing/confirm', json: {'code': pairing.code});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['confirmed'], true);
       expect(json['senderId'], '+15551234567');
       expect(ctrl.isAllowed('+15551234567'), isTrue);
@@ -1130,19 +946,19 @@ workspace:
     test('confirm with expired/unknown code returns 404', () async {
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await post(router, '/api/channels/whatsapp/dm-pairing/confirm', {'code': 'INVALID!'});
-
-      expect(response.statusCode, 404);
+      await api(
+        router,
+      ).expectResponse('POST', '/api/channels/whatsapp/dm-pairing/confirm', json: {'code': 'INVALID!'}, status: 404);
     });
 
     test('reject removes pairing without adding to allowlist', () async {
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final pairing = ctrl.createPairing('+15551234567')!;
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await post(router, '/api/channels/whatsapp/dm-pairing/reject', {'code': pairing.code});
+      final json = await api(
+        router,
+      ).expectJsonObject('POST', '/api/channels/whatsapp/dm-pairing/reject', json: {'code': pairing.code});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['rejected'], true);
       expect(ctrl.isAllowed('+15551234567'), isFalse);
       expect(ctrl.pendingPairings, isEmpty);
@@ -1151,26 +967,23 @@ workspace:
     test('reject with unknown code returns 404', () async {
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await post(router, '/api/channels/whatsapp/dm-pairing/reject', {'code': 'NONEXIST'});
-
-      expect(response.statusCode, 404);
+      await api(
+        router,
+      ).expectResponse('POST', '/api/channels/whatsapp/dm-pairing/reject', json: {'code': 'NONEXIST'}, status: 404);
     });
 
     test('GET on non-configured channel returns 404', () async {
       final router = createRouter();
-      final response = await get(router, '/api/channels/whatsapp/dm-pairing');
 
-      expect(response.statusCode, 404);
+      await api(router).expectResponse('GET', '/api/channels/whatsapp/dm-pairing', status: 404);
     });
 
     test('pairing-counts returns counts for both channels', () async {
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       ctrl.createPairing('+15551234567');
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await get(router, '/api/channels/pairing-counts');
+      final json = await api(router).expectJsonObject('GET', '/api/channels/pairing-counts');
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['whatsapp'], 1);
       expect(json['signal'], 0);
     });
@@ -1210,10 +1023,10 @@ workspace:
       final router = createRouterWithNotifier(notifier);
 
       // concurrency.max_parallel_turns is reloadable
-      final response = await patch(router, '/api/config', {'concurrency.max_parallel_turns': 4});
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['applied'], contains('concurrency.max_parallel_turns'));
       expect(json['pendingRestart'], isEmpty);
 
@@ -1227,10 +1040,8 @@ workspace:
       final router = createRouterWithNotifier(notifier);
 
       // server.port is restart-required
-      final response = await patch(router, '/api/config', {'port': 8080});
+      final json = await adminApi(router).expectJsonObject('PATCH', '/api/config', json: {'port': 8080});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['pendingRestart'], contains('port'));
       expect(json['applied'], isEmpty);
 
@@ -1242,10 +1053,10 @@ workspace:
       final notifier = ConfigNotifier(const DartclawConfig.defaults());
       final router = createRouterWithNotifier(notifier);
 
-      final response = await patch(router, '/api/config', {'concurrency.max_parallel_turns': 4, 'port': 9090});
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4, 'port': 9090});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['applied'], contains('concurrency.max_parallel_turns'));
       expect(json['pendingRestart'], contains('port'));
       expect(json['pendingRestart'], isNot(contains('concurrency.max_parallel_turns')));
@@ -1255,10 +1066,10 @@ workspace:
       final notifier = ConfigNotifier(const DartclawConfig.defaults());
       final router = createRouterWithNotifier(notifier);
 
-      final response = await patch(router, '/api/config', {'workflow.defaults.reviewer.model': 'codex/gpt-5-codex'});
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'workflow.defaults.reviewer.model': 'codex/gpt-5-codex'});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['pendingRestart'], contains('workflow.defaults.reviewer.model'));
       expect(json['pendingRestart'], contains('workflow.defaults.reviewer.provider'));
 
@@ -1272,10 +1083,10 @@ workspace:
       final notifier = ConfigNotifier(const DartclawConfig.defaults());
       final router = createRouterWithNotifier(notifier);
 
-      final response = await patch(router, '/api/config', {'agent.model': 'codex/gpt-5.4'});
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'agent.model': 'codex/gpt-5.4'});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['pendingRestart'], contains('agent.model'));
       expect(json['pendingRestart'], contains('agent.provider'));
 
@@ -1289,10 +1100,10 @@ workspace:
       // Use _ThrowingConfigNotifier to simulate a reload() failure.
       final throwingRouter = _buildRouterWithThrowingNotifier(configPath, dataDir);
 
-      final response = await patch(throwingRouter, '/api/config', {'concurrency.max_parallel_turns': 4});
+      final json = await adminApi(
+        throwingRouter,
+      ).expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
 
-      expect(response.statusCode, 200);
-      final json = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
       // Field written to YAML but reload failed → falls back to pendingRestart
       expect(json['applied'], isEmpty);
       expect(json['pendingRestart'], contains('concurrency.max_parallel_turns'));
@@ -1321,10 +1132,10 @@ workspace:
       );
 
       // scheduling.heartbeat.enabled is a live field
-      final response = await patch(router, '/api/config', {'scheduling.heartbeat.enabled': false});
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'scheduling.heartbeat.enabled': false});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['applied'], contains('scheduling.heartbeat.enabled'));
       expect(json['pendingRestart'], isEmpty);
       expect(captured, isNotNull);
@@ -1335,10 +1146,10 @@ workspace:
       // createRouter() does not wire a ConfigNotifier
       final router = createRouter();
 
-      final response = await patch(router, '/api/config', {'concurrency.max_parallel_turns': 4});
+      final json = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
 
-      expect(response.statusCode, 200);
-      final json = await readJson(response);
       expect(json['applied'], isEmpty);
       expect(json['pendingRestart'], contains('concurrency.max_parallel_turns'));
     });
@@ -1378,16 +1189,15 @@ workspace:
         sseBroadcast: sseBroadcast,
       );
 
-      final sseResponse = await get(router, '/api/events');
-      expect(sseResponse.statusCode, 200);
+      final sseResponse = await api(router).expectResponse('GET', '/api/events', status: 200);
       expect(sseResponse.headers['content-type'], 'text/event-stream');
 
       final iterator = StreamIterator(sseResponse.read().transform(utf8.decoder));
       addTearDown(iterator.cancel);
 
-      final patchResponse = await patch(router, '/api/config', {'concurrency.max_parallel_turns': 4});
-      final patchJson = await readJson(patchResponse);
-      expect(patchResponse.statusCode, 200);
+      final patchJson = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'concurrency.max_parallel_turns': 4});
       expect(patchJson['applied'], contains('concurrency.max_parallel_turns'));
       expect(patchJson['pendingRestart'], isEmpty);
 
@@ -1414,25 +1224,20 @@ workspace:
 
         final router = createRouterWithSse(restartService: restartService, sseBroadcast: sseBroadcast);
 
-        final sseResponse = await get(router, '/api/events');
+        final sseResponse = await api(router).expectResponse('GET', '/api/events', status: 200);
         final iterator = StreamIterator(sseResponse.read().transform(utf8.decoder));
         addTearDown(iterator.cancel);
 
-        final patchResponse = await patch(router, '/api/config', {'port': 3001});
-        final patchJson = await readJson(patchResponse);
-        expect(patchResponse.statusCode, 200);
+        final patchJson = await adminApi(router).expectJsonObject('PATCH', '/api/config', json: {'port': 3001});
         expect(patchJson['applied'], isEmpty);
         expect(patchJson['pendingRestart'], contains('port'));
 
-        final configResponse = await get(router, '/api/config');
-        final configJson = await readJson(configResponse);
+        final configJson = await api(router).expectJsonObject('GET', '/api/config');
         final meta = configJson['_meta'] as Map<String, dynamic>;
         expect(meta['restartPending'], true);
         expect(meta['pendingFields'], contains('port'));
 
-        final restartResponse = await router.call(Request('POST', Uri.parse('http://localhost/api/system/restart')));
-        final restartJson = await readJson(restartResponse);
-        expect(restartResponse.statusCode, 200);
+        final restartJson = await api(router).expectJsonObject('POST', '/api/system/restart');
         expect(restartJson['status'], 'restarting');
 
         final frame = await nextSseFrame(iterator);
@@ -1472,14 +1277,4 @@ class _ThrowingConfigNotifier extends ConfigNotifier {
   ConfigDelta? reload(DartclawConfig newConfig) {
     throw StateError('simulated reload failure');
   }
-}
-
-class _FakeGowaManager extends GowaManager {
-  _FakeGowaManager() : super(executable: '', host: '', port: 0, webhookUrl: '', osName: '');
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> reset() async {}
 }

@@ -72,13 +72,14 @@
 <body>
   <div class="showcase">
     <div class="toggle-row">
-      <h1 style="background:linear-gradient(90deg,var(--accent),var(--info),var(--accent));background-size:200% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:gradient-slide 6s linear infinite">DartClaw Design System</h1>
+      <img src="assets/logo-avatar-512-8bit.png" alt="DartClaw mascot" class="pixel-art" width="40" height="40" style="margin-bottom:var(--sp-2)">
+      <h1 style="background:linear-gradient(90deg,var(--accent),var(--teal),var(--info),var(--mauve),var(--accent));background-size:200% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:gradient-slide 6s linear infinite">DartClaw Design System &mdash; Afterglow</h1>
       <div class="theme-control">
         <button type="button" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"><span class="sr-only">Toggle theme</span></button>
         <span class="text-sm text-muted" id="theme-label">dark</span>
       </div>
     </div>
-    <p class="subtitle">Terminal-aesthetic design system. Catppuccin Mocha/Latte, monospace typography, green accent. See <code>style-guide.md</code> for full documentation.</p>
+    <p class="subtitle">Terminal-aesthetic design system. Catppuccin Mocha/Latte, monospace typography, green accent. See <code>DESIGN.md</code> for full documentation.</p>
 
 
     <!-- SURFACE LADDER -->
@@ -105,6 +106,103 @@
       <div class="swatch" style="background:var(--info)"><span>info</span></div>
     </div>
 
+    <h3>Extended Palette</h3>
+    <p class="use-case">Decorative/categorical only — gradients, ambient glows, identicons, data-viz. Never state.</p>
+    <div class="swatch-grid">
+      <div class="swatch" style="background:var(--mauve)"><span>mauve</span></div>
+      <div class="swatch" style="background:var(--teal)"><span>teal</span></div>
+      <div class="swatch" style="background:var(--sky)"><span>sky</span></div>
+      <div class="swatch" style="background:var(--pink)"><span>pink</span></div>
+      <div class="swatch" style="background:var(--lavender)"><span>lavender</span></div>
+    </div>
+
+    <h3>Chart Ramp</h3>
+    <p class="use-case">Ordered categorical ramp — assign <code>--chart-1…6</code> by series index, never hand-picked.</p>
+    <div class="swatch-grid">
+      <div class="swatch" style="background:var(--chart-1)"><span>chart-1</span></div>
+      <div class="swatch" style="background:var(--chart-2)"><span>chart-2</span></div>
+      <div class="swatch" style="background:var(--chart-3)"><span>chart-3</span></div>
+      <div class="swatch" style="background:var(--chart-4)"><span>chart-4</span></div>
+      <div class="swatch" style="background:var(--chart-5)"><span>chart-5</span></div>
+      <div class="swatch" style="background:var(--chart-6)"><span>chart-6</span></div>
+    </div>
+
+
+    <!-- IDENTITY -->
+    <h2>Identity &mdash; "Afterglow"</h2>
+    <p>The brand is the 8-bit crab mascot (<code>assets/logo-*-8bit.png</code>); Afterglow is its world rendered as UI. Scarcity doctrine: one claw moment per view.</p>
+
+    <h3>Brand Assets</h3>
+    <p class="use-case">Always render scaled pixel art with <code>.pixel-art</code>. Never recolor, redraw, or shrink below ~32px.</p>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">Mascot Avatar</div>
+        <div class="card-body" style="display:flex;align-items:flex-end;gap:var(--sp-5)">
+          <img src="assets/logo-avatar-512-8bit.png" alt="" class="pixel-art" width="32" height="32">
+          <img src="assets/logo-avatar-512-8bit.png" alt="" class="pixel-art" width="64" height="64">
+          <img src="assets/logo-avatar-512-8bit.png" alt="DartClaw mascot" class="pixel-art" width="112" height="112">
+        </div>
+        <div class="card-footer"><code>logo-avatar-512-8bit.png</code> + <code>.pixel-art</code> &mdash; 32 / 64 / 112px</div>
+      </div>
+      <div class="card">
+        <div class="card-header">Banner Lockup</div>
+        <div class="card-body"><img src="assets/logo-banner-1280-8bit.png" alt="DartClaw banner" class="pixel-art" style="width:100%;max-width:480px"></div>
+        <div class="card-footer"><code>logo-banner-1280-8bit.png</code> &mdash; README, docs headers</div>
+      </div>
+    </div>
+
+    <div class="grid-3" style="margin-top:var(--sp-3)">
+      <div class="card">
+        <div class="card-header">Pixel Claw Mark</div>
+        <div class="card-body" style="display:flex;align-items:center;gap:var(--sp-4)">
+          <span class="claw-mark" style="font-size:var(--text-base)"></span>
+          <span class="claw-mark" style="font-size:var(--text-xl)"></span>
+          <span class="claw-mark" style="font-size:var(--text-3xl)"></span>
+          <span class="claw-mark" style="font-size:56px"></span>
+        </div>
+        <div class="card-footer"><code>.claw-mark</code> &mdash; the mascot's swipe, scales with font-size</div>
+      </div>
+      <div class="card">
+        <div class="card-header">Pixel Claw Loader</div>
+        <div class="card-body" style="display:flex;align-items:center;gap:var(--sp-4)">
+          <span class="claw-loader" style="font-size:var(--text-base)"><span></span><span></span><span></span></span>
+          <span class="claw-loader" style="font-size:var(--text-xl)"><span></span><span></span><span></span></span>
+          <span class="claw-loader" style="font-size:var(--text-3xl)"><span></span><span></span><span></span></span>
+          <span class="text-sm text-muted">Agent thinking&hellip;</span>
+        </div>
+        <div class="card-footer"><code>.claw-loader</code> &mdash; stepped pulse, 8-bit motion</div>
+      </div>
+      <div class="card">
+        <div class="card-header">App Lockup</div>
+        <div class="card-body" style="display:flex;align-items:center;gap:var(--sp-2)">
+          <span class="claw-mark" style="font-size:var(--text-lg)"></span>
+          <span class="logo" style="font-size:var(--text-lg);font-weight:var(--weight-bold);background:linear-gradient(90deg,var(--accent),var(--teal),var(--info),var(--mauve),var(--accent));background-size:200% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:gradient-slide 6s linear infinite">DartClaw</span>
+        </div>
+        <div class="card-footer">claw mark + gradient wordmark (compact chrome)</div>
+      </div>
+    </div>
+
+    <h3>Identicons</h3>
+    <p class="use-case"><code>.identicon .identicon--{1&ndash;6}</code> &mdash; variant by <code>hash(entityId) % 6 + 1</code>. Entity identity, never state.</p>
+    <div class="btn-row" style="gap:var(--sp-3)">
+      <span class="identicon identicon--1">pa</span>
+      <span class="identicon identicon--2">rs</span>
+      <span class="identicon identicon--3">db</span>
+      <span class="identicon identicon--4">wa</span>
+      <span class="identicon identicon--5">ci</span>
+      <span class="identicon identicon--6">gh</span>
+      <span class="identicon identicon--3" style="font-size:var(--text-base)">ag</span>
+    </div>
+
+    <h3>Print-in Motion</h3>
+    <p class="use-case"><code>.print-in</code> &mdash; content prints into place on entry (<code>@starting-style</code>, no JS).</p>
+    <div class="btn-row" style="margin-bottom:var(--sp-3)"><button type="button" class="btn" onclick="replayPrintIn()">Replay</button></div>
+    <div class="grid-3" id="print-in-demo">
+      <div class="card print-in"><div class="card-header">First</div><div class="card-body">Rises and fades in.</div></div>
+      <div class="card print-in"><div class="card-header">Second</div><div class="card-body">Same motion, every arrival.</div></div>
+      <div class="card print-in"><div class="card-header">Third</div><div class="card-body">One entry treatment = identity.</div></div>
+    </div>
+
 
     <!-- TYPOGRAPHY -->
     <h2>Typography</h2>
@@ -114,7 +212,13 @@
       <div><span class="label">text-base</span> <span style="font-size:var(--text-base)">The quick brown fox jumps (14px)</span></div>
       <div><span class="label">text-lg</span> <span style="font-size:var(--text-lg)">The quick brown fox jumps (16px)</span></div>
       <div><span class="label">text-xl</span> <span style="font-size:var(--text-xl)">The quick brown fox jumps (20px)</span></div>
+      <div><span class="label">text-2xl</span> <span style="font-size:var(--text-2xl);letter-spacing:var(--tracking-tight)">The quick brown fox (24px)</span></div>
+      <div><span class="label">text-3xl</span> <span style="font-size:var(--text-3xl);letter-spacing:var(--tracking-tight)">1,402 tokens (32px)</span></div>
     </div>
+
+    <h3>Gradient Text</h3>
+    <p class="use-case"><code>.text-gradient</code> — hero titles and brand moments only, max once per view.</p>
+    <div style="font-size:var(--text-2xl);font-weight:var(--weight-bold)"><span class="text-gradient">Agent runtime, instrumented.</span></div>
 
 
     <!-- CARD TAXONOMY -->
@@ -143,6 +247,34 @@
         <div class="card-header"><span class="status-dot status-dot--live"></span> Active</div>
         <div class="card-body">Selected/focused. Persistent glow.</div>
         <div class="card-footer"><code>card card-active</code></div>
+      </div>
+    </div>
+
+    <h3>Glass &mdash; overlay tier</h3>
+    <p class="use-case"><code>.card.card-glass</code> &mdash; translucent + backdrop blur. Only over live content (modals, command palettes, toasts). Left half sharp, right half through the glass.</p>
+    <div style="position:relative;border-radius:var(--radius-lg);overflow:hidden;border:var(--border);background:var(--bg-base)">
+      <div style="padding:var(--sp-5);display:flex;flex-direction:column;gap:var(--sp-3)">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;white-space:nowrap">
+          <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-1)">1,402</span>
+          <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-2)">47</span>
+          <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-3)">85%</span>
+          <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-4)">6d 4h</span>
+          <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-5)">12</span>
+          <span style="font-size:var(--text-3xl);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);color:var(--chart-6)">340K</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;flex-wrap:nowrap;white-space:nowrap">
+          <span class="status-pill status-pill--live">Running</span>
+          <span class="status-pill status-pill--info">Research</span>
+          <span class="status-pill status-pill--warning">85% Budget</span>
+          <span class="status-pill status-pill--error">1 Block</span>
+          <span class="status-pill status-pill--live">2 Channels</span>
+          <span class="status-pill status-pill--info">Digest @ 07:00</span>
+        </div>
+        <div class="scan-bar"></div>
+      </div>
+      <div class="card card-glass" style="position:absolute;top:var(--sp-3);bottom:var(--sp-3);right:var(--sp-3);width:48%;display:flex;flex-direction:column;justify-content:center">
+        <div class="card-header" style="border-bottom:none;padding-bottom:0;margin-bottom:var(--sp-1)"><span class="icon icon-terminal"></span> Command Palette <span style="margin-left:auto"><kbd>&#8984;</kbd><kbd>K</kbd></span></div>
+        <div class="card-body">The live dashboard blurs through the panel.</div>
       </div>
     </div>
 
@@ -252,6 +384,30 @@ Listening on http://localhost:3000</code></pre>
       </div>
     </div>
 
+    <h3>Terminal Frame</h3>
+    <p class="use-case"><code>.terminal-frame</code> &mdash; terminal as an object: title bar + traffic dots + recessed body. Plain output stays <code>.well-deep</code>.</p>
+    <div class="grid-2">
+      <div class="terminal-frame">
+        <div class="terminal-frame-bar"><span class="terminal-frame-dots"></span>dartclaw serve &mdash; zsh</div>
+        <div class="terminal-frame-body">
+          <pre><code>$ dartclaw serve --config production.yaml
+<span class="text-success">✓</span> Storage initialized (.dartclaw/)
+<span class="text-success">✓</span> 2 channels connected
+Listening on http://localhost:3000<span class="streaming"></span></code></pre>
+        </div>
+      </div>
+      <div class="terminal-frame terminal-frame--crt">
+        <div class="terminal-frame-bar"><span class="terminal-frame-dots"></span>replay &mdash; session 47 <span style="margin-left:auto"><code>--crt</code></span></div>
+        <div class="terminal-frame-body">
+          <pre><code>$ dartclaw replay 47
+<span class="text-info">&gt;</span> [06:32:01] task started: digest
+<span class="text-success">✓</span> [06:32:14] 12 messages summarized
+done.<span class="streaming"></span></code></pre>
+        </div>
+      </div>
+    </div>
+    <p class="use-case" style="margin-top:var(--sp-2)"><code>--crt</code> modifier: scanlines + vignette. Hero/replay terminals only &mdash; one per view.</p>
+
     <h3>Well Content &mdash; Message Thread</h3>
     <p class="use-case"><code>.well-content</code> &mdash; Roomier. Message threads, form sections.</p>
     <div class="well-content">
@@ -296,6 +452,32 @@ Listening on http://localhost:3000</code></pre>
       <div class="scan-bar" style="width:100%"></div>
     </div>
 
+    <h3>Meters &mdash; Determinate Progress</h3>
+    <p class="use-case"><code>.meter</code> + <code>.meter-fill[--color]</code> &mdash; budget consumption, turn progress. Always pair with a visible label.</p>
+    <div class="card" style="display:flex;flex-direction:column;gap:var(--sp-3)">
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:var(--sp-1)"><span class="text-sm">Token budget</span><span class="text-sm text-muted">42%</span></div>
+        <div class="meter"><div class="meter-fill" style="width:42%"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:var(--sp-1)"><span class="text-sm">Token budget</span><span class="text-sm text-warning">85%</span></div>
+        <div class="meter"><div class="meter-fill meter-fill--warning" style="width:85%"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:var(--sp-1)"><span class="text-sm">Token budget</span><span class="text-sm text-error">97%</span></div>
+        <div class="meter"><div class="meter-fill meter-fill--error" style="width:97%"></div></div>
+      </div>
+    </div>
+
+    <h3>Skeletons &mdash; Loading Placeholders</h3>
+    <p class="use-case"><code>.skeleton</code> / <code>.skeleton-text</code> &mdash; initial loads, shaped like the eventual content.</p>
+    <div class="card" style="max-width:420px">
+      <div class="skeleton skeleton-text" style="width:40%"></div>
+      <div class="skeleton skeleton-text" style="width:90%"></div>
+      <div class="skeleton skeleton-text" style="width:75%"></div>
+      <div class="skeleton" style="height:48px;margin-top:var(--sp-2)"></div>
+    </div>
+
     <h3>Status Dots &amp; Badges &amp; Pills</h3>
     <div class="card">
       <div class="btn-row" style="gap:var(--sp-6); margin-bottom:var(--sp-4)">
@@ -337,6 +519,10 @@ Listening on http://localhost:3000</code></pre>
       <button type="button" class="btn btn-danger">Danger</button>
       <button type="button" class="btn btn-primary" disabled>Disabled</button>
     </div>
+
+    <h3>Keycaps</h3>
+    <p class="use-case"><code>kbd</code> / <code>.kbd</code> &mdash; keyboard shortcuts in help text and command hints.</p>
+    <p class="text-sm">Press <kbd>&#8984;</kbd> <kbd>K</kbd> to open the command palette, <kbd>Esc</kbd> to dismiss, <kbd>Shift</kbd>+<kbd>Enter</kbd> for a newline.</p>
 
 
     <!-- BANNERS -->
@@ -382,7 +568,7 @@ Listening on http://localhost:3000</code></pre>
     <h2>Empty State</h2>
     <div class="well-content">
       <div class="empty-state">
-        <div class="icon">&#x276F;_</div>
+        <img src="assets/logo-avatar-512-8bit.png" alt="" class="pixel-art" width="64" height="64">
         <p><strong style="color:var(--fg)">No sessions yet</strong></p>
         <p>Create a new session to start chatting.</p>
         <button type="button" class="btn btn-primary">+ New Session</button>
@@ -491,7 +677,7 @@ Listening on http://localhost:3000</code></pre>
     <h2>Full Layout</h2>
     <div class="demo-shell">
       <div class="sidebar" id="demo-sidebar">
-        <div class="sidebar-header"><span class="logo">&#x276F; DartClaw</span></div>
+        <div class="sidebar-header"><span class="claw-mark" style="font-size:var(--text-base)"></span><span class="logo">DartClaw</span></div>
         <button type="button" class="btn btn-ghost btn-new-session" style="width:calc(100% - var(--sp-6))">+ New Session</button>
         <div class="session-list">
           <div class="session-item active">Refactor auth module <button type="button" class="delete-btn" aria-label="Delete session">&times;</button></div>
@@ -559,6 +745,12 @@ Listening on http://localhost:3000</code></pre>
     if (saved === 'light') {
       document.documentElement.dataset.theme = 'light';
       document.getElementById('theme-label').textContent = 'light';
+    }
+
+    function replayPrintIn() {
+      document.querySelectorAll('#print-in-demo .print-in').forEach((el) => {
+        el.replaceWith(el.cloneNode(true));  // re-insertion re-fires @starting-style
+      });
     }
 
     function getOrCreateToastContainer() {

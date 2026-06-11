@@ -2,13 +2,13 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.16.4
+**Current through**: 0.18
 
 ---
 
 ## Threat Model
 
-DartClaw is a security-conscious AI agent runtime that spawns provider CLI binaries (`claude`, `codex`) with full tool execution capabilities (bash, file I/O, networking). The agent can execute arbitrary shell commands and access the filesystem. The security architecture addresses the following threat categories:
+DartClaw is a security-conscious AI agent runtime that spawns provider CLI binaries (`claude`, `codex`) and ACP agent binaries with tool execution capabilities (bash, file I/O, networking). The agent can execute arbitrary shell commands and access the filesystem through the active provider boundary. The security architecture addresses the following threat categories:
 
 | Threat | Description | Primary Defense |
 |--------|-------------|-----------------|
@@ -172,6 +172,11 @@ Provider adapters normalize tool requests into a DartClaw-canonical taxonomy bef
 | `web_fetch` | `web_fetch` | `web_search` | HTTP/web retrieval |
 | `mcp_call` | MCP tool call | `mcp_tool_call` | Tool calls routed through an MCP server |
 
+ACP reverse-calls map at the handler-level, not in the one-way provider event parser: `fs/read_text_file` -> `file_read`,
+`fs/write_text_file` -> `file_write`, and `terminal/create` -> `shell`. ACP terminal lifecycle calls
+(`terminal/output`, `terminal/wait_for_exit`, `terminal/kill`, `terminal/release`) preserve their raw ACP method names
+for audit but operate only on host-created terminal IDs and do not create a second shell-execution path.
+
 Inference rules:
 
 - Claude and Codex use the canonical mapping table above directly.
@@ -190,13 +195,17 @@ Different providers expose different interception points. DartClaw keeps the gua
 | Provider / mode | Mechanism | DartClaw integration point | Security boundary |
 |-----------------|------------|-----------------------------|-------------------|
 | Claude Code | `--dangerously-skip-permissions` + hooks | `PreToolUse` hook callback; permission handler is a no-op because native permission prompts are skipped | Guard chain is the active interception point before tool execution |
-| Codex (app-server) | Approval requests only | `approval` control request handler in `CodexHarness`; must keep approvals enabled and must not use `--yolo` | Approval response path is the only interception point |
+| Codex (app-server) | Approval requests only | `approval` control request handler in `CodexHarness`; must keep approvals enabled and must not use `--yolo` for provider-approval security mode | Approval response path is the only interception point |
+| ACP direct-provider, verified | Host-advertised ACP `fs`/`terminal` capabilities | `AcpReverseCallHandlers` map reverse-calls to canonical tools before host action | Guard-mediated only after verification proves the agent honors host reverse-call mediation |
+| ACP relay-provider or unverified | No trustworthy reverse-call mediation claim | Container profile and workspace jail only | Container-isolation-only until per-agent verification proves guard mediation |
 
 For Claude Code, DartClaw starts the binary with `--dangerously-skip-permissions`, then intercepts tool use through hooks. The native permission handler is effectively a no-op in this mode, so guard enforcement must happen in Dart before the provider tool runs.
 
 For Codex app-server, the approval request is the only interception point. DartClaw must preserve approval prompts and must not use `--yolo`, because bypassing the approval request would remove the guard chain from the execution path.
 
-**Source**: `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, [ADR-016](../adrs/016-multi-provider-harness-architecture.md)
+For ACP agents, security classification is topology-scoped. Direct-provider ACP agents such as verified Goose or Vibe targets can be guard-mediated when they use host-advertised `fs` and `terminal` capabilities and startup validation proves the declared provider is not a proxy. Other ACP topologies can still run under container isolation, but DartClaw does not describe them as mediated by guards.
+
+**Source**: `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/acp_harness.dart`, `packages/dartclaw_core/lib/src/harness/acp_reverse_call_handlers.dart`, [ADR-016](../adrs/016-multi-provider-harness-architecture.md)
 
 ---
 
@@ -715,7 +724,11 @@ The web UI uses Trellis HTML templates with `tl:text` for auto-escaping by defau
 
 ### CSRF Protection
 
-`SameSite=Strict` on session cookies prevents cross-site request forgery without CSRF tokens. The cookie is not sent on any cross-origin request, making CSRF attacks impossible at the browser level.
+DartClaw defends against cross-site request forgery in depth rather than relying on any single control:
+
+- **`SameSite=Strict` session cookies** (primary). The session cookie is not sent on cross-site requests, so a forged cross-origin request arrives unauthenticated. This blocks the common CSRF vector at the browser level without CSRF tokens. It is strong but not absolute — older browsers, some same-site navigation edge cases, and misconfigured intermediaries can weaken the guarantee — so it is backed by an explicit server-side check.
+- **Same-origin Origin/Host guard** (`origin_host_guard.dart`, wired in `server.dart` via `originHostGuardMiddleware`). For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the middleware compares the request's `Origin` authority — scheme, host, effective port — against the request's own `Host` authority (falling back to `Referer` when `Origin` is absent) and returns **403** on mismatch or when neither header is present. Safe methods (GET/HEAD/OPTIONS), Bearer-token (API-client) requests, and no-auth local-admin sessions are exempt.
+- **Security headers / CSP** (`security_headers.dart`, outermost middleware). Every response carries a strict `Content-Security-Policy` (`default-src 'none'`, inline-script hash + explicit CDN allowlist, `form-action 'self'`, `frame-ancestors 'none'`), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and (when `gateway.hsts` is enabled) HSTS. `form-action 'self'` and `frame-ancestors 'none'` further constrain cross-origin form posting and framing.
 
 ---
 

@@ -2,14 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show HttpClientFactory;
 import 'package:logging/logging.dart';
 
 /// Callback for running commands (injectable for tests).
 typedef QmdCommandRunner =
     Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory});
-
-/// Callback for creating HTTP clients (injectable for tests).
-typedef HttpClientFactory = HttpClient Function();
 
 /// Manages the QMD daemon lifecycle — start, stop, health, indexing.
 ///

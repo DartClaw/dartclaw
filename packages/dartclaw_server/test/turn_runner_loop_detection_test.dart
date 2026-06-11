@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnRunner;
@@ -7,7 +8,9 @@ import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
-import 'dart:io';
+
+import 'task/task_executor_test_support.dart';
+import 'turn_runner_test_support.dart';
 
 void main() {
   late Directory tempDir;
@@ -15,7 +18,7 @@ void main() {
   late String workspaceDir;
   late SessionService sessions;
   late MessageService messages;
-  late _FakeWorker worker;
+  late FakeTaskWorker worker;
   late Database turnStateDb;
   late TurnStateStore turnState;
 
@@ -28,7 +31,7 @@ void main() {
 
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
-    worker = _FakeWorker();
+    worker = FakeTaskWorker();
     turnStateDb = sqlite3.openInMemory();
     turnState = TurnStateStore(turnStateDb);
   });
@@ -59,7 +62,7 @@ void main() {
     LoopDetector? loopDetector,
     LoopAction? loopAction,
     EventBus? eventBus,
-    _RecordingSseBroadcast? sse,
+    RecordingSseBroadcast? sse,
   }) {
     return TurnRunner(
       harness: worker,
@@ -120,7 +123,7 @@ void main() {
     });
 
     test('SSE loop_detected event broadcast on abort', () async {
-      final sse = _RecordingSseBroadcast();
+      final sse = RecordingSseBroadcast();
       final loopDetector = LoopDetector(config: loopConfig(maxConsecutiveTurns: 1));
       final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.abort, sse: sse);
       final session = await sessions.getOrCreateMainSession();
@@ -163,7 +166,7 @@ void main() {
 
   group('TurnRunner — turn chain depth (warn)', () {
     test('exceeds threshold → warn event fired, turn proceeds', () async {
-      final sse = _RecordingSseBroadcast();
+      final sse = RecordingSseBroadcast();
       final loopDetector = LoopDetector(config: loopConfig(maxConsecutiveTurns: 1, action: LoopAction.warn));
       final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.warn, sse: sse);
       final session = await sessions.getOrCreateMainSession();
@@ -243,64 +246,3 @@ void main() {
 // ---------------------------------------------------------------------------
 // Fakes
 // ---------------------------------------------------------------------------
-
-class _FakeWorker extends AgentHarness {
-  String responseText = '';
-  ToolUseEvent? toolToEmit;
-  final StreamController<BridgeEvent> _eventsCtrl = StreamController.broadcast();
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) async {
-    final tool = toolToEmit;
-    if (tool != null) {
-      _eventsCtrl.add(tool);
-      toolToEmit = null;
-    }
-    if (responseText.isNotEmpty) {
-      _eventsCtrl.add(DeltaEvent(responseText));
-    }
-    return <String, dynamic>{'input_tokens': 0, 'output_tokens': 0};
-  }
-
-  @override
-  Future<void> cancel() async {}
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> dispose() async {
-    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
-  }
-}
-
-class _RecordingSseBroadcast extends SseBroadcast {
-  final List<String> events = [];
-
-  @override
-  void broadcast(String event, Map<String, dynamic> data) {
-    events.add(event);
-  }
-}

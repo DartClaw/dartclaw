@@ -188,6 +188,51 @@ Stores the user message, validates rich input metadata, composes the system prom
 - `404` — session not found
 - `409` — another turn is already active on this session
 
+#### Turn status
+
+```
+GET /api/sessions/:id/turn-status
+```
+
+Returns the operator-visible active turn snapshot. `state` is one of `idle`, `running`, `waiting`, `stuck`, `cancelling`, `cancelled`, `completed`, or `failed`. `wait_reason` identifies the authoritative blocker when a turn is waiting or stuck:
+
+- `session_lock` - another same-session request is waiting for the active turn to release the session lock.
+- `provider_turn` - the provider has accepted the turn but has not produced progress before `harness.turn_monitor.wait_warning_after`.
+- `tool_approval` - the provider is waiting on a tool approval decision.
+- `unknown` - the provider turn is still active but no more specific wait source is known.
+
+`can_cancel` is the authoritative cancel affordance. Provider-turn and unknown waits can be cancelled once surfaced as `waiting` or `stuck`; ordinary session-lock waits can be cancelled once surfaced unless the active turn is blocked on a non-stale tool approval. Tool approvals remain non-cancellable until the approval wait becomes stale or stuck under the approval timeout policy. Idle snapshots use null turn fields.
+
+```json
+{
+  "session_id": "session-123",
+  "turn_id": "turn-456",
+  "provider": "codex",
+  "task_id": null,
+  "state": "stuck",
+  "wait_reason": "session_lock",
+  "waiting_since": "2026-03-10T10:00:00.000Z",
+  "stuck_since": "2026-03-10T10:02:00.000Z",
+  "global_timeout_at": "2026-03-10T10:10:00.000Z",
+  "can_cancel": true
+}
+```
+
+Errors include `TURN_STATUS_FORBIDDEN` when the authenticated request is not operator/admin authorized.
+
+#### Cancel active turn
+
+```
+POST /api/sessions/:id/turns/:turn_id/cancel
+Content-Type: application/json
+
+{"reason":"operator_cancel"}
+```
+
+`reason` is required and must be `operator_cancel`, `admin_cancel`, or `automation_cancel`. A successful active cancel returns `{"status":"cancelled","released_session_lock":true}`. Cancelling a completed or already cancelled turn is a terminal no-op success with `released_session_lock: false`.
+
+Structured error codes: `TURN_CANCEL_FORBIDDEN`, `TURN_CANCEL_BAD_REQUEST`, `TURN_CANCEL_INVALID_REASON`, `TURN_NOT_FOUND`, and `TURN_NOT_CANCELLABLE`.
+
 #### SSE event stream
 
 ```
@@ -519,6 +564,28 @@ GET /api/events
 
 Global SSE stream for system-level events (e.g., `server_restart`). Separate from per-session chat SSE.
 
+#### Task events stream
+
+```
+GET /api/tasks/events
+```
+
+Task/dashboard clients receive JSON Server-Sent Events. Existing event types include `connected`, `task_status_changed`, `agent_state`, `project_status`, `task_progress`, `task_event`, and `workflow_sidebar_update`. Turn monitor updates are delivered on the same stream as `turn_wait_state`, using the same authoritative `wait_reason` and `can_cancel` semantics as `GET /api/sessions/:id/turn-status`:
+
+```json
+{
+  "type": "turn_wait_state",
+  "session_id": "session-123",
+  "turn_id": "turn-456",
+  "task_id": "task-789",
+  "state": "stuck",
+  "wait_reason": "session_lock",
+  "can_cancel": true
+}
+```
+
+After reconnect, clients should refresh the displayed session through `GET /api/sessions/:id/turn-status`.
+
 ### Web Pages
 
 | Route | Description |
@@ -535,19 +602,7 @@ Global SSE stream for system-level events (e.g., `server_restart`). Separate fro
 | `GET /scheduling` | Scheduling status, heartbeat, job management |
 | `GET /memory` | Memory dashboard (overview, pruning, search, file viewer) |
 | `GET /memory/content` | Memory dashboard content fragment (HTMX polling) |
-| `GET /canvas-admin` | Canvas facilitator dashboard: share link management, live preview |
-| `GET /canvas/:token` | Standalone canvas page (share-token auth, no login required) |
 | `GET /static/*` | Static assets (CSS, JS, vendored libraries) |
-
-#### Canvas API (0.14.2)
-
-Share-link management endpoints (behind auth middleware). See the [Canvas guide](canvas.md) for full details.
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| `GET` | `/api/canvas/share` | List active share tokens |
-| `POST` | `/api/canvas/share` | Create share token |
-| `DELETE` | `/api/canvas/share/:token` | Revoke share token |
 
 #### Workflow and Skill API
 

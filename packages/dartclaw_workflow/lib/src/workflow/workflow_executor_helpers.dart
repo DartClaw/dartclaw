@@ -373,8 +373,11 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   }
 
   /// Returns true if the workflow-level budget has been exceeded.
-  bool _workflowBudgetExceeded(WorkflowRun run, WorkflowDefinition definition) =>
-      workflow_budget_monitor.workflowBudgetExceeded(run, definition);
+  ///
+  /// [additionalTokens] is the evaluation-only foreach/loop-scope basis – see
+  /// [workflow_budget_monitor.workflowBudgetExceeded].
+  bool _workflowBudgetExceeded(WorkflowRun run, WorkflowDefinition definition, {int additionalTokens = 0}) =>
+      workflow_budget_monitor.workflowBudgetExceeded(run, definition, additionalTokens: additionalTokens);
 
   /// Returns the workflow workspace directory used for task behavior injection.
   ///
@@ -407,13 +410,19 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   ///
   /// Deduplicated via `_budget.warningFired` in [run.contextJson] – fires once per run.
   /// Returns updated [run] if the flag was set, otherwise returns [run] unchanged.
-  Future<WorkflowRun> _checkWorkflowBudgetWarning(WorkflowRun run, WorkflowDefinition definition) =>
-      workflow_budget_monitor.checkWorkflowBudgetWarning(
-        run: run,
-        definition: definition,
-        eventBus: _eventBus,
-        repository: _repository,
-      );
+  /// [additionalTokens] widens the comparison basis only; the persisted run keeps
+  /// its real total.
+  Future<WorkflowRun> _checkWorkflowBudgetWarning(
+    WorkflowRun run,
+    WorkflowDefinition definition, {
+    int additionalTokens = 0,
+  }) => workflow_budget_monitor.checkWorkflowBudgetWarning(
+    run: run,
+    definition: definition,
+    eventBus: _eventBus,
+    repository: _repository,
+    additionalTokens: additionalTokens,
+  );
 
   /// Reads the step's cumulative token count from session KV or task metadata.
   ///

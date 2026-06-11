@@ -10,6 +10,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import 'turn_runner_test_support.dart';
+
 void main() {
   late Directory tempDir;
   late String sessionsDir;
@@ -48,7 +50,7 @@ void main() {
     await kvService.set(dateKey, jsonEncode(aggregate));
   }
 
-  TurnRunner buildRunner({BudgetEnforcer? budgetEnforcer, _RecordingSseBroadcast? sse}) {
+  TurnRunner buildRunner({BudgetEnforcer? budgetEnforcer, RecordingSseBroadcast? sse}) {
     return TurnRunner(
       harness: worker,
       messages: messages,
@@ -95,7 +97,7 @@ void main() {
     });
 
     test('budget warn → SSE event broadcast, turn proceeds', () async {
-      final sse = _RecordingSseBroadcast();
+      final sse = RecordingSseBroadcast();
       final notifications = <(String, BudgetCheckResult)>[];
       final tracker = UsageTracker(dataDir: tempDir.path, kv: kvService);
       final today = DateTime.now();
@@ -198,14 +200,5 @@ class _FastFakeWorker extends AgentHarness {
   @override
   Future<void> dispose() async {
     if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
-  }
-}
-
-class _RecordingSseBroadcast extends SseBroadcast {
-  final List<String> events = [];
-
-  @override
-  void broadcast(String event, Map<String, dynamic> data) {
-    events.add(event);
   }
 }

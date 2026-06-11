@@ -71,17 +71,6 @@ void main() {
       expect(logging['level'], 'INFO');
       expect(logging['format'], 'human');
 
-      final canvas = json['canvas'] as Map<String, dynamic>;
-      expect(canvas['enabled'], true);
-      expect(canvas['share'], {
-        'defaultPermission': 'interact',
-        'defaultTtlMinutes': 480,
-        'maxConnections': 50,
-        'autoShare': true,
-        'showQr': true,
-      });
-      expect(canvas['workshopMode'], {'taskBoard': true, 'showContributorStats': true, 'showBudgetBar': true});
-
       final governance = json['governance'] as Map<String, dynamic>;
       expect(governance['queueStrategy'], 'fifo');
       expect((governance['crowdCoding'] as Map<String, dynamic>)['model'], isNull);
@@ -666,71 +655,36 @@ governance:
       }
     });
 
-    test('int entries have min/max when defined', () {
-      final meta = serializer.metaJson();
-      final port = meta['port'] as Map<String, dynamic>;
-      expect(port['type'], 'int');
-      expect(port['mutable'], 'restart');
-      expect(port['min'], 1);
-      expect(port['max'], 65535);
-    });
-
-    test('new retention entries include integer constraints', () {
+    test('selected metadata entries expose constraints and flags', () {
       final meta = serializer.metaJson();
       expect(meta.containsKey('guard_audit.max_entries'), isFalse);
-      final guardAuditRetention = meta['guard_audit.max_retention_days'] as Map<String, dynamic>;
-      expect(guardAuditRetention['type'], 'int');
-      expect(guardAuditRetention['mutable'], 'restart');
-      expect(guardAuditRetention['min'], 0);
-      expect(guardAuditRetention['max'], 365);
-
-      final taskArtifactsRetention = meta['tasks.artifact_retention_days'] as Map<String, dynamic>;
-      expect(taskArtifactsRetention['type'], 'int');
-      expect(taskArtifactsRetention['mutable'], 'restart');
-      expect(taskArtifactsRetention['min'], 0);
-      expect(taskArtifactsRetention['max'], 3650);
-    });
-
-    test('memory.max_bytes metadata is exposed; legacy root key is not present', () {
-      final meta = serializer.metaJson();
-      final nested = meta['memory.max_bytes'] as Map<String, dynamic>;
-      expect(nested['type'], 'int');
-      expect(nested['mutable'], 'restart');
-      expect(nested['min'], 1);
-
       expect(meta.containsKey('memory_max_bytes'), isFalse);
-    });
 
-    test('enum entries have allowedValues', () {
-      final meta = serializer.metaJson();
-      final level = meta['logging.level'] as Map<String, dynamic>;
-      expect(level['type'], 'enum');
-      expect(level['allowedValues'], ['FINE', 'INFO', 'WARNING', 'SEVERE']);
-    });
+      final cases = [
+        (path: 'port', expected: {'type': 'int', 'mutable': 'restart', 'min': 1, 'max': 65535}),
+        (path: 'guard_audit.max_retention_days', expected: {'type': 'int', 'mutable': 'restart', 'min': 0, 'max': 365}),
+        (path: 'tasks.artifact_retention_days', expected: {'type': 'int', 'mutable': 'restart', 'min': 0, 'max': 3650}),
+        (path: 'memory.max_bytes', expected: {'type': 'int', 'mutable': 'restart', 'min': 1}),
+        (
+          path: 'logging.level',
+          expected: {
+            'type': 'enum',
+            'allowedValues': ['FINE', 'INFO', 'WARNING', 'SEVERE'],
+          },
+        ),
+        (path: 'scheduling.heartbeat.enabled', expected: {'type': 'bool', 'mutable': 'live'}),
+        (path: 'agent.model', expected: {'nullable': true}),
+        (path: 'gateway.auth_mode', expected: {'mutable': 'readonly'}),
+      ];
 
-    test('live-mutable fields have mutable: "live"', () {
-      final meta = serializer.metaJson();
-      final hb = meta['scheduling.heartbeat.enabled'] as Map<String, dynamic>;
-      expect(hb['mutable'], 'live');
-      expect(hb['type'], 'bool');
-    });
+      for (final testCase in cases) {
+        final entry = meta[testCase.path] as Map<String, dynamic>;
+        for (final expectedEntry in testCase.expected.entries) {
+          expect(entry[expectedEntry.key], expectedEntry.value, reason: testCase.path);
+        }
+      }
 
-    test('nullable fields have nullable: true', () {
-      final meta = serializer.metaJson();
-      final model = meta['agent.model'] as Map<String, dynamic>;
-      expect(model['nullable'], true);
-    });
-
-    test('non-nullable fields omit nullable key', () {
-      final meta = serializer.metaJson();
-      final port = meta['port'] as Map<String, dynamic>;
-      expect(port.containsKey('nullable'), isFalse);
-    });
-
-    test('readonly fields have mutable: "readonly"', () {
-      final meta = serializer.metaJson();
-      final authMode = meta['gateway.auth_mode'] as Map<String, dynamic>;
-      expect(authMode['mutable'], 'readonly');
+      expect((meta['port'] as Map<String, dynamic>).containsKey('nullable'), isFalse);
     });
 
     test('github metadata is exposed for typed config fields', () {
@@ -743,49 +697,47 @@ governance:
   });
 
   group('ConfigSerializer.toJson — alerts section', () {
-    test('default alerts section has correct structure', () {
-      final config = const DartclawConfig.defaults();
+    test('alerts section reflects default and configured values', () {
       final runtime = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false, gitSyncPushEnabled: false);
-      final json = serializer.toJson(config, runtime: runtime);
 
-      final alerts = json['alerts'] as Map<String, dynamic>;
-      expect(alerts['enabled'], isFalse);
-      expect(alerts['cooldownSeconds'], 300);
-      expect(alerts['burstThreshold'], 5);
-      expect(alerts['targets'], isEmpty);
-      expect(alerts['routes'], isEmpty);
-    });
+      final defaults =
+          serializer.toJson(const DartclawConfig.defaults(), runtime: runtime)['alerts'] as Map<String, dynamic>;
+      expect(defaults['enabled'], isFalse);
+      expect(defaults['cooldownSeconds'], 300);
+      expect(defaults['burstThreshold'], 5);
+      expect(defaults['targets'], isEmpty);
+      expect(defaults['routes'], isEmpty);
 
-    test('alerts section reflects configured values', () {
-      final config = DartclawConfig(
-        alerts: AlertsConfig(
-          enabled: true,
-          cooldownSeconds: 120,
-          burstThreshold: 3,
-          targets: const [
-            AlertTarget(channel: 'whatsapp', recipient: '+1234'),
-            AlertTarget(channel: 'signal', recipient: '+5678'),
-          ],
-          routes: const {
-            'guard_block': ['0'],
-            'compaction': ['*'],
-          },
-        ),
-      );
-      final runtime = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false, gitSyncPushEnabled: false);
-      final json = serializer.toJson(config, runtime: runtime);
+      final configured =
+          serializer.toJson(
+                DartclawConfig(
+                  alerts: AlertsConfig(
+                    enabled: true,
+                    cooldownSeconds: 120,
+                    burstThreshold: 3,
+                    targets: const [
+                      AlertTarget(channel: 'whatsapp', recipient: '+1234'),
+                      AlertTarget(channel: 'signal', recipient: '+5678'),
+                    ],
+                    routes: const {
+                      'guard_block': ['0'],
+                      'compaction': ['*'],
+                    },
+                  ),
+                ),
+                runtime: runtime,
+              )['alerts']
+              as Map<String, dynamic>;
+      expect(configured['enabled'], isTrue);
+      expect(configured['cooldownSeconds'], 120);
+      expect(configured['burstThreshold'], 3);
 
-      final alerts = json['alerts'] as Map<String, dynamic>;
-      expect(alerts['enabled'], isTrue);
-      expect(alerts['cooldownSeconds'], 120);
-      expect(alerts['burstThreshold'], 3);
-
-      final targets = alerts['targets'] as List<dynamic>;
+      final targets = configured['targets'] as List<dynamic>;
       expect(targets, hasLength(2));
       expect(targets[0], {'channel': 'whatsapp', 'recipient': '+1234'});
       expect(targets[1], {'channel': 'signal', 'recipient': '+5678'});
 
-      final routes = alerts['routes'] as Map<String, dynamic>;
+      final routes = configured['routes'] as Map<String, dynamic>;
       expect(routes['guard_block'], ['0']);
       expect(routes['compaction'], ['*']);
     });

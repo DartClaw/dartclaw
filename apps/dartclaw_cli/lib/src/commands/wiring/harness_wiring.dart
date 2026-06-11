@@ -1,13 +1,22 @@
 import 'dart:io';
 import 'dart:math';
 import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessConfig;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../serve_command.dart' show ExitFn, mcpDisallowedTools;
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
+
+typedef _SpawnPlanEntry = ({
+  String providerId,
+  String profileId,
+  String executable,
+  String credentialProviderId,
+  Map<String, dynamic> options,
+  bool requiresContainer,
+});
 
 /// Constructs and exposes harness-layer services.
 ///
@@ -73,6 +82,7 @@ class HarnessWiring {
   _memoryHandlers;
   BudgetEnforcer? _budgetEnforcer;
   SpawnTaskRunner? _onSpawnNeeded;
+  Map<String, ProviderEntry> _providerStatusEntries = const {};
   bool _authEnabled = false;
   TokenService? _tokenService;
   String? _resolvedGatewayToken;
@@ -100,6 +110,7 @@ class HarnessWiring {
   get memoryHandlers => _memoryHandlers;
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
   SpawnTaskRunner? get onSpawnNeeded => _onSpawnNeeded;
+  Map<String, ProviderEntry> get providerStatusEntries => _providerStatusEntries;
   bool get authEnabled => _authEnabled;
   TokenService? get tokenService => _tokenService;
   String? get resolvedGatewayToken => _resolvedGatewayToken;
@@ -168,14 +179,17 @@ class HarnessWiring {
 
     final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
     final defaultProviderId = config.agent.provider;
+    final acpValidationResults = await _validateConfiguredAcpTargets(config);
+    for (final entry in config.harness.acp.agents.entries) {
+      if (acpValidationResults[entry.key]?.status != AcpTargetValidationStatus.passed) {
+        continue;
+      }
+      _harnessFactory.registerAcpAgent(entry.key, entry.value);
+    }
     try {
-      final validationProviders = config.providers.isEmpty
-          ? ProvidersConfig(
-              entries: {
-                defaultProviderId: ProviderEntry(executable: _resolveProviderExecutable(config, defaultProviderId)),
-              },
-            )
-          : config.providers;
+      final validationProviders = ProvidersConfig(
+        entries: _effectiveValidationProviderEntries(config, acpValidationResults),
+      );
       final validation = await ProviderValidator.validate(
         providers: validationProviders,
         registry: credentialRegistry,
@@ -203,8 +217,14 @@ class HarnessWiring {
           harnessConfig: _harnessConfig,
           historyConfig: config.agent.history,
           providerOptions: _providerOptions(config, defaultProviderId),
-          containerManager: _security.containerManagers['workspace'],
-          environment: _providerEnvironment(defaultProviderId, credentialRegistry),
+          containerManager: _containerManagerForProvider(config, _security, defaultProviderId),
+          guardChain: _security.guardChain,
+          acpPermissionDecision: _acpPermissionDecision,
+          acpReverseCallAudit: _auditAcpReverseCall,
+          environment: _providerEnvironment(
+            _credentialProviderIdForProvider(config, defaultProviderId),
+            credentialRegistry,
+          ),
         ),
       );
       _wireCompactionCallbacks(_harness);
@@ -227,13 +247,16 @@ class HarnessWiring {
 
     // Task pool capacity — runners are spawned lazily on first task creation.
     final profileIds = _security.containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
-    final maxConcurrent = config.providers.isEmpty
+    final providerEntries = _effectiveTaskProviderEntries(config, acpValidationResults);
+    _providerStatusEntries = providerEntries;
+    final useLegacyTaskPool = config.providers.isEmpty && config.harness.acp.isEmpty;
+    final maxConcurrent = useLegacyTaskPool
         ? config.tasks.maxConcurrent
-        : config.providers.entries.values.fold<int>(0, (sum, entry) => sum + entry.poolSize);
+        : providerEntries.values.fold<int>(0, (sum, entry) => sum + entry.effectivePoolSize);
 
     // Build a spawn plan: one entry per future task runner, consumed in order.
-    final spawnPlan = <({String providerId, String profileId, String executable, Map<String, dynamic> options})>[];
-    if (config.providers.isEmpty) {
+    final spawnPlan = <_SpawnPlanEntry>[];
+    if (useLegacyTaskPool) {
       final taskRunnerCount = config.tasks.maxConcurrent == 0
           ? 0
           : (_security.containerManagers.isEmpty
@@ -247,19 +270,25 @@ class HarnessWiring {
           providerId: legacyProviderId,
           profileId: profileIds[i % profileIds.length],
           executable: legacyExecutable,
+          credentialProviderId: _credentialProviderIdForProvider(config, legacyProviderId),
           options: legacyProviderOptions,
+          requiresContainer: false,
         ));
       }
     } else {
-      for (final providerEntry in config.providers.entries.entries) {
+      for (final providerEntry in providerEntries.entries) {
         final providerId = providerEntry.key;
         final entry = providerEntry.value;
-        for (var i = 0; i < entry.poolSize; i++) {
+        final acpEntry = config.harness.acp[providerId];
+        final planProfiles = _profilesForProvider(config, providerId, profileIds);
+        for (var i = 0; i < entry.effectivePoolSize; i++) {
           spawnPlan.add((
             providerId: providerId,
-            profileId: profileIds[i % profileIds.length],
+            profileId: planProfiles[i % planProfiles.length],
             executable: entry.executable,
+            credentialProviderId: _credentialProviderIdForProvider(config, providerId),
             options: entry.options,
+            requiresContainer: acpEntry?.containerIsolationRequired ?? false,
           ));
         }
       }
@@ -362,6 +391,7 @@ class HarnessWiring {
         ? LoopDetector(config: config.governance.loopDetection)
         : null;
     final loopAction = config.governance.loopDetection.enabled ? config.governance.loopDetection.action : null;
+    final globalTimeout = Duration(seconds: config.server.workerTimeout);
 
     // Build primary TurnRunner and pool (task runners spawned lazily).
     // Each runner gets its own TaskToolFilterGuard so per-task allowedTools
@@ -390,6 +420,8 @@ class HarnessWiring {
       loopDetector: loopDetector,
       loopAction: loopAction,
       eventBus: _eventBus,
+      turnMonitor: config.harness.turnMonitor,
+      globalTimeout: globalTimeout,
       providerId: defaultProviderId,
     );
     _pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: maxConcurrent);
@@ -399,7 +431,7 @@ class HarnessWiring {
     _onSpawnNeeded = spawnPlan.isEmpty
         ? null
         : (requestedProviderId) async {
-            if (_pool.spawnableCount <= 0) return;
+            if (_pool.spawnableCount <= 0) return false;
             final planIndex = _nextSpawnPlanIndex(
               spawnPlan,
               consumedSpawnPlanIndexes,
@@ -411,11 +443,16 @@ class HarnessWiring {
                     ? 'No task runner spawn-plan entry remains'
                     : 'No task runner spawn-plan entry remains for provider "$requestedProviderId"',
               );
-              return;
+              return false;
             }
             final plan = spawnPlan[planIndex];
-            final containerManager =
-                _security.containerManagers[plan.profileId] ?? _security.containerManagers['workspace'];
+            final containerManager = _security.containerManagers[plan.profileId];
+            if (plan.requiresContainer && containerManager == null) {
+              _log.warning(
+                'ACP provider "${plan.providerId}" requires unavailable container profile "${plan.profileId}"',
+              );
+              return false;
+            }
             try {
               // Each task runner gets its own TaskToolFilterGuard so per-task
               // allowedTools enforcement is isolated across concurrent runners.
@@ -443,7 +480,7 @@ class HarnessWiring {
                   containerManager: containerManager,
                   guardChain: taskGuardChain,
                   environment: {
-                    ..._providerEnvironment(plan.providerId, credentialRegistry),
+                    ..._providerEnvironment(plan.credentialProviderId, credentialRegistry),
                     ..._taskRunnerSubagentEnvironment,
                   },
                 ),
@@ -473,15 +510,43 @@ class HarnessWiring {
                 loopDetector: loopDetector,
                 loopAction: loopAction,
                 eventBus: _eventBus,
+                turnMonitor: config.harness.turnMonitor,
+                globalTimeout: globalTimeout,
                 profileId: plan.profileId,
                 providerId: plan.providerId,
               );
               _pool.addRunner(runner);
               consumedSpawnPlanIndexes.add(planIndex);
+              return true;
             } catch (e) {
               _log.warning('Failed to spawn task runner: $e');
+              return false;
             }
           };
+  }
+
+  Future<AcpPermissionResult> _acpPermissionDecision(AcpPermissionRequest request) async {
+    final guardChain = _security.guardChain;
+    if (guardChain == null) {
+      return const AcpPermissionResult(granted: false, reason: 'Guard chain unavailable');
+    }
+    try {
+      final verdict = await guardChain.evaluateBeforeToolCall(
+        request.operation,
+        request.params,
+        rawProviderToolName: 'session/request_permission',
+      );
+      return AcpPermissionResult(granted: !verdict.isBlock, reason: verdict.message);
+    } catch (error) {
+      return AcpPermissionResult(granted: false, reason: 'Permission evaluation failed: $error');
+    }
+  }
+
+  void _auditAcpReverseCall(AcpReverseCallAuditEvent event) {
+    _log.fine(
+      'ACP reverse-call raw=${event.rawProviderToolName}'
+      '${event.canonicalToolName == null ? '' : ' canonical=${event.canonicalToolName}'}',
+    );
   }
 
   /// Wires compaction EventBus callbacks onto a [ClaudeCodeHarness] instance.
@@ -535,10 +600,25 @@ Map<String, String> _providerEnvironment(String providerId, CredentialRegistry r
   return environment;
 }
 
+String _credentialProviderIdForProvider(DartclawConfig config, String providerId) {
+  final acpEntry = config.harness.acp[providerId];
+  final modelProvider = acpEntry?.modelProvider?.trim().toLowerCase();
+  return switch (modelProvider) {
+    'anthropic' => 'claude',
+    'openai' => 'codex',
+    String value when value.isNotEmpty => value,
+    _ => providerId,
+  };
+}
+
 String _resolveProviderExecutable(DartclawConfig config, String providerId) {
   final entry = config.providers[providerId];
   if (entry != null) {
     return entry.executable;
+  }
+  final acpEntry = config.harness.acp[providerId];
+  if (acpEntry != null) {
+    return acpEntry.binary;
   }
   return switch (ProviderIdentity.family(providerId)) {
     'claude' => config.server.claudeExecutable,
@@ -553,8 +633,129 @@ Map<String, dynamic> _providerOptions(DartclawConfig config, String providerId) 
 bool _hasSearchProvider(DartclawConfig config) =>
     config.search.providers.values.any((p) => p.enabled && p.apiKey.isNotEmpty);
 
+Map<String, ProviderEntry> _effectiveTaskProviderEntries(
+  DartclawConfig config,
+  Map<String, AcpTargetValidationResult> acpValidationResults,
+) {
+  final entries = {
+    for (final entry in config.providers.entries.entries)
+      entry.key: ProviderEntry(
+        executable: entry.value.executable,
+        poolSize: entry.value.poolSize,
+        options: _withoutAcpValidationOptions(entry.value.options),
+      ),
+  };
+  for (final acpEntry in config.harness.acp.agents.entries) {
+    final providerOverride = entries[acpEntry.key];
+    final validation = acpValidationResults[acpEntry.key];
+    final validationJson = validation?.toJson();
+    entries[acpEntry.key] = ProviderEntry(
+      executable: acpEntry.value.binary,
+      poolSize: validation?.status == AcpTargetValidationStatus.passed ? providerOverride?.poolSize ?? 0 : 0,
+      options: {
+        ...?providerOverride?.options,
+        'credentials_required': false,
+        ...validationJson == null ? const <String, dynamic>{} : {'acp_validation_result': validationJson},
+        if (validationJson != null) 'acp_validation_owned': true,
+      },
+    );
+  }
+  entries.putIfAbsent(
+    config.agent.provider,
+    () => ProviderEntry(executable: _resolveProviderExecutable(config, config.agent.provider)),
+  );
+  return entries;
+}
+
+Map<String, dynamic> _withoutAcpValidationOptions(Map<String, dynamic> options) {
+  final sanitized = Map<String, dynamic>.from(options);
+  sanitized.remove('acp_validation_result');
+  sanitized.remove('security_classification');
+  sanitized.remove('validation_evidence');
+  return sanitized;
+}
+
+Future<Map<String, AcpTargetValidationResult>> _validateConfiguredAcpTargets(DartclawConfig config) async {
+  if (config.harness.acp.isEmpty) {
+    return const {};
+  }
+  const validator = AcpTargetValidator();
+  final results = await validator.validateConfiguredTargets(
+    agents: config.harness.acp.agents,
+    commandProbe: Process.run,
+    advertisedCapabilities: {
+      for (final providerId in config.harness.acp.agents.keys) providerId: const {'fs', 'terminal'},
+    },
+    requiredTargets: config.harness.acp.agents.entries
+        .where((entry) => entry.key == config.agent.provider || entry.value.requiresGuardMediation)
+        .map((entry) => entry.key)
+        .toSet(),
+  );
+  final failures = results.entries.where(
+    (entry) =>
+        entry.value.status == AcpTargetValidationStatus.failed &&
+        config.harness.acp[entry.key]?.requiresGuardMediation == true,
+  );
+  if (failures.isNotEmpty) {
+    throw StateError(
+      failures
+          .map((entry) => 'Invalid harness.acp.agents.${entry.key}: ${entry.value.message ?? entry.value.errorCode}')
+          .join('\n'),
+    );
+  }
+  return results;
+}
+
+Map<String, ProviderEntry> _effectiveValidationProviderEntries(
+  DartclawConfig config,
+  Map<String, AcpTargetValidationResult> acpValidationResults,
+) {
+  if (config.providers.isEmpty && config.harness.acp.isEmpty) {
+    return {
+      config.agent.provider: ProviderEntry(executable: _resolveProviderExecutable(config, config.agent.provider)),
+    };
+  }
+  return _effectiveTaskProviderEntries(config, acpValidationResults);
+}
+
+List<String> _profilesForProvider(DartclawConfig config, String providerId, List<String> fallbackProfiles) {
+  final acpEntry = config.harness.acp[providerId];
+  final profile = acpEntry?.containerProfile;
+  if (acpEntry != null && acpEntry.containerIsolationRequired && profile != null) {
+    return [_containerProfileId(profile)];
+  }
+  return fallbackProfiles;
+}
+
+ContainerExecutor? _containerManagerForProvider(DartclawConfig config, SecurityWiring security, String providerId) {
+  final acpEntry = config.harness.acp[providerId];
+  if (acpEntry == null) {
+    return security.containerManagers['workspace'];
+  }
+  if (!acpEntry.containerIsolationRequired) {
+    return null;
+  }
+  final profile = acpEntry.containerProfile;
+  if (profile == null) {
+    throw StateError('ACP provider "$providerId" requires container isolation without a container_profile');
+  }
+  final profileId = _containerProfileId(profile);
+  final manager = security.containerManagers[profileId];
+  if (manager == null) {
+    throw StateError('ACP provider "$providerId" requires unavailable container profile "$profileId"');
+  }
+  return manager;
+}
+
+String _containerProfileId(AcpContainerProfile profile) {
+  return switch (profile) {
+    AcpContainerProfile.restricted => 'restricted',
+    AcpContainerProfile.workspace => 'workspace',
+  };
+}
+
 int? _nextSpawnPlanIndex(
-  List<({String providerId, String profileId, String executable, Map<String, dynamic> options})> spawnPlan,
+  List<_SpawnPlanEntry> spawnPlan,
   Set<int> consumedIndexes, {
   required String? requestedProviderId,
 }) {

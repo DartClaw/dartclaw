@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
@@ -10,62 +9,7 @@ import 'package:dartclaw_server/src/auth/auth_utils.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-// ---------------------------------------------------------------------------
-// Minimal test doubles — WhatsApp
-// ---------------------------------------------------------------------------
-class _FakeGowaManager extends GowaManager {
-  _FakeGowaManager()
-    : super(
-        executable: 'whatsapp',
-        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-          return _NeverExitProcess();
-        },
-      );
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> sendText(String jid, String text) async {}
-
-  @override
-  Future<void> sendMedia(String jid, String filePath, {String? caption}) async {}
-
-  @override
-  Future<GowaStatus> status() async => (isConnected: false, isLoggedIn: false, deviceId: null);
-
-  @override
-  Future<GowaLoginQr> loginQr() async => (url: null, durationSeconds: 60);
-}
-
-class _FakeChannelManager extends ChannelManager {
-  _FakeChannelManager()
-    : super(
-        queue: MessageQueue(dispatcher: (_, _, {senderJid, senderDisplayName}) async => '', maxConcurrentTurns: 1),
-        config: const ChannelConfig.defaults(),
-      );
-
-  @override
-  void handleInboundMessage(ChannelMessage message) {}
-}
-
-class _NeverExitProcess implements Process {
-  @override
-  int get pid => 1;
-  @override
-  IOSink get stdin => NullIoSink();
-  @override
-  Stream<List<int>> get stdout => const Stream.empty();
-  @override
-  Stream<List<int>> get stderr => const Stream.empty();
-  @override
-  Future<int> get exitCode => Future.value(0);
-  @override
-  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
-}
+import '../whatsapp_test_support.dart';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -75,11 +19,11 @@ void main() {
 
   setUp(() {
     channel = WhatsAppChannel(
-      gowa: _FakeGowaManager(),
+      gowa: FakeGowaManager(),
       config: WhatsAppConfig(enabled: true),
       dmAccess: DmAccessController(mode: DmAccessMode.open),
       mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
-      channelManager: _FakeChannelManager(),
+      channelManager: FakeChannelManager(),
       workspaceDir: '/tmp',
     );
   });
@@ -191,7 +135,7 @@ void main() {
           webhookPath: '/integrations/googlechat',
           typingIndicatorMode: TypingIndicatorMode.disabled,
         ),
-        channelManager: _FakeChannelManager(),
+        channelManager: FakeChannelManager(),
       ),
     );
     final handler = const Pipeline().addHandler(router.call);

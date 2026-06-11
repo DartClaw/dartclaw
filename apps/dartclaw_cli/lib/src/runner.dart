@@ -1,11 +1,18 @@
+import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' show dartclawVersion;
 
 /// Top-level CLI runner for DartClaw.
 ///
 /// Subcommands (serve, status, etc.) are registered via [addCommand]
 /// after construction — see `main()` in `bin/dartclaw.dart`.
 class DartclawRunner extends CommandRunner<void> {
-  DartclawRunner() : super('dartclaw', 'DartClaw — security-conscious AI agent runtime') {
+  final void Function(String) _writeLine;
+
+  DartclawRunner({void Function(String)? writeLine})
+    : _writeLine = writeLine ?? print,
+      super('dartclaw', 'DartClaw — security-conscious AI agent runtime') {
+    argParser.addFlag('version', negatable: false, help: 'Print the DartClaw runtime version.');
     argParser.addOption(
       'config',
       abbr: 'c',
@@ -22,5 +29,14 @@ class DartclawRunner extends CommandRunner<void> {
       help: 'Gateway bearer token override for connected commands, useful with remote --server targets',
       valueHelp: 'token',
     );
+  }
+
+  @override
+  Future<void> runCommand(ArgResults topLevelResults) {
+    if (topLevelResults.flag('version')) {
+      _writeLine(dartclawVersion);
+      return Future<void>.value();
+    }
+    return super.runCommand(topLevelResults);
   }
 }

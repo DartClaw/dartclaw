@@ -1,3 +1,4 @@
+import 'package:dartclaw_config/dartclaw_config.dart' show readInt, readString;
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 /// Configuration for the WhatsApp channel.
@@ -94,23 +95,15 @@ class WhatsAppConfig {
       defaultResponsePrefix: '{model} -- {agent.identity.name}',
     );
 
-    final exec = yaml['gowa_executable'];
-    if (exec != null && exec is! String) {
-      warns.add('Invalid type for whatsapp.gowa_executable: "${exec.runtimeType}" — using default');
-    }
-
-    final host = yaml['gowa_host'];
-    if (host != null && host is! String) {
-      warns.add('Invalid type for whatsapp.gowa_host: "${host.runtimeType}" — using default');
-    }
-
-    var gowaPort = 3000;
-    final port = yaml['gowa_port'];
-    if (port is int) {
-      gowaPort = port;
-    } else if (port != null) {
-      warns.add('Invalid type for whatsapp.gowa_port: "${port.runtimeType}" — using default');
-    }
+    final gowaExecutable = readString(
+      'gowa_executable',
+      yaml,
+      warns,
+      defaultValue: 'whatsapp',
+      warnKey: 'whatsapp.gowa_executable',
+    )!;
+    final gowaHost = readString('gowa_host', yaml, warns, defaultValue: '127.0.0.1', warnKey: 'whatsapp.gowa_host')!;
+    final gowaPort = readInt('gowa_port', yaml, warns, defaultValue: 3000, warnKey: 'whatsapp.gowa_port')!;
 
     final gowaDbUri = yaml['gowa_db_uri'];
     if (gowaDbUri != null && gowaDbUri is! String) {
@@ -119,8 +112,8 @@ class WhatsAppConfig {
 
     return WhatsAppConfig(
       enabled: common.enabled,
-      gowaExecutable: exec is String ? exec : 'whatsapp',
-      gowaHost: host is String ? host : '127.0.0.1',
+      gowaExecutable: gowaExecutable,
+      gowaHost: gowaHost,
       gowaPort: gowaPort,
       gowaDbUri: gowaDbUri is String ? gowaDbUri : null,
       dmAccess: common.dmAccess,

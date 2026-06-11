@@ -278,8 +278,16 @@ steps:
       expect(planAndImplement.steps.any((s) => s.id == 'update-state'), isFalse);
       assertSkills(
         planAndImplement,
-        ['andthen:quick-review', 'andthen:review', 'andthen:plan', 'dartclaw-discover-andthen-plan'],
-        ['andthen-quick-review', 'andthen-review', 'andthen-plan', 'andthen-prd', 'dartclaw-spec-plan'],
+        ['andthen:review', 'andthen:plan', 'andthen:architecture', 'dartclaw-discover-andthen-plan'],
+        // quick-review was replaced by the per-story review + nested loop.
+        [
+          'andthen:quick-review',
+          'andthen-quick-review',
+          'andthen-review',
+          'andthen-plan',
+          'andthen-prd',
+          'dartclaw-spec-plan',
+        ],
       );
 
       // code-review: PROJECT variable (not REPO), gitStrategy, canonical review skill.
@@ -329,9 +337,15 @@ steps:
       expect(specRemLoop.entryGate, 'gating_findings_count > 0');
       expect(specRemLoop.exitGate, 'gating_findings_count == 0');
 
-      final planRemLoop = planAndImplement.loops.single;
+      // plan-and-implement now has two loops: the whole-plan remediation loop
+      // and the per-story (foreach-nested) story-remediation loop. Both gate on
+      // gating_findings_count.
+      final planRemLoop = planAndImplement.loops.firstWhere((l) => l.id == 'remediation-loop');
       expect(planRemLoop.entryGate, 'gating_findings_count > 0');
       expect(planRemLoop.exitGate, 'gating_findings_count == 0');
+      final storyRemLoop = planAndImplement.loops.firstWhere((l) => l.id == 'story-remediation');
+      expect(storyRemLoop.entryGate, 'gating_findings_count > 0');
+      expect(storyRemLoop.exitGate, 'gating_findings_count == 0');
 
       // code-review remediation loop: entryGate on review-code.
       final codeRemLoop = codeReview.loops.firstWhere((l) => l.entryGate?.contains('review-code') ?? false);

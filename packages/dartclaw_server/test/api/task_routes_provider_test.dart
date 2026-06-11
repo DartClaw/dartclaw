@@ -1,22 +1,12 @@
-import 'dart:convert';
-
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-Request _jsonRequest(String method, String path, [Map<String, dynamic>? body]) {
-  return Request(
-    method,
-    Uri.parse('http://localhost$path'),
-    body: body == null ? null : jsonEncode(body),
-    headers: {'content-type': 'application/json'},
-  );
-}
+import 'api_test_helpers.dart';
 
 void main() {
   late TaskService tasks;
-  late Handler handler;
+  late ApiRouteTestClient client;
 
   setUp(() {
     final db = openTaskDbInMemory();
@@ -25,7 +15,7 @@ void main() {
       agentExecutionRepository: SqliteAgentExecutionRepository(db),
       executionTransactor: SqliteExecutionRepositoryTransactor(db),
     );
-    handler = taskRoutes(tasks).call;
+    client = ApiRouteTestClient(taskRoutes(tasks).call);
   });
 
   tearDown(() async {
@@ -33,17 +23,18 @@ void main() {
   });
 
   test('POST /api/tasks persists a provider hint on the created task', () async {
-    final response = await handler(
-      _jsonRequest('POST', '/api/tasks', {
+    final body = await client.expectJsonObject(
+      'POST',
+      '/api/tasks',
+      json: {
         'title': 'Provider task',
         'description': 'Use a specific provider.',
         'type': 'research',
         'provider': 'codex',
-      }),
+      },
+      status: 201,
     );
 
-    expect(response.statusCode, 201);
-    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
     // Per S35, provider is canonical on the nested AgentExecution object rather
     // than a top-level Task field.
     final agentExecution = body['agentExecution'] as Map<String, dynamic>?;

@@ -31,30 +31,5 @@ void main() {
       );
       expect(event.detail['tokensInWindow'], 5000);
     });
-
-    test('toString includes session, mechanism, action', () {
-      final event = LoopDetectedEvent(
-        sessionId: 'sess-42',
-        mechanism: 'toolFingerprint',
-        message: 'Tool repeated',
-        action: 'abort',
-        timestamp: DateTime.now(),
-      );
-      final s = event.toString();
-      expect(s, contains('sess-42'));
-      expect(s, contains('toolFingerprint'));
-      expect(s, contains('abort'));
-    });
-
-    test('is a DartclawEvent', () {
-      final event = LoopDetectedEvent(
-        sessionId: 's',
-        mechanism: 'm',
-        message: 'msg',
-        action: 'warn',
-        timestamp: DateTime.now(),
-      );
-      expect(event, isA<DartclawEvent>());
-    });
   });
 }

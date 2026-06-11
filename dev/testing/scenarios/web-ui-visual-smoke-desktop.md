@@ -31,7 +31,7 @@ This sub-scenario checks both auth entry points and the first authenticated rend
 - The app loads without showing the login form
 - The desktop layout shows a persistent left sidebar rather than a hidden overlay-only navigation pattern
 - The sidebar includes a visible `New Chat` control for starting a new session
-- The sidebar includes the major `SYSTEM` navigation links for `Health`, `Settings`, `Memory`, `Scheduling`, `Tasks`, `Projects`, `Workflows`, and `Canvas`
+- The sidebar includes the major `SYSTEM` navigation links for `Health`, `Settings`, `Memory`, `Scheduling`, `Tasks`, `Projects`, and `Workflows`
 - The topbar and main content render as a coherent desktop shell without obvious clipping, overlap, or unreadable text
 
 
@@ -124,7 +124,7 @@ This sub-scenario checks the task-management surface using a seeded task detail 
 - The detail page shows task metadata, progress or timeline information, and related content in a desktop-friendly layout
 
 
-## S6: Verify Projects, Workflows, And Canvas
+## S6: Verify Projects And Workflows
 
 This sub-scenario checks the remaining major dashboard pages that are often omitted from simpler UI smoke passes.
 
@@ -134,8 +134,6 @@ This sub-scenario checks the remaining major dashboard pages that are often omit
 2. Run `agent-browser snapshot -i` to capture the projects page
 3. Navigate to `http://localhost:3338/workflows`
 4. Run `agent-browser snapshot -i` again to capture the workflows page
-5. Navigate to `http://localhost:3338/canvas-admin`
-6. Run `agent-browser snapshot -i` a third time to capture the canvas admin page
 
 ### Expected
 
@@ -143,8 +141,6 @@ This sub-scenario checks the remaining major dashboard pages that are often omit
 - The `Projects` nav entry is visible and can be recognized as active on that page
 - The workflows page renders the workflow management surface with definition cards, run list content, or both
 - The `Workflows` nav entry is visible and can be recognized as active on that page
-- The canvas admin page renders as a deliberate dashboard page rather than a 404 or raw placeholder
-- The `Canvas` nav entry is visible and can be recognized as active on that page
 
 
 ## S7: Verify Channel UI Surfaces In Disconnected State

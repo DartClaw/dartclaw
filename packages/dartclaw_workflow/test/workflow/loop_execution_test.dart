@@ -1,14 +1,9 @@
 @Tags(['component'])
 library;
 
-import 'dart:io';
-
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
-        EventBus,
-        KvService,
         LoopIterationCompletedEvent,
-        MessageService,
         OutputConfig,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -16,17 +11,12 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowLoop,
-        WorkflowRun,
         WorkflowRunStatus,
         WorkflowStep,
         WorkflowStepCompletedEvent;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ContextExtractor, GateEvaluator, StepExecutionContext, WorkflowExecutor;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
-import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'workflow_executor_test_support.dart' show WorkflowExecutorHarness;
 
 const _inlineLoopExecutionYaml = '''
 name: ordered-inline-loop
@@ -78,95 +68,9 @@ steps:
 ''';
 
 void main() {
-  late Directory tempDir;
-  late String sessionsDir;
-  late TaskService taskService;
-  late MessageService messageService;
-  late KvService kvService;
-  late SqliteWorkflowRunRepository repository;
-  late EventBus eventBus;
-  late WorkflowExecutor executor;
-
-  setUp(() {
-    tempDir = Directory.systemTemp.createTempSync('dartclaw_loop_test_');
-    sessionsDir = p.join(tempDir.path, 'sessions');
-    Directory(sessionsDir).createSync(recursive: true);
-
-    final db = sqlite3.openInMemory();
-    eventBus = EventBus();
-    final taskRepository = SqliteTaskRepository(db);
-    final agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
-    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
-    final executionTransactor = SqliteExecutionRepositoryTransactor(db);
-    taskService = TaskService(
-      taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      executionTransactor: executionTransactor,
-      eventBus: eventBus,
-    );
-    repository = SqliteWorkflowRunRepository(db);
-    messageService = MessageService(baseDir: sessionsDir);
-    kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
-
-    executor = WorkflowExecutor(
-      executionContext: StepExecutionContext(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-        ),
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionTransactor: executionTransactor,
-      ),
-      dataDir: tempDir.path,
-    );
-  });
-
-  tearDown(() async {
-    await taskService.dispose();
-    await messageService.dispose();
-    await kvService.dispose();
-    await eventBus.dispose();
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-  });
-
-  WorkflowRun makeRun(WorkflowDefinition definition) {
-    final now = DateTime.now();
-    return WorkflowRun(
-      id: 'run-1',
-      definitionName: definition.name,
-      status: WorkflowRunStatus.running,
-      startedAt: now,
-      updatedAt: now,
-      currentStepIndex: 0,
-      definitionJson: definition.toJson(),
-    );
-  }
-
-  /// Completes a task: queued → running → [review →] terminal.
-  Future<void> completeTask(String taskId, {TaskStatus status = TaskStatus.accepted}) async {
-    try {
-      await taskService.transition(taskId, TaskStatus.running, trigger: 'test');
-    } on StateError {
-      // May already be running.
-    }
-    if (status == TaskStatus.accepted || status == TaskStatus.rejected) {
-      try {
-        await taskService.transition(taskId, TaskStatus.review, trigger: 'test');
-      } on StateError {
-        // May already be in review.
-      }
-    }
-    await taskService.transition(taskId, status, trigger: 'test');
-  }
+  final h = WorkflowExecutorHarness();
+  setUp(h.setUp);
+  tearDown(h.tearDown);
 
   test('exit gate passes on iteration 1: loop executes once', () async {
     final definition = WorkflowDefinition(
@@ -180,23 +84,25 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var iterationCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       iterationCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     expect(iterationCount, equals(1));
     expect(context['loop.loop1.iteration'], equals(1));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
@@ -212,23 +118,25 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     expect(taskCount, equals(2));
     expect(context['loop.loop1.iteration'], equals(2));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
@@ -249,22 +157,24 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     expect(taskCount, equals(2)); // 2 iterations executed.
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('max iterations'));
     expect(finalRun?.errorMessage, contains('2'));
@@ -283,19 +193,21 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
-      await completeTask(e.taskId, status: TaskStatus.failed);
+      await h.completeTask(e.taskId, status: TaskStatus.failed);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('loop1'));
     expect(finalRun?.errorMessage, contains('LS1'));
@@ -314,18 +226,20 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       final iter = context['loop.loop1.iteration'] as int?;
       if (iter != null) iterationsObserved.add(iter);
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     expect(iterationsObserved, containsAll([1, 2, 3]));
@@ -345,17 +259,19 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       callCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     expect(callCount, equals(2));
@@ -375,20 +291,22 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
     var cancelled = false;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       cancelled = true; // Cancel after first loop task.
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context, isCancelled: () => cancelled);
+    await h.executor.execute(run, definition, context, isCancelled: () => cancelled);
     await sub.cancel();
 
     // Only 1 task executed before cancellation was detected.
@@ -409,25 +327,27 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     // Each loop runs 1 iteration = 2 tasks total.
     expect(taskCount, equals(2));
     expect(context['loop.loop1.iteration'], equals(1));
     expect(context['loop.loop2.iteration'], equals(1));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
@@ -445,23 +365,25 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     // 2 sequential steps + 1 loop step.
     expect(taskCount, equals(3));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
@@ -477,19 +399,21 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     final loopEvents = <LoopIterationCompletedEvent>[];
-    final loopSub = eventBus.on<LoopIterationCompletedEvent>().listen(loopEvents.add);
+    final loopSub = h.eventBus.on<LoopIterationCompletedEvent>().listen(loopEvents.add);
 
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
     await loopSub.cancel();
 
@@ -514,21 +438,23 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
+    final run = h.makeRun(definition);
     // Seed loop tracking state — as if crashed mid iteration 2.
     final seededRun = run.copyWith(contextJson: {'_loop.current.id': 'loop1', '_loop.current.iteration': 2});
-    await repository.insert(seededRun);
+    await h.repository.insert(seededRun);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
     // Resume from loop index 0, iteration 2 (the executor seeks back to the loop node).
-    await executor.execute(
+    await h.executor.execute(
       seededRun,
       definition,
       context,
@@ -541,7 +467,7 @@ void main() {
     // Only 1 task: iteration 2 (gate passes on iteration 2).
     expect(taskCount, equals(1));
     expect(context['loop.loop1.iteration'], equals(2));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
@@ -558,23 +484,25 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     // Executes 1 task sequentially (parallel flag ignored in loop).
     expect(taskCount, equals(1));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
@@ -591,22 +519,24 @@ void main() {
       ],
     );
 
-    var run = makeRun(definition);
+    var run = h.makeRun(definition);
     run = run.copyWith(totalTokens: 100); // Already at budget.
-    await repository.insert(run);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       taskCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     expect(taskCount, equals(0));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('budget'));
   });
@@ -632,23 +562,25 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     final taskIds = <String>[];
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskIds.add(e.taskId);
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     // 1 loop iteration + 1 finalizer = 2 tasks.
     expect(taskIds.length, equals(2));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
@@ -671,23 +603,25 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     // 2 loop iterations + 1 finalizer = 3 tasks.
     expect(taskCount, equals(3));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     // Loop pauses (maxIterations exceeded), even though finalizer ran.
     expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('max iterations'));
@@ -712,28 +646,30 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       // First task (ls1) fails; second task (cleanup/finalizer) succeeds.
       if (taskCount == 1) {
-        await completeTask(e.taskId, status: TaskStatus.failed);
+        await h.completeTask(e.taskId, status: TaskStatus.failed);
       } else {
-        await completeTask(e.taskId);
+        await h.completeTask(e.taskId);
       }
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     // ls1 failed (1) + cleanup finalizer ran (1) = 2 tasks.
     expect(taskCount, equals(2));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.failed));
   });
 
@@ -756,27 +692,29 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       // ls1 succeeds, bad-cleanup fails.
       if (taskCount == 1) {
-        await completeTask(e.taskId);
+        await h.completeTask(e.taskId);
       } else {
-        await completeTask(e.taskId, status: TaskStatus.failed);
+        await h.completeTask(e.taskId, status: TaskStatus.failed);
       }
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     expect(taskCount, equals(2));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('finalizer'));
     expect(finalRun?.errorMessage, contains('Bad Cleanup'));
@@ -810,30 +748,32 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     int? iterationAtFinalizer;
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
       // 3rd task is the finalizer — capture iteration from context.
       if (taskCount == 3) {
         iterationAtFinalizer = context['loop.loop1.iteration'] as int?;
       }
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     // 2 loop iterations + 1 finalizer = 3.
     expect(taskCount, equals(3));
     // Finalizer sees iteration = 2 (the iteration at which the gate passed).
     expect(iterationAtFinalizer, equals(2));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
@@ -849,101 +789,103 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     var taskCount = 0;
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
       taskCount++;
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     expect(taskCount, equals(1));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
   test('inline loop executes in authored order before following sibling steps', () async {
     final definition = WorkflowDefinitionParser().parse(_inlineLoopExecutionYaml);
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     final completedStepIds = <String>[];
-    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+    final taskSub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
       e,
     ) async {
       await Future<void>.delayed(Duration.zero);
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
-    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+    final stepSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
       completedStepIds.add(event.stepId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await taskSub.cancel();
     await stepSub.cancel();
 
     expect(completedStepIds, equals(['gap-analysis', 'remediate', 're-review', 'update-state']));
 
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
   test('inline loop entry gate skips the loop body when findings_count is zero', () async {
     final definition = WorkflowDefinitionParser().parse(_inlineEntryGateLoopYaml);
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext(data: {'gap-analysis.findings_count': 0});
 
     final completedStepIds = <String>[];
-    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+    final taskSub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
       e,
     ) async {
       await Future<void>.delayed(Duration.zero);
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
-    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+    final stepSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
       completedStepIds.add(event.stepId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await taskSub.cancel();
     await stepSub.cancel();
 
     expect(completedStepIds, equals(['gap-analysis', 'update-state']));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
   test('inline loop entry gate executes the loop body when findings_count is positive', () async {
     final definition = WorkflowDefinitionParser().parse(_inlineEntryGateLoopYaml);
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext(data: {'gap-analysis.findings_count': 3});
 
     final completedStepIds = <String>[];
-    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+    final taskSub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
       e,
     ) async {
       await Future<void>.delayed(Duration.zero);
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
-    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+    final stepSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
       completedStepIds.add(event.stepId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await taskSub.cancel();
     await stepSub.cancel();
 
     expect(completedStepIds, equals(['gap-analysis', 'remediate', 're-review', 'update-state']));
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
@@ -968,22 +910,22 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     final completedStepIds = <String>[];
-    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+    final taskSub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
       e,
     ) async {
       await Future<void>.delayed(Duration.zero);
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
-    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+    final stepSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
       completedStepIds.add(event.stepId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await taskSub.cancel();
     await stepSub.cancel();
 
@@ -1004,25 +946,27 @@ void main() {
       ],
     );
 
-    final run = makeRun(definition);
-    await repository.insert(run);
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
     final context = WorkflowContext();
 
     final executedTaskIds = <String>[];
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
       await Future<void>.delayed(Duration.zero);
-      final task = await taskService.get(e.taskId);
+      final task = await h.taskService.get(e.taskId);
       if (task != null) executedTaskIds.add(e.taskId);
-      await completeTask(e.taskId);
+      await h.completeTask(e.taskId);
     });
 
-    await executor.execute(run, definition, context);
+    await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     // Authored order: step1 → loop(step2) → step3. Exit gate passes immediately.
     expect(executedTaskIds.length, equals(3));
 
-    final finalRun = await repository.getById('run-1');
+    final finalRun = await h.repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 }

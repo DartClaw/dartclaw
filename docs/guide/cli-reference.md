@@ -348,11 +348,9 @@ dartclaw workflow validate path/to/workflow.yaml
 
 ## Deployment and Services
 
-### `deploy setup`
+### `deploy setup` (removed)
 
-```bash
-dartclaw deploy setup
-```
+The `deploy setup` prerequisite check has been **removed**. Its preflight checks are now part of `dartclaw init` — run [`dartclaw init`](#init) instead.
 
 ### `deploy config`
 

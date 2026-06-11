@@ -32,7 +32,6 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [Workflows](workflows.md) | Writing custom workflows, progressive refinement, trigger surfaces (chat, web forms, GitHub PR webhook), YAML field reference, built-in workflows |
 | [AndThen Skills](andthen-skills.md) | Canonical `andthen:<name>` workflow references, provider aliases, and DartClaw-native skill provisioning |
 | [Projects & Git](projects-and-git.md) | Project directory, git worktrees, branch management, merge strategies |
-| [Canvas](canvas.md) | Shareable visual canvas for workshops: share links, projector display, task board, stats |
 | [Web UI & API](web-ui-and-api.md) | Interface features, REST API endpoints, SSE streaming |
 
 ## Channels

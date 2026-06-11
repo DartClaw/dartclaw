@@ -153,10 +153,28 @@ class WorkflowDefinitionResolver {
       entries.add(MapEntry('stepDefaults', def.stepDefaults!.map((d) => d.toJson()).toList()));
     }
     entries.add(MapEntry('steps', _buildTopLevelStepList(def)));
-    if (def.loops.isNotEmpty) {
-      entries.add(MapEntry('loops', def.loops.map((l) => l.toJson()).toList()));
+    // Foreach-nested loops are emitted inline under their foreach controller
+    // (the parser requires the loop body inside the foreach), so they are
+    // excluded from the top-level `loops:` section to avoid double-emission.
+    final foreachOwnedLoopIds = _foreachOwnedLoopIds(def);
+    final topLevelLoops = def.loops.where((l) => !foreachOwnedLoopIds.contains(l.id)).toList();
+    if (topLevelLoops.isNotEmpty) {
+      entries.add(MapEntry('loops', topLevelLoops.map((l) => l.toJson()).toList()));
     }
     return entries;
+  }
+
+  /// IDs of loops whose controller step is owned by a `foreach` (its id is in
+  /// some foreach controller's `foreachSteps`). These round-trip inline.
+  Set<String> _foreachOwnedLoopIds(WorkflowDefinition def) {
+    final foreachOwnedStepIds = {
+      for (final step in def.steps)
+        if (step.isForeachController) ...step.foreachSteps!,
+    };
+    return {
+      for (final loop in def.loops)
+        if (foreachOwnedStepIds.contains(loop.id)) loop.id,
+    };
   }
 
   /// Assembles the `steps:` list, inlining foreach child steps under their
@@ -164,15 +182,25 @@ class WorkflowDefinitionResolver {
   /// omitting the separately-listed child entries at the top level.
   List<dynamic> _buildTopLevelStepList(WorkflowDefinition def) {
     final stepsById = {for (final s in def.steps) s.id: s};
+    final loopsById = {for (final l in def.loops) l.id: l};
+    final foreachOwnedLoopIds = _foreachOwnedLoopIds(def);
     final inlinedChildIds = <String>{};
     for (final step in def.steps) {
       if (step.isForeachController) inlinedChildIds.addAll(step.foreachSteps!);
+    }
+    // Body (and finalizer) steps of a foreach-nested loop are emitted inside the
+    // inline loop child, so suppress them at the top level too.
+    for (final loopId in foreachOwnedLoopIds) {
+      final loop = loopsById[loopId];
+      if (loop == null) continue;
+      inlinedChildIds.addAll(loop.steps);
+      if (loop.finally_ != null) inlinedChildIds.add(loop.finally_!);
     }
     final result = <dynamic>[];
     for (final step in def.steps) {
       if (inlinedChildIds.contains(step.id)) continue; // emitted under its controller
       if (step.isForeachController) {
-        result.add(_foreachControllerToOrderedMap(step, stepsById));
+        result.add(_foreachControllerToOrderedMap(step, stepsById, loopsById));
       } else {
         result.add(_stepToOrderedMap(step));
       }
@@ -185,6 +213,7 @@ class WorkflowDefinitionResolver {
   List<MapEntry<String, dynamic>> _foreachControllerToOrderedMap(
     WorkflowStep controller,
     Map<String, WorkflowStep> stepsById,
+    Map<String, WorkflowLoop> loopsById,
   ) {
     final entries = <MapEntry<String, dynamic>>[
       MapEntry('id', controller.id),
@@ -206,10 +235,46 @@ class WorkflowDefinitionResolver {
     }
     final childSteps = <dynamic>[];
     for (final childId in controller.foreachSteps ?? const <String>[]) {
+      final loop = loopsById[childId];
+      if (loop != null) {
+        // A foreach-nested loop child round-trips in full inline form so the
+        // parser can re-materialize maxIterations/gates/body.
+        childSteps.add(_inlineLoopToOrderedMap(stepsById[childId], loop, stepsById));
+        continue;
+      }
       final child = stepsById[childId];
       if (child != null) childSteps.add(_stepToOrderedMap(child));
     }
     entries.add(MapEntry('steps', childSteps));
+    return entries;
+  }
+
+  /// Emits a foreach-nested loop in the inline form the parser expects: the
+  /// loop controller's id/name plus the loop's maxIterations/gates and its
+  /// body (and optional finalizer) steps nested under `steps:`.
+  List<MapEntry<String, dynamic>> _inlineLoopToOrderedMap(
+    WorkflowStep? controller,
+    WorkflowLoop loop,
+    Map<String, WorkflowStep> stepsById,
+  ) {
+    final entries = <MapEntry<String, dynamic>>[
+      MapEntry('id', loop.id),
+      MapEntry('name', controller?.name ?? loop.id),
+      MapEntry('type', 'loop'),
+      MapEntry('maxIterations', loop.maxIterations),
+    ];
+    if (loop.entryGate != null) entries.add(MapEntry('entryGate', loop.entryGate));
+    entries.add(MapEntry('exitGate', loop.exitGate));
+    final body = <dynamic>[];
+    for (final stepId in loop.steps) {
+      final step = stepsById[stepId];
+      if (step != null) body.add(_stepToOrderedMap(step));
+    }
+    entries.add(MapEntry('steps', body));
+    if (loop.finally_ != null) {
+      final finalizer = stepsById[loop.finally_!];
+      if (finalizer != null) entries.add(MapEntry('finally', _stepToOrderedMap(finalizer)));
+    }
     return entries;
   }
 

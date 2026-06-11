@@ -25,7 +25,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:3338/api/workflows | jq
 
 ```bash
 dart test packages/<package>              # Run tests
-dart test packages/<package> -t integration  # Integration tests
+dart test --run-skipped -t integration packages/<package>  # Integration tests
 dart analyze packages/<package>           # Static analysis
 dart format <file>                        # Format
 ```

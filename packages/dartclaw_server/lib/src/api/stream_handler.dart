@@ -4,11 +4,14 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
 
-/// Formats an SSE frame with HTML content. Newlines in [htmlContent] are
-/// replaced with spaces because SSE data lines cannot contain literal newlines.
-String _sseHtmlFrame(String event, String htmlContent) {
+import 'sse_broadcast.dart';
+
+/// Encodes an SSE frame with HTML content to UTF-8 bytes. Newlines in
+/// [htmlContent] are replaced with spaces because SSE data lines cannot
+/// contain literal newlines.
+List<int> _sseHtmlFrame(String event, String htmlContent) {
   final safe = htmlContent.replaceAll('\n', ' ').replaceAll('\r', '');
-  return 'event: $event\ndata: $safe\n\n';
+  return sseEventFrame(event, safe);
 }
 
 /// Sanitizes a tool ID for use as an HTML element id attribute.
@@ -52,7 +55,7 @@ Response sseStreamResponse(
 
   eventSub = worker.events.listen((event) {
     if (controller.isClosed) return;
-    final String frame;
+    final List<int> frame;
     if (event is DeltaEvent) {
       final text = redactor?.redact(event.text) ?? event.text;
       frame = _sseHtmlFrame('delta', '<span>${htmlEscape.convert(text)}</span>');
@@ -73,7 +76,7 @@ Response sseStreamResponse(
       return;
     }
     try {
-      controller.add(utf8.encode(frame));
+      controller.add(frame);
     } catch (e) {
       // Controller closed between isClosed check and add — safe to ignore.
     }
@@ -85,17 +88,15 @@ Response sseStreamResponse(
       final result = await turns.waitForOutcome(sessionId, turnId);
       if (controller.isClosed) return;
       if (result.status == TurnStatus.completed) {
-        controller.add(utf8.encode(_sseHtmlFrame('done', '')));
+        controller.add(_sseHtmlFrame('done', ''));
       } else {
         final message = result.errorMessage ?? 'Turn failed';
-        controller.add(
-          utf8.encode(_sseHtmlFrame('turn_error', '<div class="turn-error">${htmlEscape.convert(message)}</div>')),
-        );
+        controller.add(_sseHtmlFrame('turn_error', '<div class="turn-error">${htmlEscape.convert(message)}</div>'));
       }
     } catch (e) {
       if (!controller.isClosed) {
         try {
-          controller.add(utf8.encode(_sseHtmlFrame('turn_error', '<div class="turn-error">Internal error</div>')));
+          controller.add(_sseHtmlFrame('turn_error', '<div class="turn-error">Internal error</div>'));
         } catch (e) {
           // Controller closed — safe to ignore.
         }
@@ -106,13 +107,5 @@ Response sseStreamResponse(
     }
   }());
 
-  return Response.ok(
-    controller.stream,
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    },
-  );
+  return Response.ok(controller.stream, headers: eventStreamHeadersNoBuffer);
 }

@@ -1,8 +1,8 @@
-import 'dart:io';
-
 import 'package:dartclaw_server/src/auth/auth_utils.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
+
+import 'auth_test_support.dart';
 
 void main() {
   group('constantTimeEquals', () {
@@ -59,43 +59,33 @@ void main() {
 
   group('requestRemoteKey', () {
     test('uses socket address when no trusted proxies configured', () {
-      final request = _request(socketAddress: '192.168.1.50', headers: {'x-forwarded-for': '1.2.3.4'});
+      final request = authRequest(
+        socketAddress: '192.168.1.50',
+        headers: {'x-forwarded-for': '1.2.3.4'},
+        path: '/test',
+      );
 
       expect(requestRemoteKey(request), '192.168.1.50');
     });
 
     test('uses forwarded-for when connecting IP is trusted proxy', () {
-      final request = _request(socketAddress: '192.168.1.100', headers: {'x-forwarded-for': '10.0.0.1, 10.0.0.2'});
+      final request = authRequest(
+        socketAddress: '192.168.1.100',
+        headers: {'x-forwarded-for': '10.0.0.1, 10.0.0.2'},
+        path: '/test',
+      );
 
       expect(requestRemoteKey(request, trustedProxies: const ['192.168.1.100']), '10.0.0.1');
     });
 
     test('ignores forwarded-for when connecting IP is not in trusted list', () {
-      final request = _request(socketAddress: '192.168.1.50', headers: {'x-forwarded-for': '1.2.3.4'});
+      final request = authRequest(
+        socketAddress: '192.168.1.50',
+        headers: {'x-forwarded-for': '1.2.3.4'},
+        path: '/test',
+      );
 
       expect(requestRemoteKey(request, trustedProxies: const ['192.168.1.100']), '192.168.1.50');
     });
   });
-}
-
-Request _request({required String socketAddress, Map<String, String> headers = const {}}) {
-  return Request(
-    'GET',
-    Uri.parse('http://localhost/test'),
-    headers: headers,
-    context: {'shelf.io.connection_info': _FakeConnectionInfo(socketAddress)},
-  );
-}
-
-class _FakeConnectionInfo implements HttpConnectionInfo {
-  @override
-  final InternetAddress remoteAddress;
-
-  @override
-  final int remotePort = 443;
-
-  @override
-  final int localPort = 3000;
-
-  _FakeConnectionInfo(String address) : remoteAddress = InternetAddress.tryParse(address)!;
 }

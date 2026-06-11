@@ -1,7 +1,7 @@
 <div tl:fragment="sessionInfo" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" tabindex="-1" hx-history-elt class="info-content">
+  <main id="main-content" tabindex="-1" hx-history-elt class="info-content" data-controller="dc-tasks">
     <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
     <div class="info-inner">
 
@@ -46,6 +46,23 @@
 
       <div>
         <h2 class="section-label">Session Details</h2>
+        <div tl:if="${hasTurnStatus}" class="turn-status-panel"
+             tl:attr="data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
+          <div class="turn-status-row">
+            <span class="meta-label">Turn</span>
+            <span class="status-badge" data-turn-status-state tl:text="${turnStatus.stateLabel}">waiting</span>
+            <span class="meta-value" data-turn-status-reason tl:text="${turnStatus.reasonLabel}">session lock</span>
+          </div>
+          <div class="turn-status-times">
+            <span data-turn-status-waiting tl:text="${turnStatus.waitingSince}">waiting since</span>
+            <span data-turn-status-stuck tl:text="${turnStatus.stuckSince}">stuck since</span>
+            <span data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}">timeout</span>
+          </div>
+          <button type="button" class="btn btn-ghost" data-turn-cancel
+                  tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},disabled=${turnStatus.cancelDisabled}">
+            Cancel Turn
+          </button>
+        </div>
         <div class="meta-row">
           <span class="meta-label">Messages</span>
           <span class="meta-value" tl:text="${messageCount}">0</span>

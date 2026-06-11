@@ -18,7 +18,6 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 
 ### Claude
 - **`CLAUDECODE` env var causes nesting refusal.** Clear in subprocess environment.
-- **`persistSession: false` prevents disk writes.** DartClaw owns persistence.
 - **Model override goes via `--model` CLI flag, not the initialize field.**
 - **`sdkMcpServers` map must be spread, not double-wrapped.** Helpers already return the top-level shape; passing into another `sdkMcpServers:` field silently produces `sdkMcpServers.sdkMcpServers`.
 - **`--dangerously-skip-permissions` is only safe with hooks active.** Restricted-container simple mode disables hooks → fail-closed on `can_use_tool`.
@@ -26,6 +25,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **`_buildClaudeArgs()` is process-level, not per-task.** `HarnessPool` reuses long-lived runners; per-task flags require new processes or pool segmentation.
 - **Container mode: skip host probes.** No `claude --version` / auth probes from inside the container.
 - **Direct Claude setting sources default to inherited user scope.** Omit `--setting-sources` unless `providers.claude.inherit_user_settings: false`; workflow skill preflight must use the same policy as execution or `andthen:*` skills disappear before dispatch.
+- **One-shot `--output-format json` is buffered and starves the stall monitor.** `claude -p --output-format json` emits a single object only at turn completion — zero stdout while working, so a silence-timer stall guard false-trips on any long turn. Use `--output-format stream-json --verbose --include-partial-messages` for per-line liveness; parse the terminal `type: "result"` event, where tokens nest under `usage.*` (`input_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`), not top-level. Codex `exec --json` already streams JSONL, so this only bites claude.
 
 ### Codex
 - **Codex reads `config.toml` only at app-server startup.** Write `CODEX_HOME/config.toml` before spawning; later changes have no effect.
@@ -42,7 +42,6 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 
 ### Turn Routing
 - **Provider-routed sessions need turn-reservation bookkeeping in `TurnManager`.** When provider selection happens at reserve time, all of `executeTurn` / `waitForOutcome` / `releaseTurn` must hit the same runner.
-- **`_dispatchChannelTurn` must load full session history before `startTurn()`** to match the web UI path.
 - **Append-mode harnesses need explicit per-turn prompt exceptions for scoped behavior.** `PromptStrategy.append` normally returns an empty per-turn system prompt to avoid replacing the spawn prompt. Scoped web-only behavior such as onboarding must opt into a full scoped static prompt for that turn; changing the default would leak behavior into non-web callers.
 
 ## HTMX / SSE
@@ -68,7 +67,6 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Empty YAML document root is null, not an empty map.** Initialize with `editor.update([], {})` before path creation works.
 - **Trim string-to-enum config values on both parse paths.** `default_type: "analysis "` (trailing space) silently resolves to a different value.
 - **JSON decoders emit doubles for whole-number values.** Distinguish `3000.0` (accept) from `3000.5` (reject) via `value != value.toInt().toDouble()`.
-- **2026-05-06: Data-dir skill provisioning needs per-skill project links, not spawn-target constraints.** Installing `dartclaw-*` payloads under `<dataDir>/.claude/skills/` and `<dataDir>/.agents/skills/` is viable when each project/worktree gets per-skill symlinks into that data dir; this preserves native harness discovery without the 0.16.4 `validateSpawnTargets()` gate that incorrectly required project paths to live under `<dataDir>`.
 
 ## Concurrency / Async
 
@@ -81,7 +79,6 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 ## Security
 
 - **Constant-time webhook signature comparison via XOR accumulation.** Prevents timing attacks.
-- **`ContentGuard` fails open when `ANTHROPIC_API_KEY` missing.** Warn at startup, disable guard.
 - **MCP `ToolResult.error` is application-level, not JSON-RPC.** Spec requires success response with `isError: true` in content, not protocol-level `-32000`.
 - **Suppress binary's built-in tools when providing MCP equivalents.** Add tool names to `disallowedTools` in `HarnessConfig`.
 - **`includeParentEnvironment: false` is load-bearing whenever passing an explicit `environment:` map.** `Process.start` re-inherits parent env by default → sanitized overlays silently leak. `SafeProcess` exists to make this non-optional.
@@ -90,10 +87,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 ## Package Architecture
 
 - **`ConfigNotifier` emits section-level keys (`security.*`), not sub-keys (`guards.*`).** `Reconfigurable.watchKeys` must use the section-level key or watches silently never fire — `ConfigDelta.hasChanged()` prefix-matches against section keys only.
-- **Typedef-based decoupling avoids dragging deps across package boundaries.** e.g. `SearchIndexCounter` closure typedef instead of a raw `sqlite3.Database` handle.
-- **Callback-based decoupling for cross-package event firing.** Package defines callback parameters; application layer wires to `EventBus`.
 - **Channel config parsers self-register on import.** Bootstrap must call `ensure...Registered()` before `DartclawConfig.load()` or wiring fails with `StateError`.
-- **Barrel re-exports work as backward-compat after package splits.** `export 'package:dartclaw_models/...'` preserves consumer imports.
 - **Provider factories must normalize provider-specific executable defaults.** `HarnessFactoryConfig.executable` can only represent one default; each provider factory must substitute its own binary when not overridden.
 - **Multi-provider UI/view-model code must derive the provider from `config.agent.provider`.** Hardcoded `'claude'` mislabels non-Claude deployments before usage data exists.
 - **Harness capability differences belong on the base `AgentHarness` contract.** Expose via capability getters; consumers branch on flags. Unsupported telemetry → omission/null, never fake zero or provider-name conditionals.
@@ -106,14 +100,12 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 ### Google Chat
 - **Config keys use `google_chat`, not `googlechat`.** Even though `ChannelType.googlechat` omits the underscore. Mismatch → channel wiring silently disappears.
 - **Use `argumentText`, not `message.text`.** `message.text` includes the `@mention` prefix.
-- **Thread replies post with `thread: {name: <server-resource-name>}`, not `threadKey`.** Different API shapes for thread create vs thread reply.
 - **`spaces.members.get` uses bare numeric ID, not the `users/` prefix.** Strip `users/` from sender JIDs before constructing member URLs.
 - **`quotedMessageMetadata` requires user OAuth.** `chat.bot` returns 403. When quoting fails with a typing placeholder present, *edit* the placeholder — *deleting* it leaves a permanent "message deleted by its author" tombstone.
 - **Reactions also require user OAuth.** `chat.bot` cannot create or delete.
 - **Quoting unsupported in unthreaded spaces.** Check `spaceType` against `UNTHREADED_MESSAGES` (`DM`, `GROUP_CHAT`) before building the quote.
 - **`CARD_CLICKED` payload is flat `Map<String, String>`, not nested JSON.** `invokedFunction` + flat string parameters.
 - **Slash commands have two event shapes.** `MESSAGE` with `message.slashCommand` AND `APP_COMMAND` with `appCommandMetadata` — write a compatibility parser.
-- **Typing placeholders must run on every dedup-eligible ingress path.** If only the webhook handler runs the placeholder, the dedup-winning Pub/Sub path skips it.
 - **Thread binding endpoints must share the live `ThreadBindingStore` instance.** Per-request reconstruction reads stale file state.
 
 ### Workspace Events / Pub/Sub
@@ -129,11 +121,11 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 
 ## Workflow Engine
 
-- **Strict task-spawn dependencies need a lifecycle-only construction path.** `WorkflowService`'s default constructor can require task persistence ports so production wiring fails at compile time when task-spawn persistence is missing, but route/view tests and webhook fakes that only exercise pause/resume/cancel/list behavior should use an explicit lifecycle-only constructor instead of fabricating persistence ports.
+- **Strict task-spawn dependencies need a lifecycle-only construction path.** `WorkflowService`'s default constructor requires task-persistence ports (so production wiring fails at compile time when missing); route/view tests and webhook fakes that only exercise pause/resume/cancel/list should use the explicit lifecycle-only constructor, not fabricated persistence ports.
 - **Shared worktree caches need both persisted bindings and per-key mutexes.** In-memory map alone fails on retry/restart; same-key fanout needs a `finally`-released waiter/completer guard.
 - **Validator file splits must preserve diagnostic ordering.** `workflow validate` output order is observable, so rule-group moves need either the original call sequence in the composer or explicit golden coverage for ordering.
 - **`git worktree list` automation must use `--porcelain`.** Human-format output is not stable for reconciliation.
-- **Foreach unwraps must accept immutable map views.** Wrapped payloads can arrive as `UnmodifiableMapView`, not always `Map<String, dynamic>`.
+- **Review-report path outputs must resolve from the runtime-artifacts `reviews/` dir (`--output-dir`), never the worktree diff.** `resolveFileSystemOutput` must, in order: accept the bare-suffix alias (a parallel step namespaces its output `<stepId>.review_findings` to avoid context-key collisions; the skill emits bare `review_findings`); try the runtime-artifacts root before worktree-relative (when `.data/` is nested in the checkout, an absolute claim is also inside the worktree and would resolve wrong); fall back to the newest report in the reviews dir rather than throwing. Worktree-relative reports (e.g. `andthen:architecture` via `review-report-location.md`) legitimately use the diff path, so the fix is precedence/aliasing, not removing the fallback. Parallel review steps uniformly prefix keys `<stepId>.{review_findings,findings_count,gating_findings_count}`; aggregate-step keys stay bare. Contract-locked in `built_in_workflow_contracts_test.dart`.
 - **Merge inside the integration worktree when the integration branch is checked out there.** Reusing the main checkout fails with `branch is already used by worktree` once a shared worktree owns the branch.
 - **e2e artifact capture must snapshot the *terminal* task config**, not the queued snapshot. Otherwise completion-time writes are silently hidden even when the row was updated correctly.
 - **Workflow agent steps should omit `type:` or use `type: agent`.** Removed authoring values such as `custom`, `coding`, `research`, `analysis`, `writing`, and `automation` now fail validation; read-only behavior belongs in `allowedTools`, not semantic step names.
@@ -142,13 +134,11 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Loop crash recovery needs a checkpoint after every successful sibling step.** Checkpointing only at iteration boundaries loses outputs the next sibling depends on.
 - **Workflow start must preflight and persist effective `PROJECT`/`BRANCH` before any coding task is created.** Deferring resolution to `TaskExecutor` lets invalid runs leak coding tasks and serves authored defaults to early prompts.
 - **Local-path projects need their dirty-tree / branch-mismatch gate at the same workflow-start seam.** Putting the check later leaks coding tasks against a live checkout.
-- **Workflow-owned refs stay local refs all the way through publish.** Coding steps must attach to the existing branch/worktree; base-ref freshness logic must stop rewriting back to `origin/*`.
 - **Workflow git cleanup must run after child-task shutdown and walk the full run-owned set.** Shared-key cleanup is insufficient for `per-map-item` workflows.
 - **Artifact auto-commit must verify task worktree paths are real git worktrees.** Test scaffolds and workflow workspaces may use temporary directories for output materialization; commit load-bearing artifacts to the resolved project checkout instead.
-- **Partial inline structured payloads must not satisfy a structured-output schema.** If any required narrative key is missing, run the extraction turn and let context extraction preserve inline precedence per field.
 - **Artifact commit must use output resolver semantics, not raw output formats.** List-shaped filesystem outputs can be represented as `lines` in the current model but are still load-bearing artifacts.
 - **Dependency-aware fan-out is explicit, not inferred from object shape.** The shared map/foreach scheduler only engages when items declare `dependencies`; root records in that mode still need `dependencies: []`, or validation correctly treats the collection as malformed.
-- **Resume `story_specs` legitimately carry deps on completed stories; prune by completion status in the contract layer, not in `DependencyGraph`.** On resume, `dartclaw-discover-andthen-plan` excludes done/skipped stories but their IDs still appear in the remaining stories' `dependsOn`. `validateStorySpecsContract(completedStoryIds:)` prunes a dependency only when it names a `done`/`skipped` plan story (read from `plan.json` `stories[].status` in `story_spec_output_validator._readCompletedStoryIds`) absent from the emitted set — an already-satisfied prerequisite. Crucial subtlety: prune by *completion status*, not by mere absence from the emitted set — a story can be absent for non-completion reasons (no `fis`, `blocked`, dropped by discovery), and pruning those would silently treat an unsatisfied prerequisite as met. Deps on non-completed/unknown ids are kept so `DependencyGraph` rejects them (typos / hallucinated text like `Blocks A-G complete`, or real-but-incomplete prerequisites). Null catalog → strict. `DependencyGraph` itself is untouched, so map/foreach fan-out keeps its strict unknown-dependency detection.
+- **Resume `story_specs` legitimately carry deps on completed stories; prune by completion status in the contract layer, not in `DependencyGraph`.** On resume, discovery excludes done/skipped stories but their IDs still appear in remaining stories' `dependsOn`. `validateStorySpecsContract(completedStoryIds:)` prunes a dep only when it names a `done`/`skipped` plan story (per `plan.json` `stories[].status`). Prune by *completion status*, not mere absence from the emitted set — a story can be absent for non-completion reasons (no `fis`, `blocked`, dropped) and pruning those would treat an unsatisfied prerequisite as met. Keep deps on non-completed/unknown ids so `DependencyGraph` still rejects them (typos, hallucinated text, real-but-incomplete prereqs). Null catalog → strict. `DependencyGraph` is untouched.
 - **Promotion-conflict retries need the iteration cursor preserved on failure.** If a dependency-aware `mapOver` / `foreach` clears `executionCursor` after a blocked promotion, downstream items become permanently undispatchable and `workflow retry` cannot resume the ready-set correctly.
 - **`map_iteration_dispatcher` and `step_dispatcher` share the same async-listener / SQLite-teardown race.** Both need the synchronous-listener pattern: filter `failed + retry-in-progress` and `queued|running` re-emissions, then fire-and-forget `_taskService.get` for terminal events. Fixing only one leaves the other ticking.
 - **Foreach-vs-mapOver routing is a real footgun for skill tests.** The merge-resolve retry loop and `serialize-remaining` drain live in `_executeForeachStep` (ForeachNode), not `_executeMapStep` (MapNode). Tests using a plain `mapOver` step silently take the wrong code path; they must use a foreach controller (`type: foreach`, `foreachSteps: [...]`) for the new state machines to fire.
@@ -157,18 +147,17 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Bash variable interpolation must shell-escape both `{{context.X}}` and `{{VAR}}` for symmetry.** Asymmetric escape-vs-raw is an injection footgun; the consistency contract is "all interpolations escape; if you need literal text, write it directly in the template."
 - **Schema validator strictness is signaling, not enforcement.** Treat `additionalProperties: false`, `enum`, `minimum`, `maximum` as warnings under the soft-validate contract — they catch preset drift without breaking legacy YAML.
 - **`workflow_definition_parser._parseGitStrategy` is the real wiring gate for `gitStrategy:` extensions.** Adding a new typed sub-block to `WorkflowGitStrategy` without threading it through the parser leaves YAML-sourced workflows silently dropping the field; validator unit tests pass but `workflow validate` is unreachable. Always add the parser threading and a parser test in the same change.
-- **`OutputConfig.setValue: null` vs absent must round-trip distinctly.** A plain `Object? setValue` field collapses "explicitly null" and "unset" into the same value at the JSON layer, silently breaking the per-iteration reset semantic the field is designed to support. Back the field with a sentinel-or-value (`_workflowDefinitionFieldUnset` for "unset", anything else — including `null` — for "explicitly set") and gate `toJson` on `hasSetValue`; `fromJson` should treat `json.containsKey('setValue')` as the discriminator. Same trap applies to any future per-key literal slot on `OutputConfig`.
+- **`OutputConfig.setValue: null` vs absent must round-trip distinctly.** A plain `Object? setValue` collapses "explicitly null" and "unset" at the JSON layer, breaking the per-iteration reset semantic. Back it with a sentinel-or-value (`_workflowDefinitionFieldUnset` = unset; anything else, incl. `null` = explicitly set), gate `toJson` on `hasSetValue`, and treat `json.containsKey('setValue')` as the `fromJson` discriminator. Applies to any future per-key literal slot on `OutputConfig`.
 - **Workflow validators that compare provider roles need runtime role defaults.** Alias equality such as `@executor` vs a concrete provider is only meaningful after resolving through `WorkflowRoleDefaults`; CLI validation and server wiring must construct validators with the same configured defaults the runtime will use.
 - **Use task-level `maxRetries` for harness crashes, not `onFailure: retry` for story steps.** `onFailure: retry` retries explicit failed `<step-outcome>` results too, which can re-enter a per-story worktree containing the prior semantic failure's partial diff. Resilient story fan-out should record failed slots and let later review/summary steps consume the aggregate.
 - **Standalone workflow teardown must preserve non-terminal workflow git state.** Approval-held, paused, and running workflows still need their integration branch and per-map worktrees for resume. Cleanup on process dispose should only reap terminal runs; otherwise the next task attaches to a deleted workflow-owned ref.
 - **Best-effort workflow cleanup should use `onFailure: continue`, not a cleanup-specific branch.** Optional steps such as `simplify-code` may emit `needsInput` on red baselines; treating `continue` as "record and advance" for both `failed` and `needsInput` keeps required producer/review semantics strict while avoiding workflow-specific special cases.
-- **Post-step artifact validation must follow the producing task worktree.** A workflow can resolve its active root before later git isolation binds a task worktree; validating `story_specs.spec_path` against the stale root rejects files the step actually wrote. Prefer `task.worktreeJson.path` for path-bearing outputs, with the active root only as the no-worktree fallback.
+- **Post-step artifact validation must follow the producing task worktree.** A workflow can resolve its active root before later git isolation binds a task worktree; validating `story_specs.spec_path` against the stale root rejects files the step wrote. Prefer `task.worktreeJson.path` for path-bearing outputs; active root only as the no-worktree fallback.
 - **Live workflow step-isolation tests must cancel provider turns before deleting sessions.** Dart test timeouts can fire while a Codex subprocess is still returning; teardown must call the runner cancellation seam before disposing message storage or removing the temp session directory.
 
 ## Storage / Data Model
 
 - **Durable knowledge graph facts belong in `tasks.db`, not `search.db`.** `search.db` is rebuildable from MEMORY.md and can be deleted/rebuilt; temporal KG facts are authoritative source-linked records and must use the durable task database connection.
-- **Tail-window pagination is a parse-window optimization.** Scan NDJSON from the end; materialize only the requested window. Cursor semantics stay 1-based line numbers.
 - **Task sessions have multi-layer protection from maintenance pruning.** `_isProtected()`, `_pruneStale()` skip, `protectedTypes` set, `deleteSession()` throws, `listSessions()` excludes by default.
 - **FTS5 MATCH has special operators.** Wrap user input in double quotes for literal matching.
 - **Task persistence is schema-backed, not generic-JSON-backed.** New `Task` fields require schema, migrations, insert/update, hydration — not just `toJson()`/`fromJson()`.
@@ -182,7 +171,6 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Local-path projects need explicit per-project `/projects/<id>` mounts** even when the clones root is mounted. The legacy `/projects:ro` root only covers data-dir clones.
 - **Hardening env vars need dual injection paths.** Direct spawns inherit `HarnessFactoryConfig.environment`; containerized runs only see vars passed to `ContainerManager.exec(env:)`. Apply in both.
 - **GitHub release assets need a separate `latest/download` URL path.** Don't treat `latest` as a normal version segment under `/releases/download/<version>/...`.
-- **Token bootstrap (`?token=`) must be route-agnostic.** Must work on deep links like `/settings`, then redirect back without leaking the token.
 
 ## Tooling / Verification
 
@@ -197,7 +185,6 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Provider-validator runs before the fake harness factory is used.** Wiring tests still need a dummy credential entry for the selected provider, even when no subprocess launches.
 - **Workspace-root sqlite validation owns native-asset regeneration.** Adding `sqlite3` only at package scope leaves the root `.dart_tool/native_assets.yaml` stale and breaks package-wide test runs.
 - **Testing-profile smoke runs should bypass stale CLI snapshots after schema changes.** `dev/testing/profiles/*/run.sh` prefers cached `.dart_tool/pub/bin` snapshots; rebuild after storage migrations or you'll debug old code.
-- **Nested architecture-doc links resolve relative to the nested doc, not the repo root.** Run a scoped markdown link check after architecture-doc edits — silent drift otherwise.
 - **Mechanical file-split refactors silently change behavior via fallback differences.** Verify shared utility functions have identical fallback behavior to the inlined original — `null` vs fallback-object, empty-string vs error-summary, etc.
 - **Green unit suites hide wiring gaps.** Tests injecting absolute paths/null deps prove units, not the product. Require ≥1 test driving the real composition root + path discovery.
 - **Bounded filesystem traversal must stream entries.** `Directory.list().toList()` defeats traversal budgets in large flat directories even if callers later cap result counts.

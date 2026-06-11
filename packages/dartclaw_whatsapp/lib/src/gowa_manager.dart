@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show DelayFactory, HealthProbe, ProcessFactory;
+import 'package:dartclaw_core/dartclaw_core.dart' show DelayFactory, HealthProbe, ProcessFactory, killWithEscalation;
 import 'package:logging/logging.dart';
 
 /// Status record returned by [GowaManager.status].
@@ -156,17 +156,8 @@ class GowaManager {
     _usingExternalService = false;
 
     _log.info('Stopping GOWA');
-    proc.kill(ProcessSignal.sigterm);
-
-    // Wait up to 5s for graceful shutdown
-    final exitCode = await proc.exitCode.timeout(
-      const Duration(seconds: 5),
-      onTimeout: () {
-        _log.warning('GOWA did not exit within 5s, sending SIGKILL');
-        proc.kill(ProcessSignal.sigkill);
-        return proc.exitCode;
-      },
-    );
+    await killWithEscalation(proc, label: 'GOWA', gracePeriod: const Duration(seconds: 5), log: _log);
+    final exitCode = await proc.exitCode;
     _log.info('GOWA stopped (exit code: $exitCode)');
   }
 
@@ -190,14 +181,7 @@ class GowaManager {
 
     if (proc != null) {
       _log.info('Resetting GOWA');
-      proc.kill(ProcessSignal.sigterm);
-      await proc.exitCode.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          proc.kill(ProcessSignal.sigkill);
-          return proc.exitCode;
-        },
-      );
+      await killWithEscalation(proc, label: 'GOWA', gracePeriod: const Duration(seconds: 5));
     }
   }
 

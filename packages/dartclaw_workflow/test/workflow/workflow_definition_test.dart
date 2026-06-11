@@ -14,6 +14,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         StepConfigDefault,
         WorkflowDefinition,
         WorkflowExternalArtifactMountMode,
+        WorkflowGitCleanupStrategy,
         WorkflowGitExternalArtifactMount,
         WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
@@ -26,13 +27,15 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowVariable;
 import 'package:test/test.dart';
 
+const _basicStep = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+
 void main() {
   group('ExtractionConfig', () {
     test('round-trips via toJson/fromJson', () {
-      const config = ExtractionConfig(type: ExtractionType.regex, pattern: r'\d+');
+      const config = ExtractionConfig(type: ExtractionType.artifact, pattern: r'\d+');
       final json = config.toJson();
       final restored = ExtractionConfig.fromJson(json);
-      expect(restored.type, ExtractionType.regex);
+      expect(restored.type, ExtractionType.artifact);
       expect(restored.pattern, r'\d+');
     });
 
@@ -46,20 +49,29 @@ void main() {
   });
 
   group('WorkflowVariable', () {
-    test('round-trips via toJson/fromJson with default value', () {
-      const v = WorkflowVariable(required: true, description: 'A variable', defaultValue: 'default');
-      final restored = WorkflowVariable.fromJson(v.toJson());
-      expect(restored.required, true);
-      expect(restored.description, 'A variable');
-      expect(restored.defaultValue, 'default');
-    });
-
-    test('round-trips with no default value', () {
-      const v = WorkflowVariable(required: false, description: 'optional var');
-      final restored = WorkflowVariable.fromJson(v.toJson());
-      expect(restored.required, false);
-      expect(restored.defaultValue, isNull);
-    });
+    for (final testCase in const [
+      (
+        name: 'with default value',
+        variable: WorkflowVariable(required: true, description: 'A variable', defaultValue: 'default'),
+        required: true,
+        description: 'A variable',
+        defaultValue: 'default',
+      ),
+      (
+        name: 'with no default value',
+        variable: WorkflowVariable(required: false, description: 'optional var'),
+        required: false,
+        description: 'optional var',
+        defaultValue: null,
+      ),
+    ]) {
+      test('round-trips ${testCase.name}', () {
+        final restored = WorkflowVariable.fromJson(testCase.variable.toJson());
+        expect(restored.required, testCase.required);
+        expect(restored.description, testCase.description);
+        expect(restored.defaultValue, testCase.defaultValue);
+      });
+    }
 
     test('defaults apply when fields missing in json', () {
       final restored = WorkflowVariable.fromJson({});
@@ -114,9 +126,7 @@ void main() {
       const def = WorkflowDefinition(
         name: 'wf',
         description: 'desc',
-        steps: [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
-        ],
+        steps: [_basicStep],
         gitStrategy: WorkflowGitStrategy(
           integrationBranch: true,
           worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.shared),
@@ -132,6 +142,22 @@ void main() {
       expect(restored.gitStrategy!.worktreeMode, 'shared');
       expect(restored.gitStrategy!.promotion, 'merge');
       expect(restored.gitStrategy!.publish?.enabled, isTrue);
+    });
+
+    test('invalid gitStrategy worktree mode fails during model hydration', () {
+      expect(() => WorkflowGitWorktreeStrategy.fromJson('invalid-worktree'), throwsFormatException);
+    });
+
+    test('cleanup.enabled round-trips through toJson/fromJson', () {
+      const def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: [_basicStep],
+        gitStrategy: WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false)),
+      );
+      final restored = WorkflowDefinition.fromJson(def.toJson());
+      expect(restored.gitStrategy?.cleanup?.enabled, isFalse);
+      expect(restored.gitStrategy?.cleanupEnabled, isFalse);
     });
 
     test('effectiveWorktreeMode resolves auto and explicit modes', () {
@@ -201,39 +227,41 @@ void main() {
   });
 
   group('WorkflowNode', () {
-    test('action node round-trips via toJson/fromJson', () {
-      const node = ActionNode(stepId: 'step-1');
-      final restored = WorkflowNode.fromJson(node.toJson());
-      expect(restored, isA<ActionNode>());
-      expect((restored as ActionNode).stepId, 'step-1');
-    });
-
-    test('map node round-trips via toJson/fromJson', () {
-      const node = MapNode(stepId: 'story-spec');
-      final restored = WorkflowNode.fromJson(node.toJson());
-      expect(restored, isA<MapNode>());
-      expect((restored as MapNode).stepId, 'story-spec');
-    });
-
-    test('parallel group node round-trips via toJson/fromJson', () {
-      const node = ParallelGroupNode(stepIds: ['review-a', 'review-b']);
-      final restored = WorkflowNode.fromJson(node.toJson());
-      expect(restored, isA<ParallelGroupNode>());
-      expect((restored as ParallelGroupNode).stepIds, ['review-a', 'review-b']);
-    });
-
-    test('loop node round-trips via toJson/fromJson', () {
-      const node = LoopNode(
-        loopId: 'remediation-loop',
-        stepIds: ['remediate', 're-review'],
-        finallyStepId: 'summarize',
-      );
-      final restored = WorkflowNode.fromJson(node.toJson());
-      expect(restored, isA<LoopNode>());
-      expect((restored as LoopNode).loopId, 'remediation-loop');
-      expect(restored.stepIds, ['remediate', 're-review']);
-      expect(restored.finallyStepId, 'summarize');
-    });
+    for (final testCase in const [
+      (name: 'action', node: ActionNode(stepId: 'step-1'), matcher: TypeMatcher<ActionNode>(), key: 'step-1'),
+      (name: 'map', node: MapNode(stepId: 'story-spec'), matcher: TypeMatcher<MapNode>(), key: 'story-spec'),
+      (
+        name: 'parallel group',
+        node: ParallelGroupNode(stepIds: ['review-a', 'review-b']),
+        matcher: TypeMatcher<ParallelGroupNode>(),
+        key: ['review-a', 'review-b'],
+      ),
+      (
+        name: 'loop',
+        node: LoopNode(loopId: 'remediation-loop', stepIds: ['remediate', 're-review'], finallyStepId: 'summarize'),
+        matcher: TypeMatcher<LoopNode>(),
+        key: 'remediation-loop',
+      ),
+    ]) {
+      test('${testCase.name} node round-trips via toJson/fromJson', () {
+        final restored = WorkflowNode.fromJson(testCase.node.toJson());
+        expect(restored, testCase.matcher);
+        switch (restored) {
+          case ActionNode():
+            expect(restored.stepId, testCase.key);
+          case MapNode():
+            expect(restored.stepId, testCase.key);
+          case ParallelGroupNode():
+            expect(restored.stepIds, testCase.key);
+          case LoopNode():
+            expect(restored.loopId, testCase.key);
+            expect(restored.stepIds, ['remediate', 're-review']);
+            expect(restored.finallyStepId, 'summarize');
+          case ForeachNode():
+            fail('foreach is covered by its dedicated child-step assertions');
+        }
+      });
+    }
 
     test('foreach node round-trips via toJson/fromJson (S19)', () {
       const node = ForeachNode(stepId: 'story-pipeline', childStepIds: ['implement', 'quick-review']);
@@ -318,11 +346,13 @@ void main() {
         gate: 'prev.status == done',
         inputs: ['in_key'],
         outputs: {'out_key': OutputConfig()},
-        extraction: ExtractionConfig(type: ExtractionType.jsonpath, pattern: r'$.result'),
+        extraction: ExtractionConfig(type: ExtractionType.artifact, pattern: r'$.result'),
         maxTokens: 10000,
         maxRetries: 3,
         allowedTools: ['Bash', 'Read'],
         aggregateReviews: ['review-a', 'review-b'],
+        workflowVariables: ['REQUIREMENTS'],
+        entryGate: 'prd_source == synthesized',
       );
       final json = step.toJson();
       final restored = WorkflowStep.fromJson(json);
@@ -338,12 +368,14 @@ void main() {
       expect(restored.gate, 'prev.status == done');
       expect(restored.inputs, ['in_key']);
       expect(restored.outputKeys, contains('out_key'));
-      expect(restored.extraction!.type, ExtractionType.jsonpath);
+      expect(restored.extraction!.type, ExtractionType.artifact);
       expect(restored.extraction!.pattern, r'$.result');
       expect(restored.maxTokens, 10000);
       expect(restored.maxRetries, 3);
       expect(restored.allowedTools, ['Bash', 'Read']);
       expect(restored.aggregateReviews, ['review-a', 'review-b']);
+      expect(restored.workflowVariables, ['REQUIREMENTS']);
+      expect(restored.entryGate, 'prd_source == synthesized');
     });
 
     test('round-trips with only required fields (defaults applied)', () {
@@ -381,7 +413,7 @@ void main() {
     });
 
     test('maxCostUsd absent from json when null (S03)', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       final json = step.toJson();
       expect(json.containsKey('maxCostUsd'), false);
       expect(WorkflowStep.fromJson(json).maxCostUsd, isNull);
@@ -413,7 +445,7 @@ void main() {
     });
 
     test('step without skill has null skill field (S04)', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       expect(step.skill, isNull);
       final json = step.toJson();
       expect(json.containsKey('skill'), isFalse);
@@ -471,13 +503,7 @@ void main() {
     });
 
     test('round-trips with no loops', () {
-      const def = WorkflowDefinition(
-        name: 'simple',
-        description: 'Simple',
-        steps: [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
-        ],
-      );
+      const def = WorkflowDefinition(name: 'simple', description: 'Simple', steps: [_basicStep]);
       final restored = WorkflowDefinition.fromJson(def.toJson());
       expect(restored.loops, isEmpty);
       expect(restored.nodes.single, isA<ActionNode>());
@@ -489,9 +515,7 @@ void main() {
       const def = WorkflowDefinition(
         name: 'wf',
         description: 'desc',
-        steps: [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
-        ],
+        steps: [_basicStep],
         stepDefaults: [
           StepConfigDefault(match: 'review*', model: 'claude-opus-4'),
           StepConfigDefault(match: '*', provider: 'claude'),
@@ -576,26 +600,14 @@ void main() {
     });
 
     test('stepDefaults absent from json when null (S03)', () {
-      const def = WorkflowDefinition(
-        name: 'wf',
-        description: 'd',
-        steps: [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
-        ],
-      );
+      const def = WorkflowDefinition(name: 'wf', description: 'd', steps: [_basicStep]);
       final json = def.toJson();
       expect(json.containsKey('stepDefaults'), false);
       expect(WorkflowDefinition.fromJson(json).stepDefaults, isNull);
     });
 
     test('gitStrategy absent from json when null (S16b)', () {
-      const def = WorkflowDefinition(
-        name: 'wf',
-        description: 'd',
-        steps: [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
-        ],
-      );
+      const def = WorkflowDefinition(name: 'wf', description: 'd', steps: [_basicStep]);
       final json = def.toJson();
       expect(json.containsKey('gitStrategy'), false);
       expect(WorkflowDefinition.fromJson(json).gitStrategy, isNull);
@@ -603,20 +615,15 @@ void main() {
   });
 
   group('OutputFormat (S01)', () {
-    test('fromYaml maps text', () {
-      expect(OutputFormat.fromYaml('text'), OutputFormat.text);
-    });
-
-    test('fromYaml maps json', () {
-      expect(OutputFormat.fromYaml('json'), OutputFormat.json);
-    });
-
-    test('fromYaml maps lines', () {
-      expect(OutputFormat.fromYaml('lines'), OutputFormat.lines);
-    });
-
-    test('fromYaml returns null for unknown', () {
-      expect(OutputFormat.fromYaml('invalid'), isNull);
+    test('fromYaml maps known values and rejects unknown values', () {
+      for (final testCase in const [
+        (yaml: 'text', expected: OutputFormat.text),
+        (yaml: 'json', expected: OutputFormat.json),
+        (yaml: 'lines', expected: OutputFormat.lines),
+        (yaml: 'invalid', expected: null),
+      ]) {
+        expect(OutputFormat.fromYaml(testCase.yaml), testCase.expected);
+      }
     });
   });
 
@@ -745,13 +752,13 @@ void main() {
     });
 
     test('workflow step json omits evaluator field', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       final json = step.toJson();
       expect(json.containsKey('evaluator'), false);
     });
 
     test('outputs null when not set (backward compat)', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       final json = step.toJson();
       expect(json.containsKey('outputs'), false);
       final restored = WorkflowStep.fromJson(json);
@@ -759,7 +766,7 @@ void main() {
     });
 
     test('workflow step round-trip remains evaluator-free', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       final restored = WorkflowStep.fromJson(step.toJson());
       expect(restored.toJson().containsKey('evaluator'), false);
     });
@@ -827,7 +834,7 @@ void main() {
     });
 
     test('single-prompt isMultiPrompt is false', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       expect(step.isMultiPrompt, false);
     });
 
@@ -839,7 +846,7 @@ void main() {
 
   group('WorkflowStep map fields (S06)', () {
     test('defaults: mapOver null, maxParallel null, maxItems null', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       expect(step.mapOver, isNull);
       expect(step.maxParallel, isNull);
       expect(step.maxItems, isNull);
@@ -852,38 +859,29 @@ void main() {
       expect(step.isMapStep, true);
     });
 
-    test('round-trip: mapOver string', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'stories');
-      final restored = WorkflowStep.fromJson(step.toJson());
-      expect(restored.mapOver, 'stories');
-    });
-
-    test('round-trip: maxParallel as int', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxParallel: 3);
-      final restored = WorkflowStep.fromJson(step.toJson());
-      expect(restored.maxParallel, 3);
-    });
-
-    test('round-trip: maxParallel as "unlimited" string', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxParallel: 'unlimited');
-      final restored = WorkflowStep.fromJson(step.toJson());
-      expect(restored.maxParallel, 'unlimited');
-    });
-
-    test('round-trip: maxParallel as template string', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxParallel: '{{MAX_PARALLEL}}');
-      final restored = WorkflowStep.fromJson(step.toJson());
-      expect(restored.maxParallel, '{{MAX_PARALLEL}}');
-    });
-
-    test('round-trip: maxItems custom value', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxItems: 15);
-      final restored = WorkflowStep.fromJson(step.toJson());
-      expect(restored.maxItems, 15);
-    });
+    for (final testCase in const [
+      (name: 'mapOver string', step: WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'stories')),
+      (name: 'maxParallel as int', step: WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxParallel: 3)),
+      (
+        name: 'maxParallel as "unlimited" string',
+        step: WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxParallel: 'unlimited'),
+      ),
+      (
+        name: 'maxParallel as template string',
+        step: WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxParallel: '{{MAX_PARALLEL}}'),
+      ),
+      (name: 'maxItems custom value', step: WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxItems: 15)),
+    ]) {
+      test('round-trip: ${testCase.name}', () {
+        final restored = WorkflowStep.fromJson(testCase.step.toJson());
+        expect(restored.mapOver, testCase.step.mapOver);
+        expect(restored.maxParallel, testCase.step.maxParallel);
+        expect(restored.maxItems, testCase.step.maxItems);
+      });
+    }
 
     test('toJson omits mapOver when null', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       final json = step.toJson();
       expect(json.containsKey('mapOver'), false);
       expect(json.containsKey('maxParallel'), false);
@@ -917,7 +915,7 @@ void main() {
 
   group('WorkflowStep hybrid fields (S01 / 0.16.1)', () {
     test('continueSession defaults to null', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       expect(step.continueSession, isNull);
       final json = step.toJson();
       expect(json.containsKey('continueSession'), false);
@@ -940,29 +938,24 @@ void main() {
     });
 
     test('onError defaults to null', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       expect(step.onError, isNull);
       final json = step.toJson();
       expect(json.containsKey('onError'), false);
       expect(WorkflowStep.fromJson(json).onError, isNull);
     });
 
-    test('onError: continue round-trips', () {
-      const step = WorkflowStep(id: 's', name: 'S', type: WorkflowTaskType.bash, onError: 'continue');
-      final json = step.toJson();
-      expect(json['onError'], 'continue');
-      expect(WorkflowStep.fromJson(json).onError, 'continue');
-    });
-
-    test('onError: retry round-trips', () {
-      const step = WorkflowStep(id: 's', name: 'S', type: WorkflowTaskType.bash, onError: 'retry');
-      final json = step.toJson();
-      expect(json['onError'], 'retry');
-      expect(WorkflowStep.fromJson(json).onError, 'retry');
-    });
+    for (final onError in const ['continue', 'retry']) {
+      test('onError: $onError round-trips', () {
+        final step = WorkflowStep(id: 's', name: 'S', type: WorkflowTaskType.bash, onError: onError);
+        final json = step.toJson();
+        expect(json['onError'], onError);
+        expect(WorkflowStep.fromJson(json).onError, onError);
+      });
+    }
 
     test('workdir defaults to null', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      const step = _basicStep;
       expect(step.workdir, isNull);
       final json = step.toJson();
       expect(json.containsKey('workdir'), false);
@@ -1027,6 +1020,23 @@ void main() {
           ),
         ),
       );
+    });
+
+    test('unknown step type throws during model hydration', () {
+      expect(
+        () => WorkflowStep.fromJson({'id': 's', 'name': 'S', 'type': 'unknown-future-type', 'prompt': 'p'}),
+        throwsFormatException,
+        reason: 'Unknown type should be rejected before validation',
+      );
+    });
+
+    test('legacy semantic and custom types throw during model hydration', () {
+      for (final type in ['coding', 'analysis', 'research', 'writing', 'automation', 'custom']) {
+        expect(
+          () => WorkflowStep.fromJson({'id': 's-$type', 'name': 'S', 'type': type, 'prompt': 'p'}),
+          throwsFormatException,
+        );
+      }
     });
   });
 
@@ -1187,21 +1197,16 @@ void main() {
   });
 
   group('MergeResolveEscalation', () {
-    test('tryParse maps serialize-remaining', () {
-      expect(MergeResolveEscalation.tryParse('serialize-remaining'), MergeResolveEscalation.serializeRemaining);
-    });
-
-    test('tryParse maps fail', () {
-      expect(MergeResolveEscalation.tryParse('fail'), MergeResolveEscalation.fail);
-    });
-
-    test('tryParse returns null for pause (reserved)', () {
-      expect(MergeResolveEscalation.tryParse('pause'), isNull);
-    });
-
-    test('tryParse returns null for unknown values', () {
-      expect(MergeResolveEscalation.tryParse('yolo'), isNull);
-      expect(MergeResolveEscalation.tryParse(null), isNull);
+    test('tryParse maps known values and rejects reserved/unknown values', () {
+      for (final testCase in const [
+        (value: 'serialize-remaining', expected: MergeResolveEscalation.serializeRemaining),
+        (value: 'fail', expected: MergeResolveEscalation.fail),
+        (value: 'pause', expected: null),
+        (value: 'yolo', expected: null),
+        (value: null, expected: null),
+      ]) {
+        expect(MergeResolveEscalation.tryParse(testCase.value), testCase.expected);
+      }
     });
 
     test('toYamlString round-trips', () {

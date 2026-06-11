@@ -24,12 +24,11 @@ Main agent turn (primary harness)
     └── Main agent continues with the search result
 ```
 
-Two MCP tools trigger delegation:
+Delegation is triggered by one MCP tool:
 
 | Tool | Behavior |
 |------|----------|
 | `sessions_send` | Synchronous — main agent blocks until the subagent completes and returns a result |
-| `sessions_spawn` | Asynchronous — returns a session ID immediately; the subagent runs in the background |
 
 ### Built-in: Search Agent
 
@@ -125,8 +124,6 @@ These are enforced by `SubagentLimits` in `SessionDelegate`. When limits are rea
 
 Every result returned via `sessions_send` passes through the content-guard before reaching the main agent. This prevents poisoned web content or prompt injection from propagating. If the guard blocks the result, the main agent receives an error message instead.
 
-`sessions_spawn` (async) does not have this boundary scan — the spawned session runs independently.
-
 ## Task Runners (Background Work)
 
 Task runners are a separate execution model for structured, reviewable background work. Unlike subagents (which are lightweight delegations within a turn), tasks are independent work units with their own lifecycle, artifacts, and review flow.
@@ -135,7 +132,7 @@ Task runners are a separate execution model for structured, reviewable backgroun
 
 | | Subagents | Task Runners |
 |---|-----------|-------------|
-| **Triggered by** | Main agent via `sessions_send`/`sessions_spawn` | Task queue (API, web UI, automation schedule) |
+| **Triggered by** | Main agent via `sessions_send` | Task queue (API, web UI, automation schedule) |
 | **Execution** | Within the caller's turn | Independent background execution |
 | **Harness** | Shared (main harness via SessionDelegate) | Dedicated harness from the pool |
 | **Tool access** | Sandboxed (closed allowlist) | Full agent tools (same as main chat) |

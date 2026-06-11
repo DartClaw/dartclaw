@@ -213,7 +213,7 @@ void main() {
       expect(toolResult.isError, isFalse);
     });
 
-    test('parses item/completed unknown item type into prefixed ToolResult', () {
+    test('parses item/completed reasoning into provider progress', () {
       final adapter = CodexProtocolAdapter();
 
       final msg = adapter.parseLine(
@@ -225,11 +225,10 @@ void main() {
         }),
       );
 
-      expect(msg, isA<ToolResult>());
-      final toolResult = msg! as ToolResult;
-      expect(toolResult.toolId, 'item-unknown');
-      expect(toolResult.output, 'codex:reasoning {"summary":"thinking through the request"}');
-      expect(toolResult.isError, isFalse);
+      expect(msg, isA<ProgressMessage>());
+      final progress = msg! as ProgressMessage;
+      expect(progress.kind, 'codex_reasoning');
+      expect(progress.text, 'thinking through the request');
     });
 
     test('parses item/completed with non-zero exit code as error ToolResult', () {

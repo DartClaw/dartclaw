@@ -16,23 +16,16 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktr
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
-        ContextExtractor,
-        EventBus,
-        GateEvaluator,
-        KvService,
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
         MergeResolveConfig,
         MergeResolveEscalation,
-        MessageService,
         OutputConfig,
-        StepExecutionContext,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
         WorkflowExecutor,
-        WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishStrategy,
@@ -43,109 +36,29 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowSerializationEnactedEvent,
         WorkflowStep,
         WorkflowStepOutputTransformer,
-        WorkflowTurnAdapter,
-        WorkflowTurnOutcome;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
-import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show
-        SqliteAgentExecutionRepository,
-        SqliteExecutionRepositoryTransactor,
-        SqliteTaskRepository,
-        SqliteWorkflowRunRepository,
-        SqliteWorkflowStepExecutionRepository;
+        WorkflowTurnAdapter;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'workflow_executor_test_support.dart' show WorkflowExecutorHarness, standardTurnAdapter;
 
 void main() {
   // Unit tests for event class shape are in serialization_enacted_event_test.dart.
 
-  late Directory tempDir;
-  late String sessionsDir;
-  late SqliteTaskRepository taskRepository;
-  late TaskService taskService;
-  late MessageService messageService;
-  late KvService kvService;
-  late SqliteWorkflowRunRepository repository;
-  late SqliteAgentExecutionRepository agentExecutionRepository;
-  late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
-  late SqliteExecutionRepositoryTransactor executionRepositoryTransactor;
-  late EventBus eventBus;
+  final h = WorkflowExecutorHarness();
+  setUp(h.setUp);
+  tearDown(h.tearDown);
 
   WorkflowExecutor makeExecutor({
     WorkflowTurnAdapter? turnAdapter,
     WorkflowStepOutputTransformer? outputTransformer,
     required Directory dir,
   }) {
-    return WorkflowExecutor(
-      executionContext: StepExecutionContext(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: dir.path,
-          workflowStepExecutionRepository: workflowStepExecutionRepository,
-        ),
-        turnAdapter: turnAdapter,
-        outputTransformer: outputTransformer,
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionTransactor: executionRepositoryTransactor,
-      ),
-      dataDir: dir.path,
-    );
+    return h.makeExecutor(turnAdapter: turnAdapter, outputTransformer: outputTransformer, dataDir: dir.path);
   }
 
-  setUp(() {
-    tempDir = Directory.systemTemp.createTempSync('dartclaw_s61_test_');
-    sessionsDir = p.join(tempDir.path, 'sessions');
-    Directory(sessionsDir).createSync(recursive: true);
-
-    final db = sqlite3.openInMemory();
-    eventBus = EventBus();
-    taskRepository = SqliteTaskRepository(db);
-    agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
-    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
-    executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(db);
-    taskService = TaskService(
-      taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      executionTransactor: executionRepositoryTransactor,
-      eventBus: eventBus,
-    );
-    repository = SqliteWorkflowRunRepository(db);
-    messageService = MessageService(baseDir: sessionsDir);
-    kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
-  });
-
-  tearDown(() async {
-    await taskService.dispose();
-    await messageService.dispose();
-    await kvService.dispose();
-    await eventBus.dispose();
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-  });
-
-  Future<void> completeTask(String taskId, {TaskStatus status = TaskStatus.accepted}) async {
-    try {
-      await taskService.transition(taskId, TaskStatus.running, trigger: 'test');
-    } on StateError {
-      // May already be running.
-    }
-    if (status == TaskStatus.accepted || status == TaskStatus.rejected) {
-      try {
-        await taskService.transition(taskId, TaskStatus.review, trigger: 'test');
-      } on StateError {
-        // May already be in review.
-      }
-    }
-    await taskService.transition(taskId, status, trigger: 'test');
-  }
+  Future<void> completeTask(String taskId, {TaskStatus status = TaskStatus.accepted}) =>
+      h.completeTask(taskId, status: status);
 
   /// Builds a definition with a foreach step that has merge-resolve enabled.
   ///
@@ -206,12 +119,7 @@ void main() {
   // storyIds in [conflictIds], success otherwise. Also provides a fake
   // cleanupWorktreeForRetry that always succeeds.
   WorkflowTurnAdapter makeAdapter({required Set<String> conflictIds, Map<String, String>? successShas}) {
-    return WorkflowTurnAdapter(
-      reserveTurn: (_) => Future.value('turn-1'),
-      executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-      waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-      initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-          const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+    return standardTurnAdapter(
       promoteWorkflowBranch:
           ({
             required runId,
@@ -274,7 +182,7 @@ void main() {
     test('serialize-remaining fires once, story 2 re-queued at head, workflow completes', () async {
       final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 2);
       final run = makeRun(definition);
-      await repository.insert(run);
+      await h.repository.insert(run);
       final context = WorkflowContext(
         data: {
           'stories': [
@@ -286,17 +194,12 @@ void main() {
       );
 
       final serializationEvents = <WorkflowSerializationEnactedEvent>[];
-      final eventSub = eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
+      final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
       // S01 succeeds on promote. S02 conflicts → merge-resolve fails → serialize-remaining.
       // After re-queue, S02 retries and succeeds.
       final s02PromoteCount = <int>[0];
-      final adapter = WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+      final adapter = standardTurnAdapter(
         promoteWorkflowBranch:
             ({
               required runId,
@@ -320,20 +223,20 @@ void main() {
       );
 
       final executor = makeExecutor(
-        dir: tempDir,
+        dir: h.tempDir,
         turnAdapter: adapter,
         outputTransformer: codingWithMergeResolveFailTransformer(),
       );
 
       final taskCount = <String>[];
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
         taskCount.add(e.taskId);
-        await taskService.updateFields(
+        await h.taskService.updateFields(
           e.taskId,
           worktreeJson: {
-            'path': p.join(tempDir.path, 'worktrees', e.taskId),
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
             'branch': 'story-branch-${e.taskId}',
             'createdAt': DateTime.now().toIso8601String(),
           },
@@ -356,7 +259,7 @@ void main() {
       expect(evt.drainedIterationCount, 0); // last-unfinished case
 
       // Workflow must complete (S02 re-run succeeded serially).
-      final finalRun = await repository.getById(run.id);
+      final finalRun = await h.repository.getById(run.id);
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
   });
@@ -369,7 +272,7 @@ void main() {
       // and must NOT emit a second event.
       final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 2);
       final run = makeRun(definition, id: 'run-idempotent');
-      await repository.insert(run);
+      await h.repository.insert(run);
       final context = WorkflowContext(
         data: {
           'stories': [
@@ -381,16 +284,11 @@ void main() {
       );
 
       final serializationEvents = <WorkflowSerializationEnactedEvent>[];
-      final eventSub = eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
+      final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
       // Both stories always conflict → serialize-remaining on S02 → S02 re-queued →
       // serial retry also conflicts → second escalation call finds flag=true → no second event.
-      final adapter = WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+      final adapter = standardTurnAdapter(
         promoteWorkflowBranch:
             ({
               required runId,
@@ -411,18 +309,18 @@ void main() {
       );
 
       final executor = makeExecutor(
-        dir: tempDir,
+        dir: h.tempDir,
         turnAdapter: adapter,
         outputTransformer: codingWithMergeResolveFailTransformer(),
       );
 
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await taskService.updateFields(
+        await h.taskService.updateFields(
           e.taskId,
           worktreeJson: {
-            'path': p.join(tempDir.path, 'worktrees', e.taskId),
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
             'branch': 'story-branch-${e.taskId}',
             'createdAt': DateTime.now().toIso8601String(),
           },
@@ -446,7 +344,7 @@ void main() {
       // serialize-remaining at any point.
       final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 1);
       final run = makeRun(definition, id: 'run-non-merge-fail');
-      await repository.insert(run);
+      await h.repository.insert(run);
       final context = WorkflowContext(
         data: {
           'stories': [
@@ -457,15 +355,10 @@ void main() {
       );
 
       final serializationEvents = <WorkflowSerializationEnactedEvent>[];
-      final eventSub = eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
+      final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
       // No promotion callback — step itself just fails normally.
-      final adapter = WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+      final adapter = standardTurnAdapter(
         promoteWorkflowBranch:
             ({
               required runId,
@@ -479,15 +372,15 @@ void main() {
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
 
-      final executor = makeExecutor(dir: tempDir, turnAdapter: adapter);
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await taskService.updateFields(
+        await h.taskService.updateFields(
           e.taskId,
           worktreeJson: {
-            'path': p.join(tempDir.path, 'worktrees', e.taskId),
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
             'branch': 'story-branch-${e.taskId}',
             'createdAt': DateTime.now().toIso8601String(),
           },
@@ -502,7 +395,7 @@ void main() {
       await eventSub.cancel();
 
       expect(serializationEvents, isEmpty);
-      final finalRun = await repository.getById(run.id);
+      final finalRun = await h.repository.getById(run.id);
       expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     });
   });
@@ -563,7 +456,7 @@ void main() {
         ],
       );
       final run = makeRun(definition, id: 'run-mr-disabled');
-      await repository.insert(run);
+      await h.repository.insert(run);
       final context = WorkflowContext(
         data: {
           'stories': [
@@ -574,16 +467,16 @@ void main() {
       );
 
       final serializationEvents = <WorkflowSerializationEnactedEvent>[];
-      final eventSub = eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
+      final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
       final adapter = makeAdapter(conflictIds: {'S01'});
       final executor = makeExecutor(
-        dir: tempDir,
+        dir: h.tempDir,
         turnAdapter: adapter,
         outputTransformer: codingWithBranchTransformer(),
       );
 
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
         await Future<void>.delayed(Duration.zero);
@@ -596,7 +489,7 @@ void main() {
 
       // No event when merge_resolve is disabled.
       expect(serializationEvents, isEmpty);
-      final finalRun = await repository.getById(run.id);
+      final finalRun = await h.repository.getById(run.id);
       expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     });
   });
@@ -617,7 +510,7 @@ void main() {
       // We track S03's task id as the 3rd task that gets queued (creation order = dispatch order).
       final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 3);
       final run = makeRun(definition, id: 'run-s2');
-      await repository.insert(run);
+      await h.repository.insert(run);
       final context = WorkflowContext(
         data: {
           'stories': [
@@ -630,23 +523,18 @@ void main() {
       );
 
       final serializationEvents = <WorkflowSerializationEnactedEvent>[];
-      final eventSub = eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
+      final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
       // Track which tasks have been queued; hold the 3rd distinct task (S03) until event fires.
       final queuedTaskIds = <String>[];
       final releaseS03 = Completer<void>();
-      final releaseOnEvent = eventBus.on<WorkflowSerializationEnactedEvent>().listen((_) {
+      final releaseOnEvent = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen((_) {
         if (!releaseS03.isCompleted) releaseS03.complete();
       });
 
       // S02 conflicts on first promote; succeeds on serial retry.
       final s02PromoteCount = <int>[0];
-      final adapter = WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+      final adapter = standardTurnAdapter(
         promoteWorkflowBranch:
             ({
               required runId,
@@ -669,18 +557,18 @@ void main() {
       );
 
       final executor = makeExecutor(
-        dir: tempDir,
+        dir: h.tempDir,
         turnAdapter: adapter,
         outputTransformer: codingWithMergeResolveFailTransformer(),
       );
 
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await taskService.updateFields(
+        await h.taskService.updateFields(
           e.taskId,
           worktreeJson: {
-            'path': p.join(tempDir.path, 'worktrees', e.taskId),
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
             'branch': 'story-branch-${e.taskId}',
             'createdAt': DateTime.now().toIso8601String(),
           },
@@ -711,7 +599,7 @@ void main() {
       expect(evt.drainedIterationCount, greaterThanOrEqualTo(1));
 
       // Workflow completes (serial re-runs all succeed).
-      final finalRun = await repository.getById(run.id);
+      final finalRun = await h.repository.getById(run.id);
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
   });
@@ -755,7 +643,7 @@ void main() {
       // and must NOT fire a second WorkflowSerializationEnactedEvent.
       final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 2);
       final run = makeRun(definition, id: 'run-s5');
-      await repository.insert(run);
+      await h.repository.insert(run);
 
       // Pre-seed context as if crash happened after enacting but before drain completed.
       // serializing_iter_index=1 (S02), serialize_remaining_phase='enacting'.
@@ -773,15 +661,10 @@ void main() {
       );
 
       final serializationEvents = <WorkflowSerializationEnactedEvent>[];
-      final eventSub = eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
+      final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
       // S02 succeeds on its serial retry (crash recovery resumes at head).
-      final adapter = WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+      final adapter = standardTurnAdapter(
         promoteWorkflowBranch:
             ({
               required runId,
@@ -796,18 +679,18 @@ void main() {
       );
 
       final executor = makeExecutor(
-        dir: tempDir,
+        dir: h.tempDir,
         turnAdapter: adapter,
         outputTransformer: codingWithBranchTransformer(),
       );
 
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await taskService.updateFields(
+        await h.taskService.updateFields(
           e.taskId,
           worktreeJson: {
-            'path': p.join(tempDir.path, 'worktrees', e.taskId),
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
             'branch': 'story-branch-${e.taskId}',
             'createdAt': DateTime.now().toIso8601String(),
           },
@@ -829,7 +712,7 @@ void main() {
       expect(serializationEvents.length, lessThanOrEqualTo(1));
 
       // Workflow must complete (serial re-run succeeds).
-      final finalRun = await repository.getById(run.id);
+      final finalRun = await h.repository.getById(run.id);
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
   });
@@ -841,7 +724,7 @@ void main() {
       // Stories 3 (failing, at head) and 4 (sibling) enter serial queue.
       final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 4);
       final run = makeRun(definition, id: 'run-s6');
-      await repository.insert(run);
+      await h.repository.insert(run);
 
       // Pre-seed stories 1+2 as already promoted so the executor skips them.
       final context = WorkflowContext(
@@ -862,16 +745,11 @@ void main() {
       );
 
       final serializationEvents = <WorkflowSerializationEnactedEvent>[];
-      final eventSub = eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
+      final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
       // S03 conflicts on first attempt (serialize-remaining); succeeds on serial retry.
       final s03PromoteCount = <int>[0];
-      final adapter = WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+      final adapter = standardTurnAdapter(
         promoteWorkflowBranch:
             ({
               required runId,
@@ -894,18 +772,18 @@ void main() {
       );
 
       final executor = makeExecutor(
-        dir: tempDir,
+        dir: h.tempDir,
         turnAdapter: adapter,
         outputTransformer: codingWithMergeResolveFailTransformer(),
       );
 
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await taskService.updateFields(
+        await h.taskService.updateFields(
           e.taskId,
           worktreeJson: {
-            'path': p.join(tempDir.path, 'worktrees', e.taskId),
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
             'branch': 'story-branch-${e.taskId}',
             'createdAt': DateTime.now().toIso8601String(),
           },
@@ -927,7 +805,7 @@ void main() {
       expect(evt.drainedIterationCount, greaterThanOrEqualTo(0));
 
       // Workflow must complete.
-      final finalRun = await repository.getById(run.id);
+      final finalRun = await h.repository.getById(run.id);
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
   });
@@ -936,7 +814,7 @@ void main() {
     test('existing events still fire after S61 changes', () async {
       final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 1);
       final run = makeRun(definition, id: 'run-events');
-      await repository.insert(run);
+      await h.repository.insert(run);
       final context = WorkflowContext(
         data: {
           'stories': [
@@ -948,19 +826,19 @@ void main() {
 
       final mapCompletedEvents = <MapStepCompletedEvent>[];
       final iterCompletedEvents = <MapIterationCompletedEvent>[];
-      final mapSub = eventBus.on<MapStepCompletedEvent>().listen(mapCompletedEvents.add);
-      final iterSub = eventBus.on<MapIterationCompletedEvent>().listen(iterCompletedEvents.add);
+      final mapSub = h.eventBus.on<MapStepCompletedEvent>().listen(mapCompletedEvents.add);
+      final iterSub = h.eventBus.on<MapIterationCompletedEvent>().listen(iterCompletedEvents.add);
 
       final adapter = makeAdapter(conflictIds: {});
-      final executor = makeExecutor(dir: tempDir, turnAdapter: adapter);
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await taskService.updateFields(
+        await h.taskService.updateFields(
           e.taskId,
           worktreeJson: {
-            'path': p.join(tempDir.path, 'worktrees', e.taskId),
+            'path': p.join(h.tempDir.path, 'worktrees', e.taskId),
             'branch': 'story-branch',
             'createdAt': DateTime.now().toIso8601String(),
           },

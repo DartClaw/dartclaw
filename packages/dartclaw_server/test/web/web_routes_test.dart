@@ -4,43 +4,14 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/turn_wait_status.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
+import '../signal_test_support.dart';
 import '../test_utils.dart';
-
-class _FakeGowaManager extends GowaManager {
-  _FakeGowaManager({required this.running, required this.loggedIn, this.pairedJidValue})
-    : super(executable: '', host: '', port: 0, webhookUrl: '', osName: '');
-
-  final bool running;
-  final bool loggedIn;
-  final String? pairedJidValue;
-
-  @override
-  bool get isRunning => running;
-
-  @override
-  String? get pairedJid => pairedJidValue;
-
-  @override
-  Future<GowaStatus> status() async => (isConnected: loggedIn, isLoggedIn: loggedIn, deviceId: pairedJidValue);
-}
-
-class _FakeSignalCliManager extends SignalCliManager {
-  _FakeSignalCliManager({required this.running, required this.registered})
-    : super(executable: '', host: '', port: 0, phoneNumber: '');
-
-  final bool running;
-  final bool registered;
-
-  @override
-  bool get isRunning => running;
-
-  @override
-  Future<bool> isAccountRegistered() async => registered;
-}
+import '../whatsapp_test_support.dart';
 
 String _sessionCostPayload({
   required int inputTokens,
@@ -186,6 +157,37 @@ void main() {
       expect(body, contains('recovered from an interrupted turn'));
       expect(body, contains('class="dismiss" aria-label="Dismiss" data-icon="x"'));
       expect(body, isNot(contains('&#10005;')));
+    });
+
+    test('main chat surface renders active turn status and cancel affordance', () async {
+      final session = await sessions.createSession();
+      handler = webRoutes(
+        sessions,
+        messages,
+        kvService: kvService,
+        turns: _StatusTurns(
+          TurnStatusSnapshot(
+            sessionId: session.id,
+            turnId: 'turn-456',
+            provider: 'codex',
+            state: TurnWaitState.waiting,
+            waitReason: TurnWaitReason.sessionLock,
+            waitingSince: DateTime.parse('2026-03-10T10:00:00Z'),
+            globalTimeoutAt: DateTime.parse('2026-03-10T10:02:00Z'),
+            canCancel: true,
+          ),
+        ),
+      ).call;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains('data-controller="dc-chat dc-tasks"'));
+      expect(body, contains('data-turn-status-session-id="${session.id}"'));
+      expect(body, contains('data-turn-status-turn-id="turn-456"'));
+      expect(body, contains('data-turn-cancel'));
+      expect(body, contains('session lock'));
     });
 
     test('initial session page renders tail-window pagination state', () async {
@@ -416,7 +418,7 @@ void main() {
         sessions,
         messages,
         whatsAppChannel: WhatsAppChannel(
-          gowa: _FakeGowaManager(running: true, loggedIn: false),
+          gowa: FakeGowaManager(running: true),
           config: const WhatsAppConfig(enabled: true),
           dmAccess: DmAccessController(mode: DmAccessMode.open),
           mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
@@ -438,7 +440,11 @@ void main() {
         sessions,
         messages,
         whatsAppChannel: WhatsAppChannel(
-          gowa: _FakeGowaManager(running: true, loggedIn: true, pairedJidValue: '15551234567:4@s.whatsapp.net'),
+          gowa: FakeGowaManager(
+            running: true,
+            status: (isConnected: true, isLoggedIn: true, deviceId: '15551234567:4@s.whatsapp.net'),
+            pairedJid: '15551234567:4@s.whatsapp.net',
+          ),
           config: const WhatsAppConfig(enabled: true),
           dmAccess: DmAccessController(mode: DmAccessMode.pairing),
           mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
@@ -460,7 +466,7 @@ void main() {
         sessions,
         messages,
         signalChannel: SignalChannel(
-          sidecar: _FakeSignalCliManager(running: true, registered: false),
+          sidecar: FakeSignalCliManager(fakeHealthy: true, fakeRegistered: false),
           config: const SignalConfig(enabled: true),
           dmAccess: DmAccessController(mode: DmAccessMode.open),
           mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: const [], ownNumber: ''),
@@ -650,6 +656,25 @@ class _RecoveryNoticeTurns implements TurnManager {
   bool consumeRecoveryNotice(String sessionId) => _sessionIds.remove(sessionId);
 
   @override
+  TurnStatusSnapshot turnStatus(String sessionId) => TurnStatusSnapshot.idle(sessionId);
+
+  @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName} not implemented in _RecoveryNoticeTurns');
+}
+
+class _StatusTurns implements TurnManager {
+  _StatusTurns(this._status);
+
+  final TurnStatusSnapshot _status;
+
+  @override
+  TurnStatusSnapshot turnStatus(String sessionId) => _status;
+
+  @override
+  bool consumeRecoveryNotice(String sessionId) => false;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName} not implemented in _StatusTurns');
 }

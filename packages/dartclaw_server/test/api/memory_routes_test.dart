@@ -1,18 +1,18 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:path/path.dart' as p;
-import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
+
+import 'api_test_helpers.dart';
 
 void main() {
   late Directory tempDir;
   late String workspaceDir;
   late KvService kvService;
   late MemoryStatusService statusService;
-  late Handler handler;
+  late ApiRouteTestClient client;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('memory_routes_test');
@@ -26,8 +26,7 @@ void main() {
       kvService: kvService,
     );
 
-    final router = memoryRoutes(statusService: statusService, workspaceDir: workspaceDir);
-    handler = router.call;
+    client = ApiRouteTestClient(memoryRoutes(statusService: statusService, workspaceDir: workspaceDir).call);
   });
 
   tearDown(() async {
@@ -37,10 +36,7 @@ void main() {
 
   group('GET /api/memory/status', () {
     test('returns 200 with valid JSON', () async {
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/memory/status')));
-      expect(response.statusCode, 200);
-
-      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final body = await client.expectJsonObject('GET', '/api/memory/status');
       expect(body, containsPair('memoryMd', isA<Map<String, dynamic>>()));
       expect(body, containsPair('archiveMd', isA<Map<String, dynamic>>()));
       expect(body, containsPair('errorsMd', isA<Map<String, dynamic>>()));
@@ -52,7 +48,7 @@ void main() {
     });
 
     test('content-type is application/json', () async {
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/memory/status')));
+      final response = await client.expectResponse('GET', '/api/memory/status', status: 200);
       expect(response.headers['content-type'], contains('application/json'));
     });
   });
@@ -61,47 +57,36 @@ void main() {
     test('returns MEMORY.md content', () async {
       File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('## general\n- [2026-01-01 10:00] Test\n');
 
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/memory/files/memory')));
-      expect(response.statusCode, 200);
+      final response = await client.expectResponse('GET', '/api/memory/files/memory', status: 200);
       expect(response.headers['content-type'], 'text/plain; charset=utf-8');
-      final body = await response.readAsString();
-      expect(body, contains('## general'));
+      expect(await response.readAsString(), contains('## general'));
     });
 
     test('returns errors.md content', () async {
       File(p.join(workspaceDir, 'errors.md')).writeAsStringSync('## [2026-03-01] Error\n');
 
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/memory/files/errors')));
-      expect(response.statusCode, 200);
-      expect(await response.readAsString(), contains('Error'));
+      expect(await client.expectText('GET', '/api/memory/files/errors'), contains('Error'));
     });
 
     test('returns learnings.md content', () async {
       File(p.join(workspaceDir, 'learnings.md')).writeAsStringSync('## [2026-03-01] Learning\n');
 
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/memory/files/learnings')));
-      expect(response.statusCode, 200);
+      await client.expectResponse('GET', '/api/memory/files/learnings', status: 200);
     });
 
     test('returns archive content', () async {
       File(p.join(workspaceDir, 'MEMORY.archive.md')).writeAsStringSync('archived stuff\n');
 
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/memory/files/archive')));
-      expect(response.statusCode, 200);
-      expect(await response.readAsString(), contains('archived stuff'));
+      expect(await client.expectText('GET', '/api/memory/files/archive'), contains('archived stuff'));
     });
 
     test('returns 404 for unknown file name', () async {
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/memory/files/unknown')));
-      expect(response.statusCode, 404);
-      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final body = await client.expectJsonObject('GET', '/api/memory/files/unknown', status: 404);
       expect(body['error']['code'], 'NOT_FOUND');
     });
 
     test('returns 200 with empty body when file does not exist', () async {
-      final response = await handler(Request('GET', Uri.parse('http://localhost/api/memory/files/memory')));
-      expect(response.statusCode, 200);
-      expect(await response.readAsString(), isEmpty);
+      expect(await client.expectText('GET', '/api/memory/files/memory'), isEmpty);
     });
   });
 }

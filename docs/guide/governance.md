@@ -65,7 +65,7 @@ governance:
     timezone: "UTC+1"
 ```
 
-The budget resets at midnight in the configured timezone. Only fixed UTC offsets are supported (`UTC`, `UTC+N`, `UTC-N`); IANA names like `Europe/Stockholm` are **not** accepted and fall back to UTC with a warning — see the configuration note on `governance.budget.timezone` in the [configuration reference](configuration.md#full-config-reference). DST is not handled automatically.
+The budget resets at midnight in the configured timezone. Both fixed UTC offsets (`UTC`, `GMT`, `UTC+N`, `UTC-N`) and IANA timezone names like `Europe/Stockholm` are accepted — see the configuration note on `governance.budget.timezone` in the [configuration reference](configuration.md#full-config-reference). IANA names are DST-aware: the offset is resolved for each reset instant, so the reset follows daylight-saving transitions automatically. Only the fixed `UTC±N` forms do not adjust for DST. An unrecognized value falls back to UTC with a warning.
 
 **Actions**:
 

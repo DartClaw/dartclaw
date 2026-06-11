@@ -13,6 +13,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         TaskEventKind,
         TaskStatus,
         TaskStatusChangedEvent,
+        TurnWaitStateChangedEvent,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunStatus, WorkflowService;
@@ -26,6 +27,7 @@ import '../task/tool_call_summary.dart';
 import '../sidebar_live_state.dart';
 import '../templates/helpers.dart';
 import '../templates/task_event_display.dart';
+import 'sse_broadcast.dart';
 
 /// Creates a [Router] with the task SSE endpoint.
 ///
@@ -98,7 +100,7 @@ Router taskSseRoutes(
           .map((p) => {'id': p.id, 'name': p.name, 'status': p.status.name})
           .toList();
     }
-    controller.add(utf8.encode('data: ${jsonEncode(connectedPayload)}\n\n'));
+    controller.add(sseDataFrame(jsonEncode(connectedPayload)));
 
     // Subscribe to task status change events.
     final taskSub = eventBus.on<TaskStatusChangedEvent>().listen((event) async {
@@ -121,7 +123,7 @@ Router taskSseRoutes(
       };
       final data = jsonEncode(payload);
       if (!controller.isClosed) {
-        controller.add(utf8.encode('data: $data\n\n'));
+        controller.add(sseDataFrame(data));
       }
     });
 
@@ -134,7 +136,7 @@ Router taskSseRoutes(
         'currentTaskId': event.currentTaskId,
       });
       if (!controller.isClosed) {
-        controller.add(utf8.encode('data: $data\n\n'));
+        controller.add(sseDataFrame(data));
       }
     });
 
@@ -147,7 +149,7 @@ Router taskSseRoutes(
         'newStatus': event.newStatus.name,
       });
       if (!controller.isClosed) {
-        controller.add(utf8.encode('data: $data\n\n'));
+        controller.add(sseDataFrame(data));
       }
     });
 
@@ -155,7 +157,7 @@ Router taskSseRoutes(
     final progressSub = progressTracker?.onProgress.listen((snapshot) {
       final data = jsonEncode(snapshot.toJson());
       if (!controller.isClosed) {
-        controller.add(utf8.encode('data: $data\n\n'));
+        controller.add(sseDataFrame(data));
       }
     });
 
@@ -181,7 +183,25 @@ Router taskSseRoutes(
         if (kind != null) 'text': _compactEventText(kind, event.details),
       });
       if (!controller.isClosed) {
-        controller.add(utf8.encode('data: $data\n\n'));
+        controller.add(sseDataFrame(data));
+      }
+    });
+
+    final turnWaitSub = eventBus.on<TurnWaitStateChangedEvent>().listen((event) {
+      final data = jsonEncode({
+        'type': 'turn_wait_state',
+        'session_id': event.sessionId,
+        'turn_id': event.turnId,
+        'task_id': event.taskId,
+        'state': event.state,
+        'wait_reason': event.waitReason,
+        'waiting_since': event.waitingSince?.toIso8601String(),
+        'stuck_since': event.stuckSince?.toIso8601String(),
+        'global_timeout_at': event.globalTimeoutAt?.toIso8601String(),
+        'can_cancel': event.canCancel,
+      });
+      if (!controller.isClosed) {
+        controller.add(sseDataFrame(data));
       }
     });
 
@@ -205,7 +225,7 @@ Router taskSseRoutes(
           'newStatus': event.newStatus.name,
         });
         if (!controller.isClosed) {
-          controller.add(utf8.encode('data: $data\n\n'));
+          controller.add(sseDataFrame(data));
         }
       });
     }
@@ -224,7 +244,7 @@ Router taskSseRoutes(
           'notification': false,
         });
         if (!controller.isClosed) {
-          controller.add(utf8.encode('data: $data\n\n'));
+          controller.add(sseDataFrame(data));
         }
       });
     }
@@ -236,24 +256,17 @@ Router taskSseRoutes(
       projectSub.cancel();
       progressSub?.cancel();
       taskEventSub.cancel();
+      turnWaitSub.cancel();
       workflowStatusSub?.cancel();
       workflowStepSub?.cancel();
     };
 
-    return Response.ok(
-      controller.stream,
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      },
-    );
+    return Response.ok(controller.stream, headers: eventStreamHeadersNoBuffer);
   });
 
   router.get('/api/agent-executions/events', (Request request) async {
     final controller = StreamController<List<int>>();
-    controller.add(utf8.encode('data: ${jsonEncode({'type': 'connected'})}\n\n'));
+    controller.add(sseDataFrame(jsonEncode({'type': 'connected'})));
 
     final executionSub = eventBus.on<AgentExecutionStatusChangedEvent>().listen((event) {
       final data = jsonEncode({
@@ -264,16 +277,13 @@ Router taskSseRoutes(
         'timestamp': event.timestamp.toIso8601String(),
       });
       if (!controller.isClosed) {
-        controller.add(utf8.encode('data: $data\n\n'));
+        controller.add(sseDataFrame(data));
       }
     });
 
     controller.onCancel = () => executionSub.cancel();
 
-    return Response.ok(
-      controller.stream,
-      headers: {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive'},
-    );
+    return Response.ok(controller.stream, headers: eventStreamHeaders);
   });
 
   return router;

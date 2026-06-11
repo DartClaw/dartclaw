@@ -23,9 +23,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitStrategy,
         WorkflowRun,
         WorkflowRunStatus,
-        WorkflowStep,
-        WorkflowTurnAdapter,
-        WorkflowTurnOutcome;
+        WorkflowStep;
 import 'package:dartclaw_workflow/src/workflow/approval_step_runner.dart'
     show ApprovalStepDependencies, executeApprovalStep;
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
@@ -264,10 +262,7 @@ void main() {
     test('approval timeout runs workflow git cleanup', () async {
       final cleanupCalls = <({String runId, String projectId, String status, bool preserveWorktrees})>[];
       final executor = h.makeExecutor(
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        turnAdapter: standardTurnAdapter(
           cleanupWorkflowGit:
               ({required runId, required projectId, required status, required preserveWorktrees}) async {
                 cleanupCalls.add((

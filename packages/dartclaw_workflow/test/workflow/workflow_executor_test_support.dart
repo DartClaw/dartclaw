@@ -6,8 +6,10 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         BashStepPolicy,
@@ -26,7 +28,12 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowExecutor,
+        WorkflowGitIntegrationBranchResult,
         WorkflowGitPort,
+        WorkflowGitPromotionResult,
+        WorkflowGitPromotionSuccess,
+        WorkflowGitPublishResult,
+        WorkflowStartResolution,
         WorkflowLoop,
         WorkflowRoleDefaults,
         WorkflowRun,
@@ -34,7 +41,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowSkillPreflightConfig,
         WorkflowStep,
         WorkflowStepOutputTransformer,
-        WorkflowTurnAdapter;
+        WorkflowTurnAdapter,
+        WorkflowTurnOutcome;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowGitPortProcess;
 import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
@@ -200,6 +208,26 @@ final class WorkflowExecutorHarness {
     );
   }
 
+  /// Completes [taskId] after attaching a fresh task session carrying
+  /// [outcomeContent] as an assistant message (so the executor's context
+  /// extractor can read a `<step-outcome>` envelope). When [tokenCount] is
+  /// provided, a matching `session_cost:<id>` KV entry is written so the
+  /// run's token accounting observes it.
+  Future<void> completeTaskWithOutcome(
+    String taskId, {
+    required String outcomeContent,
+    TaskStatus finalStatus = TaskStatus.accepted,
+    int? tokenCount,
+  }) async {
+    final session = await sessionService.createSession(type: SessionType.task);
+    await taskService.updateFields(taskId, sessionId: session.id);
+    if (tokenCount != null) {
+      await kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': tokenCount}));
+    }
+    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
+    await completeTask(taskId, status: finalStatus);
+  }
+
   /// Simulates task completion: queued → running → [review →] terminal.
   Future<void> completeTask(String taskId, {TaskStatus status = TaskStatus.accepted}) async {
     try {
@@ -239,4 +267,92 @@ final class WorkflowExecutorHarness {
     await sub.cancel();
     return taskCompleter.future;
   }
+}
+
+/// Builds a [WorkflowTurnAdapter] whose turn primitives are the standard
+/// no-op fakes shared by the executor component suites: [reserveTurn] yields a
+/// fixed turn id, [executeTurn] is a no-op, and [waitForOutcome] reports a
+/// `completed` turn. Git seams default to a successful integration-branch
+/// bootstrap and successful promotion; pass [initializeWorkflowGit],
+/// [promoteWorkflowBranch], or [cleanupWorkflowGit] to override a specific
+/// seam (e.g. a conflict/error promotion or a cleanup-call recorder).
+///
+/// The remaining seams ([resolveStartContext], [publishWorkflowBranch],
+/// [cleanupWorktreeForRetry], [captureWorkflowBranchSha],
+/// [captureAndCleanWorktreeForRetry], [runResolverAttemptUnderLock]) are plain
+/// pass-throughs: left null unless overridden, so merge-resolve / publish /
+/// start-context suites can supply just the seam they exercise without
+/// re-inlining the no-op turn primitives or the git-bootstrap default.
+WorkflowTurnAdapter standardTurnAdapter({
+  String turnId = 'turn-1',
+  String integrationBranch = 'dartclaw/integration/test',
+  Future<WorkflowStartResolution> Function(
+    WorkflowDefinition definition,
+    Map<String, String> variables, {
+    String? projectId,
+    bool allowDirtyLocalPath,
+  })?
+  resolveStartContext,
+  Future<WorkflowGitIntegrationBranchResult> Function({
+    required String runId,
+    required String projectId,
+    required String baseRef,
+    required bool perMapItem,
+  })?
+  initializeWorkflowGit,
+  Future<WorkflowGitPromotionResult> Function({
+    required String runId,
+    required String projectId,
+    required String branch,
+    required String integrationBranch,
+    required String strategy,
+    String? storyId,
+  })?
+  promoteWorkflowBranch,
+  Future<WorkflowGitPublishResult> Function({required String runId, required String projectId, required String branch})?
+  publishWorkflowBranch,
+  Future<void> Function({
+    required String runId,
+    required String projectId,
+    required String status,
+    required bool preserveWorktrees,
+  })?
+  cleanupWorkflowGit,
+  Future<String?> Function({required String projectId, required String branch, required String preAttemptSha})?
+  cleanupWorktreeForRetry,
+  Future<String?> Function({required String projectId, required String branch})? captureWorkflowBranchSha,
+  Future<({String? sha, bool isDirty, String? cleanupError})> Function({
+    required String projectId,
+    required String branch,
+    String? preAttemptSha,
+  })?
+  captureAndCleanWorktreeForRetry,
+  Future<T> Function<T>({required String projectId, required Future<T> Function() body})? runResolverAttemptUnderLock,
+}) {
+  return WorkflowTurnAdapter(
+    reserveTurn: (_) => Future.value(turnId),
+    executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+    waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+    resolveStartContext: resolveStartContext,
+    initializeWorkflowGit:
+        initializeWorkflowGit ??
+        ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+            WorkflowGitIntegrationBranchResult(integrationBranch: integrationBranch),
+    promoteWorkflowBranch:
+        promoteWorkflowBranch ??
+        ({
+          required runId,
+          required projectId,
+          required branch,
+          required integrationBranch,
+          required strategy,
+          String? storyId,
+        }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
+    publishWorkflowBranch: publishWorkflowBranch,
+    cleanupWorkflowGit: cleanupWorkflowGit,
+    cleanupWorktreeForRetry: cleanupWorktreeForRetry,
+    captureWorkflowBranchSha: captureWorkflowBranchSha,
+    captureAndCleanWorktreeForRetry: captureAndCleanWorktreeForRetry,
+    runResolverAttemptUnderLock: runResolverAttemptUnderLock,
+  );
 }

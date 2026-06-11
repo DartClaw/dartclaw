@@ -1,12 +1,15 @@
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show HistoryConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, HistoryConfig;
 import 'agent_harness.dart';
+import 'acp_harness.dart';
+import 'acp_reverse_call_handlers.dart';
 import 'claude_code_harness.dart';
 import 'codex_harness.dart';
 import '../container/container_executor.dart';
 import 'harness_config.dart';
+import 'process_types.dart';
 
 /// Configuration bundle used when constructing a harness through [HarnessFactory].
 class HarnessFactoryConfig {
@@ -35,6 +38,9 @@ class HarnessFactoryConfig {
   /// Environment variables visible to the provider subprocess.
   final Map<String, String> environment;
 
+  /// Optional process factory used by subprocess-backed harnesses.
+  final ProcessFactory? processFactory;
+
   /// Optional container manager used to spawn the harness in isolation.
   final ContainerExecutor? containerManager;
 
@@ -43,6 +49,12 @@ class HarnessFactoryConfig {
 
   /// Optional guard audit logger used by Claude harnesses.
   final GuardAuditLogger? auditLogger;
+
+  /// Optional approval decision callback used by ACP reverse-call permission requests.
+  final AcpPermissionDecision? acpPermissionDecision;
+
+  /// Optional audit sink for ACP reverse-call handler decisions and lifecycle calls.
+  final AcpReverseCallAuditSink? acpReverseCallAudit;
 
   /// Memory save callback used when the internal MCP server is not configured.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySave;
@@ -70,9 +82,12 @@ class HarnessFactoryConfig {
     this.historyConfig = const HistoryConfig.defaults(),
     this.providerOptions = const <String, dynamic>{},
     this.environment = const <String, String>{},
+    this.processFactory,
     this.containerManager,
     this.guardChain,
     this.auditLogger,
+    this.acpPermissionDecision,
+    this.acpReverseCallAudit,
     this.onMemorySave,
     this.onMemorySearch,
     this.onMemoryRead,
@@ -106,6 +121,27 @@ class HarnessFactory {
   void register(String providerId, AgentHarness Function(HarnessFactoryConfig config) factory) {
     _factories[providerId] = factory;
     _activationProbes.remove(providerId);
+  }
+
+  /// Registers a configured ACP agent as a provider identity.
+  void registerAcpAgent(String providerId, AcpAgentConfig agent) {
+    register(providerId, (config) {
+      if (agent.containerIsolationRequired && config.containerManager == null) {
+        throw StateError('ACP provider "$providerId" requires container isolation but no container manager is wired');
+      }
+      return AcpHarness(
+        cwd: config.cwd,
+        executable: agent.binary,
+        arguments: agent.args,
+        turnTimeout: config.turnTimeout,
+        processFactory: config.processFactory,
+        containerManager: agent.containerIsolationRequired ? config.containerManager : null,
+        environment: config.environment,
+        guardChain: config.guardChain,
+        permissionDecision: config.acpPermissionDecision,
+        onReverseCallAudit: config.acpReverseCallAudit,
+      );
+    });
   }
 
   /// Creates a harness for [providerId] using [config].
@@ -195,6 +231,7 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     historyConfig: config.historyConfig,
     containerManager: config.containerManager,
     environment: config.environment,
+    processFactory: config.processFactory,
     guardChain: config.guardChain,
     auditLogger: config.auditLogger,
   );
@@ -206,6 +243,7 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     executable: config.executable == 'claude' ? 'codex' : config.executable,
     turnTimeout: config.turnTimeout,
     environment: config.environment,
+    processFactory: config.processFactory,
     harnessConfig: config.harnessConfig,
     providerOptions: config.providerOptions,
     guardChain: config.guardChain,

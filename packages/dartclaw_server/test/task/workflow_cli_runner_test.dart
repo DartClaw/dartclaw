@@ -11,30 +11,54 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'workflow_cli_runner_test_support.dart';
+
 void main() {
   group('WorkflowCliRunner', () {
+    Future<({Directory workingDirectory, String settingsPath, FakeContainerExecutor container})>
+    claudeSettingsContainerFixture(String name, {String relativeSettingsPath = 'claude-settings.json'}) async {
+      final workingDirectory = await Directory.systemTemp.createTemp(name);
+      addTearDown(() async {
+        if (await workingDirectory.exists()) {
+          await workingDirectory.delete(recursive: true);
+        }
+      });
+
+      final settingsPath = p.join(workingDirectory.path, relativeSettingsPath);
+      Directory(p.dirname(settingsPath)).createSync(recursive: true);
+      File(settingsPath).writeAsStringSync('{}');
+
+      return (
+        workingDirectory: workingDirectory,
+        settingsPath: settingsPath,
+        container: FakeContainerExecutor(
+          hostRoot: workingDirectory.path,
+          containerRoot: '/workspace',
+          stdout: jsonEncode({'session_id': 'claude-session-settings', 'result': 'ok'}),
+        ),
+      );
+    }
+
     test('builds Claude one-shot args and parses structured output', () async {
       late String executable;
       late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          executable = exe;
-          arguments = List<String>.from(args);
-          return Process.start('/bin/sh', [
-            '-lc',
-            "printf '%s' '${jsonEncode({
-              'session_id': 'claude-session-1',
-              'input_tokens': 10,
-              'output_tokens': 5,
-              'cache_read_tokens': 3,
-              'duration_ms': 1200,
-              'structured_output': {
-                'verdict': {'pass': true},
-              },
-            }).replaceAll("'", "'\\''")}'",
-          ]);
-        },
+      final runner = claudeRunner(
+        processStarter: claudeStub(
+          onArgs: (exe, args) {
+            executable = exe;
+            arguments = args;
+          },
+          result: {
+            'session_id': 'claude-session-1',
+            'input_tokens': 10,
+            'output_tokens': 5,
+            'cache_read_tokens': 3,
+            'duration_ms': 1200,
+            'structured_output': {
+              'verdict': {'pass': true},
+            },
+          },
+        ),
       );
 
       final result = await runner.executeTurn(
@@ -64,7 +88,7 @@ void main() {
       );
 
       expect(executable, 'claude');
-      expect(arguments, containsAll(['-p', '--output-format', 'json', '--resume', 'previous-session']));
+      expect(arguments, containsAll(['-p', '--output-format', 'stream-json', '--resume', 'previous-session']));
       expect(arguments, contains('--json-schema'));
       expect(result.providerSessionId, 'claude-session-1');
       expect(result.structuredOutput?['verdict'], {'pass': true});
@@ -75,13 +99,11 @@ void main() {
 
     test('forwards appendSystemPrompt to Claude when provided', () async {
       late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = jsonEncode({'session_id': 'claude-session-append', 'result': 'ok'}).replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
+      final runner = claudeRunner(
+        processStarter: claudeStub(
+          result: {'session_id': 'claude-session-append', 'result': 'ok'},
+          onArgs: (exe, args) => arguments = args,
+        ),
       );
 
       await runner.executeTurn(
@@ -97,13 +119,12 @@ void main() {
     });
 
     test('Codex parser tolerates mixed prose plus workflow-context markup', () async {
-      final runner = WorkflowCliRunner(
-        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          final stdout = [
-            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-1'}),
-            jsonEncode({'type': 'turn.started'}),
-            jsonEncode({
+      final runner = codexRunner(
+        processStarter: codexStub(
+          events: [
+            {'type': 'thread.started', 'thread_id': 'codex-thread-1'},
+            {'type': 'turn.started'},
+            {
               'type': 'item.completed',
               'item': {
                 'id': 'item_0',
@@ -112,14 +133,13 @@ void main() {
                     '{"stories":{"items":[{"id":"S01","title":"Story"}]}}'
                     '\n<workflow-context>{"plan":"docs/specs/test/plan.md"}</workflow-context>',
               },
-            }),
-            jsonEncode({
+            },
+            {
               'type': 'turn.completed',
               'usage': {'input_tokens': 12, 'output_tokens': 7},
-            }),
-          ].join('\n').replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
+            },
+          ],
+        ),
       );
 
       final result = await runner.executeTurn(
@@ -137,7 +157,7 @@ void main() {
     });
 
     test('dispatches custom provider aliases by configured family', () async {
-      final provider = _RecordingCliProvider();
+      final provider = RecordingCliProvider();
       final runner = WorkflowCliRunner(
         providers: const {
           'my_agent': WorkflowCliProviderConfig(
@@ -169,8 +189,7 @@ void main() {
         final eventBus = EventBus();
         final stallEvents = <WorkflowCliStallEvent>[];
         final sub = eventBus.on<WorkflowCliStallEvent>().listen(stallEvents.add);
-        final runner = WorkflowCliRunner(
-          providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        final runner = codexRunner(
           eventBus: eventBus,
           processStarter: (exe, args, {workingDirectory, environment}) async {
             fake = FakeProcess(completeExitOnKill: true, killExitCode: -1);
@@ -214,7 +233,7 @@ void main() {
 
     test('stall cancellation escalates and reports failure only after the process exits', () {
       fakeAsync((async) {
-        final fake = _SigkillOnlyFakeProcess();
+        final fake = SigkillOnlyFakeProcess();
         final supervisor = CliProcessSupervisor(
           process: fake,
           provider: 'codex',
@@ -253,8 +272,7 @@ void main() {
     test('codex parsed output resets the stall timer', () {
       fakeAsync((async) {
         late FakeProcess fake;
-        final runner = WorkflowCliRunner(
-          providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        final runner = codexRunner(
           processStarter: (exe, args, {workingDirectory, environment}) async {
             fake = FakeProcess();
             return fake;
@@ -302,8 +320,7 @@ void main() {
     test('step timeout kills overlong one-shot process distinctly from stall', () {
       fakeAsync((async) {
         late FakeProcess fake;
-        final runner = WorkflowCliRunner(
-          providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+        final runner = claudeRunner(
           processStarter: (exe, args, {workingDirectory, environment}) async {
             fake = FakeProcess(completeExitOnKill: true, killExitCode: -1);
             return fake;
@@ -337,25 +354,22 @@ void main() {
 
     test('builds Codex one-shot args with explicit approval policy and sandbox override', () async {
       late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'sandbox': 'workspace-write'}),
-        },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = [
-            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-arg-test'}),
-            jsonEncode({
+      final runner = codexRunner(
+        options: const {'sandbox': 'workspace-write'},
+        processStarter: codexStub(
+          onArgs: (exe, args) => arguments = args,
+          events: [
+            {'type': 'thread.started', 'thread_id': 'codex-thread-arg-test'},
+            {
               'type': 'item.completed',
               'item': {'type': 'agent_message', 'text': 'done'},
-            }),
-            jsonEncode({
+            },
+            {
               'type': 'turn.completed',
               'usage': {'input_tokens': 1, 'output_tokens': 1},
-            }),
-          ].join('\n').replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
+            },
+          ],
+        ),
       );
 
       await runner.executeTurn(
@@ -374,21 +388,18 @@ void main() {
 
     test('Codex sandbox override resolves to the stricter configured value', () async {
       late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'sandbox': 'read-only'}),
-        },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = [
-            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-strict-sandbox'}),
-            jsonEncode({
+      final runner = codexRunner(
+        options: const {'sandbox': 'read-only'},
+        processStarter: codexStub(
+          onArgs: (exe, args) => arguments = args,
+          events: [
+            {'type': 'thread.started', 'thread_id': 'codex-thread-strict-sandbox'},
+            {
               'type': 'turn.completed',
               'usage': {'input_tokens': 1, 'output_tokens': 1},
-            }),
-          ].join('\n').replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
+            },
+          ],
+        ),
       );
 
       await runner.executeTurn(
@@ -405,21 +416,18 @@ void main() {
 
     test('Codex read-only override tightens danger-full-access default', () async {
       late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'sandbox': 'danger-full-access'}),
-        },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = [
-            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-tightened-sandbox'}),
-            jsonEncode({
+      final runner = codexRunner(
+        options: const {'sandbox': 'danger-full-access'},
+        processStarter: codexStub(
+          onArgs: (exe, args) => arguments = args,
+          events: [
+            {'type': 'thread.started', 'thread_id': 'codex-thread-tightened-sandbox'},
+            {
               'type': 'turn.completed',
               'usage': {'input_tokens': 1, 'output_tokens': 1},
-            }),
-          ].join('\n').replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
+            },
+          ],
+        ),
       );
 
       await runner.executeTurn(
@@ -435,40 +443,20 @@ void main() {
     });
 
     test('builds Claude one-shot args with permissionMode and structured settings', () async {
-      late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(
-            executable: 'claude',
-            options: {
-              'permissionMode': 'dontAsk',
-              'sandbox': {'enabled': true, 'autoAllowBashIfSandboxed': true},
-              'permissions': {
-                'allow': ['Bash(git *)'],
-              },
-            },
-          ),
+      final arguments = await capturedClaudeArgs(
+        options: const {
+          'permissionMode': 'dontAsk',
+          'sandbox': {'enabled': true, 'autoAllowBashIfSandboxed': true},
+          'permissions': {
+            'allow': ['Bash(git *)'],
+          },
         },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = jsonEncode({'session_id': 'claude-session-2', 'result': 'ok'}).replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
-      );
-
-      await runner.executeTurn(
-        provider: 'claude',
-        prompt: 'Review this',
-        workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
       );
 
       expect(arguments, isNot(contains('--setting-sources')));
       expect(arguments, containsAll(['--permission-mode', 'dontAsk']));
       expect(arguments, isNot(contains('--dangerously-skip-permissions')));
-      final settingsIndex = arguments.indexOf('--settings');
-      expect(settingsIndex, isNonNegative);
-      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      final decoded = decodedClaudeSettings(arguments);
       expect(decoded['sandbox'], {'enabled': true, 'autoAllowBashIfSandboxed': true});
       expect(decoded['permissions'], {
         'allow': ['Bash(git *)'],
@@ -476,138 +464,54 @@ void main() {
     });
 
     test('builds Claude one-shot task policy from read-only allowed tools', () async {
-      late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(
-            executable: 'claude',
-            options: {
-              'permissions': {
-                'allow': ['WebFetch(*)'],
-                'deny': ['Read(./.env)'],
-              },
-            },
-          ),
+      final arguments = await capturedClaudeArgs(
+        options: const {
+          'permissions': {
+            'allow': ['WebFetch(*)'],
+            'deny': ['Read(./.env)'],
+          },
         },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = jsonEncode({'session_id': 'claude-session-policy', 'result': 'ok'}).replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
-      );
-
-      await runner.executeTurn(
-        provider: 'claude',
-        prompt: 'Discover this',
-        workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
         allowedTools: const ['shell', 'file_read'],
         readOnly: true,
+        prompt: 'Discover this',
       );
 
       expect(arguments, containsAll(['--permission-mode', 'dontAsk']));
       expect(arguments, isNot(contains('--dangerously-skip-permissions')));
-      final settingsIndex = arguments.indexOf('--settings');
-      expect(settingsIndex, isNonNegative);
-      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      final decoded = decodedClaudeSettings(arguments);
       expect(decoded['sandbox'], {'enabled': true});
       expect(decoded['permissions'], {
-        'allow': [
-          'Bash(git ls-files)',
-          'Bash(git rev-parse --abbrev-ref HEAD)',
-          'Bash(git rev-parse --show-toplevel)',
-          'Bash(git status --porcelain)',
-          'Bash(git status --short)',
-          'Bash(git status)',
-          'Bash(pwd)',
-          'Glob(*)',
-          'Grep(*)',
-          'LS(*)',
-          'Read(*)',
-        ],
+        'allow': readOnlyShellAllow,
         'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Read(./.env)', 'Write(*)'],
       });
     });
 
     test('read-only Claude task policy keeps file reads when requested tools include only shell', () async {
-      late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(
-            executable: 'claude',
-            options: {
-              'permissions': {
-                'allow': ['Bash(*)'],
-                'defaultMode': 'plan',
-              },
-            },
-          ),
+      final arguments = await capturedClaudeArgs(
+        options: const {
+          'permissions': {
+            'allow': ['Bash(*)'],
+            'defaultMode': 'plan',
+          },
         },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = jsonEncode({
-            'session_id': 'claude-session-empty-policy',
-            'result': 'ok',
-          }).replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
-      );
-
-      await runner.executeTurn(
-        provider: 'claude',
-        prompt: 'Discover this',
-        workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
         allowedTools: const ['shell'],
         readOnly: true,
+        prompt: 'Discover this',
       );
 
-      final settingsIndex = arguments.indexOf('--settings');
-      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
-      expect(decoded['permissions'], {
-        'allow': [
-          'Bash(git ls-files)',
-          'Bash(git rev-parse --abbrev-ref HEAD)',
-          'Bash(git rev-parse --show-toplevel)',
-          'Bash(git status --porcelain)',
-          'Bash(git status --short)',
-          'Bash(git status)',
-          'Bash(pwd)',
-          'Glob(*)',
-          'Grep(*)',
-          'LS(*)',
-          'Read(*)',
-        ],
-        'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'],
-      });
+      final decoded = decodedClaudeSettings(arguments);
+      expect(decoded['permissions'], {'allow': readOnlyShellAllow, 'deny': writeDeny});
       expect((decoded['permissions'] as Map<String, dynamic>).containsKey('defaultMode'), isFalse);
     });
 
     test('read-only Claude task policy does not add file reads for unrelated explicit tools', () async {
-      late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = jsonEncode({
-            'session_id': 'claude-session-web-policy',
-            'result': 'ok',
-          }).replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
-      );
-
-      await runner.executeTurn(
-        provider: 'claude',
+      final arguments = await capturedClaudeArgs(
         prompt: 'Fetch this',
-        workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
         allowedTools: const ['web_fetch'],
         readOnly: true,
       );
 
-      final settingsIndex = arguments.indexOf('--settings');
-      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      final decoded = decodedClaudeSettings(arguments);
       expect(decoded['permissions'], {
         'allow': ['WebFetch(*)', 'WebSearch(*)'],
         'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Write(*)'],
@@ -615,68 +519,33 @@ void main() {
     });
 
     test('read-only Claude task policy scrubs permissions inherited from structured settings', () async {
-      late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(
-            executable: 'claude',
-            options: {
-              'settings': {
-                'permissions': {
-                  'allow': ['Bash(*)'],
-                  'deny': ['Read(./secret)'],
-                  'defaultMode': 'plan',
-                },
-                'theme': 'dark',
-              },
+      final arguments = await capturedClaudeArgs(
+        options: const {
+          'settings': {
+            'permissions': {
+              'allow': ['Bash(*)'],
+              'deny': ['Read(./secret)'],
+              'defaultMode': 'plan',
             },
-          ),
+            'theme': 'dark',
+          },
         },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = jsonEncode({
-            'session_id': 'claude-session-settings-policy',
-            'result': 'ok',
-          }).replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
-      );
-
-      await runner.executeTurn(
-        provider: 'claude',
-        prompt: 'Discover this',
-        workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
         allowedTools: const ['shell'],
         readOnly: true,
+        prompt: 'Discover this',
       );
 
-      final settingsIndex = arguments.indexOf('--settings');
-      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      final decoded = decodedClaudeSettings(arguments);
       expect(decoded['theme'], 'dark');
       expect(decoded['permissions'], {
-        'allow': [
-          'Bash(git ls-files)',
-          'Bash(git rev-parse --abbrev-ref HEAD)',
-          'Bash(git rev-parse --show-toplevel)',
-          'Bash(git status --porcelain)',
-          'Bash(git status --short)',
-          'Bash(git status)',
-          'Bash(pwd)',
-          'Glob(*)',
-          'Grep(*)',
-          'LS(*)',
-          'Read(*)',
-        ],
+        'allow': readOnlyShellAllow,
         'deny': ['Edit(*)', 'MultiEdit(*)', 'NotebookEdit(*)', 'Read(./secret)', 'Write(*)'],
       });
     });
 
     test('rejects malformed Claude settings JSON when task policy must be enforced', () async {
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'settings': '{settings.json'}),
-        },
+      final runner = claudeRunner(
+        options: const {'settings': '{settings.json'},
         processStarter: (exe, args, {workingDirectory, environment}) async {
           throw StateError('process should not start');
         },
@@ -702,10 +571,8 @@ void main() {
     });
 
     test('rejects path-shaped Claude settings when task policy must be enforced', () async {
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'settings': '/tmp/settings.json'}),
-        },
+      final runner = claudeRunner(
+        options: const {'settings': '/tmp/settings.json'},
         processStarter: (exe, args, {workingDirectory, environment}) async {
           throw StateError('process should not start');
         },
@@ -731,29 +598,11 @@ void main() {
     });
 
     test('preserves path-based Claude settings when structured overlays are also configured', () async {
-      late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(
-            executable: 'claude',
-            options: {
-              'settings': '/tmp/claude-settings.json',
-              'sandbox': {'enabled': true},
-            },
-          ),
+      final arguments = await capturedClaudeArgs(
+        options: const {
+          'settings': '/tmp/claude-settings.json',
+          'sandbox': {'enabled': true},
         },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = jsonEncode({'session_id': 'claude-session-path', 'result': 'ok'}).replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
-      );
-
-      await runner.executeTurn(
-        provider: 'claude',
-        prompt: 'Review this',
-        workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
       );
 
       final settingsIndex = arguments.indexOf('--settings');
@@ -761,39 +610,20 @@ void main() {
     });
 
     test('merges base Claude settings with structured sandbox and permissions', () async {
-      late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(
-            executable: 'claude',
-            options: {
-              'settings': {
-                'permissions': {'defaultMode': 'plan'},
-                'sandbox': {'failIfUnavailable': true},
-              },
-              'sandbox': {'enabled': true},
-              'permissions': {
-                'allow': ['Bash(git *)'],
-              },
-            },
-          ),
-        },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = jsonEncode({'session_id': 'claude-session-3', 'result': 'ok'}).replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+      final arguments = await capturedClaudeArgs(
+        options: const {
+          'settings': {
+            'permissions': {'defaultMode': 'plan'},
+            'sandbox': {'failIfUnavailable': true},
+          },
+          'sandbox': {'enabled': true},
+          'permissions': {
+            'allow': ['Bash(git *)'],
+          },
         },
       );
 
-      await runner.executeTurn(
-        provider: 'claude',
-        prompt: 'Review this',
-        workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
-      );
-
-      final settingsIndex = arguments.indexOf('--settings');
-      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      final decoded = decodedClaudeSettings(arguments);
       expect(decoded['permissions'], {
         'defaultMode': 'plan',
         'allow': ['Bash(git *)'],
@@ -802,36 +632,17 @@ void main() {
     });
 
     test('merges raw JSON Claude settings string with structured sandbox and permissions', () async {
-      late List<String> arguments;
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(
-            executable: 'claude',
-            options: {
-              'settings': '{"permissions":{"defaultMode":"plan"},"sandbox":{"failIfUnavailable":true}}',
-              'sandbox': {'enabled': true},
-              'permissions': {
-                'allow': ['Bash(git *)'],
-              },
-            },
-          ),
-        },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          final stdout = jsonEncode({'session_id': 'claude-session-raw', 'result': 'ok'}).replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+      final arguments = await capturedClaudeArgs(
+        options: const {
+          'settings': '{"permissions":{"defaultMode":"plan"},"sandbox":{"failIfUnavailable":true}}',
+          'sandbox': {'enabled': true},
+          'permissions': {
+            'allow': ['Bash(git *)'],
+          },
         },
       );
 
-      await runner.executeTurn(
-        provider: 'claude',
-        prompt: 'Review this',
-        workingDirectory: Directory.systemTemp.path,
-        profileId: 'workspace',
-      );
-
-      final settingsIndex = arguments.indexOf('--settings');
-      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      final decoded = decodedClaudeSettings(arguments);
       expect(decoded['permissions'], {
         'defaultMode': 'plan',
         'allow': ['Bash(git *)'],
@@ -839,75 +650,25 @@ void main() {
       expect(decoded['sandbox'], {'failIfUnavailable': true, 'enabled': true});
     });
 
-    test('rejects interactive Claude permission modes in one-shot mode', () async {
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'permissionMode': 'plan'}),
-        },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          final stdout = jsonEncode({'session_id': 'claude-session-4', 'result': 'ok'}).replaceAll("'", "'\\''");
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
-        },
-      );
+    for (final testCase in const [
+      (name: 'interactive', value: 'plan', message: 'does not support interactive permissionMode "plan"'),
+      (name: 'unsupported', value: 'dontask', message: 'Unsupported Claude permissionMode "dontask"'),
+      (name: 'non-string', value: 7, message: 'Unsupported Claude permissionMode'),
+    ]) {
+      test('rejects ${testCase.name} Claude permissionMode values in one-shot mode', () async {
+        final runner = claudeRunner(options: {'permissionMode': testCase.value});
 
-      await expectLater(
-        () => runner.executeTurn(
-          provider: 'claude',
-          prompt: 'Review this',
-          workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
-        ),
-        throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'message',
-            contains('does not support interactive permissionMode "plan"'),
+        await expectLater(
+          () => runner.executeTurn(
+            provider: 'claude',
+            prompt: 'Review this',
+            workingDirectory: Directory.systemTemp.path,
+            profileId: 'workspace',
           ),
-        ),
-      );
-    });
-
-    test('rejects unsupported Claude permissionMode values in one-shot mode', () async {
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'permissionMode': 'dontask'}),
-        },
-      );
-
-      await expectLater(
-        () => runner.executeTurn(
-          provider: 'claude',
-          prompt: 'Review this',
-          workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
-        ),
-        throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'message',
-            contains('Unsupported Claude permissionMode "dontask"'),
-          ),
-        ),
-      );
-    });
-
-    test('rejects non-string Claude permissionMode values in one-shot mode', () async {
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'permissionMode': 7}),
-        },
-      );
-
-      await expectLater(
-        () => runner.executeTurn(
-          provider: 'claude',
-          prompt: 'Review this',
-          workingDirectory: Directory.systemTemp.path,
-          profileId: 'workspace',
-        ),
-        throwsA(isA<StateError>().having((e) => e.message, 'message', contains('Unsupported Claude permissionMode'))),
-      );
-    });
+          throwsA(isA<StateError>().having((e) => e.message, 'message', contains(testCase.message))),
+        );
+      });
+    }
 
     test('does not force project setting sources for containerized Claude one-shot runs', () async {
       final workingDirectory = await Directory.systemTemp.createTemp('workflow-cli-runner-claude-container');
@@ -917,15 +678,12 @@ void main() {
         }
       });
 
-      final container = _FakeContainerExecutor(
+      final container = FakeContainerExecutor(
         hostRoot: workingDirectory.path,
         containerRoot: '/workspace',
         stdout: jsonEncode({'session_id': 'claude-session-container', 'result': 'ok'}),
       );
-      final runner = WorkflowCliRunner(
-        providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
-        containerManagers: {'workspace': container},
-      );
+      final runner = claudeRunner(containerManagers: {'workspace': container});
 
       await runner.executeTurn(
         provider: 'claude',
@@ -939,147 +697,97 @@ void main() {
     });
 
     test('translates path-based Claude settings for containerized one-shot runs', () async {
-      final workingDirectory = await Directory.systemTemp.createTemp('workflow-cli-runner-claude-settings-container');
-      addTearDown(() async {
-        if (await workingDirectory.exists()) {
-          await workingDirectory.delete(recursive: true);
-        }
-      });
-
-      final settingsPath = p.join(workingDirectory.path, 'claude-settings.json');
-      File(settingsPath).writeAsStringSync('{}');
-
-      final container = _FakeContainerExecutor(
-        hostRoot: workingDirectory.path,
-        containerRoot: '/workspace',
-        stdout: jsonEncode({'session_id': 'claude-session-settings-container', 'result': 'ok'}),
-      );
-      final runner = WorkflowCliRunner(
-        providers: {
-          'claude': WorkflowCliProviderConfig(
-            executable: 'claude',
-            options: {
-              'settings': settingsPath,
-              'sandbox': {'enabled': true},
-            },
-          ),
+      final fixture = await claudeSettingsContainerFixture('workflow-cli-runner-claude-settings-container');
+      final runner = claudeRunner(
+        options: {
+          'settings': fixture.settingsPath,
+          'sandbox': {'enabled': true},
         },
-        containerManagers: {'workspace': container},
+        containerManagers: {'workspace': fixture.container},
       );
 
       await runner.executeTurn(
         provider: 'claude',
         prompt: 'Review this',
-        workingDirectory: workingDirectory.path,
+        workingDirectory: fixture.workingDirectory.path,
         profileId: 'workspace',
       );
 
-      final settingsIndex = container.lastCommand.indexOf('--settings');
+      final settingsIndex = fixture.container.lastCommand.indexOf('--settings');
       expect(settingsIndex, isNonNegative);
-      expect(container.lastCommand[settingsIndex + 1], '/workspace/claude-settings.json');
+      expect(fixture.container.lastCommand[settingsIndex + 1], '/workspace/claude-settings.json');
     });
 
     test('translates plain path-based Claude settings for containerized one-shot runs without overlays', () async {
-      final workingDirectory = await Directory.systemTemp.createTemp('workflow-cli-runner-claude-settings-plain');
-      addTearDown(() async {
-        if (await workingDirectory.exists()) {
-          await workingDirectory.delete(recursive: true);
-        }
-      });
-
-      final settingsPath = p.join(workingDirectory.path, 'claude-settings.json');
-      File(settingsPath).writeAsStringSync('{}');
-
-      final container = _FakeContainerExecutor(
-        hostRoot: workingDirectory.path,
-        containerRoot: '/workspace',
-        stdout: jsonEncode({'session_id': 'claude-session-settings-plain', 'result': 'ok'}),
-      );
-      final runner = WorkflowCliRunner(
-        providers: {
-          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'settings': settingsPath}),
-        },
-        containerManagers: {'workspace': container},
+      final fixture = await claudeSettingsContainerFixture('workflow-cli-runner-claude-settings-plain');
+      final runner = claudeRunner(
+        options: {'settings': fixture.settingsPath},
+        containerManagers: {'workspace': fixture.container},
       );
 
       await runner.executeTurn(
         provider: 'claude',
         prompt: 'Review this',
-        workingDirectory: workingDirectory.path,
+        workingDirectory: fixture.workingDirectory.path,
         profileId: 'workspace',
       );
 
-      final settingsIndex = container.lastCommand.indexOf('--settings');
+      final settingsIndex = fixture.container.lastCommand.indexOf('--settings');
       expect(settingsIndex, isNonNegative);
-      expect(container.lastCommand[settingsIndex + 1], '/workspace/claude-settings.json');
+      expect(fixture.container.lastCommand[settingsIndex + 1], '/workspace/claude-settings.json');
     });
 
     test('translates relative path-based Claude settings for containerized one-shot runs', () async {
-      final workingDirectory = await Directory.systemTemp.createTemp('workflow-cli-runner-claude-settings-relative');
-      addTearDown(() async {
-        if (await workingDirectory.exists()) {
-          await workingDirectory.delete(recursive: true);
-        }
-      });
-
-      final settingsPath = p.join(workingDirectory.path, '.claude', 'settings.json');
-      Directory(p.dirname(settingsPath)).createSync(recursive: true);
-      File(settingsPath).writeAsStringSync('{}');
-
-      final container = _FakeContainerExecutor(
-        hostRoot: workingDirectory.path,
-        containerRoot: '/workspace',
-        stdout: jsonEncode({'session_id': 'claude-session-settings-relative', 'result': 'ok'}),
+      final fixture = await claudeSettingsContainerFixture(
+        'workflow-cli-runner-claude-settings-relative',
+        relativeSettingsPath: p.join('.claude', 'settings.json'),
       );
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'settings': '.claude/settings.json'}),
-        },
-        containerManagers: {'workspace': container},
+      final runner = claudeRunner(
+        options: const {'settings': '.claude/settings.json'},
+        containerManagers: {'workspace': fixture.container},
       );
 
       await runner.executeTurn(
         provider: 'claude',
         prompt: 'Review this',
-        workingDirectory: workingDirectory.path,
+        workingDirectory: fixture.workingDirectory.path,
         profileId: 'workspace',
       );
 
-      final settingsIndex = container.lastCommand.indexOf('--settings');
+      final settingsIndex = fixture.container.lastCommand.indexOf('--settings');
       expect(settingsIndex, isNonNegative);
-      expect(container.lastCommand[settingsIndex + 1], '/workspace/.claude/settings.json');
+      expect(fixture.container.lastCommand[settingsIndex + 1], '/workspace/.claude/settings.json');
     });
 
     test('builds Codex one-shot args and parses JSONL final message', () async {
       late String executable;
       late List<String> arguments;
-      final stdout = [
-        jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-1'}),
-        jsonEncode({
-          'type': 'item.completed',
-          'item': {
-            'type': 'agent_message',
-            'text': jsonEncode({
-              'items': [
-                {'path': 'lib/main.dart'},
-              ],
-            }),
+      final runner = codexRunner(
+        options: const {'sandbox': 'danger-full-access'},
+        processStarter: codexStub(
+          onArgs: (exe, args) {
+            executable = exe;
+            arguments = args;
           },
-        }),
-        jsonEncode({
-          'type': 'turn.completed',
-          'usage': {'input_tokens': 20, 'output_tokens': 8, 'cached_input_tokens': 4},
-        }),
-      ].join('\n');
-      final runner = WorkflowCliRunner(
-        providers: const {
-          'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'sandbox': 'danger-full-access'}),
-        },
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          executable = exe;
-          arguments = List<String>.from(args);
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'"]);
-        },
+          events: [
+            {'type': 'thread.started', 'thread_id': 'codex-thread-1'},
+            {
+              'type': 'item.completed',
+              'item': {
+                'type': 'agent_message',
+                'text': jsonEncode({
+                  'items': [
+                    {'path': 'lib/main.dart'},
+                  ],
+                }),
+              },
+            },
+            {
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 20, 'output_tokens': 8, 'cached_input_tokens': 4},
+            },
+          ],
+        ),
       );
 
       final result = await runner.executeTurn(
@@ -1089,24 +797,7 @@ void main() {
         profileId: 'workspace',
         providerSessionId: 'thread-prev',
         model: 'gpt-5-codex',
-        jsonSchema: const {
-          'type': 'object',
-          'additionalProperties': false,
-          'required': ['items'],
-          'properties': {
-            'items': {
-              'type': 'array',
-              'items': {
-                'type': 'object',
-                'additionalProperties': false,
-                'required': ['path'],
-                'properties': {
-                  'path': {'type': 'string'},
-                },
-              },
-            },
-          },
-        },
+        jsonSchema: itemsSchema,
       );
 
       expect(executable, 'codex');
@@ -1123,23 +814,21 @@ void main() {
     });
 
     test('treats Codex reasoning_tokens as part of output_tokens', () async {
-      final stdout = [
-        jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-reasoning'}),
-        jsonEncode({
-          'type': 'turn.completed',
-          'usage': {
-            'input_tokens': 30,
-            'cached_input_tokens': 10,
-            'output_tokens': 20,
-            'output_tokens_details': {'reasoning_tokens': 7},
-          },
-        }),
-      ].join('\n');
-      final runner = WorkflowCliRunner(
-        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'"]);
-        },
+      final runner = codexRunner(
+        processStarter: codexStub(
+          events: [
+            {'type': 'thread.started', 'thread_id': 'codex-thread-reasoning'},
+            {
+              'type': 'turn.completed',
+              'usage': {
+                'input_tokens': 30,
+                'cached_input_tokens': 10,
+                'output_tokens': 20,
+                'output_tokens_details': {'reasoning_tokens': 7},
+              },
+            },
+          ],
+        ),
       );
 
       final result = await runner.executeTurn(
@@ -1154,22 +843,20 @@ void main() {
     });
 
     test('Codex turn.completed uses assignment semantics for cumulative usage', () async {
-      final stdout = [
-        jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-2'}),
-        jsonEncode({
-          'type': 'turn.completed',
-          'usage': {'input_tokens': 119659, 'output_tokens': 1900, 'cache_read_tokens': 115000},
-        }),
-        jsonEncode({
-          'type': 'turn.completed',
-          'usage': {'input_tokens': 121000, 'output_tokens': 2000, 'cache_read_tokens': 116000},
-        }),
-      ].join('\n');
-      final runner = WorkflowCliRunner(
-        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'"]);
-        },
+      final runner = codexRunner(
+        processStarter: codexStub(
+          events: [
+            {'type': 'thread.started', 'thread_id': 'codex-thread-2'},
+            {
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 119659, 'output_tokens': 1900, 'cache_read_tokens': 115000},
+            },
+            {
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 121000, 'output_tokens': 2000, 'cache_read_tokens': 116000},
+            },
+          ],
+        ),
       );
 
       final result = await runner.executeTurn(
@@ -1192,24 +879,22 @@ void main() {
       final sub = eventBus.on<WorkflowCliTurnProgressEvent>().listen(progressEvents.add);
       addTearDown(sub.cancel);
 
-      final stdout = [
-        jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-progress'}),
-        jsonEncode({'type': 'turn.started'}),
-        jsonEncode({
-          'type': 'item.completed',
-          'item': {'type': 'agent_message', 'text': 'OK'},
-        }),
-        jsonEncode({
-          'type': 'turn.completed',
-          'usage': {'input_tokens': 20, 'cached_input_tokens': 7, 'output_tokens': 4},
-        }),
-      ].join('\n');
-      final runner = WorkflowCliRunner(
-        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+      final runner = codexRunner(
         eventBus: eventBus,
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'"]);
-        },
+        processStarter: codexStub(
+          events: [
+            {'type': 'thread.started', 'thread_id': 'codex-thread-progress'},
+            {'type': 'turn.started'},
+            {
+              'type': 'item.completed',
+              'item': {'type': 'agent_message', 'text': 'OK'},
+            },
+            {
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 20, 'cached_input_tokens': 7, 'output_tokens': 4},
+            },
+          ],
+        ),
       );
 
       final result = await runner.executeTurn(
@@ -1239,25 +924,23 @@ void main() {
       final sub = eventBus.on<WorkflowCliTurnProgressEvent>().listen(progressEvents.add);
       addTearDown(sub.cancel);
 
-      final stdout = [
-        jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-ordered'}),
-        jsonEncode({'type': 'turn.started'}),
-        jsonEncode({
-          'type': 'turn.completed',
-          'usage': {'input_tokens': 100, 'cached_input_tokens': 20, 'output_tokens': 10},
-        }),
-        jsonEncode({'type': 'turn.started'}),
-        jsonEncode({
-          'type': 'turn.completed',
-          'usage': {'input_tokens': 140, 'cached_input_tokens': 30, 'output_tokens': 18},
-        }),
-      ].join('\n');
-      final runner = WorkflowCliRunner(
-        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+      final runner = codexRunner(
         eventBus: eventBus,
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'"]);
-        },
+        processStarter: codexStub(
+          events: [
+            {'type': 'thread.started', 'thread_id': 'codex-thread-ordered'},
+            {'type': 'turn.started'},
+            {
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 100, 'cached_input_tokens': 20, 'output_tokens': 10},
+            },
+            {'type': 'turn.started'},
+            {
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 140, 'cached_input_tokens': 30, 'output_tokens': 18},
+            },
+          ],
+        ),
       );
 
       final result = await runner.executeTurn(
@@ -1279,8 +962,7 @@ void main() {
 
     test('nonzero Codex exit still includes stdout excerpt after streaming parse', () async {
       final stdout = jsonEncode({'type': 'error', 'message': 'fatal workflow error'});
-      final runner = WorkflowCliRunner(
-        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+      final runner = codexRunner(
         processStarter: (exe, args, {workingDirectory, environment}) async {
           return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'; exit 1"]);
         },
@@ -1305,16 +987,14 @@ void main() {
 
     test('forwards appendSystemPrompt to Codex via developer_instructions override', () async {
       late List<String> arguments;
-      final stdout = [
-        jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-append'}),
-        jsonEncode({'type': 'turn.completed'}),
-      ].join('\n');
-      final runner = WorkflowCliRunner(
-        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
-        processStarter: (exe, args, {workingDirectory, environment}) async {
-          arguments = List<String>.from(args);
-          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'"]);
-        },
+      final runner = codexRunner(
+        processStarter: codexStub(
+          onArgs: (exe, args) => arguments = args,
+          events: [
+            {'type': 'thread.started', 'thread_id': 'codex-thread-append'},
+            {'type': 'turn.completed'},
+          ],
+        ),
       );
 
       await runner.executeTurn(
@@ -1358,8 +1038,7 @@ void main() {
       ].join('\n');
       final escapedStdout = stdout.replaceAll("'", "'\\''");
 
-      final runner = WorkflowCliRunner(
-        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+      final runner = codexRunner(
         processStarter: (exe, args, {workingDirectory, environment}) async {
           arguments = List<String>.from(args);
           final schemaFlagIndex = arguments.indexOf('--output-schema');
@@ -1374,24 +1053,7 @@ void main() {
         prompt: 'List changed files',
         workingDirectory: workingDirectory.path,
         profileId: 'workspace',
-        jsonSchema: const {
-          'type': 'object',
-          'additionalProperties': false,
-          'required': ['items'],
-          'properties': {
-            'items': {
-              'type': 'array',
-              'items': {
-                'type': 'object',
-                'additionalProperties': false,
-                'required': ['path'],
-                'properties': {
-                  'path': {'type': 'string'},
-                },
-              },
-            },
-          },
-        },
+        jsonSchema: itemsSchema,
       );
 
       final schemaFlagIndex = arguments.indexOf('--output-schema');
@@ -1408,8 +1070,7 @@ void main() {
         }
       });
 
-      final runner = WorkflowCliRunner(
-        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+      final runner = codexRunner(
         processStarter: (exe, args, {workingDirectory, environment}) async {
           final schemaFlagIndex = args.indexOf('--output-schema');
           schemaPath = args[schemaFlagIndex + 1];
@@ -1424,24 +1085,7 @@ void main() {
           prompt: 'List changed files',
           workingDirectory: workingDirectory.path,
           profileId: 'workspace',
-          jsonSchema: const {
-            'type': 'object',
-            'additionalProperties': false,
-            'required': ['items'],
-            'properties': {
-              'items': {
-                'type': 'array',
-                'items': {
-                  'type': 'object',
-                  'additionalProperties': false,
-                  'required': ['path'],
-                  'properties': {
-                    'path': {'type': 'string'},
-                  },
-                },
-              },
-            },
-          },
+          jsonSchema: itemsSchema,
         ),
         throwsA(isA<StateError>()),
       );
@@ -1457,36 +1101,16 @@ void main() {
         }
       });
 
-      final container = _FakeContainerExecutor(hostRoot: workingDirectory.path, containerRoot: '/workspace');
+      final container = FakeContainerExecutor(hostRoot: workingDirectory.path, containerRoot: '/workspace');
 
-      final runner = WorkflowCliRunner(
-        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
-        containerManagers: {'workspace': container},
-      );
+      final runner = codexRunner(containerManagers: {'workspace': container});
 
       await runner.executeTurn(
         provider: 'codex',
         prompt: 'List changed files',
         workingDirectory: workingDirectory.path,
         profileId: 'workspace',
-        jsonSchema: const {
-          'type': 'object',
-          'additionalProperties': false,
-          'required': ['items'],
-          'properties': {
-            'items': {
-              'type': 'array',
-              'items': {
-                'type': 'object',
-                'additionalProperties': false,
-                'required': ['path'],
-                'properties': {
-                  'path': {'type': 'string'},
-                },
-              },
-            },
-          },
-        },
+        jsonSchema: itemsSchema,
       );
 
       expect(container.lastWorkingDirectory, '/workspace');
@@ -1561,7 +1185,7 @@ void main() {
         var runCalled = false;
         final runner = WorkflowCliRunner(
           providers: const {'fake': WorkflowCliProviderConfig(executable: 'fake-exe')},
-          providerImpls: {'fake': _FakeCliProvider(() => runCalled = true)},
+          providerImpls: {'fake': FakeCliProvider(() => runCalled = true)},
         );
 
         final result = await runner.executeTurn(
@@ -1599,110 +1223,4 @@ void main() {
       });
     });
   });
-}
-
-class _FakeCliProvider implements CliProvider {
-  final void Function() onRun;
-  const _FakeCliProvider(this.onRun);
-
-  @override
-  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
-    onRun();
-    return WorkflowCliTurnResult(providerSessionId: 'fake-session', responseText: 'fake-response', newInputTokens: 0);
-  }
-
-  @override
-  Future<void> cancelInflight() async {}
-}
-
-class _SigkillOnlyFakeProcess extends FakeProcess {
-  final killSignals = <ProcessSignal>[];
-
-  @override
-  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
-    killCalled = true;
-    lastKillSignal = signal;
-    killSignals.add(signal);
-    if (signal == ProcessSignal.sigkill) {
-      super.exit(-9);
-    }
-    return true;
-  }
-}
-
-final class _RecordingCliProvider implements CliProvider {
-  final requests = <CliTurnRequest>[];
-
-  @override
-  Future<WorkflowCliTurnResult> run(CliTurnRequest request) async {
-    requests.add(request);
-    return WorkflowCliTurnResult(providerSessionId: 'recorded-session', responseText: 'ok', newInputTokens: 0);
-  }
-
-  @override
-  Future<void> cancelInflight() async {}
-}
-
-class _FakeContainerExecutor implements ContainerExecutor {
-  @override
-  final String profileId = 'workspace';
-
-  @override
-  final String workingDir = '/workspace';
-
-  @override
-  final bool hasProjectMount = true;
-
-  final String hostRoot;
-  final String containerRoot;
-  final String stdout;
-  late List<String> lastCommand;
-  String? lastWorkingDirectory;
-
-  _FakeContainerExecutor({required this.hostRoot, required this.containerRoot, String? stdout})
-    : stdout =
-          stdout ??
-          '${jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-1'})}\n'
-              '${jsonEncode({
-                'type': 'item.completed',
-                'item': {
-                  'type': 'agent_message',
-                  'text': jsonEncode({
-                    'items': [
-                      {'path': 'lib/main.dart'},
-                    ],
-                  }),
-                },
-              })}';
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
-
-  @override
-  Future<void> deleteFileInContainer(String containerPath) async {}
-
-  @override
-  Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
-    lastCommand = List<String>.from(command);
-    lastWorkingDirectory = workingDirectory;
-    final escapedStdout = stdout.replaceAll("'", "'\\''");
-    return Process.start('/bin/sh', ['-lc', "printf '%s' '$escapedStdout'"]);
-  }
-
-  @override
-  String? containerPathForHostPath(String hostPath) {
-    final normalizedHostPath = File(hostPath).absolute.path;
-    final normalizedHostRoot = Directory(hostRoot).absolute.path;
-    if (normalizedHostPath == normalizedHostRoot) {
-      return containerRoot;
-    }
-    if (!normalizedHostPath.startsWith('$normalizedHostRoot${Platform.pathSeparator}')) {
-      return null;
-    }
-    final relative = normalizedHostPath.substring(normalizedHostRoot.length + 1).replaceAll('\\', '/');
-    return '$containerRoot/$relative';
-  }
 }

@@ -9,6 +9,8 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/turn_governance_enforcer.dart';
 import 'package:test/test.dart';
 
+import '../turn_runner_test_support.dart';
+
 void main() {
   late Directory tempDir;
   late KvService kvService;
@@ -57,7 +59,7 @@ void main() {
     BudgetEnforcer? budgetEnforcer,
     SlidingWindowRateLimiter? rateLimiter,
     LoopDetector? loopDetector,
-    _RecordingSseBroadcast? sse,
+    RecordingSseBroadcast? sse,
   }) {
     return TurnGovernanceEnforcer(
       budgetEnforcer: budgetEnforcer,
@@ -130,7 +132,7 @@ void main() {
     test('checkBudget() broadcasts budget_warning when warn threshold is crossed', () async {
       final today = DateTime.now().toUtc();
       final dateKey = BudgetEnforcer.dateKeyForTime(today);
-      final sse = _RecordingSseBroadcast();
+      final sse = RecordingSseBroadcast();
 
       // Seed 500 input + 300 output = 800 tokens (80% of 1000 limit → warn)
       await seedTokens(dateKey, input: 500, output: 300);
@@ -196,13 +198,4 @@ void main() {
       await expectLater(enforcer.checkLoopPreTurn(sessionId, isHumanInput: false), completes);
     });
   });
-}
-
-class _RecordingSseBroadcast extends SseBroadcast {
-  final List<String> events = [];
-
-  @override
-  void broadcast(String event, Map<String, dynamic> data) {
-    events.add(event);
-  }
 }

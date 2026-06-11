@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannelManager;
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -59,21 +60,6 @@ class FakeSignalCliManager extends SignalCliManager {
   }
 }
 
-class FakeChannelManager extends ChannelManager {
-  final List<ChannelMessage> received = [];
-
-  FakeChannelManager()
-    : super(
-        queue: MessageQueue(dispatcher: (_, _, {senderJid, senderDisplayName}) async => '', maxConcurrentTurns: 1),
-        config: const ChannelConfig.defaults(),
-      );
-
-  @override
-  void handleInboundMessage(ChannelMessage message) {
-    received.add(message);
-  }
-}
-
 /// Build a signal-cli envelope for testing.
 Map<String, dynamic> _signalEnvelope({
   required String source,
@@ -100,6 +86,29 @@ Map<String, dynamic> _signalEnvelope({
   },
 };
 
+SignalChannel _makeChannel({
+  required FakeSignalCliManager sidecar,
+  required FakeChannelManager channelManager,
+  SignalConfig config = const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+  DmAccessController? dmAccess,
+  SignalMentionGating? mentionGating,
+  String? dataDir,
+}) {
+  return SignalChannel(
+    sidecar: sidecar,
+    config: config,
+    dmAccess: dmAccess ?? DmAccessController(mode: DmAccessMode.open),
+    mentionGating: mentionGating ?? SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+    channelManager: channelManager,
+    dataDir: dataDir,
+  );
+}
+
+Future<void> _emitAndPump(FakeSignalCliManager sidecar, Map<String, dynamic> event) async {
+  sidecar.emitEvent(event);
+  await Future<void>.delayed(Duration.zero);
+}
+
 void main() {
   late FakeSignalCliManager sidecar;
   late FakeChannelManager channelManager;
@@ -108,13 +117,7 @@ void main() {
   setUp(() {
     sidecar = FakeSignalCliManager();
     channelManager = FakeChannelManager();
-    channel = SignalChannel(
-      sidecar: sidecar,
-      config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-      dmAccess: DmAccessController(mode: DmAccessMode.open),
-      mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-      channelManager: channelManager,
-    );
+    channel = _makeChannel(sidecar: sidecar, channelManager: channelManager);
   });
 
   group('SignalChannel', () {
@@ -162,9 +165,7 @@ void main() {
 
     test('SSE event routes DM message', () async {
       await channel.connect();
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', sourceName: 'Alice', message: 'Hello agent'));
-      // Allow microtask to propagate
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+1234567890', sourceName: 'Alice', message: 'Hello agent'));
       expect(channelManager.received, hasLength(1));
       expect(channelManager.received.first.text, 'Hello agent');
       expect(channelManager.received.first.senderJid, '+1234567890');
@@ -174,105 +175,93 @@ void main() {
 
     test('SSE event parses group message', () async {
       await channel.connect();
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', message: 'group msg', groupId: 'group-abc-123'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(
+        sidecar,
+        _signalEnvelope(source: '+1234567890', message: 'group msg', groupId: 'group-abc-123'),
+      );
       expect(channelManager.received, hasLength(1));
       expect(channelManager.received.first.groupJid, 'group-abc-123');
     });
 
     test('SSE event ignores missing envelope', () async {
       await channel.connect();
-      sidecar.emitEvent({'other': 'data'});
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, {'other': 'data'});
       expect(channelManager.received, isEmpty);
     });
 
     test('SSE event ignores missing dataMessage', () async {
       await channel.connect();
-      sidecar.emitEvent({
+      await _emitAndPump(sidecar, {
         'envelope': {'source': '+1234567890'},
       });
-      await Future<void>.delayed(Duration.zero);
       expect(channelManager.received, isEmpty);
     });
 
     test('SSE event ignores missing message text', () async {
       await channel.connect();
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+1234567890'));
       expect(channelManager.received, isEmpty);
     });
 
     test('SSE event ignores empty source', () async {
       await channel.connect();
-      sidecar.emitEvent(_signalEnvelope(source: '', message: 'text'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '', message: 'text'));
       expect(channelManager.received, isEmpty);
     });
 
     test('SSE event handles malformed envelope gracefully', () async {
       await channel.connect();
-      sidecar.emitEvent({'envelope': 'invalid'});
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, {'envelope': 'invalid'});
       expect(channelManager.received, isEmpty);
     });
 
     test('SSE event respects DM access control', () async {
-      final restrictedChannel = SignalChannel(
+      final restrictedChannel = _makeChannel(
         sidecar: sidecar,
+        channelManager: channelManager,
         config: const SignalConfig(enabled: true),
         dmAccess: DmAccessController(mode: DmAccessMode.disabled),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: channelManager,
       );
 
       await restrictedChannel.connect();
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', message: 'Hello'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+1234567890', message: 'Hello'));
       expect(channelManager.received, isEmpty);
     });
 
     test('SSE event respects DM allowlist', () async {
-      final allowlistChannel = SignalChannel(
+      final allowlistChannel = _makeChannel(
         sidecar: sidecar,
+        channelManager: channelManager,
         config: const SignalConfig(enabled: true),
         dmAccess: DmAccessController(mode: DmAccessMode.allowlist, allowlist: {'+9999999999'}),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: channelManager,
       );
 
       await allowlistChannel.connect();
 
-      // Denied sender
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', message: 'Hello'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+1234567890', message: 'Hello'));
       expect(channelManager.received, isEmpty);
 
-      // Allowed sender
-      sidecar.emitEvent(_signalEnvelope(source: '+9999999999', message: 'Hi'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+9999999999', message: 'Hi'));
       expect(channelManager.received, hasLength(1));
     });
 
     test('SSE event respects mention gating for groups', () async {
-      final gatedChannel = SignalChannel(
+      final gatedChannel = _makeChannel(
         sidecar: sidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: true, mentionPatterns: [r'@bot'], ownNumber: '+0000'),
         channelManager: channelManager,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+        mentionGating: SignalMentionGating(requireMention: true, mentionPatterns: [r'@bot'], ownNumber: '+0000'),
       );
 
       await gatedChannel.connect();
 
-      // Group message without mention -> dropped
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', message: 'random chat', groupId: 'grp-1'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+1234567890', message: 'random chat', groupId: 'grp-1'));
       expect(channelManager.received, isEmpty);
 
-      // Group message with mention pattern -> processed
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', message: '@bot what is 2+2?', groupId: 'grp-1'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(
+        sidecar,
+        _signalEnvelope(source: '+1234567890', message: '@bot what is 2+2?', groupId: 'grp-1'),
+      );
       expect(channelManager.received, hasLength(1));
     });
 
@@ -285,19 +274,15 @@ void main() {
     });
 
     test('formatResponse chunks long messages', () {
-      // Create a channel with small chunk size for easy testing
-      final smallChunkChannel = SignalChannel(
+      final smallChunkChannel = _makeChannel(
         sidecar: sidecar,
-        config: const SignalConfig(enabled: true, maxChunkSize: 50),
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
         channelManager: channelManager,
+        config: const SignalConfig(enabled: true, maxChunkSize: 50),
       );
 
-      final longText = 'A' * 120; // 120 chars, will need multiple chunks at maxSize=50
+      final longText = 'A' * 120;
       final responses = smallChunkChannel.formatResponse(longText);
       expect(responses.length, greaterThan(1));
-      // All responses should be ChannelResponse with text
       for (final r in responses) {
         expect(r.text, isNotEmpty);
       }
@@ -313,74 +298,54 @@ void main() {
     // ---- Group access control ----
 
     test('group access disabled drops group messages', () async {
-      final disabledGroupChannel = SignalChannel(
+      final disabledGroupChannel = _makeChannel(
         sidecar: sidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.disabled),
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
         channelManager: channelManager,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.disabled),
       );
 
       await disabledGroupChannel.connect();
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', message: 'group msg', groupId: 'grp-1'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+1234567890', message: 'group msg', groupId: 'grp-1'));
       expect(channelManager.received, isEmpty);
     });
 
     test('group access open allows group messages', () async {
-      final openGroupChannel = SignalChannel(
-        sidecar: sidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: channelManager,
-      );
+      final openGroupChannel = _makeChannel(sidecar: sidecar, channelManager: channelManager);
 
       await openGroupChannel.connect();
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', message: 'group msg', groupId: 'grp-1'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+1234567890', message: 'group msg', groupId: 'grp-1'));
       expect(channelManager.received, hasLength(1));
     });
 
     test('group access allowlist allows listed groups', () async {
-      final allowlistGroupChannel = SignalChannel(
+      final allowlistGroupChannel = _makeChannel(
         sidecar: sidecar,
+        channelManager: channelManager,
         config: const SignalConfig(
           enabled: true,
           groupAccess: SignalGroupAccessMode.allowlist,
           groupAllowlist: [GroupEntry(id: 'grp-allowed')],
         ),
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: channelManager,
       );
 
       await allowlistGroupChannel.connect();
 
-      // Unlisted group -> dropped
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', message: 'msg', groupId: 'grp-denied'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+1234567890', message: 'msg', groupId: 'grp-denied'));
       expect(channelManager.received, isEmpty);
 
-      // Listed group -> processed
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', message: 'msg', groupId: 'grp-allowed'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+1234567890', message: 'msg', groupId: 'grp-allowed'));
       expect(channelManager.received, hasLength(1));
     });
 
     test('group access does not affect DM messages', () async {
-      final disabledGroupChannel = SignalChannel(
+      final disabledGroupChannel = _makeChannel(
         sidecar: sidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.disabled),
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
         channelManager: channelManager,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.disabled),
       );
 
       await disabledGroupChannel.connect();
-      // DM (no groupId) should still pass even with groupAccess disabled
-      sidecar.emitEvent(_signalEnvelope(source: '+1234567890', message: 'DM'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(sidecar, _signalEnvelope(source: '+1234567890', message: 'DM'));
       expect(channelManager.received, hasLength(1));
     });
   });
@@ -480,17 +445,10 @@ void main() {
 
     test('pairing mode: unknown sender triggers createPairing, message NOT forwarded', () async {
       final dmAccess = DmAccessController(mode: DmAccessMode.pairing);
-      final ch = SignalChannel(
-        sidecar: pairingSidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: dmAccess,
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: pairingManager,
-      );
+      final ch = _makeChannel(sidecar: pairingSidecar, channelManager: pairingManager, dmAccess: dmAccess);
 
       await ch.connect();
-      pairingSidecar.emitEvent(_signalEnvelope(source: '+9876543210', sourceName: 'Bob', message: 'Hello'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(pairingSidecar, _signalEnvelope(source: '+9876543210', sourceName: 'Bob', message: 'Hello'));
 
       expect(pairingManager.received, isEmpty);
       expect(dmAccess.pendingPairings, hasLength(1));
@@ -500,17 +458,10 @@ void main() {
 
     test('pairing mode: known sender (in allowlist) message forwarded normally', () async {
       final dmAccess = DmAccessController(mode: DmAccessMode.pairing, allowlist: {'+9876543210'});
-      final ch = SignalChannel(
-        sidecar: pairingSidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: dmAccess,
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: pairingManager,
-      );
+      final ch = _makeChannel(sidecar: pairingSidecar, channelManager: pairingManager, dmAccess: dmAccess);
 
       await ch.connect();
-      pairingSidecar.emitEvent(_signalEnvelope(source: '+9876543210', message: 'Hello'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(pairingSidecar, _signalEnvelope(source: '+9876543210', message: 'Hello'));
 
       expect(pairingManager.received, hasLength(1));
       expect(dmAccess.pendingPairings, isEmpty);
@@ -518,17 +469,10 @@ void main() {
 
     test('allowlist mode: unknown sender drops without createPairing', () async {
       final dmAccess = DmAccessController(mode: DmAccessMode.allowlist);
-      final ch = SignalChannel(
-        sidecar: pairingSidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: dmAccess,
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: pairingManager,
-      );
+      final ch = _makeChannel(sidecar: pairingSidecar, channelManager: pairingManager, dmAccess: dmAccess);
 
       await ch.connect();
-      pairingSidecar.emitEvent(_signalEnvelope(source: '+9876543210', message: 'Hello'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(pairingSidecar, _signalEnvelope(source: '+9876543210', message: 'Hello'));
 
       expect(pairingManager.received, isEmpty);
       expect(dmAccess.pendingPairings, isEmpty);
@@ -540,18 +484,13 @@ void main() {
       const uuid = '12bfcd5a-3363-45f4-94b6-3fe247f11ab8';
       const phone = '+46701234567';
       final dmAccess = DmAccessController(mode: DmAccessMode.allowlist, allowlist: {uuid});
-      final ch = SignalChannel(
-        sidecar: pairingSidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: dmAccess,
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: pairingManager,
-      );
+      final ch = _makeChannel(sidecar: pairingSidecar, channelManager: pairingManager, dmAccess: dmAccess);
 
       await ch.connect();
-      // sourceNumber present → senderJid = phone, but allowlist holds UUID
-      pairingSidecar.emitEvent(_signalEnvelope(source: uuid, sourceNumber: phone, sourceUuid: uuid, message: 'Hello'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(
+        pairingSidecar,
+        _signalEnvelope(source: uuid, sourceNumber: phone, sourceUuid: uuid, message: 'Hello'),
+      );
 
       expect(pairingManager.received, hasLength(1));
       expect(pairingManager.received.first.senderJid, phone);
@@ -563,18 +502,10 @@ void main() {
       const uuid = '12bfcd5a-3363-45f4-94b6-3fe247f11ab8';
       const phone = '+46701234567';
       final dmAccess = DmAccessController(mode: DmAccessMode.allowlist, allowlist: {phone});
-      final ch = SignalChannel(
-        sidecar: pairingSidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: dmAccess,
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: pairingManager,
-      );
+      final ch = _makeChannel(sidecar: pairingSidecar, channelManager: pairingManager, dmAccess: dmAccess);
 
       await ch.connect();
-      // No sourceNumber → senderJid = UUID, but allowlist holds phone (no reverse lookup)
-      pairingSidecar.emitEvent(_signalEnvelope(source: uuid, sourceUuid: uuid, message: 'Hello'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(pairingSidecar, _signalEnvelope(source: uuid, sourceUuid: uuid, message: 'Hello'));
 
       // Expected: dropped — UUID→phone resolution requires contact_aliases (deferred to 0.8)
       expect(pairingManager.received, isEmpty);
@@ -598,43 +529,29 @@ void main() {
     });
 
     test('UUID-only message uses UUID as senderJid when no prior mapping', () async {
-      final ch = SignalChannel(
-        sidecar: normSidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: normManager,
-        dataDir: tempDir.path,
-      );
+      final ch = _makeChannel(sidecar: normSidecar, channelManager: normManager, dataDir: tempDir.path);
 
       await ch.connect();
-      normSidecar.emitEvent(
+      await _emitAndPump(
+        normSidecar,
         _signalEnvelope(
           source: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
           sourceUuid: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
           message: 'Hello',
         ),
       );
-      await Future<void>.delayed(Duration.zero);
 
       expect(normManager.received, hasLength(1));
       expect(normManager.received.first.senderJid, '12bfcd5a-3363-45f4-94b6-3fe247f11ab8');
     });
 
     test('UUID-only message resolves to phone after prior message with both', () async {
-      final ch = SignalChannel(
-        sidecar: normSidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: normManager,
-        dataDir: tempDir.path,
-      );
+      final ch = _makeChannel(sidecar: normSidecar, channelManager: normManager, dataDir: tempDir.path);
 
       await ch.connect();
 
-      // First: both phone and UUID present
-      normSidecar.emitEvent(
+      await _emitAndPump(
+        normSidecar,
         _signalEnvelope(
           source: '+1234567890',
           sourceNumber: '+1234567890',
@@ -642,37 +559,28 @@ void main() {
           message: 'First',
         ),
       );
-      await Future<void>.delayed(Duration.zero);
       expect(normManager.received, hasLength(1));
       expect(normManager.received.first.senderJid, '+1234567890');
 
-      // Second: UUID only — should resolve to cached phone
-      normSidecar.emitEvent(
+      await _emitAndPump(
+        normSidecar,
         _signalEnvelope(
           source: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
           sourceUuid: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
           message: 'Second',
         ),
       );
-      await Future<void>.delayed(Duration.zero);
       expect(normManager.received, hasLength(2));
       expect(normManager.received[1].senderJid, '+1234567890');
     });
 
     test('phone change updates mapping', () async {
-      final ch = SignalChannel(
-        sidecar: normSidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: normManager,
-        dataDir: tempDir.path,
-      );
+      final ch = _makeChannel(sidecar: normSidecar, channelManager: normManager, dataDir: tempDir.path);
 
       await ch.connect();
 
-      // First: phone1 + UUID
-      normSidecar.emitEvent(
+      await _emitAndPump(
+        normSidecar,
         _signalEnvelope(
           source: '+1234567890',
           sourceNumber: '+1234567890',
@@ -680,10 +588,9 @@ void main() {
           message: 'First',
         ),
       );
-      await Future<void>.delayed(Duration.zero);
 
-      // Second: phone2 + same UUID
-      normSidecar.emitEvent(
+      await _emitAndPump(
+        normSidecar,
         _signalEnvelope(
           source: '+9876543210',
           sourceNumber: '+9876543210',
@@ -691,35 +598,28 @@ void main() {
           message: 'Second',
         ),
       );
-      await Future<void>.delayed(Duration.zero);
 
-      // Third: UUID only — should resolve to new phone
-      normSidecar.emitEvent(
+      await _emitAndPump(
+        normSidecar,
         _signalEnvelope(
           source: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
           sourceUuid: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
           message: 'Third',
         ),
       );
-      await Future<void>.delayed(Duration.zero);
 
       expect(normManager.received, hasLength(3));
       expect(normManager.received[2].senderJid, '+9876543210');
     });
 
     test('sender normalization works without dataDir (no persistence)', () async {
-      final ch = SignalChannel(
-        sidecar: normSidecar,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
-        channelManager: normManager,
-        // No dataDir — sender map not initialized
-      );
+      final ch = _makeChannel(sidecar: normSidecar, channelManager: normManager);
 
       await ch.connect();
-      normSidecar.emitEvent(_signalEnvelope(source: '+1234567890', sourceNumber: '+1234567890', message: 'Hello'));
-      await Future<void>.delayed(Duration.zero);
+      await _emitAndPump(
+        normSidecar,
+        _signalEnvelope(source: '+1234567890', sourceNumber: '+1234567890', message: 'Hello'),
+      );
 
       expect(normManager.received, hasLength(1));
       expect(normManager.received.first.senderJid, '+1234567890');

@@ -55,6 +55,9 @@ abstract interface class HarnessPool {
   /// Returns true when the task pool contains at least one runner for [providerId].
   bool hasTaskRunnerForProvider(String providerId);
 
+  /// Number of task runners configured for [providerId].
+  int taskRunnerCountForProvider(String providerId);
+
   /// Distinct security profiles available among task runners.
   Set<String> get taskProfiles;
 

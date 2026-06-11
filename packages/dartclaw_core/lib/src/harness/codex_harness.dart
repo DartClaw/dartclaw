@@ -404,6 +404,13 @@ class CodexHarness extends BaseHarness {
         }
         emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
+      case proto.ProgressMessage(:final text, :final kind):
+        emitEvent(ProviderProgressBridgeEvent(kind: kind, text: text));
+
+      case proto.SessionMetadataUpdate():
+      case proto.ProtocolDiagnostic():
+        break;
+
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         _log.fine('Control request: $subtype (id=$requestId)');
         unawaited(_dispatchControlRequest(requestId, subtype, data, sessionId: _activeSessionId));
@@ -531,12 +538,15 @@ class CodexHarness extends BaseHarness {
       await _handleApprovalRequest(requestId, data, sessionId: sessionId);
     } catch (error, stackTrace) {
       _log.severe('Failed to handle Codex approval request $requestId: $error', error, stackTrace);
-      _tryWriteApprovalResponse(requestId, allow: false, reason: 'Approval handler error: $error');
+      if (_tryWriteApprovalResponse(requestId, allow: false, reason: 'Approval handler error: $error')) {
+        emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+      }
     }
   }
 
   Future<void> _handleApprovalRequest(String requestId, Map<String, dynamic> data, {String? sessionId}) async {
     final rawToolName = data['tool_name'] as String? ?? '';
+    emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
     final providerToolInput = Map<String, dynamic>.from(mapValue(data['tool_input']) ?? const <String, dynamic>{});
     // Codex approval responses can only allow or deny; they cannot mutate the
     // provider's actual tool_input. Redact and normalize a DartClaw-side copy
@@ -560,17 +570,23 @@ class CodexHarness extends BaseHarness {
           rawProviderToolName: rawToolName,
         );
         if (verdict.isBlock) {
-          _tryWriteApprovalResponse(requestId, allow: false, reason: verdict.message);
+          if (_tryWriteApprovalResponse(requestId, allow: false, reason: verdict.message)) {
+            emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+          }
           return;
         }
       } catch (error, stackTrace) {
         _log.severe('GuardChain evaluation failed for Codex approval $requestId: $error', error, stackTrace);
-        _tryWriteApprovalResponse(requestId, allow: false, reason: 'Guard evaluation failed: $error');
+        if (_tryWriteApprovalResponse(requestId, allow: false, reason: 'Guard evaluation failed: $error')) {
+          emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+        }
         return;
       }
     }
 
-    _tryWriteApprovalResponse(requestId, allow: true);
+    if (_tryWriteApprovalResponse(requestId, allow: true)) {
+      emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+    }
   }
 
   void _handlePendingResponse(String line) {
@@ -639,11 +655,13 @@ class CodexHarness extends BaseHarness {
     return _nextRequestId;
   }
 
-  void _tryWriteApprovalResponse(String requestId, {required bool allow, String? reason}) {
+  bool _tryWriteApprovalResponse(String requestId, {required bool allow, String? reason}) {
     try {
       _writeLine(adapter.buildApprovalResponse(requestId, allow: allow, reason: reason));
+      return true;
     } catch (error, stackTrace) {
       _log.severe('Failed to write Codex approval response for $requestId: $error', error, stackTrace);
+      return false;
     }
   }
 

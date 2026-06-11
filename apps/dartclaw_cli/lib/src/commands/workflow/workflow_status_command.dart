@@ -2,36 +2,20 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
-import 'package:dartclaw_core/dartclaw_core.dart' show Task, truncate;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, formatLocalDateTime, humanizeSpan, truncate;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteAgentExecutionRepository, SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDb, TaskDbFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRunStatus;
 
-import '../../dartclaw_api_client.dart';
-import '../cli_global_options.dart';
 import '../config_loader.dart';
-import '../serve_command.dart' show ExitFn, WriteLine;
+import '../connected_command_support.dart' hide truncate;
 
 /// Shows workflow run status from the server by default, with a standalone fallback.
-class WorkflowStatusCommand extends Command<void> {
-  final DartclawConfig? _config;
+class WorkflowStatusCommand extends ConnectedCommand {
   final TaskDbFactory _taskDbFactory;
-  final DartclawApiClient? _apiClient;
-  final WriteLine _writeLine;
-  final ExitFn _exitFn;
 
-  WorkflowStatusCommand({
-    DartclawConfig? config,
-    TaskDbFactory? taskDbFactory,
-    DartclawApiClient? apiClient,
-    WriteLine? writeLine,
-    ExitFn? exitFn,
-  }) : _config = config,
-       _taskDbFactory = taskDbFactory ?? openTaskDb,
-       _apiClient = apiClient,
-       _writeLine = writeLine ?? stdout.writeln,
-       _exitFn = exitFn ?? exit {
+  WorkflowStatusCommand({super.config, TaskDbFactory? taskDbFactory, super.apiClient, super.writeLine, super.exitFn})
+    : _taskDbFactory = taskDbFactory ?? openTaskDb {
     argParser
       ..addFlag('json', negatable: false, help: 'Output as JSON')
       ..addFlag('standalone', negatable: false, help: 'Read workflow status directly from the local tasks database');
@@ -59,38 +43,22 @@ class WorkflowStatusCommand extends Command<void> {
       return;
     }
 
-    final apiClient = _resolveApiClient();
-    try {
+    await runConnected((apiClient) async {
       final run = await apiClient.getObject('/api/workflows/runs/$runId');
       if (argResults!['json'] as bool) {
-        _writeLine(const JsonEncoder.withIndent('  ').convert(run));
+        writeLine(const JsonEncoder.withIndent('  ').convert(run));
       } else {
         _printApiTable(run);
       }
-    } on DartclawApiException catch (error) {
-      _writeLine(error.message);
-      _exitFn(1);
-    }
-  }
-
-  DartclawApiClient _resolveApiClient() {
-    if (_apiClient != null) {
-      return _apiClient;
-    }
-    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
-    return DartclawApiClient.fromConfig(
-      config: config,
-      serverOverride: serverOverride(globalResults),
-      tokenOverride: globalOptionString(globalResults, 'token'),
-    );
+    });
   }
 
   Future<void> _runStandalone(String runId) async {
-    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
+    final config = injectedConfig ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
     final dataDir = config.server.dataDir;
     if (!Directory(dataDir).existsSync()) {
-      _writeLine('No data directory found at $dataDir');
-      _exitFn(1);
+      writeLine('No data directory found at $dataDir');
+      exitFn(1);
     }
 
     final taskDb = _taskDbFactory(config.tasksDbPath);
@@ -102,13 +70,13 @@ class WorkflowStatusCommand extends Command<void> {
         run = await repository.getById(runId);
       } catch (_) {
         // DB not initialised or schema mismatch — user-visible message is the diagnostic.
-        _writeLine('No workflow data found (database may not be initialized).');
-        _exitFn(1);
+        writeLine('No workflow data found (database may not be initialized).');
+        exitFn(1);
       }
 
       if (run == null) {
-        _writeLine('Workflow run not found: $runId');
-        _exitFn(1);
+        writeLine('Workflow run not found: $runId');
+        exitFn(1);
       }
 
       final taskRepository = SqliteTaskRepository(taskDb);
@@ -116,7 +84,7 @@ class WorkflowStatusCommand extends Command<void> {
         ..sort((a, b) => (a.stepIndex ?? 0).compareTo(b.stepIndex ?? 0));
 
       if (argResults!['json'] as bool) {
-        _writeLine(
+        writeLine(
           const JsonEncoder.withIndent(
             '  ',
           ).convert({...run.toJson(), 'steps': childTasks.map((t) => t.toJson()).toList()}),
@@ -130,74 +98,74 @@ class WorkflowStatusCommand extends Command<void> {
   }
 
   void _printApiTable(Map<String, dynamic> run) {
-    _writeLine('Workflow Run: ${run['id']}');
-    _writeLine('  Definition:  ${run['definitionName']}');
-    _writeLine('  Status:      ${run['status']}');
-    _writeLine('  Started:     ${_formatDateTime(run['startedAt']?.toString())}');
+    writeLine('Workflow Run: ${run['id']}');
+    writeLine('  Definition:  ${run['definitionName']}');
+    writeLine('  Status:      ${run['status']}');
+    writeLine('  Started:     ${formatLocalDateTime(run['startedAt']?.toString())}');
     if (run['completedAt'] != null) {
-      _writeLine('  Completed:   ${_formatDateTime(run['completedAt']?.toString())}');
+      writeLine('  Completed:   ${formatLocalDateTime(run['completedAt']?.toString())}');
     }
     final steps = ((run['steps'] as List?) ?? const [])
         .map((step) => Map<String, dynamic>.from(step as Map))
         .toList(growable: false);
-    _writeLine(
+    writeLine(
       '  Steps:       ${steps.where((step) => step['status'] == 'completed').length}/${steps.length} completed',
     );
-    _writeLine('  Tokens:      ${_formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0)}');
+    writeLine('  Tokens:      ${_formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0)}');
     if (run['errorMessage'] != null) {
-      _writeLine('  Error:       ${run['errorMessage']}');
+      writeLine('  Error:       ${run['errorMessage']}');
     }
 
     if (steps.isEmpty) {
       return;
     }
-    _writeLine('');
-    _writeLine('  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(18)}  TASK');
+    writeLine('');
+    writeLine('  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(18)}  TASK');
     for (var index = 0; index < steps.length; index++) {
       final step = Map<String, dynamic>.from(steps[index]);
       final label = '${index + 1}/${steps.length}'.padRight(6);
       final name = truncate(step['name']?.toString() ?? '', 30, suffix: '...').padRight(30);
       final status = (step['status']?.toString() ?? 'pending').padRight(18);
       final taskId = step['taskId']?.toString() ?? '—';
-      _writeLine('  $label  $name  $status  $taskId');
+      writeLine('  $label  $name  $status  $taskId');
     }
   }
 
   void _printStandaloneTable(WorkflowRun run, List<Task> childTasks) {
-    _writeLine('Workflow Run: ${run.id}');
-    _writeLine('  Definition:  ${run.definitionName}');
+    writeLine('Workflow Run: ${run.id}');
+    writeLine('  Definition:  ${run.definitionName}');
     final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
     final isAwaitingApproval =
         pendingApprovalStepId != null &&
         (run.status == WorkflowRunStatus.awaitingApproval || run.status == WorkflowRunStatus.paused);
     final statusDisplay = isAwaitingApproval ? 'paused (awaiting approval)' : run.status.name;
-    _writeLine('  Status:      $statusDisplay');
-    _writeLine('  Started:     ${_formatDateTime(run.startedAt.toIso8601String())}');
+    writeLine('  Status:      $statusDisplay');
+    writeLine('  Started:     ${formatLocalDateTime(run.startedAt.toIso8601String())}');
     if (run.completedAt != null) {
-      _writeLine('  Completed:   ${_formatDateTime(run.completedAt!.toIso8601String())}');
+      writeLine('  Completed:   ${formatLocalDateTime(run.completedAt!.toIso8601String())}');
     }
-    _writeLine('  Steps:       ${run.currentStepIndex}/${_totalSteps(run)} completed');
-    _writeLine('  Tokens:      ${_formatNumber(run.totalTokens)}');
+    writeLine('  Steps:       ${run.currentStepIndex}/${_totalSteps(run)} completed');
+    writeLine('  Tokens:      ${_formatNumber(run.totalTokens)}');
     if (isAwaitingApproval) {
       final approvalMessage = run.contextJson['$pendingApprovalStepId.approval.message'] as String?;
-      _writeLine('  Approval:    Step "$pendingApprovalStepId" is awaiting approval');
+      writeLine('  Approval:    Step "$pendingApprovalStepId" is awaiting approval');
       if (approvalMessage != null) {
-        _writeLine('  Request:     $approvalMessage');
+        writeLine('  Request:     $approvalMessage');
       }
-      _writeLine('  Actions:     Start `dartclaw serve`, then run `dartclaw workflow resume ${run.id}` to approve');
-      _writeLine('               Start `dartclaw serve`, then run `dartclaw workflow cancel ${run.id}` to reject');
+      writeLine('  Actions:     Start `dartclaw serve`, then run `dartclaw workflow resume ${run.id}` to approve');
+      writeLine('               Start `dartclaw serve`, then run `dartclaw workflow cancel ${run.id}` to reject');
     } else if (run.status == WorkflowRunStatus.failed) {
-      _writeLine('  Actions:     Start `dartclaw serve`, then run `dartclaw workflow retry ${run.id}` to retry');
+      writeLine('  Actions:     Start `dartclaw serve`, then run `dartclaw workflow retry ${run.id}` to retry');
     }
     if (run.errorMessage != null) {
-      _writeLine('  Error:       ${run.errorMessage}');
+      writeLine('  Error:       ${run.errorMessage}');
     }
 
     if (childTasks.isEmpty) {
       return;
     }
-    _writeLine('');
-    _writeLine(
+    writeLine('');
+    writeLine(
       '  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(10)}  ${'TOKENS'.padRight(8)}  DURATION',
     );
     for (final task in childTasks) {
@@ -208,7 +176,7 @@ class WorkflowStatusCommand extends Command<void> {
       final status = task.status.name.padRight(10);
       final tokens = '—'.padRight(8);
       final duration = _taskDuration(task);
-      _writeLine('  $stepLabel  $name  $status  $tokens  $duration');
+      writeLine('  $stepLabel  $name  $status  $tokens  $duration');
     }
   }
 
@@ -224,25 +192,8 @@ class WorkflowStatusCommand extends Command<void> {
     if (task.startedAt == null) {
       return '—';
     }
-    final end = task.completedAt ?? DateTime.now();
-    final duration = end.difference(task.startedAt!);
-    if (duration.inMinutes > 0) {
-      return '${duration.inMinutes}m ${duration.inSeconds % 60}s';
-    }
-    return '${duration.inSeconds}s';
+    return humanizeSpan(task.startedAt!, task.completedAt, false, false);
   }
-}
-
-String _formatDateTime(String? value) {
-  if (value == null || value.isEmpty) {
-    return '—';
-  }
-  final parsed = DateTime.tryParse(value);
-  if (parsed == null) {
-    return value;
-  }
-  return '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')} '
-      '${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}:${parsed.second.toString().padLeft(2, '0')}';
 }
 
 String _formatNumber(int value) {

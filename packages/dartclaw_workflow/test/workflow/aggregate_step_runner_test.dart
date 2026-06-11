@@ -37,10 +37,14 @@ void main() {
     final architectureReport = writeReport('architecture-review.md', '# Architecture\n\nB');
     final definition = _definition(
       sources: [
-        _reviewSourceStep(id: 'plan-review', reportKey: 'review_findings', reportPreset: 'review_report_path'),
+        _reviewSourceStep(
+          id: 'plan-review',
+          reportKey: 'plan-review.review_findings',
+          reportPreset: 'review_report_path',
+        ),
         _reviewSourceStep(
           id: 'architecture-review',
-          reportKey: 'architecture_review_findings',
+          reportKey: 'architecture-review.review_findings',
           reportPreset: 'review_report_path',
         ),
       ],
@@ -52,8 +56,8 @@ void main() {
         'plan-review.gating_findings_count': 1,
         'architecture-review.findings_count': 2,
         'architecture-review.gating_findings_count': 1,
-        'review_findings': planReport.path,
-        'architecture_review_findings': architectureReport.path,
+        'plan-review.review_findings': planReport.path,
+        'architecture-review.review_findings': architectureReport.path,
       },
       systemVariables: {'workflow.runtime_artifacts_dir': runtimeArtifactsDir},
     );
@@ -81,7 +85,11 @@ void main() {
     final planReport = writeReport('plan-review.md', 'Plan report');
     final definition = _definition(
       sources: [
-        _reviewSourceStep(id: 'plan-review', reportKey: 'review_findings', reportPreset: 'review_report_path'),
+        _reviewSourceStep(
+          id: 'plan-review',
+          reportKey: 'plan-review.review_findings',
+          reportPreset: 'review_report_path',
+        ),
         _reviewSourceStep(id: 'skipped-review', reportKey: 'skipped_findings', reportPreset: 'review_report_path'),
         _reviewSourceStep(id: 'bad-count-review', reportKey: 'bad_count_findings', reportPreset: 'review_report_path'),
       ],
@@ -93,7 +101,7 @@ void main() {
         'plan-review.gating_findings_count': 1,
         'bad-count-review.findings_count': 'not an integer',
         'bad-count-review.gating_findings_count': 2.5,
-        'review_findings': planReport.path,
+        'plan-review.review_findings': planReport.path,
       },
       systemVariables: {'workflow.runtime_artifacts_dir': runtimeArtifactsDir},
     );
@@ -116,7 +124,13 @@ void main() {
   test('ignores nested context maps that happen to carry a colliding count key', () async {
     final planReport = writeReport('plan-review.md', 'Plan report');
     final definition = _definition(
-      sources: [_reviewSourceStep(id: 'plan-review', reportKey: 'review_findings', reportPreset: 'review_report_path')],
+      sources: [
+        _reviewSourceStep(
+          id: 'plan-review',
+          reportKey: 'plan-review.review_findings',
+          reportPreset: 'review_report_path',
+        ),
+      ],
       aggregateReviews: const ['plan-review'],
     );
     final context = WorkflowContext(
@@ -126,7 +140,7 @@ void main() {
         // nested map with the same count key names — the spec requires a direct
         // lookup so this must NOT contribute to the sum.
         'unrelated-step.output': {'plan-review.findings_count': 7, 'plan-review.gating_findings_count': 4},
-        'review_findings': planReport.path,
+        'plan-review.review_findings': planReport.path,
       },
       systemVariables: {'workflow.runtime_artifacts_dir': runtimeArtifactsDir},
     );
@@ -152,7 +166,7 @@ void main() {
       sources: [
         _reviewSourceStep(
           id: 'architecture-review',
-          reportKey: 'architecture_review_findings',
+          reportKey: 'architecture-review.review_findings',
           reportPreset: 'review_report_path',
         ),
       ],
@@ -162,7 +176,7 @@ void main() {
       data: {
         'architecture-review.findings_count': 1,
         'architecture-review.gating_findings_count': 1,
-        'architecture_review_findings': p.join('reports', 'architecture-review.md'),
+        'architecture-review.review_findings': p.join('reports', 'architecture-review.md'),
       },
       systemVariables: {'workflow.runtime_artifacts_dir': runtimeArtifactsDir},
     );
@@ -183,11 +197,21 @@ void main() {
   test('re-execution overwrites the deterministic merged report path', () async {
     final report = writeReport('plan-review.md', 'First');
     final definition = _definition(
-      sources: [_reviewSourceStep(id: 'plan-review', reportKey: 'review_findings', reportPreset: 'review_report_path')],
+      sources: [
+        _reviewSourceStep(
+          id: 'plan-review',
+          reportKey: 'plan-review.review_findings',
+          reportPreset: 'review_report_path',
+        ),
+      ],
       aggregateReviews: const ['plan-review'],
     );
     final context = WorkflowContext(
-      data: {'plan-review.findings_count': 1, 'plan-review.gating_findings_count': 1, 'review_findings': report.path},
+      data: {
+        'plan-review.findings_count': 1,
+        'plan-review.gating_findings_count': 1,
+        'plan-review.review_findings': report.path,
+      },
       systemVariables: {'workflow.runtime_artifacts_dir': runtimeArtifactsDir},
     );
 

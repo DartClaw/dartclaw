@@ -85,9 +85,6 @@ projects:
     remote: git@github.com:DartClaw/workflow-test-todo-app.git
     branch: main
 
-canvas:
-  enabled: true
-
 workspace:
   git_sync:
     enabled: false

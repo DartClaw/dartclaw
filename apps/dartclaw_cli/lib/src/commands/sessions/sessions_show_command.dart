@@ -1,23 +1,7 @@
-import 'dart:io';
-
-import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
-
-import '../../dartclaw_api_client.dart';
 import '../connected_command_support.dart';
-import '../serve_command.dart' show ExitFn, WriteLine;
 
-class SessionsShowCommand extends Command<void> {
-  final DartclawConfig? _config;
-  final DartclawApiClient? _apiClient;
-  final WriteLine _writeLine;
-  final ExitFn _exitFn;
-
-  SessionsShowCommand({DartclawConfig? config, DartclawApiClient? apiClient, WriteLine? writeLine, ExitFn? exitFn})
-    : _config = config,
-      _apiClient = apiClient,
-      _writeLine = writeLine ?? stdout.writeln,
-      _exitFn = exitFn ?? exit {
+class SessionsShowCommand extends ConnectedCommand {
+  SessionsShowCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser.addFlag('json', negatable: false, help: 'Output as JSON');
   }
 
@@ -28,33 +12,19 @@ class SessionsShowCommand extends Command<void> {
   String get description => 'Show a session';
 
   @override
-  Future<void> run() async {
-    final sessionId = _requireSessionId();
-    final apiClient = resolveCliApiClient(globalResults: globalResults, apiClient: _apiClient, config: _config);
-    try {
-      final session = await apiClient.getObject('/api/sessions/$sessionId');
-      if (argResults!['json'] as bool) {
-        writePrettyJson(_writeLine, session);
-        return;
-      }
-      _writeLine('Session:      ${session['id']}');
-      _writeLine('  Type:       ${session['type']}');
-      _writeLine('  Provider:   ${session['provider'] ?? '—'}');
-      _writeLine('  Channel key:${session['channelKey'] ?? '—'}');
-      _writeLine('  Title:      ${session['title'] ?? '—'}');
-      _writeLine('  Created:    ${formatDateTime(session['createdAt'])}');
-      _writeLine('  Updated:    ${formatDateTime(session['updatedAt'])}');
-    } on DartclawApiException catch (error) {
-      _writeLine(error.message);
-      _exitFn(1);
+  Future<void> run() => runConnected((apiClient) async {
+    final sessionId = requirePositionalArg('Session ID required');
+    final session = await apiClient.getObject('/api/sessions/$sessionId');
+    if (argResults!['json'] as bool) {
+      writePrettyJson(writeLine, session);
+      return;
     }
-  }
-
-  String _requireSessionId() {
-    final args = argResults!.rest;
-    if (args.isEmpty) {
-      throw UsageException('Session ID required', usage);
-    }
-    return args.first;
-  }
+    writeLine('Session:      ${session['id']}');
+    writeLine('  Type:       ${session['type']}');
+    writeLine('  Provider:   ${session['provider'] ?? '—'}');
+    writeLine('  Channel key:${session['channelKey'] ?? '—'}');
+    writeLine('  Title:      ${session['title'] ?? '—'}');
+    writeLine('  Created:    ${formatDateTime(session['createdAt'])}');
+    writeLine('  Updated:    ${formatDateTime(session['updatedAt'])}');
+  });
 }

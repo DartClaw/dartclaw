@@ -1,10 +1,11 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeTurnManager, SessionService;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import '../delivery_test_support.dart';
 
 /// TI11: the scheduled delivery path must carry per-file/per-page detail
 /// (quarantined files with reasons, wiki-lint findings) through the existing
@@ -44,7 +45,7 @@ void main() {
       },
       onMemorySave: (args) async => const {},
     );
-    final delivery = _RecordingDeliveryService(sessions: sessions);
+    final delivery = RecordingDeliveryService(sessions: sessions);
     final schedule = ScheduleService(turns: turns, sessions: sessions, jobs: [], delivery: delivery);
     schedule.start();
     addTearDown(schedule.stop);
@@ -61,7 +62,7 @@ void main() {
     WikiPageStore(workspaceDir: workspace.path).bootstrap();
     File(p.join(workspace.path, 'wiki', 'broken.md')).writeAsStringSync('# Broken\n\n[Missing](missing.md)\n');
     final wiki = WikiPageStore(workspaceDir: workspace.path);
-    final delivery = _RecordingDeliveryService(sessions: sessions);
+    final delivery = RecordingDeliveryService(sessions: sessions);
     final schedule = ScheduleService(turns: turns, sessions: sessions, jobs: [], delivery: delivery);
     schedule.start();
     addTearDown(schedule.stop);
@@ -80,33 +81,3 @@ void main() {
     expect(delivered.result, contains('missing-link'));
   });
 }
-
-class _RecordingDeliveryService extends DeliveryService {
-  final List<({DeliveryMode mode, String jobId, String result, String? webhookUrl})> calls = [];
-
-  _RecordingDeliveryService({required super.sessions})
-    : super(
-        channelManager: ChannelManager(
-          queue: MessageQueue(dispatcher: _noopTestChannelDispatch),
-          config: const ChannelConfig.defaults(),
-        ),
-        sseBroadcast: SseBroadcast(),
-      );
-
-  @override
-  Future<void> deliver({
-    required DeliveryMode mode,
-    required String jobId,
-    required String result,
-    String? webhookUrl,
-  }) async {
-    calls.add((mode: mode, jobId: jobId, result: result, webhookUrl: webhookUrl));
-  }
-}
-
-Future<String> _noopTestChannelDispatch(
-  String sessionKey,
-  String message, {
-  String? senderJid,
-  String? senderDisplayName,
-}) async => '';

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show NullIoSink;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannelManager, NullIoSink;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:test/test.dart';
 
@@ -56,21 +56,6 @@ class FakeGowaManager extends GowaManager {
 
   @override
   Future<GowaLoginQr> loginQr() async => loginQrResult;
-}
-
-class FakeChannelManager extends ChannelManager {
-  final List<ChannelMessage> received = [];
-
-  FakeChannelManager()
-    : super(
-        queue: MessageQueue(dispatcher: (_, _, {senderJid, senderDisplayName}) async => '', maxConcurrentTurns: 1),
-        config: const ChannelConfig.defaults(),
-      );
-
-  @override
-  void handleInboundMessage(ChannelMessage message) {
-    received.add(message);
-  }
 }
 
 class _NeverExitProcess implements Process {

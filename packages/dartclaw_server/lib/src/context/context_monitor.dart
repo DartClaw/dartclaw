@@ -7,10 +7,10 @@ final _log = Logger('ContextMonitor');
 /// Tracks context token usage and triggers pre-compaction flush when
 /// approaching the context window limit.
 ///
-/// Call [update] with token counts from turn results. Check [shouldFlush]
-/// after each turn to determine if a flush is needed. Check [checkThreshold]
-/// with a session ID to emit a one-shot context warning per session when
-/// usage exceeds [warningThreshold]%.
+/// Call [update] with token counts from turn results. Check
+/// [shouldFlushForCompactionSignal] after each turn to determine if a flush is
+/// needed. Check [checkThreshold] with a session ID to emit a one-shot context
+/// warning per session when usage exceeds [warningThreshold]%.
 ///
 /// This monitor is typically shared across all [TurnRunner] instances in the
 /// harness pool. Warning state is tracked per session via [_warnedSessions].
@@ -22,14 +22,6 @@ class ContextMonitor implements Reconfigurable {
   ///
   /// Non-final to allow live config updates without restart.
   int warningThreshold;
-
-  /// When `true`, suppresses the [shouldFlush] heuristic entirely.
-  ///
-  /// This remains a useful default for single-harness deployments. Callers
-  /// managing heterogeneous runner pools should use
-  /// [shouldFlushForCompactionSignal] so the decision is resolved per runner
-  /// instead of via shared mutable state.
-  bool compactionSignalAvailable = false;
 
   int? _contextWindow;
   int? _lastContextTokens;
@@ -76,9 +68,6 @@ class ContextMonitor implements Reconfigurable {
     if (window == null || tokens == null) return false;
     return tokens > window - reserveTokens && !_flushPending;
   }
-
-  /// Backward-compatible getter for callers that use the shared default flag.
-  bool get shouldFlush => shouldFlushForCompactionSignal(compactionSignalAvailable: compactionSignalAvailable);
 
   /// Increments the compaction cycle counter.
   ///

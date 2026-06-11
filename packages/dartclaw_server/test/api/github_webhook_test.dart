@@ -9,12 +9,7 @@ import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_server/src/api/github_webhook.dart';
 import 'package:dartclaw_server/src/api/github_webhook_config.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show
-        SqliteTaskRepository,
-        SqliteWorkflowRunRepository,
-        WebhookDeliveryStore,
-        openTaskDbInMemory,
-        openWebhookDeliveryStoreInMemory;
+    show SqliteTaskRepository, WebhookDeliveryStore, openTaskDbInMemory, openWebhookDeliveryStoreInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         InMemoryDefinitionSource,
@@ -22,19 +17,19 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionSource,
         WorkflowRun,
         WorkflowRunStatus,
-        WorkflowService,
         WorkflowStep,
         WorkflowVariable;
-import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'workflow_test_support.dart';
 
 void main() {
   late Database taskDb;
   late Database workflowDb;
   late TaskService tasks;
-  late _FakeWorkflowService workflows;
+  late FakeWorkflowService workflows;
   late Directory tempDir;
   late WorkflowDefinitionSource definitions;
 
@@ -46,7 +41,7 @@ void main() {
     final taskRepo = SqliteTaskRepository(taskDb);
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
-    workflows = _FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
     workflows.startResult = WorkflowRun(
       id: 'run-1',
       definitionName: 'code-review',
@@ -556,73 +551,6 @@ class _CommitFailingWebhookDeliveryStore extends WebhookDeliveryStore {
   void commitProcessed(String deliveryId) {
     commitAttempts += 1;
     throw StateError('processed-state commit failed');
-  }
-}
-
-class _FakeWorkflowService extends WorkflowService {
-  _FakeWorkflowService._super(
-    SqliteWorkflowRunRepository repository,
-    TaskService taskService,
-    MessageService messageService,
-    EventBus eventBus,
-    KvService kvService,
-    String dataDir,
-  ) : super.lifecycleOnly(
-        repository: repository,
-        taskService: taskService,
-        messageService: messageService,
-        eventBus: eventBus,
-        kvService: kvService,
-        dataDir: dataDir,
-      );
-
-  factory _FakeWorkflowService({
-    required Database db,
-    required TaskService taskService,
-    required EventBus eventBus,
-    required String dataDir,
-  }) {
-    final repo = SqliteWorkflowRunRepository(db);
-    final messages = MessageService(baseDir: p.join(dataDir, 'sessions'));
-    final kv = KvService(filePath: p.join(dataDir, 'kv.json'));
-    return _FakeWorkflowService._super(repo, taskService, messages, eventBus, kv, dataDir);
-  }
-
-  final List<String> calls = <String>[];
-  WorkflowRun? startResult;
-  Object? startError;
-  Completer<WorkflowRun>? startCompleter;
-  final List<WorkflowRun> activeRuns = <WorkflowRun>[];
-  String? lastProjectId;
-
-  @override
-  Future<WorkflowRun> start(
-    WorkflowDefinition definition,
-    Map<String, String> variables, {
-    String? projectId,
-    bool allowDirtyLocalPath = false,
-    bool headless = false,
-  }) async {
-    calls.add('start:${definition.name}');
-    lastProjectId = projectId;
-    final error = startError;
-    if (error != null) {
-      throw error;
-    }
-    final completer = startCompleter;
-    if (completer != null) {
-      final run = await completer.future;
-      activeRuns.add(run.copyWith(definitionName: definition.name, variablesJson: variables));
-      return run;
-    }
-    final run = startResult!;
-    activeRuns.add(run.copyWith(definitionName: definition.name, variablesJson: variables));
-    return run;
-  }
-
-  @override
-  Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) async {
-    return activeRuns.where((run) => definitionName == null || run.definitionName == definitionName).toList();
   }
 }
 

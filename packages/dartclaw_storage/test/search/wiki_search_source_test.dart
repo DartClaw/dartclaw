@@ -5,22 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-class _FakeQmdManager extends QmdManager {
-  List<Map<String, dynamic>> nextQueryResult = [];
-
-  _FakeQmdManager() : super(commandRunner: (exe, args, {workingDirectory}) async => ProcessResult(0, 0, '', ''));
-
-  @override
-  bool get isRunning => true;
-
-  @override
-  Future<List<Map<String, dynamic>>> query(String queryText, {String depth = 'standard', int limit = 10}) async {
-    return nextQueryResult;
-  }
-
-  @override
-  Future<void> triggerIndex() async {}
-}
+import 'search_test_support.dart';
 
 void main() {
   late Directory workspace;
@@ -69,7 +54,7 @@ Dart macros and pattern matching roadmap synthesis.
   });
 
   test('S05 QMD wiki result outranks raw memory while backend stays selected', () async {
-    final qmd = _FakeQmdManager();
+    final qmd = FakeQmdManager();
     qmd.nextQueryResult = [
       {'text': 'Dart macros and pattern matching raw qmd note.', 'source': 'MEMORY.md', 'score': 0.95},
     ];

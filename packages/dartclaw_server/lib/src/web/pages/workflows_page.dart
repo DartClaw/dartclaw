@@ -1,5 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart' show Project;
-import 'package:dartclaw_core/dartclaw_core.dart' show ArtifactKind, Task;
+import 'package:dartclaw_core/dartclaw_core.dart' show ArtifactKind, Task, humanizeSpan;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         WorkflowDefinition,
@@ -405,15 +405,7 @@ class WorkflowsPage extends DashboardPage {
     if (task != null) {
       tokenCount = (task.configJson['totalTokens'] as num?)?.toInt();
       if (task.startedAt != null) {
-        final end = task.completedAt ?? DateTime.now();
-        final diff = end.difference(task.startedAt!);
-        if (diff.inHours > 0) {
-          stepDuration = '${diff.inHours}h ${diff.inMinutes % 60}m';
-        } else if (diff.inMinutes > 0) {
-          stepDuration = '${diff.inMinutes}m';
-        } else {
-          stepDuration = '${diff.inSeconds}s';
-        }
+        stepDuration = humanizeSpan(task.startedAt!, task.completedAt, true);
       }
     }
 

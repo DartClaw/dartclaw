@@ -1,15 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionParser, WorkflowDefinitionResolver;
 import 'package:path/path.dart' as p;
 
-import '../../dartclaw_api_client.dart';
-import '../cli_global_options.dart';
 import '../config_loader.dart';
-import '../serve_command.dart' show ExitFn, WriteLine;
+import '../connected_command_support.dart';
 import 'workflow_list_command.dart' show buildWorkflowRegistry;
 import '../workflow_materializer.dart' show WorkflowMaterializer;
 
@@ -20,33 +17,25 @@ import '../workflow_materializer.dart' show WorkflowMaterializer;
 /// Connected mode calls `GET /api/workflows/definitions/<name>[?resolve=true[&step=<id>]]`.
 /// Standalone mode loads the definition from the workspace registry and runs
 /// [WorkflowDefinitionResolver] locally.
-class WorkflowShowCommand extends Command<void> {
-  final DartclawConfig? _config;
+class WorkflowShowCommand extends ConnectedCommand {
   final AssetResolver _assetResolver;
-  final DartclawApiClient? _apiClient;
   final Map<String, String>? _environment;
   final String? _projectFallbackCwd;
   final void Function(String) _write;
-  final WriteLine _writeLine;
-  final ExitFn _exitFn;
 
   WorkflowShowCommand({
-    DartclawConfig? config,
+    super.config,
     AssetResolver? assetResolver,
-    DartclawApiClient? apiClient,
+    super.apiClient,
     Map<String, String>? environment,
     String? projectFallbackCwd,
     void Function(String)? write,
-    WriteLine? writeLine,
-    ExitFn? exitFn,
-  }) : _config = config,
-       _assetResolver = assetResolver ?? AssetResolver(),
-       _apiClient = apiClient,
+    super.writeLine,
+    super.exitFn,
+  }) : _assetResolver = assetResolver ?? AssetResolver(),
        _environment = environment,
        _projectFallbackCwd = projectFallbackCwd,
-       _write = write ?? stdout.write,
-       _writeLine = writeLine ?? stdout.writeln,
-       _exitFn = exitFn ?? exit {
+       _write = write ?? stdout.write {
     argParser
       ..addFlag(
         'resolved',
@@ -88,8 +77,7 @@ class WorkflowShowCommand extends Command<void> {
       return;
     }
 
-    final apiClient = _resolveApiClient();
-    try {
+    await runConnected((apiClient) async {
       if (!resolved) {
         final body = await apiClient.getText('/api/workflows/definitions/$workflowName');
         _emit(body, asJson: asJson);
@@ -106,10 +94,7 @@ class WorkflowShowCommand extends Command<void> {
         queryParameters: queryParameters,
       );
       _emit(body, asJson: asJson);
-    } on DartclawApiException catch (error) {
-      _writeLine(error.message);
-      _exitFn(1);
-    }
+    });
   }
 
   Future<void> _runStandalone(
@@ -123,7 +108,7 @@ class WorkflowShowCommand extends Command<void> {
       env: _environment,
       currentDirectory: _projectFallbackCwd,
     );
-    final config = _config ?? loadCliConfig(configPath: configPath, env: _environment);
+    final config = injectedConfig ?? loadCliConfig(configPath: configPath, env: _environment);
     final registry = await buildWorkflowRegistry(config, assetResolver: _assetResolver);
     var definition = registry.getByName(name);
     var authoredYaml = registry.authoredYaml(name);
@@ -140,8 +125,8 @@ class WorkflowShowCommand extends Command<void> {
     }
 
     if (definition == null) {
-      _writeLine('Workflow not found: $name');
-      _exitFn(1);
+      writeLine('Workflow not found: $name');
+      exitFn(1);
     }
 
     if (!resolved) {
@@ -154,8 +139,8 @@ class WorkflowShowCommand extends Command<void> {
     if (stepId != null && stepId.isNotEmpty) {
       final slice = resolver.sliceStep(resolvedDef, stepId);
       if (slice == null) {
-        _writeLine('Step "$stepId" not found in workflow "$name"');
-        _exitFn(1);
+        writeLine('Step "$stepId" not found in workflow "$name"');
+        exitFn(1);
       }
       _emit(resolver.emitYaml(slice), asJson: asJson);
       return;
@@ -165,20 +150,10 @@ class WorkflowShowCommand extends Command<void> {
 
   void _emit(String body, {required bool asJson}) {
     if (asJson) {
-      _writeLine('{"yaml":${jsonEncode(body)}}');
+      writeLine('{"yaml":${jsonEncode(body)}}');
     } else {
       _write(body);
       if (!body.endsWith('\n')) _write('\n');
     }
-  }
-
-  DartclawApiClient _resolveApiClient() {
-    if (_apiClient != null) return _apiClient;
-    final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
-    return DartclawApiClient.fromConfig(
-      config: config,
-      serverOverride: serverOverride(globalResults),
-      tokenOverride: globalOptionString(globalResults, 'token'),
-    );
   }
 }

@@ -142,6 +142,10 @@ class ProviderValidator {
         _log.info("Provider '$providerId': binary version $version");
       }
 
+      if (provider.options['credentials_required'] == false) {
+        continue;
+      }
+
       if (!registry.hasCredential(providerId)) {
         // No API key — check if the binary itself is authenticated (OAuth/subscription).
         final binaryAuthed =

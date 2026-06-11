@@ -203,14 +203,8 @@ class ServeCommand extends Command<void> {
       _exitFn(1);
     }
 
-    // Workspace migration + scaffold (before any service init)
+    // Workspace scaffold (before any service init)
     final workspace = WorkspaceService(dataDir: dataDir);
-    try {
-      await workspace.migrate();
-    } on WorkspaceMigrationException catch (e) {
-      _stderrLine('ERROR: Migration failed: $e');
-      _exitFn(1);
-    }
     await workspace.scaffold();
 
     // Ensure logs directory exists and generate sample rotation configs

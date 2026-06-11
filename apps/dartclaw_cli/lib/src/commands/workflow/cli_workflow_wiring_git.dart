@@ -137,30 +137,10 @@ Future<void> _ensureLocalBranch({required String projectDir, required String bra
 }
 
 int _standaloneTaskRunnerCapacity(DartclawConfig config) {
-  // Standalone workflows reserve task-runner slots upfront so the pool can host
-  // every harness a workflow may pin without `addRunner` racing the cap after
-  // wire(). Capacity must cover:
-  //   1. The default provider's eager spawn — `pool_size`, or 1 when
-  //      `pool_size` is unset/zero. Mirrors `defaultRunnersToSpawn` in
-  //      `cli_workflow_wiring.dart`'s `_wireHarness`.
-  //   2. One on-demand slot per other configured provider — `ensureTaskRunnersForProviders`
-  //      adds at most one runner per non-default provider when a workflow step
-  //      pins it (e.g. `plan-and-implement-inline`'s `plan-review-council`
-  //      pins `provider: claude` even when the default is codex).
-  // The 3-slot floor preserves headroom for single-provider profiles;
-  // `tasks.maxConcurrent` upgrades capacity when the operator opts into more.
-  const minimumStandaloneCapacity = 3;
-  final defaultProviderId = config.agent.provider;
-  final defaultPoolSize = config.providers[defaultProviderId]?.poolSize ?? 0;
-  final defaultEagerCount = defaultPoolSize > 0 ? defaultPoolSize : 1;
-  final nonDefaultConfiguredCount = config.providers.entries.keys.where((id) => id != defaultProviderId).length;
-  final demandCapacity = defaultEagerCount + nonDefaultConfiguredCount;
-  final capacity = [
-    minimumStandaloneCapacity,
-    demandCapacity,
-    config.tasks.maxConcurrent,
-  ].reduce((a, b) => a > b ? a : b);
-  return capacity;
+  if (config.providers.isEmpty) {
+    return config.tasks.maxConcurrent > 0 ? config.tasks.maxConcurrent : 1;
+  }
+  return _effectiveWorkflowProviderEntries(config).values.fold<int>(0, (sum, entry) => sum + entry.effectivePoolSize);
 }
 
 Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {

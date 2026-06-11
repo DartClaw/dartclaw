@@ -66,6 +66,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
             String? directory,
             String? model,
             String? effort,
+            String? taskId,
             BehaviorFileService? behaviorOverride,
             PromptScope? promptScope,
           }) => runner.reserveTurn(
@@ -74,6 +75,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
             directory: directory,
             model: model,
             effort: effort,
+            taskId: taskId,
             behaviorOverride: behaviorOverride,
             promptScope: promptScope,
           ),
@@ -95,6 +97,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
             String? directory,
             String? model,
             String? effort,
+            String? taskId,
             BehaviorFileService? behaviorOverride,
             PromptScope? promptScope,
           }) => _reserveSharedTurn(
@@ -102,6 +105,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
             directory: directory,
             model: model,
             effort: effort,
+            taskId: taskId,
             behaviorOverride: behaviorOverride,
             promptScope: promptScope,
           ),
@@ -117,6 +121,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
     String? directory,
     String? model,
     String? effort,
+    String? taskId,
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
   }) async {
@@ -128,6 +133,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
           directory: directory,
           model: model,
           effort: effort,
+          taskId: taskId,
           behaviorOverride: behaviorOverride,
           promptScope: promptScope,
         );

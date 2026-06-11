@@ -198,6 +198,9 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     if (itemType == 'contextCompaction') {
       return CompactionStarted(id: stringValue(item['id']));
     }
+    if (itemType == 'reasoning') {
+      return _buildProviderProgress(item, 'reasoning');
+    }
     return _extractToolUse(item);
   }
 
@@ -248,8 +251,19 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     if (itemType == 'contextCompaction') {
       return CompactionCompleted(id: stringValue(item['id']));
     }
+    if (itemType == 'reasoning') {
+      return _buildProviderProgress(item, 'reasoning');
+    }
 
     return _extractToolResult(item);
+  }
+
+  ProgressMessage _buildProviderProgress(Map<String, dynamic> item, String itemType) {
+    final text =
+        stringifyValue(item['summary'] ?? item['text'] ?? item['content'] ?? item['details']) ??
+        stringifyValue(codexUnknownItemInput(item)) ??
+        '';
+    return ProgressMessage(text: text, kind: 'codex_$itemType');
   }
 
   ToolResult? _extractToolResult(Map<String, dynamic> item) {

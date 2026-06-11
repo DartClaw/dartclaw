@@ -45,10 +45,7 @@ void main() {
     test('publish failure transitions run to failed without cleanup of worktree evidence', () async {
       final cleanupCalls = <({bool preserveWorktrees})>[];
       final publishExecutor = h.makeExecutor(
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        turnAdapter: standardTurnAdapter(
           publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
               throw const WorkflowGitException('push failed: remote rejected'),
           cleanupWorkflowGit:
@@ -97,10 +94,7 @@ void main() {
 
     test('publish failure run retains its run id, error message, and inspectable context', () async {
       final publishExecutor = h.makeExecutor(
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        turnAdapter: standardTurnAdapter(
           publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
               throw const WorkflowGitException('network unreachable'),
         ),
@@ -193,10 +187,8 @@ void main() {
 
     test('missing PROJECT marks run failed', () async {
       final finalRun = await runPublish(
-        adapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('t'),
-          executeTurn: (_, _, _, {required source, required resume}) {},
-          waitForOutcome: (_, _) async => const WorkflowTurnOutcome(status: 'completed'),
+        adapter: standardTurnAdapter(
+          turnId: 't',
           publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
               WorkflowGitPublishResult(
                 status: WorkflowPublishStatus.success,
@@ -214,10 +206,8 @@ void main() {
 
     test('missing BRANCH marks run failed', () async {
       final finalRun = await runPublish(
-        adapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('t'),
-          executeTurn: (_, _, _, {required source, required resume}) {},
-          waitForOutcome: (_, _) async => const WorkflowTurnOutcome(status: 'completed'),
+        adapter: standardTurnAdapter(
+          turnId: 't',
           publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
               WorkflowGitPublishResult(
                 status: WorkflowPublishStatus.success,
@@ -235,10 +225,8 @@ void main() {
 
     test('callback returning status=failed marks run failed', () async {
       final finalRun = await runPublish(
-        adapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('t'),
-          executeTurn: (_, _, _, {required source, required resume}) {},
-          waitForOutcome: (_, _) async => const WorkflowTurnOutcome(status: 'completed'),
+        adapter: standardTurnAdapter(
+          turnId: 't',
           publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
               WorkflowGitPublishResult(
                 status: WorkflowPublishStatus.failed,
@@ -257,10 +245,8 @@ void main() {
 
     test('callback throwing exception marks run failed', () async {
       final finalRun = await runPublish(
-        adapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('t'),
-          executeTurn: (_, _, _, {required source, required resume}) {},
-          waitForOutcome: (_, _) async => const WorkflowTurnOutcome(status: 'completed'),
+        adapter: standardTurnAdapter(
+          turnId: 't',
           publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
               throw const WorkflowGitException('network unreachable'),
         ),
@@ -340,10 +326,7 @@ void main() {
     Future<List<bool>> runCompletionAndCaptureCleanup(WorkflowGitStrategy? strategy) async {
       final cleanupCalls = <bool>[];
       final executor = h.makeExecutor(
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        turnAdapter: standardTurnAdapter(
           cleanupWorkflowGit:
               ({required runId, required projectId, required status, required preserveWorktrees}) async {
                 cleanupCalls.add(preserveWorktrees);

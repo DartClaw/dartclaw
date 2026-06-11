@@ -6,6 +6,8 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, 
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
+import 'api_test_helpers.dart';
+
 void main() {
   late RuntimeConfig runtimeConfig;
 
@@ -15,19 +17,17 @@ void main() {
 
   group('GET /api/settings/runtime', () {
     test('returns current runtime state', () async {
-      final router = configRoutes(
-        runtimeConfig: runtimeConfig,
-        heartbeatIntervalMinutes: 15,
-        scheduledJobs: [
-          {'name': 'daily-report', 'status': 'active', 'schedule': '0 9 * * *'},
-        ],
+      final client = ApiRouteTestClient(
+        configRoutes(
+          runtimeConfig: runtimeConfig,
+          heartbeatIntervalMinutes: 15,
+          scheduledJobs: [
+            {'name': 'daily-report', 'status': 'active', 'schedule': '0 9 * * *'},
+          ],
+        ).call,
       );
 
-      final request = Request('GET', Uri.parse('http://localhost/api/settings/runtime'));
-      final response = await router.call(request);
-
-      expect(response.statusCode, 200);
-      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final body = await client.expectJsonObject('GET', '/api/settings/runtime');
       expect(body['heartbeat']['enabled'], isTrue);
       expect(body['heartbeat']['intervalMinutes'], 15);
       expect(body['gitSync']['enabled'], isFalse);
@@ -39,17 +39,9 @@ void main() {
 
   group('POST /api/settings/heartbeat/toggle', () {
     test('returns 404 when heartbeat not configured', () async {
-      final router = configRoutes(runtimeConfig: runtimeConfig);
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig).call);
 
-      final request = Request(
-        'POST',
-        Uri.parse('http://localhost/api/settings/heartbeat/toggle'),
-        body: jsonEncode({'enabled': false}),
-        headers: {'content-type': 'application/json'},
-      );
-      final response = await router.call(request);
-
-      expect(response.statusCode, 404);
+      await client.expectResponse('POST', '/api/settings/heartbeat/toggle', json: {'enabled': false}, status: 404);
     });
 
     test('returns 400 for non-JSON body', () async {
@@ -70,58 +62,47 @@ void main() {
 
   group('POST /api/settings/git-sync/toggle', () {
     test('returns 404 when git sync not configured', () async {
-      final router = configRoutes(runtimeConfig: runtimeConfig);
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig).call);
 
-      final request = Request(
-        'POST',
-        Uri.parse('http://localhost/api/settings/git-sync/toggle'),
-        body: jsonEncode({'enabled': true}),
-        headers: {'content-type': 'application/json'},
-      );
-      final response = await router.call(request);
-
-      expect(response.statusCode, 404);
+      await client.expectResponse('POST', '/api/settings/git-sync/toggle', json: {'enabled': true}, status: 404);
     });
   });
 
   group('POST /api/scheduling/jobs/<name>/toggle', () {
     test('returns 404 when schedule service not configured', () async {
-      final router = configRoutes(
-        runtimeConfig: runtimeConfig,
-        scheduledJobs: [
-          {'name': 'test-job', 'status': 'active'},
-        ],
+      final client = ApiRouteTestClient(
+        configRoutes(
+          runtimeConfig: runtimeConfig,
+          scheduledJobs: [
+            {'name': 'test-job', 'status': 'active'},
+          ],
+        ).call,
       );
 
-      final request = Request(
+      await client.expectResponse(
         'POST',
-        Uri.parse('http://localhost/api/scheduling/jobs/test-job/toggle'),
-        body: jsonEncode({'status': 'paused'}),
-        headers: {'content-type': 'application/json'},
+        '/api/scheduling/jobs/test-job/toggle',
+        json: {'status': 'paused'},
+        status: 404,
       );
-      final response = await router.call(request);
-
-      expect(response.statusCode, 404);
     });
 
     test('returns 404 NOT_AVAILABLE for unknown job when service unconfigured', () async {
-      final router = configRoutes(
-        runtimeConfig: runtimeConfig,
-        scheduledJobs: [
-          {'name': 'test-job', 'status': 'active'},
-        ],
+      final client = ApiRouteTestClient(
+        configRoutes(
+          runtimeConfig: runtimeConfig,
+          scheduledJobs: [
+            {'name': 'test-job', 'status': 'active'},
+          ],
+        ).call,
       );
 
-      final request = Request(
+      final body = await client.expectJsonObject(
         'POST',
-        Uri.parse('http://localhost/api/scheduling/jobs/nonexistent/toggle'),
-        body: jsonEncode({'status': 'paused'}),
-        headers: {'content-type': 'application/json'},
+        '/api/scheduling/jobs/nonexistent/toggle',
+        json: {'status': 'paused'},
+        status: 404,
       );
-      final response = await router.call(request);
-
-      expect(response.statusCode, 404);
-      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
       expect((body['error'] as Map)['code'], 'NOT_AVAILABLE');
     });
   });
@@ -165,18 +146,9 @@ void main() {
         workspaceDir: tempDir.path,
         dispatch: (_, _) async {},
       );
-      final router = configRoutes(runtimeConfig: runtimeConfig, heartbeat: heartbeat);
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig, heartbeat: heartbeat).call);
 
-      final request = Request(
-        'POST',
-        Uri.parse('http://localhost/api/settings/heartbeat/toggle'),
-        body: jsonEncode({'enabled': true}),
-        headers: {'content-type': 'application/json'},
-      );
-      final response = await router.call(request);
-
-      expect(response.statusCode, 200);
-      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final body = await client.expectJsonObject('POST', '/api/settings/heartbeat/toggle', json: {'enabled': true});
       expect(body['enabled'], isTrue);
     });
   });
@@ -187,29 +159,25 @@ void main() {
       final jobs = <Map<String, dynamic>>[
         {'name': 'daily-report', 'status': 'active', 'schedule': '0 9 * * *'},
       ];
-      final router = configRoutes(runtimeConfig: runtimeConfig, scheduleService: service, scheduledJobs: jobs);
-
-      final pauseRequest = Request(
-        'POST',
-        Uri.parse('http://localhost/api/scheduling/jobs/daily-report/toggle'),
-        body: jsonEncode({'status': 'paused'}),
-        headers: {'content-type': 'application/json'},
+      final client = ApiRouteTestClient(
+        configRoutes(runtimeConfig: runtimeConfig, scheduleService: service, scheduledJobs: jobs).call,
       );
-      final pauseResponse = await router.call(pauseRequest);
 
-      expect(pauseResponse.statusCode, 200);
+      await client.expectResponse(
+        'POST',
+        '/api/scheduling/jobs/daily-report/toggle',
+        json: {'status': 'paused'},
+        status: 200,
+      );
       expect(service.isJobPaused('daily-report'), isTrue);
       expect(jobs.first['status'], 'paused');
 
-      final resumeRequest = Request(
+      await client.expectResponse(
         'POST',
-        Uri.parse('http://localhost/api/scheduling/jobs/daily-report/toggle'),
-        body: jsonEncode({'status': 'active'}),
-        headers: {'content-type': 'application/json'},
+        '/api/scheduling/jobs/daily-report/toggle',
+        json: {'status': 'active'},
+        status: 200,
       );
-      final resumeResponse = await router.call(resumeRequest);
-
-      expect(resumeResponse.statusCode, 200);
       expect(service.isJobPaused('daily-report'), isFalse);
       expect(jobs.first['status'], 'active');
     });

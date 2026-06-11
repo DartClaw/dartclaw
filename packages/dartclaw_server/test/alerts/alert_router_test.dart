@@ -1,24 +1,10 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/src/alerts/alert_delivery_adapter.dart';
 import 'package:dartclaw_server/src/alerts/alert_router.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
-// ---------------------------------------------------------------------------
-// Fake AlertDeliveryAdapter that records deliveries
-// ---------------------------------------------------------------------------
-
-class _FakeAdapter extends AlertDeliveryAdapter {
-  final List<(AlertTarget, ChannelResponse)> delivered = [];
-
-  _FakeAdapter() : super((_) => null); // channel lookup irrelevant
-
-  @override
-  Future<void> deliver(AlertTarget target, ChannelResponse response) async {
-    delivered.add((target, response));
-  }
-}
+import 'alert_test_support.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,12 +41,12 @@ DateTime get _now => DateTime.now();
 
 void main() {
   late EventBus bus;
-  late _FakeAdapter adapter;
+  late FakeAlertDeliveryAdapter adapter;
   late AlertRouter router;
 
   setUp(() {
     bus = EventBus();
-    adapter = _FakeAdapter();
+    adapter = FakeAlertDeliveryAdapter();
     router = AlertRouter(bus: bus, adapter: adapter, config: _config());
   });
 
@@ -70,233 +56,198 @@ void main() {
   });
 
   group('AlertRouter — event classification and routing', () {
-    test('GuardBlockEvent routes to all targets when routes is empty', () async {
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'blocked',
-          guardName: 'test',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
+    final cases = [
+      (
+        name: 'GuardBlockEvent routes to all targets when routes is empty',
+        fire: () => bus.fire(
+          GuardBlockEvent(
+            verdict: 'block',
+            verdictMessage: 'blocked',
+            guardName: 'test',
+            guardCategory: 'input',
+            hookPoint: 'messageReceived',
+            timestamp: _now,
+          ),
         ),
-      );
-      await pumpEventQueue();
-
-      expect(adapter.delivered, hasLength(2));
-      expect(adapter.delivered.map((d) => d.$1), containsAll([_target0, _target1]));
-    });
-
-    test('ContainerCrashedEvent routes to all targets', () async {
-      bus.fire(ContainerCrashedEvent(profileId: 'p1', containerName: 'c1', error: 'OOM', timestamp: _now));
-      await pumpEventQueue();
-
-      expect(adapter.delivered, hasLength(2));
-    });
-
-    test('TaskStatusChangedEvent with failed status routes as task_failure', () async {
-      bus.fire(
-        TaskStatusChangedEvent(
-          taskId: 't1',
-          oldStatus: TaskStatus.running,
-          newStatus: TaskStatus.failed,
-          trigger: 'error',
-          timestamp: _now,
+        expectedDeliveries: 2,
+        assertTargets: true,
+      ),
+      (
+        name: 'ContainerCrashedEvent routes to all targets',
+        fire: () =>
+            bus.fire(ContainerCrashedEvent(profileId: 'p1', containerName: 'c1', error: 'OOM', timestamp: _now)),
+        expectedDeliveries: 2,
+        assertTargets: false,
+      ),
+      (
+        name: 'TaskStatusChangedEvent with failed status routes as task_failure',
+        fire: () => bus.fire(
+          TaskStatusChangedEvent(
+            taskId: 't1',
+            oldStatus: TaskStatus.running,
+            newStatus: TaskStatus.failed,
+            trigger: 'error',
+            timestamp: _now,
+          ),
         ),
-      );
-      await pumpEventQueue();
-
-      expect(adapter.delivered, hasLength(2));
-    });
-
-    test('TaskStatusChangedEvent with non-failed status is dropped', () async {
-      bus.fire(
-        TaskStatusChangedEvent(
-          taskId: 't1',
-          oldStatus: TaskStatus.queued,
-          newStatus: TaskStatus.running,
-          trigger: 'start',
-          timestamp: _now,
+        expectedDeliveries: 2,
+        assertTargets: false,
+      ),
+      (
+        name: 'TaskStatusChangedEvent with non-failed status is dropped',
+        fire: () => bus.fire(
+          TaskStatusChangedEvent(
+            taskId: 't1',
+            oldStatus: TaskStatus.queued,
+            newStatus: TaskStatus.running,
+            trigger: 'start',
+            timestamp: _now,
+          ),
         ),
-      );
-      await pumpEventQueue();
-
-      expect(adapter.delivered, isEmpty);
-    });
-
-    test('BudgetWarningEvent routes as budget_warning', () async {
-      bus.fire(BudgetWarningEvent(taskId: 't1', consumedPercent: 0.9, consumed: 9000, limit: 10000, timestamp: _now));
-      await pumpEventQueue();
-
-      expect(adapter.delivered, hasLength(2));
-    });
-
-    test('CompactionCompletedEvent routes as compaction', () async {
-      bus.fire(CompactionCompletedEvent(sessionId: 's1', trigger: 'manual', preTokens: 50000, timestamp: _now));
-      await pumpEventQueue();
-
-      expect(adapter.delivered, hasLength(2));
-    });
-
-    test('unrecognized event type produces no deliveries', () async {
-      // AdvisorMentionEvent is not a recognized alert type
-      bus.fire(
-        AdvisorMentionEvent(
-          senderJid: 'user1',
-          channelType: 'whatsapp',
-          recipientId: '+1234',
-          messageText: 'hello @advisor',
-          sessionKey: 'default',
-          timestamp: _now,
+        expectedDeliveries: 0,
+        assertTargets: false,
+      ),
+      (
+        name: 'BudgetWarningEvent routes as budget_warning',
+        fire: () => bus.fire(
+          BudgetWarningEvent(taskId: 't1', consumedPercent: 0.9, consumed: 9000, limit: 10000, timestamp: _now),
         ),
-      );
-      await pumpEventQueue();
+        expectedDeliveries: 2,
+        assertTargets: false,
+      ),
+      (
+        name: 'CompactionCompletedEvent routes as compaction',
+        fire: () =>
+            bus.fire(CompactionCompletedEvent(sessionId: 's1', trigger: 'manual', preTokens: 50000, timestamp: _now)),
+        expectedDeliveries: 2,
+        assertTargets: false,
+      ),
+      (
+        name: 'unrecognized event type produces no deliveries',
+        fire: () => bus.fire(
+          AdvisorMentionEvent(
+            senderJid: 'user1',
+            channelType: 'whatsapp',
+            recipientId: '+1234',
+            messageText: 'hello @advisor',
+            sessionKey: 'default',
+            timestamp: _now,
+          ),
+        ),
+        expectedDeliveries: 0,
+        assertTargets: false,
+      ),
+    ];
 
-      expect(adapter.delivered, isEmpty);
-    });
+    for (final testCase in cases) {
+      test(testCase.name, () async {
+        testCase.fire();
+        await pumpEventQueue();
+
+        expect(adapter.delivered, hasLength(testCase.expectedDeliveries));
+        if (testCase.assertTargets) {
+          expect(adapter.delivered.map((d) => d.$1), containsAll([_target0, _target1]));
+        }
+      });
+    }
   });
 
   group('AlertRouter — routes config restricts delivery', () {
-    test('routes entry limits guard_block to target[0] only', () async {
-      final cfg = _config(
-        routes: {
-          'guard_block': ['0'],
-        },
-      );
-      await router.cancel();
-      router = AlertRouter(bus: bus, adapter: adapter, config: cfg);
-
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
+    final cases = [
+      (
+        name: 'routes entry limits guard_block to target[0] only',
+        config: _config(
+          routes: {
+            'guard_block': ['0'],
+          },
         ),
-      );
-      await pumpEventQueue();
-
-      expect(adapter.delivered, hasLength(1));
-      expect(adapter.delivered.first.$1, _target0);
-    });
-
-    test("routes entry with '*' sends to all targets", () async {
-      final cfg = _config(
-        routes: {
-          'guard_block': ['*'],
-        },
-      );
-      await router.cancel();
-      router = AlertRouter(bus: bus, adapter: adapter, config: cfg);
-
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
+        expectedDeliveries: 1,
+        expectedTarget: _target0,
+      ),
+      (
+        name: "routes entry with '*' sends to all targets",
+        config: _config(
+          routes: {
+            'guard_block': ['*'],
+          },
         ),
-      );
-      await pumpEventQueue();
-
-      expect(adapter.delivered, hasLength(2));
-    });
-
-    test('event type not in routes map produces no deliveries', () async {
-      final cfg = _config(
-        routes: {
-          'compaction': ['0'], // guard_block not in routes
-        },
-      );
-      await router.cancel();
-      router = AlertRouter(bus: bus, adapter: adapter, config: cfg);
-
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
+        expectedDeliveries: 2,
+        expectedTarget: null,
+      ),
+      (
+        name: 'event type not in routes map produces no deliveries',
+        config: _config(
+          routes: {
+            'compaction': ['0'],
+          },
         ),
-      );
-      await pumpEventQueue();
-
-      expect(adapter.delivered, isEmpty);
-    });
-
-    test('routes index out of bounds logs warning and skips that target', () async {
-      final cfg = _config(
-        targets: [_target0], // only 1 target
-        routes: {
-          'guard_block': ['0', '5'], // index 5 is OOB
-        },
-      );
-      await router.cancel();
-      router = AlertRouter(bus: bus, adapter: adapter, config: cfg);
-
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
+        expectedDeliveries: 0,
+        expectedTarget: null,
+      ),
+      (
+        name: 'routes index out of bounds logs warning and skips that target',
+        config: _config(
+          targets: [_target0],
+          routes: {
+            'guard_block': ['0', '5'],
+          },
         ),
-      );
-      await pumpEventQueue();
+        expectedDeliveries: 1,
+        expectedTarget: _target0,
+      ),
+    ];
 
-      expect(adapter.delivered, hasLength(1));
-      expect(adapter.delivered.first.$1, _target0);
-    });
+    for (final testCase in cases) {
+      test(testCase.name, () async {
+        await router.cancel();
+        router = AlertRouter(bus: bus, adapter: adapter, config: testCase.config);
+
+        bus.fire(
+          GuardBlockEvent(
+            verdict: 'block',
+            verdictMessage: 'msg',
+            guardName: 'g',
+            guardCategory: 'input',
+            hookPoint: 'messageReceived',
+            timestamp: _now,
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(adapter.delivered, hasLength(testCase.expectedDeliveries));
+        if (testCase.expectedTarget != null) {
+          expect(adapter.delivered.first.$1, testCase.expectedTarget);
+        }
+      });
+    }
   });
 
   group('AlertRouter — enabled check', () {
-    test('disabled config suppresses all delivery', () async {
-      final cfg = _config(enabled: false);
-      await router.cancel();
-      router = AlertRouter(bus: bus, adapter: adapter, config: cfg);
+    final cases = [
+      (name: 'disabled config suppresses all delivery', config: _config(enabled: false)),
+      (name: 'empty targets list with enabled=true produces no deliveries', config: _config(targets: const [])),
+    ];
 
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
-        ),
-      );
-      await pumpEventQueue();
+    for (final testCase in cases) {
+      test(testCase.name, () async {
+        await router.cancel();
+        router = AlertRouter(bus: bus, adapter: adapter, config: testCase.config);
 
-      expect(adapter.delivered, isEmpty);
-    });
+        bus.fire(
+          GuardBlockEvent(
+            verdict: 'block',
+            verdictMessage: 'msg',
+            guardName: 'g',
+            guardCategory: 'input',
+            hookPoint: 'messageReceived',
+            timestamp: _now,
+          ),
+        );
+        await pumpEventQueue();
 
-    test('empty targets list with enabled=true produces no deliveries', () async {
-      final cfg = _config(targets: const []);
-      await router.cancel();
-      router = AlertRouter(bus: bus, adapter: adapter, config: cfg);
-
-      bus.fire(
-        GuardBlockEvent(
-          verdict: 'block',
-          verdictMessage: 'msg',
-          guardName: 'g',
-          guardCategory: 'input',
-          hookPoint: 'messageReceived',
-          timestamp: _now,
-        ),
-      );
-      await pumpEventQueue();
-
-      expect(adapter.delivered, isEmpty);
-    });
+        expect(adapter.delivered, isEmpty);
+      });
+    }
   });
 
   group('AlertRouter — Reconfigurable', () {
@@ -519,7 +470,7 @@ void main() {
     test('10 rapid GuardBlockEvents produce at most 2 deliveries per target (1 initial + 1 summary)', () {
       fakeAsync((async) {
         final localBus = EventBus();
-        final localAdapter = _FakeAdapter();
+        final localAdapter = FakeAlertDeliveryAdapter();
         final localRouter = AlertRouter(
           bus: localBus,
           adapter: localAdapter,
@@ -557,7 +508,7 @@ void main() {
     test('Google Chat summaries use structured formatting instead of raw type text', () {
       fakeAsync((async) {
         final localBus = EventBus();
-        final localAdapter = _FakeAdapter();
+        final localAdapter = FakeAlertDeliveryAdapter();
         final localRouter = AlertRouter(
           bus: localBus,
           adapter: localAdapter,
@@ -598,7 +549,7 @@ void main() {
     test('per-recipient independence: throttle state of target A does not affect target B', () {
       fakeAsync((async) {
         final localBus = EventBus();
-        final localAdapter = _FakeAdapter();
+        final localAdapter = FakeAlertDeliveryAdapter();
         final localRouter = AlertRouter(
           bus: localBus,
           adapter: localAdapter,

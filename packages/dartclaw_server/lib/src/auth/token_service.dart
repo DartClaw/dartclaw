@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
 
 import 'auth_utils.dart';
@@ -37,15 +38,11 @@ class TokenService {
   /// Sets file mode to 600 on non-Windows platforms.
   static void persistToFile(String dataDir, String token) {
     final target = File(p.join(dataDir, 'gateway_token'));
-    final temp = File('${target.path}.tmp');
-    temp.writeAsStringSync(token);
-    temp.renameSync(target.path);
-    if (!Platform.isWindows) {
-      try {
-        Process.runSync('chmod', ['600', target.path]);
-      } catch (e) {
-        // chmod not available — non-critical
-      }
+    secureWriteFileSync(target, token, restrictPermissions: false);
+    try {
+      chmodOwnerOnlySync(target.path);
+    } catch (_) {
+      // chmod not available — non-critical.
     }
   }
 

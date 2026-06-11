@@ -1,4 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show humanizeDurationMs;
 
 import 'components.dart';
 import 'helpers.dart';
@@ -24,6 +25,7 @@ String taskDetailPageTemplate({
   List<Map<String, dynamic>>? bindings,
   Map<String, dynamic>? conflictData,
   Map<String, dynamic>? tokenSummary,
+  Map<String, dynamic>? turnStatus,
   String? messagesHtml,
   String? timelineHtml,
   String bannerHtml = '',
@@ -96,6 +98,7 @@ String taskDetailPageTemplate({
       ? '${formatNumber(initialTokensUsed)} / ${formatNumber(effectiveBudget)} tokens ($initialProgressPct%)'
       : '${formatNumber(initialTokensUsed)} tokens used';
   final progressSectionStyle = isRunning ? '' : 'display:none';
+  final turnStatusView = _turnStatusView(turnStatus, fallbackSessionId: task['sessionId']?.toString());
 
   // Build artifact items for template.
   final artifactItems = artifacts.map((a) {
@@ -147,6 +150,8 @@ String taskDetailPageTemplate({
     'isInterrupted': isInterrupted,
     'isCancellable': isCancellable,
     'hasSession': hasSession,
+    'turnStatus': turnStatusView,
+    'hasTurnStatus': turnStatusView != null,
     'messagesHtml': messagesHtml,
     'noSessionTitle': noSessionTitle,
     'noSessionText': noSessionText,
@@ -163,7 +168,7 @@ String taskDetailPageTemplate({
     'totalCacheReadTokens': formatNumber(totalCacheReadTokens),
     'totalCacheWriteTokens': formatNumber(totalCacheWriteTokens),
     'hasCacheTokens': hasCacheTokens,
-    'totalDurationDisplay': _formatDuration(totalDurationMs),
+    'totalDurationDisplay': humanizeDurationMs(totalDurationMs),
     'totalToolCalls': totalToolCalls,
     'timelineHtml': timelineHtml,
     'hasTimeline': timelineHtml != null && timelineHtml.isNotEmpty,
@@ -178,14 +183,26 @@ String taskDetailPageTemplate({
   return layoutTemplate(title: 'Task: $title', body: body, appName: appName, scripts: standardShellScripts());
 }
 
-String _formatDuration(int ms) {
-  if (ms <= 0) return '0s';
-  final seconds = ms ~/ 1000;
-  if (seconds < 60) return '${seconds}s';
-  final minutes = seconds ~/ 60;
-  final remainingSeconds = seconds % 60;
-  if (remainingSeconds == 0) return '${minutes}m';
-  return '${minutes}m ${remainingSeconds}s';
+Map<String, dynamic>? _turnStatusView(Map<String, dynamic>? status, {String? fallbackSessionId}) {
+  if (status == null) return null;
+  final state = status['state']?.toString() ?? 'idle';
+  final sessionId = status['session_id']?.toString() ?? fallbackSessionId;
+  if (sessionId == null || sessionId.isEmpty || state == 'idle') return null;
+  final reason = status['wait_reason']?.toString();
+  final canCancel = status['can_cancel'] == true;
+  return {
+    'sessionId': sessionId,
+    'turnId': status['turn_id']?.toString() ?? '',
+    'state': state,
+    'stateLabel': titleCase(state),
+    'reason': reason ?? '',
+    'reasonLabel': reason == null ? '—' : reason.replaceAll('_', ' '),
+    'waitingSince': status['waiting_since']?.toString() ?? '',
+    'stuckSince': status['stuck_since']?.toString() ?? '',
+    'globalTimeoutAt': status['global_timeout_at']?.toString() ?? '',
+    'canCancel': canCancel,
+    'cancelDisabled': canCancel ? null : 'disabled',
+  };
 }
 
 String _formatRelativeTimeIso(String? iso) {

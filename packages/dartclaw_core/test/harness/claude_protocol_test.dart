@@ -1,48 +1,84 @@
 import 'dart:convert';
 
+import 'package:dartclaw_core/src/harness/claude_protocol.dart';
 import 'package:test/test.dart';
 
-import 'package:dartclaw_core/src/harness/claude_protocol.dart';
-
-/// Helper — encode a map to a JSON string (single JSONL line).
 String _j(Map<String, dynamic> m) => jsonEncode(m);
+
+typedef _MessageExpectation = void Function(ClaudeMessage? message);
+
+void _expectSystemInit(ClaudeMessage? message, {String? sessionId, required int toolCount, int? contextWindow}) {
+  expect(message, isA<SystemInit>());
+  final init = message as SystemInit;
+  expect(init.sessionId, sessionId);
+  expect(init.toolCount, toolCount);
+  expect(init.contextWindow, contextWindow);
+}
+
+void _expectCompactBoundary(ClaudeMessage? message, {required String trigger, int? preTokens}) {
+  expect(message, isA<CompactBoundary>());
+  final boundary = message as CompactBoundary;
+  expect(boundary.trigger, trigger);
+  expect(boundary.preTokens, preTokens);
+}
+
+void _expectToolUse(
+  ClaudeMessage? message, {
+  required String name,
+  required String id,
+  Map<String, dynamic> input = const {},
+}) {
+  expect(message, isA<ToolUseBlock>());
+  final toolUse = message as ToolUseBlock;
+  expect(toolUse.name, name);
+  expect(toolUse.id, id);
+  expect(toolUse.input, input);
+}
+
+void _expectToolResult(ClaudeMessage? message, {required String toolId, required String output, bool isError = false}) {
+  expect(message, isA<ToolResultBlock>());
+  final result = message as ToolResultBlock;
+  expect(result.toolId, toolId);
+  expect(result.output, output);
+  expect(result.isError, isError);
+}
+
+void _expectControlRequest(
+  ClaudeMessage? message, {
+  required String requestId,
+  required String subtype,
+  Map<String, dynamic> data = const {},
+}) {
+  expect(message, isA<ControlRequest>());
+  final request = message as ControlRequest;
+  expect(request.requestId, requestId);
+  expect(request.subtype, subtype);
+  expect(request.data, data.isEmpty ? isEmpty : data);
+}
 
 void main() {
   group('parseJsonlLine', () {
-    // -----------------------------------------------------------------
-    // Edge cases / error paths
-    // -----------------------------------------------------------------
+    group('ignored input', () {
+      final cases = [
+        (name: 'empty string', line: ''),
+        (name: 'malformed JSON', line: '{not json'),
+        (name: 'unknown type', line: _j({'type': 'banana'})),
+        (name: 'missing type', line: _j({'foo': 'bar'})),
+        (name: 'JSON array', line: '[1,2,3]'),
+      ];
 
-    group('edge cases', () {
-      test('empty string returns null', () {
-        expect(parseJsonlLine(''), isNull);
-      });
-
-      test('malformed JSON returns null', () {
-        expect(parseJsonlLine('{not json'), isNull);
-      });
-
-      test('valid JSON with unknown type returns null', () {
-        expect(parseJsonlLine(_j({'type': 'banana'})), isNull);
-      });
-
-      test('valid JSON with no type key returns null', () {
-        expect(parseJsonlLine(_j({'foo': 'bar'})), isNull);
-      });
-
-      test('JSON array (not object) returns null', () {
-        expect(parseJsonlLine('[1,2,3]'), isNull);
-      });
+      for (final testCase in cases) {
+        test('${testCase.name} returns null', () {
+          expect(parseJsonlLine(testCase.line), isNull);
+        });
+      }
     });
 
-    // -----------------------------------------------------------------
-    // SystemInit (type: system, subtype: init)
-    // -----------------------------------------------------------------
-
-    group('SystemInit', () {
-      test('parses init with session_id and tools', () {
-        final msg = parseJsonlLine(
-          _j({
+    group('system messages', () {
+      final cases = <({String name, Map<String, dynamic> json, _MessageExpectation expectMessage})>[
+        (
+          name: 'init with session_id and tools',
+          json: {
             'type': 'system',
             'subtype': 'init',
             'session_id': 'sess-abc',
@@ -50,42 +86,65 @@ void main() {
               {'name': 'bash'},
               {'name': 'read'},
             ],
-          }),
-        );
+            'context_window': 200000,
+          },
+          expectMessage: (message) =>
+              _expectSystemInit(message, sessionId: 'sess-abc', toolCount: 2, contextWindow: 200000),
+        ),
+        (
+          name: 'minimal init',
+          json: {'type': 'system', 'subtype': 'init'},
+          expectMessage: (message) => _expectSystemInit(message, toolCount: 0),
+        ),
+        (
+          name: 'compact boundary with trigger and pre_tokens',
+          json: {'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'auto', 'pre_tokens': 142857},
+          expectMessage: (message) => _expectCompactBoundary(message, trigger: 'auto', preTokens: 142857),
+        ),
+        (
+          name: 'minimal compact boundary',
+          json: {'type': 'system', 'subtype': 'compact_boundary'},
+          expectMessage: (message) => _expectCompactBoundary(message, trigger: 'auto'),
+        ),
+        (
+          name: 'irrelevant system subtype',
+          json: {'type': 'system', 'subtype': 'heartbeat'},
+          expectMessage: (message) => expect(message, isNull),
+        ),
+      ];
 
-        expect(msg, isA<SystemInit>());
-        final init = msg as SystemInit;
-        expect(init.sessionId, 'sess-abc');
-        expect(init.toolCount, 2);
-      });
-
-      test('missing session_id yields null sessionId', () {
-        final msg = parseJsonlLine(_j({'type': 'system', 'subtype': 'init', 'tools': []}));
-
-        expect(msg, isA<SystemInit>());
-        expect((msg as SystemInit).sessionId, isNull);
-      });
-
-      test('missing tools list yields toolCount 0', () {
-        final msg = parseJsonlLine(_j({'type': 'system', 'subtype': 'init'}));
-
-        expect(msg, isA<SystemInit>());
-        expect((msg as SystemInit).toolCount, 0);
-      });
-
-      test('non-init subtype returns null', () {
-        final msg = parseJsonlLine(_j({'type': 'system', 'subtype': 'heartbeat'}));
-        expect(msg, isNull);
-      });
+      for (final testCase in cases) {
+        test(testCase.name, () {
+          testCase.expectMessage(parseJsonlLine(_j(testCase.json)));
+        });
+      }
     });
 
-    // -----------------------------------------------------------------
-    // StreamTextDelta (type: stream_event, content_block_delta/text_delta)
-    // -----------------------------------------------------------------
+    group('stream text delta', () {
+      final nullCases = [
+        {
+          'type': 'stream_event',
+          'event': {'type': 'message_start'},
+        },
+        {
+          'type': 'stream_event',
+          'event': {
+            'type': 'content_block_delta',
+            'delta': {'type': 'input_json_delta', 'partial_json': '{}'},
+          },
+        },
+        {
+          'type': 'stream_event',
+          'event': {
+            'type': 'content_block_delta',
+            'delta': {'type': 'text_delta', 'text': ''},
+          },
+        },
+        {'type': 'stream_event'},
+      ];
 
-    group('StreamTextDelta', () {
-      test('parses text_delta from content_block_delta', () {
-        final msg = parseJsonlLine(
+      test('parses content_block_delta text_delta', () {
+        final message = parseJsonlLine(
           _j({
             'type': 'stream_event',
             'event': {
@@ -95,333 +154,196 @@ void main() {
           }),
         );
 
-        expect(msg, isA<StreamTextDelta>());
-        expect((msg as StreamTextDelta).text, 'Hello');
+        expect(message, isA<StreamTextDelta>());
+        expect((message as StreamTextDelta).text, 'Hello');
       });
 
-      test('non-content_block_delta event returns null', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'stream_event',
-            'event': {'type': 'message_start'},
-          }),
-        );
-        expect(msg, isNull);
-      });
+      for (final json in nullCases) {
+        test('ignores ${json['event'] ?? 'missing event'}', () {
+          expect(parseJsonlLine(_j(json)), isNull);
+        });
+      }
+    });
 
-      test('non-text_delta delta type returns null', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'stream_event',
-            'event': {
-              'type': 'content_block_delta',
-              'delta': {'type': 'input_json_delta', 'partial_json': '{}'},
+    group('assistant blocks', () {
+      final cases = <({String name, List<Map<String, dynamic>> content, _MessageExpectation expectMessage})>[
+        (
+          name: 'tool_use',
+          content: [
+            {
+              'type': 'tool_use',
+              'name': 'bash',
+              'id': 'tu_123',
+              'input': {'command': 'ls'},
             },
-          }),
-        );
-        expect(msg, isNull);
-      });
-
-      test('empty text returns null', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'stream_event',
-            'event': {
-              'type': 'content_block_delta',
-              'delta': {'type': 'text_delta', 'text': ''},
+          ],
+          expectMessage: (message) => _expectToolUse(message, name: 'bash', id: 'tu_123', input: {'command': 'ls'}),
+        ),
+        (
+          name: 'first tool_use',
+          content: [
+            {'type': 'text', 'text': 'Let me run that.'},
+            {
+              'type': 'tool_use',
+              'name': 'read',
+              'id': 'tu_first',
+              'input': {'path': '/tmp'},
             },
-          }),
-        );
-        expect(msg, isNull);
-      });
+            {'type': 'tool_use', 'name': 'write', 'id': 'tu_second', 'input': {}},
+          ],
+          expectMessage: (message) {
+            expect(message, isA<ToolUseBlock>());
+            expect((message as ToolUseBlock).id, 'tu_first');
+          },
+        ),
+        (
+          name: 'defaulted tool_use',
+          content: [
+            {'type': 'tool_use'},
+          ],
+          expectMessage: (message) => _expectToolUse(message, name: 'unknown', id: ''),
+        ),
+        (
+          name: 'tool_result',
+          content: [
+            {'type': 'tool_result', 'tool_use_id': 'tu_123', 'content': 'file contents here', 'is_error': false},
+          ],
+          expectMessage: (message) => _expectToolResult(message, toolId: 'tu_123', output: 'file contents here'),
+        ),
+        (
+          name: 'errored tool_result',
+          content: [
+            {'type': 'tool_result', 'tool_use_id': 'tu_err', 'content': 'permission denied', 'is_error': true},
+          ],
+          expectMessage: (message) =>
+              _expectToolResult(message, toolId: 'tu_err', output: 'permission denied', isError: true),
+        ),
+        (
+          name: 'defaulted tool_result',
+          content: [
+            {'type': 'tool_result'},
+          ],
+          expectMessage: (message) => _expectToolResult(message, toolId: '', output: ''),
+        ),
+        (
+          name: 'text-only content',
+          content: [
+            {'type': 'text', 'text': 'Hello world'},
+          ],
+          expectMessage: (message) => expect(message, isNull),
+        ),
+        (name: 'empty content', content: [], expectMessage: (message) => expect(message, isNull)),
+      ];
 
-      test('missing event key returns null', () {
-        final msg = parseJsonlLine(_j({'type': 'stream_event'}));
-        expect(msg, isNull);
+      for (final testCase in cases) {
+        test(testCase.name, () {
+          testCase.expectMessage(
+            parseJsonlLine(
+              _j({
+                'type': 'assistant',
+                'message': {'content': testCase.content},
+              }),
+            ),
+          );
+        });
+      }
+
+      test('missing message returns null', () {
+        expect(parseJsonlLine(_j({'type': 'assistant'})), isNull);
       });
     });
 
-    // -----------------------------------------------------------------
-    // ToolUseBlock (type: assistant, content block type: tool_use)
-    // -----------------------------------------------------------------
-
-    group('ToolUseBlock', () {
-      test('parses tool_use block from assistant message', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'assistant',
-            'message': {
-              'content': [
-                {
-                  'type': 'tool_use',
-                  'name': 'bash',
-                  'id': 'tu_123',
-                  'input': {'command': 'ls'},
-                },
-              ],
-            },
-          }),
-        );
-
-        expect(msg, isA<ToolUseBlock>());
-        final tu = msg as ToolUseBlock;
-        expect(tu.name, 'bash');
-        expect(tu.id, 'tu_123');
-        expect(tu.input, {'command': 'ls'});
-      });
-
-      test('returns first tool_use when multiple blocks present', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'assistant',
-            'message': {
-              'content': [
-                {'type': 'text', 'text': 'Let me run that.'},
-                {
-                  'type': 'tool_use',
-                  'name': 'read',
-                  'id': 'tu_first',
-                  'input': {'path': '/tmp'},
-                },
-                {'type': 'tool_use', 'name': 'write', 'id': 'tu_second', 'input': {}},
-              ],
-            },
-          }),
-        );
-
-        expect(msg, isA<ToolUseBlock>());
-        expect((msg as ToolUseBlock).id, 'tu_first');
-      });
-
-      test('missing name/id default gracefully', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'assistant',
-            'message': {
-              'content': [
-                {'type': 'tool_use'},
-              ],
-            },
-          }),
-        );
-
-        expect(msg, isA<ToolUseBlock>());
-        final tu = msg as ToolUseBlock;
-        expect(tu.name, 'unknown');
-        expect(tu.id, '');
-        expect(tu.input, isEmpty);
-      });
-    });
-
-    // -----------------------------------------------------------------
-    // ToolResultBlock (type: assistant, content block type: tool_result)
-    // -----------------------------------------------------------------
-
-    group('ToolResultBlock', () {
-      test('parses tool_result block', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'assistant',
-            'message': {
-              'content': [
-                {'type': 'tool_result', 'tool_use_id': 'tu_123', 'content': 'file contents here', 'is_error': false},
-              ],
-            },
-          }),
-        );
-
-        expect(msg, isA<ToolResultBlock>());
-        final tr = msg as ToolResultBlock;
-        expect(tr.toolId, 'tu_123');
-        expect(tr.output, 'file contents here');
-        expect(tr.isError, isFalse);
-      });
-
-      test('is_error true is preserved', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'assistant',
-            'message': {
-              'content': [
-                {'type': 'tool_result', 'tool_use_id': 'tu_err', 'content': 'permission denied', 'is_error': true},
-              ],
-            },
-          }),
-        );
-
-        expect(msg, isA<ToolResultBlock>());
-        expect((msg as ToolResultBlock).isError, isTrue);
-      });
-
-      test('missing fields default gracefully', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'assistant',
-            'message': {
-              'content': [
-                {'type': 'tool_result'},
-              ],
-            },
-          }),
-        );
-
-        expect(msg, isA<ToolResultBlock>());
-        final tr = msg as ToolResultBlock;
-        expect(tr.toolId, '');
-        expect(tr.output, '');
-        expect(tr.isError, isFalse);
-      });
-    });
-
-    // -----------------------------------------------------------------
-    // assistant message — text-only content returns null (no double-count)
-    // -----------------------------------------------------------------
-
-    group('assistant (text-only)', () {
-      test('text-only content blocks return null', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'assistant',
-            'message': {
-              'content': [
-                {'type': 'text', 'text': 'Hello world'},
-              ],
-            },
-          }),
-        );
-        expect(msg, isNull);
-      });
-
-      test('missing message key returns null', () {
-        final msg = parseJsonlLine(_j({'type': 'assistant'}));
-        expect(msg, isNull);
-      });
-
-      test('empty content array returns null', () {
-        final msg = parseJsonlLine(
-          _j({
-            'type': 'assistant',
-            'message': {'content': []},
-          }),
-        );
-        expect(msg, isNull);
-      });
-    });
-
-    // -----------------------------------------------------------------
-    // ControlRequest (type: control_request)
-    // -----------------------------------------------------------------
-
-    group('ControlRequest', () {
-      test('parses control request with subtype', () {
-        final msg = parseJsonlLine(
-          _j({
+    group('control requests', () {
+      final cases = <({String name, Map<String, dynamic> json, _MessageExpectation expectMessage})>[
+        (
+          name: 'with subtype',
+          json: {
             'type': 'control_request',
             'request_id': 'req-42',
             'request': {'subtype': 'can_use_tool', 'tool_name': 'bash'},
-          }),
-        );
-
-        expect(msg, isA<ControlRequest>());
-        final cr = msg as ControlRequest;
-        expect(cr.requestId, 'req-42');
-        expect(cr.subtype, 'can_use_tool');
-        expect(cr.data['tool_name'], 'bash');
-      });
-
-      test('missing request_id defaults to empty string', () {
-        final msg = parseJsonlLine(
-          _j({
+          },
+          expectMessage: (message) => _expectControlRequest(
+            message,
+            requestId: 'req-42',
+            subtype: 'can_use_tool',
+            data: {'subtype': 'can_use_tool', 'tool_name': 'bash'},
+          ),
+        ),
+        (
+          name: 'missing request_id',
+          json: {
             'type': 'control_request',
             'request': {'subtype': 'hook_callback'},
-          }),
-        );
+          },
+          expectMessage: (message) => _expectControlRequest(
+            message,
+            requestId: '',
+            subtype: 'hook_callback',
+            data: {'subtype': 'hook_callback'},
+          ),
+        ),
+        (
+          name: 'missing request object',
+          json: {'type': 'control_request', 'request_id': 'req-99'},
+          expectMessage: (message) => _expectControlRequest(message, requestId: 'req-99', subtype: 'unknown'),
+        ),
+      ];
 
-        expect(msg, isA<ControlRequest>());
-        expect((msg as ControlRequest).requestId, '');
-      });
-
-      test('missing request object defaults gracefully', () {
-        final msg = parseJsonlLine(_j({'type': 'control_request', 'request_id': 'req-99'}));
-
-        expect(msg, isA<ControlRequest>());
-        final cr = msg as ControlRequest;
-        expect(cr.subtype, 'unknown');
-        expect(cr.data, isEmpty);
-      });
+      for (final testCase in cases) {
+        test(testCase.name, () {
+          testCase.expectMessage(parseJsonlLine(_j(testCase.json)));
+        });
+      }
     });
 
-    // -----------------------------------------------------------------
-    // TurnResult (type: result)
-    // -----------------------------------------------------------------
+    group('turn results', () {
+      final cases = <({String name, Map<String, dynamic> json, _MessageExpectation expectMessage})>[
+        (
+          name: 'all fields',
+          json: {
+            'type': 'result',
+            'stop_reason': 'end_turn',
+            'total_cost_usd': 0.0042,
+            'duration_ms': 1500,
+            'usage': {'input_tokens': 10, 'output_tokens': 20, 'cache_read_input_tokens': 3},
+          },
+          expectMessage: (message) {
+            expect(message, isA<TurnResult>());
+            final result = message as TurnResult;
+            expect(result.stopReason, 'end_turn');
+            expect(result.costUsd, closeTo(0.0042, 1e-6));
+            expect(result.durationMs, 1500);
+            expect(result.inputTokens, 10);
+            expect(result.outputTokens, 20);
+            expect(result.cacheReadInputTokens, 3);
+          },
+        ),
+        (
+          name: 'minimal result',
+          json: {'type': 'result'},
+          expectMessage: (message) {
+            expect(message, isA<TurnResult>());
+            final result = message as TurnResult;
+            expect(result.stopReason, isNull);
+            expect(result.costUsd, isNull);
+            expect(result.durationMs, isNull);
+          },
+        ),
+        (
+          name: 'integer cost',
+          json: {'type': 'result', 'total_cost_usd': 1},
+          expectMessage: (message) {
+            expect(message, isA<TurnResult>());
+            expect((message as TurnResult).costUsd, 1.0);
+          },
+        ),
+      ];
 
-    group('TurnResult', () {
-      test('parses result with all fields', () {
-        final msg = parseJsonlLine(
-          _j({'type': 'result', 'stop_reason': 'end_turn', 'total_cost_usd': 0.0042, 'duration_ms': 1500}),
-        );
-
-        expect(msg, isA<TurnResult>());
-        final tr = msg as TurnResult;
-        expect(tr.stopReason, 'end_turn');
-        expect(tr.costUsd, closeTo(0.0042, 1e-6));
-        expect(tr.durationMs, 1500);
-      });
-
-      test('all fields optional — minimal result', () {
-        final msg = parseJsonlLine(_j({'type': 'result'}));
-
-        expect(msg, isA<TurnResult>());
-        final tr = msg as TurnResult;
-        expect(tr.stopReason, isNull);
-        expect(tr.costUsd, isNull);
-        expect(tr.durationMs, isNull);
-      });
-
-      test('integer cost is converted to double', () {
-        final msg = parseJsonlLine(_j({'type': 'result', 'total_cost_usd': 1}));
-
-        expect(msg, isA<TurnResult>());
-        expect((msg as TurnResult).costUsd, 1.0);
-      });
-    });
-
-    // -----------------------------------------------------------------
-    // CompactBoundary (type: system, subtype: compact_boundary)
-    // -----------------------------------------------------------------
-
-    group('CompactBoundary', () {
-      test('parses compact_boundary with trigger and pre_tokens', () {
-        final msg = parseJsonlLine(
-          _j({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'auto', 'pre_tokens': 142857}),
-        );
-
-        expect(msg, isA<CompactBoundary>());
-        final cb = msg as CompactBoundary;
-        expect(cb.trigger, 'auto');
-        expect(cb.preTokens, 142857);
-      });
-
-      test('parses compact_boundary without pre_tokens (null)', () {
-        final msg = parseJsonlLine(_j({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'manual'}));
-
-        expect(msg, isA<CompactBoundary>());
-        final cb = msg as CompactBoundary;
-        expect(cb.trigger, 'manual');
-        expect(cb.preTokens, isNull);
-      });
-
-      test('compact_boundary with missing trigger defaults to "auto"', () {
-        final msg = parseJsonlLine(_j({'type': 'system', 'subtype': 'compact_boundary'}));
-
-        expect(msg, isA<CompactBoundary>());
-        expect((msg as CompactBoundary).trigger, 'auto');
-      });
-
-      test('system subtype other than init and compact_boundary returns null', () {
-        final msg = parseJsonlLine(_j({'type': 'system', 'subtype': 'unknown_subtype'}));
-        expect(msg, isNull);
-      });
+      for (final testCase in cases) {
+        test(testCase.name, () {
+          testCase.expectMessage(parseJsonlLine(_j(testCase.json)));
+        });
+      }
     });
   });
 }

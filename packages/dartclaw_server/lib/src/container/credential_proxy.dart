@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show chmodOwnerOnly;
 import 'package:logging/logging.dart';
 
 /// HTTP proxy that runs on a Unix socket and injects API credentials
@@ -45,9 +46,10 @@ class CredentialProxy {
     _server = await HttpServer.bind(InternetAddress(socketPath, type: InternetAddressType.unix), 0);
     // Restrict socket to owner-only — prevents other host processes from
     // connecting and injecting credential headers.
-    final chmodResult = await Process.run('chmod', ['600', socketPath]);
-    if (chmodResult.exitCode != 0) {
-      _log.warning('Failed to chmod 600 $socketPath: ${chmodResult.stderr}');
+    try {
+      await chmodOwnerOnly(socketPath);
+    } on StateError catch (e) {
+      _log.warning(e.message);
     }
     _log.info('Credential proxy listening on $socketPath');
 

@@ -110,10 +110,10 @@ void main() {
     expect(completedEvents.single.preTokens, isNull);
   });
 
-  test('flush heuristic uses the current harness capability instead of shared monitor state', () async {
+  test('flush heuristic uses the current harness capability', () async {
     final worker = _CompactionCapabilityHarness(supportsPreCompactHook: false);
     addTearDown(worker.dispose);
-    final contextMonitor = ContextMonitor(reserveTokens: 20000)..compactionSignalAvailable = true;
+    final contextMonitor = ContextMonitor(reserveTokens: 20000);
     final runner = _buildRunner(
       harness: worker,
       messages: messages,
@@ -140,10 +140,10 @@ void main() {
     expect(worker.turnCallCount, equals(2));
   });
 
-  test('Claude runners suppress heuristic flush even when shared monitor default is false', () async {
+  test('Claude runners suppress heuristic flush via harness compaction-hook capability', () async {
     final worker = _CompactionCapabilityHarness(supportsPreCompactHook: true);
     addTearDown(worker.dispose);
-    final contextMonitor = ContextMonitor(reserveTokens: 20000)..compactionSignalAvailable = false;
+    final contextMonitor = ContextMonitor(reserveTokens: 20000);
     final runner = _buildRunner(
       harness: worker,
       messages: messages,

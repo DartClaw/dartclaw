@@ -448,7 +448,7 @@ Key behaviors:
 
 1. **Context tracking**: `update()` receives `contextWindow` and `contextTokens` from turn results
 2. **Warning threshold**: `checkThreshold()` returns `true` exactly once per session when usage exceeds `warningThreshold%` (default: 80%)
-3. **Pre-compaction flush**: `shouldFlush` / `shouldFlushForCompactionSignal()` returns `true` when tokens exceed `contextWindow - reserveTokens` and no flush is pending. Suppressed when `compactionSignalAvailable` is `true` (harness delivers deterministic signal)
+3. **Pre-compaction flush**: `shouldFlushForCompactionSignal(compactionSignalAvailable:)` returns `true` when tokens exceed `contextWindow - reserveTokens` and no flush is pending. Suppressed when the `compactionSignalAvailable` argument is `true` (the harness delivers a deterministic signal, passed from `AgentHarness.supportsPreCompactHook`)
 4. **Compaction cycle dedup**: `shouldSkipFlush()` + `markFlushed()` prevent redundant flushes within the same compaction cycle or with identical content (SHA-256 hash)
 
 Source: `../dartclaw-public/packages/dartclaw_server/lib/src/context/context_monitor.dart`
@@ -533,7 +533,7 @@ Context compaction is a lifecycle event where the agent provider reduces its con
 
 **Identifier preservation**: Compact instructions include identifier preservation text (configurable via `identifierPreservation` setting) to ensure UUIDs, session keys, task IDs, file paths, and URLs survive compaction verbatim.
 
-**Provider-specific handling**: The `compactionSignalAvailable` flag on `ContextMonitor` adapts behavior per harness -- providers with deterministic compaction signals skip the heuristic flush, while others rely on the token-based threshold.
+**Provider-specific handling**: Each harness's `supportsPreCompactHook` capability is threaded into `ContextMonitor.shouldFlushForCompactionSignal()` as the `compactionSignalAvailable` argument, adapting behavior per harness -- providers with deterministic compaction signals skip the heuristic flush, while others rely on the token-based threshold.
 
 Source: `../dartclaw-public/packages/dartclaw_core/lib/src/events/compaction_events.dart`
 

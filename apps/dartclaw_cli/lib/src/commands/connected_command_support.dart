@@ -1,14 +1,74 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:args/args.dart' show ArgResults;
+import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_core/dartclaw_core.dart' show formatLocalDateTime;
+import 'package:meta/meta.dart';
 
 import '../dartclaw_api_client.dart';
 import 'cli_global_options.dart';
 import 'config_loader.dart';
-import 'serve_command.dart' show WriteLine;
+import 'serve_command.dart' show ExitFn, WriteLine;
 
 export 'cli_global_options.dart' show globalOptionString;
+
+/// Base class for CLI commands that talk to the DartClaw server.
+///
+/// Centralises the DI constructor (`config`/`apiClient`/`writeLine`/`exitFn`),
+/// API-client resolution, and the universal `DartclawApiException` →
+/// printed-message + `exit(1)` error policy shared across connected commands.
+abstract class ConnectedCommand extends Command<void> {
+  final DartclawConfig? _config;
+  final DartclawApiClient? _apiClient;
+  @protected
+  final WriteLine writeLine;
+  @protected
+  final ExitFn exitFn;
+
+  ConnectedCommand({DartclawConfig? config, DartclawApiClient? apiClient, WriteLine? writeLine, ExitFn? exitFn})
+    : _config = config,
+      _apiClient = apiClient,
+      writeLine = writeLine ?? stdout.writeln,
+      exitFn = exitFn ?? exit;
+
+  /// The injected [DartclawConfig], when one was provided to the constructor.
+  ///
+  /// Commands with a standalone (server-less) path read this to honour an
+  /// injected config before falling back to loading one from disk.
+  @protected
+  DartclawConfig? get injectedConfig => _config;
+
+  /// Resolves the API client (injected client/config win, else loaded from global opts).
+  @protected
+  DartclawApiClient client() =>
+      resolveCliApiClient(globalResults: globalResults, apiClient: _apiClient, config: _config);
+
+  /// Runs [body] with a resolved client, mapping [DartclawApiException] to a
+  /// printed message + `exit(1)` — the universal connected-command error policy.
+  @protected
+  Future<void> runConnected(Future<void> Function(DartclawApiClient client) body) async {
+    final apiClient = client();
+    try {
+      await body(apiClient);
+    } on DartclawApiException catch (error) {
+      writeLine(error.message);
+      exitFn(1);
+    }
+  }
+
+  /// Returns the first positional arg, or throws [UsageException] with
+  /// [missingMessage] when absent.
+  @protected
+  String requirePositionalArg(String missingMessage) {
+    final args = argResults!.rest;
+    if (args.isEmpty) {
+      throw UsageException(missingMessage, usage);
+    }
+    return args.first;
+  }
+}
 
 DartclawApiClient resolveCliApiClient({
   required ArgResults? globalResults,
@@ -37,18 +97,7 @@ String truncate(String value, int width) {
   return '${value.substring(0, width - 3)}...';
 }
 
-String formatDateTime(Object? value) {
-  final raw = value?.toString();
-  if (raw == null || raw.isEmpty) {
-    return '—';
-  }
-  final parsed = DateTime.tryParse(raw);
-  if (parsed == null) {
-    return raw;
-  }
-  return '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')} '
-      '${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}:${parsed.second.toString().padLeft(2, '0')}';
-}
+String formatDateTime(Object? value) => formatLocalDateTime(value);
 
 String formatNumber(int value) {
   final raw = value.toString();

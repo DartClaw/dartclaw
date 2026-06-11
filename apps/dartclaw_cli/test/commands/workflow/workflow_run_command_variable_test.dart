@@ -2,13 +2,7 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_run_command.dart';
 import 'package:test/test.dart';
 
-/// Fake exit function that throws to interrupt command execution.
-class _FakeExit implements Exception {
-  final int code;
-  const _FakeExit(this.code);
-}
-
-Never _fakeExit(int code) => throw _FakeExit(code);
+import '../../helpers/fake_exit.dart';
 
 void main() {
   group('WorkflowRunCommand — argument parsing', () {
@@ -34,7 +28,7 @@ void main() {
 
     test('missing workflow name throws UsageException', () async {
       final output = <String>[];
-      final command = WorkflowRunCommand(stdoutLine: output.add, stderrLine: output.add, exitFn: _fakeExit);
+      final command = WorkflowRunCommand(stdoutLine: output.add, stderrLine: output.add, exitFn: fakeExit);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       expect(() async => runner.run(['run']), throwsA(isA<UsageException>()));

@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show tryParseDuration;
+import 'package:dartclaw_config/dartclaw_config.dart' show readBool, readString, readStringList, tryParseDuration;
 import 'package:dartclaw_core/dartclaw_core.dart' show DmAccessMode, GroupAccessMode, GroupEntry, TaskTriggerConfig;
 
 /// Configuration for the Cloud Pub/Sub pull client.
@@ -89,9 +89,7 @@ class SpaceEventsConfig {
   static const _userMessageScope = 'https://www.googleapis.com/auth/chat.messages.readonly';
   static const _userMembershipScope = 'https://www.googleapis.com/auth/chat.memberships.readonly';
   static const _userSpaceScope = 'https://www.googleapis.com/auth/chat.spaces.readonly';
-  static const _appMessageScope = 'https://www.googleapis.com/auth/chat.app.messages.readonly';
-  static const _appMembershipScope = 'https://www.googleapis.com/auth/chat.app.memberships';
-  static const _appSpaceScope = 'https://www.googleapis.com/auth/chat.app.spaces';
+  static final _retiredSpaceEventsAuthModeKey = ['auth', 'mode'].join('_');
 
   /// Whether Workspace Events subscriptions are enabled.
   final bool enabled;
@@ -105,16 +103,12 @@ class SpaceEventsConfig {
   /// Whether to include the full resource in event payloads.
   final bool includeResource;
 
-  /// Auth mode: 'user' (GA) or 'app' (Developer Preview).
-  final String authMode;
-
   /// Creates immutable Workspace Events subscription configuration.
   const SpaceEventsConfig({
     this.enabled = false,
     this.pubsubTopic,
     this.eventTypes = const ['message.created'],
     this.includeResource = true,
-    this.authMode = 'user',
   });
 
   /// Creates a disabled (all-defaults) Space Events configuration.
@@ -126,12 +120,8 @@ class SpaceEventsConfig {
   /// OAuth scopes required for user auth with the configured [eventTypes].
   Set<String> get requiredUserAuthScopes => requiredUserAuthScopesFor(eventTypes);
 
-  /// OAuth scopes required for app auth with the configured [eventTypes].
-  Set<String> get requiredAppAuthScopes => requiredAppAuthScopesFor(eventTypes);
-
-  /// Event types that this auth mode does not have a known scope mapping for.
-  List<String> unsupportedEventTypesForAuthMode(String authMode) =>
-      unsupportedEventTypesFor(eventTypes, authMode: authMode);
+  /// Event types that user auth does not have a known scope mapping for.
+  List<String> get unsupportedEventTypes => unsupportedEventTypesFor(eventTypes);
 
   /// Expands shorthand event types to fully-qualified Workspace Events names.
   static String expandEventType(String type) {
@@ -148,28 +138,17 @@ class SpaceEventsConfig {
   }
 
   /// Returns required user-auth scopes for the given [eventTypes].
-  static Set<String> requiredUserAuthScopesFor(List<String> eventTypes) =>
-      _requiredAuthScopesFor(eventTypes, appAuth: false);
-
-  /// Returns required app-auth scopes for the given [eventTypes].
-  static Set<String> requiredAppAuthScopesFor(List<String> eventTypes) =>
-      _requiredAuthScopesFor(eventTypes, appAuth: true);
-
-  /// Returns event types without a verified scope mapping for [authMode].
-  static List<String> unsupportedEventTypesFor(List<String> eventTypes, {required String authMode}) {
-    final appAuth = authMode == 'app';
-    return eventTypes
-        .where((type) => _scopeSetForResource(_resourceForEventType(type), appAuth: appAuth).isEmpty)
-        .toList();
-  }
-
-  static Set<String> _requiredAuthScopesFor(List<String> eventTypes, {required bool appAuth}) {
+  static Set<String> requiredUserAuthScopesFor(List<String> eventTypes) {
     final scopes = <String>{};
     for (final type in eventTypes) {
-      scopes.addAll(_scopeSetForResource(_resourceForEventType(type), appAuth: appAuth));
+      scopes.addAll(_scopeSetForResource(_resourceForEventType(type)));
     }
     return scopes;
   }
+
+  /// Returns event types without a verified user-auth scope mapping.
+  static List<String> unsupportedEventTypesFor(List<String> eventTypes) =>
+      eventTypes.where((type) => _scopeSetForResource(_resourceForEventType(type)).isEmpty).toList();
 
   static String? _resourceForEventType(String type) {
     final expanded = expandEventType(type);
@@ -184,27 +163,18 @@ class SpaceEventsConfig {
     return remainder.substring(0, versionIndex);
   }
 
-  static Set<String> _scopeSetForResource(String? resource, {required bool appAuth}) {
-    return switch ((resource, appAuth)) {
-      ('message', false) => {_userMessageScope},
-      ('membership', false) => {_userMembershipScope},
-      ('space', false) => {_userSpaceScope},
-      ('message', true) => {_appMessageScope},
-      ('membership', true) => {_appMembershipScope},
-      ('space', true) => {_appSpaceScope},
+  static Set<String> _scopeSetForResource(String? resource) {
+    return switch (resource) {
+      'message' => {_userMessageScope},
+      'membership' => {_userMembershipScope},
+      'space' => {_userSpaceScope},
       _ => const <String>{},
     };
   }
 
   /// Parses Space Events configuration from YAML, appending warnings to [warns].
   factory SpaceEventsConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
-    var enabled = false;
-    final enabledRaw = yaml['enabled'];
-    if (enabledRaw is bool) {
-      enabled = enabledRaw;
-    } else if (enabledRaw != null) {
-      warns.add('Invalid type for google_chat.space_events.enabled: "${enabledRaw.runtimeType}" — using default');
-    }
+    final enabled = readBool('enabled', yaml, warns, defaultValue: false, warnKey: 'google_chat.space_events.enabled')!;
 
     final pubsubTopicRaw = yaml['pubsub_topic'];
     String? pubsubTopic;
@@ -216,36 +186,24 @@ class SpaceEventsConfig {
       );
     }
 
-    var eventTypes = const <String>['message.created'];
-    final eventTypesRaw = yaml['event_types'];
-    if (eventTypesRaw is List) {
-      eventTypes = eventTypesRaw.whereType<String>().toList();
-    } else if (eventTypesRaw != null) {
-      warns.add(
-        'Invalid type for google_chat.space_events.event_types: "${eventTypesRaw.runtimeType}" — using default',
-      );
-    }
+    final eventTypes = readStringList(
+      'event_types',
+      yaml,
+      warns,
+      defaultValue: const <String>['message.created'],
+      warnKey: 'google_chat.space_events.event_types',
+    )!;
 
-    var includeResource = true;
-    final includeResourceRaw = yaml['include_resource'];
-    if (includeResourceRaw is bool) {
-      includeResource = includeResourceRaw;
-    } else if (includeResourceRaw != null) {
-      warns.add(
-        'Invalid type for google_chat.space_events.include_resource: "${includeResourceRaw.runtimeType}" — using default',
-      );
-    }
+    final includeResource = readBool(
+      'include_resource',
+      yaml,
+      warns,
+      defaultValue: true,
+      warnKey: 'google_chat.space_events.include_resource',
+    )!;
 
-    var authMode = 'user';
-    final authModeRaw = yaml['auth_mode'];
-    if (authModeRaw is String) {
-      if (authModeRaw == 'user' || authModeRaw == 'app') {
-        authMode = authModeRaw;
-      } else {
-        warns.add('Invalid value for google_chat.space_events.auth_mode: "$authModeRaw" — using default');
-      }
-    } else if (authModeRaw != null) {
-      warns.add('Invalid type for google_chat.space_events.auth_mode: "${authModeRaw.runtimeType}" — using default');
+    if (yaml.containsKey(_retiredSpaceEventsAuthModeKey)) {
+      warns.add('Unknown config key: google_chat.space_events.$_retiredSpaceEventsAuthModeKey');
     }
 
     return SpaceEventsConfig(
@@ -253,7 +211,6 @@ class SpaceEventsConfig {
       pubsubTopic: pubsubTopic,
       eventTypes: eventTypes,
       includeResource: includeResource,
-      authMode: authMode,
     );
   }
 }
@@ -314,13 +271,7 @@ class GoogleChatFeedbackConfig {
   const GoogleChatFeedbackConfig.disabled() : this();
 
   factory GoogleChatFeedbackConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
-    var enabled = false;
-    final enabledRaw = yaml['enabled'];
-    if (enabledRaw is bool) {
-      enabled = enabledRaw;
-    } else if (enabledRaw != null) {
-      warns.add('Invalid type for google_chat.feedback.enabled: "${enabledRaw.runtimeType}" — using default');
-    }
+    final enabled = readBool('enabled', yaml, warns, defaultValue: false, warnKey: 'google_chat.feedback.enabled')!;
 
     var minFeedbackDelay = Duration.zero;
     final minFeedbackDelayRaw = yaml['min_feedback_delay'];
@@ -507,10 +458,13 @@ class GoogleChatConfig {
     }
 
     final audience = _parseAudience(yaml['audience'], warns);
-    final webhookPath = yaml['webhook_path'];
-    if (webhookPath != null && webhookPath is! String) {
-      warns.add('Invalid type for google_chat.webhook_path: "${webhookPath.runtimeType}" — using default');
-    }
+    final webhookPath = readString(
+      'webhook_path',
+      yaml,
+      warns,
+      defaultValue: '/integrations/googlechat',
+      warnKey: 'google_chat.webhook_path',
+    )!;
 
     final botUser = yaml['bot_user'];
     if (botUser != null && botUser is! String) {
@@ -561,13 +515,13 @@ class GoogleChatConfig {
       warns.add('Invalid type for google_chat.group_access: "${groupAccessRaw.runtimeType}" — using default');
     }
 
-    var requireMention = true;
-    final requireMentionRaw = yaml['require_mention'];
-    if (requireMentionRaw is bool) {
-      requireMention = requireMentionRaw;
-    } else if (requireMentionRaw != null) {
-      warns.add('Invalid type for google_chat.require_mention: "${requireMentionRaw.runtimeType}" — using default');
-    }
+    final requireMention = readBool(
+      'require_mention',
+      yaml,
+      warns,
+      defaultValue: true,
+      warnKey: 'google_chat.require_mention',
+    )!;
 
     var quoteReplyMode = QuoteReplyMode.disabled;
     final quoteReplyRaw = yaml['quote_reply'];
@@ -658,17 +612,11 @@ class GoogleChatConfig {
       if (spaceEvents.pubsubTopic == null || spaceEvents.pubsubTopic!.trim().isEmpty) {
         warns.add('Missing required google_chat.space_events.pubsub_topic when space_events is enabled');
       }
-      if (spaceEvents.authMode == 'app') {
-        warns.add(
-          'google_chat.space_events.auth_mode "app" uses service account auth (Developer Preview) — '
-          'requires Workspace admin approval. Consider auth_mode: user (GA, no admin approval)',
-        );
-      }
-      final unsupportedEventTypes = spaceEvents.unsupportedEventTypesForAuthMode(spaceEvents.authMode);
+      final unsupportedEventTypes = spaceEvents.unsupportedEventTypes;
       if (unsupportedEventTypes.isNotEmpty) {
         warns.add(
           'google_chat.space_events.event_types ${unsupportedEventTypes.join(', ')} do not have '
-          'a supported scope mapping for auth_mode "${spaceEvents.authMode}"',
+          'a supported scope mapping for user OAuth',
         );
       }
     }
@@ -678,7 +626,7 @@ class GoogleChatConfig {
       serviceAccount: parsedServiceAccount,
       oauthCredentials: parsedOauthCredentials,
       audience: audience,
-      webhookPath: webhookPath is String ? webhookPath : '/integrations/googlechat',
+      webhookPath: webhookPath,
       botUser: botUser is String ? botUser : null,
       typingIndicatorMode: typingIndicatorMode,
       dmAccess: dmAccess,

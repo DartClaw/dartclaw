@@ -4,19 +4,28 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
 /// Provisions a task runner for the requested provider, when supplied.
-typedef SpawnTaskRunner = Future<void> Function(String? requestedProviderId);
+typedef SpawnTaskRunner = Future<bool> Function(String? requestedProviderId);
+
+typedef ProviderUnavailableDiagnostic = void Function(Task task, String message);
 
 /// Coordinates task-runner acquisition from the harness pool.
 final class TaskRunnerPoolCoordinator {
-  TaskRunnerPoolCoordinator({required HarnessPool pool, SpawnTaskRunner? onSpawnNeeded, Logger? log})
-    : _pool = pool,
-      _onSpawnNeeded = onSpawnNeeded,
-      _log = log ?? Logger('TaskRunnerPoolCoordinator');
+  TaskRunnerPoolCoordinator({
+    required HarnessPool pool,
+    SpawnTaskRunner? onSpawnNeeded,
+    ProviderUnavailableDiagnostic? onProviderUnavailable,
+    Logger? log,
+  }) : _pool = pool,
+       _onSpawnNeeded = onSpawnNeeded,
+       _onProviderUnavailable = onProviderUnavailable,
+       _log = log ?? Logger('TaskRunnerPoolCoordinator');
 
   final HarnessPool _pool;
   final SpawnTaskRunner? _onSpawnNeeded;
+  final ProviderUnavailableDiagnostic? _onProviderUnavailable;
   final Logger _log;
   final Set<String> _runnerWaitLoggedTaskIds = <String>{};
+  final Set<String> _providerUnavailableTaskIds = <String>{};
   bool _isSpawning = false;
 
   void triggerSpawnIfNeeded([String? requestedProviderId]) {
@@ -29,9 +38,12 @@ final class TaskRunnerPoolCoordinator {
     final provider = effectiveProviderId ?? task.provider;
     if (provider != null) {
       if (!_pool.hasTaskRunnerForProvider(provider)) {
-        final provisioning = _isSpawning || _pool.spawnableCount > 0;
-        if (!_isSpawning && _pool.spawnableCount > 0) {
-          triggerSpawn(provider);
+        final canSpawn = !_isSpawning && _pool.spawnableCount > 0;
+        final provisioning = _isSpawning || canSpawn;
+        if (canSpawn) {
+          triggerSpawn(provider, onNoRunnerSpawned: () => _recordProviderUnavailable(task, provider));
+        } else if (!provisioning) {
+          _recordProviderUnavailable(task, provider);
         }
         _logRunnerWaitOnce(
           task,
@@ -68,6 +80,9 @@ final class TaskRunnerPoolCoordinator {
         'Task ${task.id} (${task.title}) is queued waiting for an idle task runner for provider '
         '"$provider" in profile "$profile". Available profiles: ${_pool.taskProfiles.join(', ')}',
       );
+      if (!_isSpawning && _pool.spawnableCount > 0) {
+        triggerSpawn(provider);
+      }
       return null;
     }
     if (_pool.hasTaskRunnerForProfile(profile)) {
@@ -81,16 +96,23 @@ final class TaskRunnerPoolCoordinator {
 
   void clearWaitLog(String taskId) {
     _runnerWaitLoggedTaskIds.remove(taskId);
+    _providerUnavailableTaskIds.remove(taskId);
   }
 
-  void triggerSpawn([String? requestedProviderId]) {
+  void triggerSpawn(String? requestedProviderId, {void Function()? onNoRunnerSpawned}) {
     final callback = _onSpawnNeeded;
     if (callback == null) return;
     _isSpawning = true;
     unawaited(
-      callback(requestedProviderId).whenComplete(() {
-        _isSpawning = false;
-      }),
+      callback(requestedProviderId)
+          .then((spawned) {
+            if (!spawned) {
+              onNoRunnerSpawned?.call();
+            }
+          })
+          .whenComplete(() {
+            _isSpawning = false;
+          }),
     );
   }
 
@@ -98,5 +120,15 @@ final class TaskRunnerPoolCoordinator {
     if (_runnerWaitLoggedTaskIds.add(task.id)) {
       _log.log(level, message);
     }
+  }
+
+  void _recordProviderUnavailable(Task task, String provider) {
+    if (!_providerUnavailableTaskIds.add(task.id)) {
+      return;
+    }
+    _onProviderUnavailable?.call(
+      task,
+      'Provider "$provider" is unavailable for task execution. Configure providers.$provider before retrying.',
+    );
   }
 }

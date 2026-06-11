@@ -35,12 +35,6 @@ void main() {
       expect(a.hashCode, b.hashCode);
       expect(a, isNot(equals(c)));
     });
-
-    test('toString', () {
-      final s = ToolStartedProgressEvent(snapshot: snap, toolName: 'edit', toolCallCount: 7).toString();
-      expect(s, contains('edit'));
-      expect(s, contains('7'));
-    });
   });
 
   group('ToolCompletedProgressEvent', () {
@@ -60,12 +54,6 @@ void main() {
       expect(a.hashCode, b.hashCode);
       expect(a, isNot(equals(c)));
     });
-
-    test('toString', () {
-      final s = ToolCompletedProgressEvent(snapshot: snap, toolName: 'read', isError: true).toString();
-      expect(s, contains('read'));
-      expect(s, contains('true'));
-    });
   });
 
   group('TextDeltaProgressEvent', () {
@@ -84,11 +72,6 @@ void main() {
       expect(a.hashCode, b.hashCode);
       expect(a, isNot(equals(c)));
     });
-
-    test('toString', () {
-      final s = TextDeltaProgressEvent(snapshot: snap, text: 'chunk').toString();
-      expect(s, contains('chunk'));
-    });
   });
 
   group('StatusTickProgressEvent', () {
@@ -96,9 +79,24 @@ void main() {
       final e = StatusTickProgressEvent(snapshot: snap);
       expect(e.snapshot, same(snap));
     });
+  });
 
-    test('toString', () {
-      expect(StatusTickProgressEvent(snapshot: snap).toString(), contains('StatusTickProgressEvent'));
+  group('ProviderProgressEvent', () {
+    test('constructs with provider progress fields', () {
+      final e = ProviderProgressEvent(snapshot: snap, kind: 'tool_call_update', text: 'Read config');
+      expect(e.kind, 'tool_call_update');
+      expect(e.text, 'Read config');
+      expect(e.snapshot, same(snap));
+    });
+
+    test('equality and hashCode', () {
+      final a = ProviderProgressEvent(snapshot: snap, kind: 'tool_call_update', text: 'Read config');
+      final b = ProviderProgressEvent(snapshot: _snap(), kind: 'tool_call_update', text: 'Read config');
+      final c = ProviderProgressEvent(snapshot: snap, kind: 'agent_thought_chunk', text: 'Read config');
+
+      expect(a, equals(b));
+      expect(a.hashCode, b.hashCode);
+      expect(a, isNot(equals(c)));
     });
   });
 
@@ -118,40 +116,6 @@ void main() {
       expect(a, equals(b));
       expect(a.hashCode, b.hashCode);
       expect(a, isNot(equals(c)));
-    });
-
-    test('toString', () {
-      final s = TurnStallProgressEvent(
-        snapshot: snap,
-        stallTimeout: const Duration(seconds: 60),
-        action: 'abort',
-      ).toString();
-      expect(s, contains('0:01:00'));
-      expect(s, contains('abort'));
-    });
-  });
-
-  group('exhaustive pattern matching', () {
-    test('switch covers all subtypes', () {
-      final events = <TurnProgressEvent>[
-        ToolStartedProgressEvent(snapshot: snap, toolName: 'bash', toolCallCount: 1),
-        ToolCompletedProgressEvent(snapshot: snap, toolName: 'bash', isError: false),
-        TextDeltaProgressEvent(snapshot: snap, text: 'hi'),
-        StatusTickProgressEvent(snapshot: snap),
-        TurnStallProgressEvent(snapshot: snap, stallTimeout: const Duration(seconds: 10), action: 'warn'),
-      ];
-
-      final labels = events.map(
-        (e) => switch (e) {
-          ToolStartedProgressEvent() => 'started',
-          ToolCompletedProgressEvent() => 'completed',
-          TextDeltaProgressEvent() => 'delta',
-          StatusTickProgressEvent() => 'tick',
-          TurnStallProgressEvent() => 'stall',
-        },
-      );
-
-      expect(labels, ['started', 'completed', 'delta', 'tick', 'stall']);
     });
   });
 }

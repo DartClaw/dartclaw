@@ -1,4 +1,3 @@
-import 'dart:collection';
 import 'dart:convert';
 import 'dart:async';
 
@@ -10,17 +9,13 @@ import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep;
 import 'package:test/test.dart';
 
-class _FakeExit implements Exception {
-  final int code;
-  const _FakeExit(this.code);
-}
-
-Never _fakeExit(int code) => throw _FakeExit(code);
+import '../../helpers/fake_api_transport.dart';
+import '../../helpers/fake_exit.dart';
 
 void main() {
   group('WorkflowRunCommand connected mode', () {
     test('connected run exits 0 after terminal SSE event', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [_jsonResponse(201, _startedRunJson())],
         streamResponses: [
           ApiResponse(
@@ -42,13 +37,13 @@ void main() {
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
         stdoutLine: output.add,
         stderrLine: errorOutput.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'demo-workflow']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 0)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
       );
 
       expect(output.any((line) => line.contains('Starting: demo-workflow')), isTrue);
@@ -59,7 +54,7 @@ void main() {
     });
 
     test('connected text mode includes display scope from SSE events', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [_jsonResponse(201, _startedRunJson())],
         streamResponses: [
           ApiResponse(
@@ -79,13 +74,13 @@ void main() {
       final command = WorkflowRunCommand(
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
         stdoutLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'demo-workflow']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 0)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
       );
 
       expect(output, contains('[step 1/1] step-1[S01]: First step — running'));
@@ -101,7 +96,7 @@ void main() {
         ],
         variables: const {},
       );
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [_jsonResponse(201, _startedRunJson(definition: definition))],
         streamResponses: [
           ApiResponse(
@@ -121,13 +116,13 @@ void main() {
       final command = WorkflowRunCommand(
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
         stdoutLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'map-workflow']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 0)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
       );
 
       expect(output, contains('[step 1/1] implement[S01]: Implement — running'));
@@ -151,7 +146,7 @@ void main() {
         ],
         variables: const {},
       );
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [_jsonResponse(201, _startedRunJson(definition: definition))],
         streamResponses: [
           ApiResponse(
@@ -170,20 +165,20 @@ void main() {
       final command = WorkflowRunCommand(
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
         stdoutLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'foreach-workflow']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 0)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
       );
 
       expect(output, contains('[step 1/2] story-pipeline[S02]: failed'));
     });
 
     test('standalone mode aborts when a server is reachable without --force', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [
           _jsonResponse(200, {'ok': true}),
         ],
@@ -192,20 +187,20 @@ void main() {
       final command = WorkflowRunCommand(
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
         stderrLine: errorOutput.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'demo-workflow', '--standalone']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
       expect(errorOutput.single, contains('Use connected mode or add --force to override'));
     });
 
     test('connected json mode prints structured event lines', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [_jsonResponse(201, _startedRunJson())],
         streamResponses: [
           ApiResponse(
@@ -223,13 +218,13 @@ void main() {
       final command = WorkflowRunCommand(
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
         stdoutLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'demo-workflow', '--json']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 0)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
       );
 
       expect(output.first, contains('"type":"run_started"'));
@@ -239,7 +234,7 @@ void main() {
     test('interrupt sends cancel request and exits 2 after cancelled event', () async {
       final sseController = StreamController<List<int>>();
       final interruptController = StreamController<void>();
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [
           _jsonResponse(201, _startedRunJson()),
           ApiResponse(statusCode: 204, headers: const {}, body: const Stream.empty()),
@@ -256,7 +251,7 @@ void main() {
       final command = WorkflowRunCommand(
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
         stdoutLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
         interrupts: () => interruptController.stream,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
@@ -271,7 +266,7 @@ void main() {
       );
       await sseController.close();
 
-      await expectLater(() => future, throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 2)));
+      await expectLater(() => future, throwsA(isA<FakeExit>().having((e) => e.code, 'code', 2)));
 
       expect(transport.requests.map((request) => request.uri.path), contains('/api/workflows/runs/run-1/cancel'));
       expect(output.any((line) => line.contains('Cancelling')), isTrue);
@@ -304,28 +299,6 @@ Map<String, dynamic> _startedRunJson({WorkflowDefinition? definition}) {
     'currentStepIndex': 0,
     'definitionJson': resolvedDefinition.toJson(),
   };
-}
-
-class _FakeTransport implements ApiTransport {
-  final Queue<ApiResponse> _sendResponses;
-  final Queue<ApiResponse> _streamResponses;
-  final List<ApiRequest> requests = <ApiRequest>[];
-
-  _FakeTransport({List<ApiResponse> sendResponses = const [], List<ApiResponse> streamResponses = const []})
-    : _sendResponses = Queue<ApiResponse>.of(sendResponses),
-      _streamResponses = Queue<ApiResponse>.of(streamResponses);
-
-  @override
-  Future<ApiResponse> send(ApiRequest request) async {
-    requests.add(request);
-    return _sendResponses.removeFirst();
-  }
-
-  @override
-  Future<ApiResponse> openStream(ApiRequest request) async {
-    requests.add(request);
-    return _streamResponses.removeFirst();
-  }
 }
 
 ApiResponse _jsonResponse(int statusCode, Object body) {

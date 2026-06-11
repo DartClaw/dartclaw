@@ -190,6 +190,15 @@ void main() {
 
     final healthBody = jsonDecode(await healthResponse.readAsString()) as Map<String, dynamic>;
     expect(healthBody['status'], equals('healthy'));
+
+    final mcpResponse = await result.server.mcpHandler.handleRequest(
+      jsonEncode({'jsonrpc': '2.0', 'method': 'tools/list', 'id': 1}),
+    );
+    final mcpBody = jsonDecode(mcpResponse!) as Map<String, dynamic>;
+    final mcpResult = mcpBody['result'] as Map<String, dynamic>;
+    final toolNames = ((mcpResult['tools'] as List).cast<Map<String, dynamic>>()).map((tool) => tool['name']).toSet();
+    expect(toolNames, contains('sessions_send'));
+    expect(toolNames, isNot(contains('sessions_spawn')));
   });
 
   test('ServiceWiring wires AlertRouter into the production EventBus', () async {

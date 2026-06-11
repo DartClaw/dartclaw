@@ -59,7 +59,6 @@ class ConfigNotifier {
     _detectChangedSimple('agent', old.agent, newConfig.agent, changedKeys);
     _detectChangedSimple('advisor', old.advisor, newConfig.advisor, changedKeys);
     _detectChangedSimple('auth', old.auth, newConfig.auth, changedKeys);
-    _detectChangedSimple('canvas', old.canvas, newConfig.canvas, changedKeys);
     _detectChangedSimple('gateway', old.gateway, newConfig.gateway, changedKeys);
     _detectChangedSimple('sessions', old.sessions, newConfig.sessions, changedKeys);
     _detectChangedSimple('context', old.context, newConfig.context, changedKeys);

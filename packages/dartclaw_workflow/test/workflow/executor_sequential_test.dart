@@ -1,6 +1,3 @@
-// WorkflowExecutor sequential integration: single/multi-step sequencing,
-// git-owned task lifecycle, project binding, context propagation, inline
-// loops, cancellation, budget, and event emission.
 @Tags(['component'])
 library;
 
@@ -35,8 +32,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatusChangedEvent,
         WorkflowStep,
         WorkflowStepCompletedEvent,
-        WorkflowTurnAdapter,
-        WorkflowTurnOutcome,
         WorkflowVariable;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeProjectService;
 import 'package:path/path.dart' as p;
@@ -48,6 +43,16 @@ void main() {
   final h = WorkflowExecutorHarness();
   setUp(h.setUp);
   tearDown(h.tearDown);
+
+  StreamSubscription<TaskStatusChangedEvent> completeQueuedTasks({
+    Future<void> Function(TaskStatusChangedEvent event)? beforeComplete,
+  }) {
+    return h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      await beforeComplete?.call(e);
+      await h.completeTask(e.taskId);
+    });
+  }
 
   test('workflow execution fails fast when AE/WSE persistence is not wired', () async {
     final bareExecutor = h.makeExecutor(
@@ -134,12 +139,7 @@ void main() {
     await h.repository.insert(run);
     final stepEvents = <WorkflowStepCompletedEvent>[];
     final stepSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen(stepEvents.add);
-    final taskSub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      await h.completeTask(e.taskId);
-    });
+    final taskSub = completeQueuedTasks();
 
     await h.executor.execute(run, definition, WorkflowContext(data: {'story_specs': <Map<String, Object?>>[]}));
     await taskSub.cancel();
@@ -166,13 +166,11 @@ void main() {
     final context = WorkflowContext();
 
     final taskIds = <String>[];
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      taskIds.add(e.taskId);
-      await h.completeTask(e.taskId);
-    });
+    final sub = completeQueuedTasks(
+      beforeComplete: (e) async {
+        taskIds.add(e.taskId);
+      },
+    );
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();
@@ -196,13 +194,11 @@ void main() {
     final context = WorkflowContext(data: {'should_run': false});
 
     final queuedTaskIds = <String>[];
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      queuedTaskIds.add(e.taskId);
-      await h.completeTask(e.taskId);
-    });
+    final sub = completeQueuedTasks(
+      beforeComplete: (e) async {
+        queuedTaskIds.add(e.taskId);
+      },
+    );
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();
@@ -241,12 +237,7 @@ void main() {
     final promotionCalls = <Map<String, String?>>[];
 
     final runtimeExecutor = h.makeExecutor(
-      turnAdapter: WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+      turnAdapter: standardTurnAdapter(
         promoteWorkflowBranch:
             ({
               required runId,
@@ -390,12 +381,7 @@ void main() {
     final promotionCalls = <Map<String, String?>>[];
 
     final runtimeExecutor = h.makeExecutor(
-      turnAdapter: WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-            const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+      turnAdapter: standardTurnAdapter(
         promoteWorkflowBranch:
             ({
               required runId,
@@ -510,14 +496,12 @@ void main() {
     final context = WorkflowContext();
 
     String? capturedDescription;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      final task = await h.taskService.get(e.taskId);
-      capturedDescription = task?.description;
-      await h.completeTask(e.taskId);
-    });
+    final sub = completeQueuedTasks(
+      beforeComplete: (e) async {
+        final task = await h.taskService.get(e.taskId);
+        capturedDescription = task?.description;
+      },
+    );
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();
@@ -544,14 +528,12 @@ void main() {
     final context = WorkflowContext();
 
     String? capturedDescription;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      final task = await h.taskService.get(e.taskId);
-      capturedDescription = task?.description;
-      await h.completeTask(e.taskId);
-    });
+    final sub = completeQueuedTasks(
+      beforeComplete: (e) async {
+        final task = await h.taskService.get(e.taskId);
+        capturedDescription = task?.description;
+      },
+    );
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();
@@ -567,10 +549,7 @@ void main() {
 
   test('deterministic publish writes publish.* outputs when enabled', () async {
     final publishExecutor = h.makeExecutor(
-      turnAdapter: WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+      turnAdapter: standardTurnAdapter(
         publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
             WorkflowGitPublishResult(
               status: WorkflowPublishStatus.success,
@@ -613,10 +592,7 @@ void main() {
   test('workflow git bootstrap passes an empty baseRef when BRANCH is absent', () async {
     String? capturedBaseRef;
     final bootstrapExecutor = h.makeExecutor(
-      turnAdapter: WorkflowTurnAdapter(
-        reserveTurn: (_) => Future.value('turn-1'),
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+      turnAdapter: standardTurnAdapter(
         initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
           capturedBaseRef = baseRef;
           return const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test');
@@ -1034,13 +1010,11 @@ void main() {
     final context = WorkflowContext(data: {'step1.approved': 'false'});
 
     var stepCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      stepCount++;
-      await h.completeTask(e.taskId);
-    });
+    final sub = completeQueuedTasks(
+      beforeComplete: (_) async {
+        stepCount++;
+      },
+    );
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();
@@ -1203,14 +1177,12 @@ void main() {
 
     var stepCount = 0;
     var cancelled = false;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      stepCount++;
-      cancelled = true;
-      await h.completeTask(e.taskId);
-    });
+    final sub = completeQueuedTasks(
+      beforeComplete: (_) async {
+        stepCount++;
+        cancelled = true;
+      },
+    );
 
     await h.executor.execute(run, definition, context, isCancelled: () => cancelled);
     await sub.cancel();
@@ -1233,13 +1205,11 @@ void main() {
     final context = WorkflowContext();
 
     var stepCount = 0;
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      stepCount++;
-      await h.completeTask(e.taskId);
-    });
+    final sub = completeQueuedTasks(
+      beforeComplete: (_) async {
+        stepCount++;
+      },
+    );
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();
@@ -1261,12 +1231,7 @@ void main() {
     await h.repository.insert(run);
     final context = WorkflowContext();
 
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      await h.completeTask(e.taskId);
-    });
+    final sub = completeQueuedTasks();
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();
@@ -1284,12 +1249,7 @@ void main() {
     final statusEvents = <WorkflowRunStatusChangedEvent>[];
     final statusSub = h.eventBus.on<WorkflowRunStatusChangedEvent>().listen(statusEvents.add);
 
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      await h.completeTask(e.taskId);
-    });
+    final sub = completeQueuedTasks();
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();
@@ -1313,12 +1273,7 @@ void main() {
     final stepEvents = <WorkflowStepCompletedEvent>[];
     final stepSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen(stepEvents.add);
 
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
-      await Future<void>.delayed(Duration.zero);
-      await h.completeTask(e.taskId);
-    });
+    final sub = completeQueuedTasks();
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();

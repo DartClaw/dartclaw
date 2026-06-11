@@ -1,13 +1,10 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/src/canvas/canvas_service.dart';
-import 'package:dartclaw_server/src/canvas/canvas_tool_handler.dart';
 import 'package:dartclaw_server/src/mcp/brave_search_tool.dart';
 import 'package:dartclaw_server/src/mcp/kg_tools.dart';
 import 'package:dartclaw_server/src/mcp/memory_tools.dart';
 import 'package:dartclaw_server/src/mcp/onboarding_complete_tool.dart';
 import 'package:dartclaw_server/src/mcp/search_provider.dart';
 import 'package:dartclaw_server/src/mcp/sessions_send_tool.dart';
-import 'package:dartclaw_server/src/mcp/sessions_spawn_tool.dart';
 import 'package:dartclaw_server/src/mcp/tavily_search_tool.dart';
 import 'package:dartclaw_server/src/mcp/web_fetch_tool.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -57,13 +54,7 @@ void main() {
 
     test('TavilySearchTool', () => expectCompliant(TavilySearchTool(provider: _StubSearchProvider())));
 
-    test('SessionsSpawnTool', () => expectCompliant(SessionsSpawnTool(delegate: _stubDelegate())));
-
     test('SessionsSendTool', () => expectCompliant(SessionsSendTool(delegate: _stubDelegate())));
-
-    test('CanvasTool', () {
-      expectCompliant(CanvasTool(canvasService: CanvasService(), sessionKey: 'test-session'));
-    });
 
     test('KG tools', () {
       expectCompliant(KgAddTool(kg: kg));
@@ -82,9 +73,7 @@ void main() {
         WebFetchTool(),
         BraveSearchTool(provider: _StubSearchProvider()),
         TavilySearchTool(provider: _StubSearchProvider()),
-        SessionsSpawnTool(delegate: _stubDelegate()),
         SessionsSendTool(delegate: _stubDelegate()),
-        CanvasTool(canvasService: CanvasService(), sessionKey: 'test-session'),
         KgAddTool(kg: kg),
         KgQueryTool(kg: kg),
         KgTimelineTool(kg: kg),

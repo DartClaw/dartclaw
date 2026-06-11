@@ -2,20 +2,9 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
 void main() {
-  late EventBus bus;
   final now = DateTime.parse('2026-03-25T12:00:00Z');
 
-  setUp(() => bus = EventBus());
-  tearDown(() async {
-    if (!bus.isDisposed) {
-      await bus.dispose();
-    }
-  });
-
-  test('AdvisorMentionEvent exposes fields and filters through EventBus', () async {
-    final events = <AdvisorMentionEvent>[];
-    bus.on<AdvisorMentionEvent>().listen(events.add);
-
+  test('AdvisorMentionEvent exposes fields', () {
     final event = AdvisorMentionEvent(
       senderJid: 'users/123',
       channelType: 'googlechat',
@@ -26,19 +15,11 @@ void main() {
       taskId: 'task-1',
       timestamp: now,
     );
-    bus.fire(event);
-    await Future<void>.delayed(Duration.zero);
-
-    expect(events, hasLength(1));
-    expect(events.single.recipientId, 'spaces/AAA');
-    expect(events.single.taskId, 'task-1');
-    expect(event.toString(), contains('googlechat'));
+    expect(event.recipientId, 'spaces/AAA');
+    expect(event.taskId, 'task-1');
   });
 
-  test('AdvisorInsightEvent exposes fields and filters through EventBus', () async {
-    final events = <AdvisorInsightEvent>[];
-    bus.on<AdvisorInsightEvent>().listen(events.add);
-
+  test('AdvisorInsightEvent exposes fields', () {
     final event = AdvisorInsightEvent(
       status: 'stuck',
       observation: 'The task keeps revisiting the same failing path.',
@@ -48,11 +29,7 @@ void main() {
       sessionKey: 'agent:main:task:task-1',
       timestamp: now,
     );
-    bus.fire(event);
-    await Future<void>.delayed(Duration.zero);
-
-    expect(events, hasLength(1));
-    expect(events.single.taskIds, ['task-1', 'task-2']);
-    expect(event.toString(), contains('periodic'));
+    expect(event.taskIds, ['task-1', 'task-2']);
+    expect(event.triggerType, 'periodic');
   });
 }

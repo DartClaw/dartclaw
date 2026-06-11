@@ -15,6 +15,7 @@ import 'harness_pool.dart';
 import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
 import 'turn_runner.dart';
+import 'turn_wait_status.dart';
 
 // ---------------------------------------------------------------------------
 // Data types (re-exported from dartclaw_core for local convenience)
@@ -30,6 +31,7 @@ class TurnContext {
   final String sessionId;
   final String agentName;
   final DateTime startedAt;
+  final String? taskId;
 
   /// Optional working directory override for this turn (e.g. worktree path).
   final String? directory;
@@ -66,6 +68,7 @@ class TurnContext {
     required this.sessionId,
     this.agentName = 'main',
     required this.startedAt,
+    this.taskId,
     this.directory,
     this.model,
     this.effort,
@@ -115,8 +118,11 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     MessageRedactor? redactor,
     SelfImprovementService? selfImprovement,
     UsageTracker? usageTracker,
+    EventBus? eventBus,
     Duration stallTimeout = Duration.zero,
     TurnProgressAction stallAction = TurnProgressAction.warn,
+    TurnMonitorConfig turnMonitor = const TurnMonitorConfig.defaults(),
+    Duration? globalTimeout,
     Duration outcomeTtl = const Duration(seconds: 30),
   }) : _pool = HarnessPool(
          runners: [
@@ -136,8 +142,11 @@ class TurnManager implements core.TurnManager, Reconfigurable {
              redactor: redactor,
              selfImprovement: selfImprovement,
              usageTracker: usageTracker,
+             eventBus: eventBus,
              stallTimeout: stallTimeout,
              stallAction: stallAction,
+             turnMonitor: turnMonitor,
+             globalTimeout: globalTimeout,
              outcomeTtl: outcomeTtl,
            ),
          ],
@@ -208,6 +217,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     String? model,
     String? effort,
     int? maxTurns,
+    String? taskId,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
@@ -223,6 +233,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
         model: model,
         effort: effort,
         maxTurns: maxTurns,
+        taskId: taskId,
         isHumanInput: isHumanInput,
         behaviorOverride: behaviorOverride,
         promptScope: promptScope,
@@ -291,6 +302,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     String? model,
     String? effort,
     int? maxTurns,
+    String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
@@ -301,6 +313,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
       model: model,
       effort: effort,
       maxTurns: maxTurns,
+      taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools,
       readOnly: readOnly,
@@ -323,6 +336,53 @@ class TurnManager implements core.TurnManager, Reconfigurable {
         return;
       }
     }
+  }
+
+  TurnStatusSnapshot turnStatus(String sessionId) {
+    TurnStatusSnapshot? latestTerminal;
+    for (final runner in _pool.runners) {
+      final status = runner.turnStatus(sessionId);
+      switch (status.state) {
+        case TurnWaitState.running:
+        case TurnWaitState.waiting:
+        case TurnWaitState.stuck:
+        case TurnWaitState.cancelling:
+          return status;
+        case TurnWaitState.cancelled:
+        case TurnWaitState.completed:
+        case TurnWaitState.failed:
+          if (_isLaterTerminal(status, latestTerminal)) {
+            latestTerminal = status;
+          }
+        case TurnWaitState.idle:
+          break;
+      }
+    }
+    return latestTerminal ?? TurnStatusSnapshot.idle(sessionId);
+  }
+
+  Future<TurnCancelResult> cancelTurnById(String sessionId, String turnId, TurnCancelReason reason) async {
+    for (final runner in _pool.runners) {
+      if (runner.isActiveTurn(sessionId, turnId)) {
+        return runner.cancelTurnById(sessionId, turnId, reason);
+      }
+    }
+    for (final runner in _pool.runners) {
+      if (runner.recentOutcome(sessionId, turnId) != null) {
+        return runner.cancelTurnById(sessionId, turnId, reason);
+      }
+    }
+    throw const TurnCancelException('TURN_NOT_FOUND', 'Turn not found', statusCode: 404);
+  }
+
+  bool _isLaterTerminal(TurnStatusSnapshot candidate, TurnStatusSnapshot? current) {
+    // Order terminal snapshots by their internal completion timestamp, not the
+    // API `global_timeout_at` field (which is null for terminal turns).
+    final candidateCompletedAt = candidate.completedAt;
+    if (candidateCompletedAt == null) return current == null;
+    final currentCompletedAt = current?.completedAt;
+    if (currentCompletedAt == null) return true;
+    return candidateCompletedAt.isAfter(currentCompletedAt);
   }
 
   @override

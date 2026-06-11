@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig;
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
@@ -180,6 +181,53 @@ void main() {
 
       final harness = factory.create('fake', const HarnessFactoryConfig(cwd: '/tmp'));
       expect(harness, isA<FakeAgentHarness>());
+    });
+
+    test('registered ACP agents receive guard, permission, and audit seams', () {
+      final factory = HarnessFactory();
+      final guardChain = GuardChain(guards: const []);
+      Future<AcpPermissionResult> permissionDecision(AcpPermissionRequest request) async {
+        return const AcpPermissionResult(granted: true);
+      }
+
+      void audit(AcpReverseCallAuditEvent event) {}
+
+      factory.registerAcpAgent(
+        'goose-direct',
+        const AcpAgentConfig(binary: 'goose', args: ['acp'], containerIsolationRequired: false),
+      );
+
+      final harness =
+          factory.create(
+                'goose-direct',
+                HarnessFactoryConfig(
+                  cwd: '/tmp/workspace',
+                  guardChain: guardChain,
+                  acpPermissionDecision: permissionDecision,
+                  acpReverseCallAudit: audit,
+                ),
+              )
+              as AcpHarness;
+
+      expect(harness.guardChain, same(guardChain));
+      expect(harness.permissionDecision, same(permissionDecision));
+      expect(harness.onReverseCallAudit, same(audit));
+    });
+
+    test('container-required ACP agents fail closed without a container manager', () {
+      final factory = HarnessFactory();
+      factory.registerAcpAgent('goose-relay', const AcpAgentConfig(binary: 'goose', containerIsolationRequired: true));
+
+      expect(
+        () => factory.create('goose-relay', const HarnessFactoryConfig(cwd: '/tmp/workspace')),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('requires container isolation but no container manager is wired'),
+          ),
+        ),
+      );
     });
 
     test('probeContinuityProviders returns built-in providers that support session continuity', () {

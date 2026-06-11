@@ -117,17 +117,6 @@ steps:
         outputs:
           story_result: story_result
 
-      - id: quick-review
-        name: Quick Review Story
-        skill: andthen:quick-review
-        provider: "@executor"
-        model: "@executor"
-        continueSession: true
-        maxRetries: 1
-        prompt: "--fix --auto"
-        inputs: [story_result]
-        # No outputs – quick-review fixes issues in-session via --fix.
-
       - id: simplify-code
         name: Simplify Story Code
         skill: andthen:simplify-code
@@ -146,6 +135,59 @@ steps:
           behavior; no scope creep into other packages.
         inputs: [story_result]
 
+      # Per-story review: catch intent-drift + code/security defects in this
+      # story before integration, instead of deferring everything to the
+      # diffuse whole-plan pass. Writes bare canonical review keys into the
+      # per-iteration context that the nested loop's exit gate reads.
+      - id: review-story
+        name: Review Story
+        skill: andthen:review
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        inputs: [story_specs, story_result]
+        prompt: >-
+          --mode gap,code,security --auto
+          --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+          Review the implementation of {{map.item.spec_path}}. Scope strictly
+          to this story's FIS; the live checkout may contain unrelated operator
+          work, so do not flag it.
+        outputs:
+          review_findings: review_report_path
+          findings_count: findings_count
+          gating_findings_count: gating_findings_count
+
+      # Per-story converging review→remediate→re-review loop. Runs against this
+      # foreach item's context only; its review outputs never leak to the
+      # plan-level context (the loop step declares no outputs:).
+      - id: story-remediation
+        name: Story Remediation Loop
+        type: loop
+        maxIterations: 3
+        entryGate: "gating_findings_count > 0"
+        exitGate: "gating_findings_count == 0"
+        steps:
+          - id: remediate-story
+            name: Remediate Story Findings
+            skill: andthen:remediate-findings
+            inputs: [review_findings, story_result]
+            prompt: "--auto {{context.review_findings}}"
+            outputs:
+              remediation_summary: remediation_summary
+          - id: re-review-story
+            name: Re-review Story
+            skill: andthen:review
+            allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+            inputs: [story_specs, story_result, remediation_summary]
+            prompt: >-
+              --mode gap,code,security --auto
+              --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
+              Review the implementation of {{map.item.spec_path}}. Scope
+              strictly to this story's FIS; the live checkout may contain
+              unrelated operator work, so do not flag it.
+            outputs:
+              review_findings: review_report_path
+              findings_count: findings_count
+              gating_findings_count: gating_findings_count
+
   - id: plan-review
     name: Review Full Implementation
     skill: andthen:review
@@ -155,14 +197,14 @@ steps:
     inputs: [story_specs, story_results, plan]
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
-      --mode mixed --auto
+      --mode gap --auto
       --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
       Review implementation of {{context.plan}}. Scope by the plan and
       per-story FIS – assess only the working-tree state implementing this
       plan; the live checkout may contain unrelated operator work, so do
       not flag it.
     outputs:
-      review_findings: review_report_path
+      plan-review.review_findings: review_report_path
       plan-review.findings_count: findings_count
       plan-review.gating_findings_count: gating_findings_count
 
@@ -170,7 +212,12 @@ steps:
     name: Review Full Implementation with Council
     skill: andthen:review
     parallel: true
-    onFailure: retry
+    # Advisory extra-perspective pass: the codex plan-review + architecture-review
+    # carry the gating signal, and the council writes its report to the reviews
+    # output-dir regardless. A council flake (provider stall, output-capture edge
+    # case) must not abort the whole milestone, so continue past its failure
+    # rather than failing the parallel barrier.
+    onFailure: continue
     maxRetries: 1
     provider: claude
     model: opus[1m]
@@ -178,7 +225,7 @@ steps:
     inputs: [story_specs, story_results, plan]
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
-      --mode mixed --council --auto
+      --mode code,security --council --auto
       --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
       Review implementation of {{context.plan}}. Scope by the plan and
       per-story FIS – assess only the working-tree state implementing this
@@ -203,7 +250,7 @@ steps:
       working tree; ignore unrelated operator work in other parts of the
       live checkout.
     outputs:
-      architecture_review_findings: review_report_path
+      architecture-review.review_findings: review_report_path
       architecture-review.findings_count: findings_count
       architecture-review.gating_findings_count: gating_findings_count
 
@@ -238,7 +285,7 @@ steps:
         allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
         inputs: [story_specs, story_results, remediation_summary]
         prompt: >-
-          --mode mixed --auto
+          --mode gap,code,security --auto
           --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"
           Review implementation of {{context.plan}}. Scope by the plan
           and per-story FIS – assess only the working-tree state

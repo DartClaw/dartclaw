@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.17**
+> Current through: **0.18**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -18,15 +18,16 @@ package boundaries from drifting after refactors, see
 │        security policy, channels, tasks, scheduling     │
 │  Trust: FULL — this is your code                        │
 └────────────────────────┬────────────────────────────────┘
-                         │ JSONL control protocol (stdin/stdout)
+                         │ Provider control protocol over stdin/stdout
 ┌────────────────────────▼────────────────────────────────┐
 │  Layer 2: Agent CLI Binary                              │
 │  ─────────────────────────                              │
-│  claude CLI (Anthropic) or codex CLI (OpenAI)           │
+│  claude, codex, or ACP agent binaries                   │
 │  Owns: agent reasoning, tool execution,                 │
 │        bash commands, file operations                   │
 │  Trust: PROVIDER-BOUND — Claude can run in Docker;      │
-│         Codex uses its configured approval/sandbox mode │
+│         Codex uses its configured approval/sandbox      │
+│         mode; ACP depends on topology                   │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -50,18 +51,23 @@ The actual agent runtimes. DartClaw supports multiple providers (since 0.13):
 |----------|--------|----------|--------|
 | **Claude** (default) | `claude` CLI | Bidirectional JSONL | Claude Haiku, Sonnet, Opus |
 | **Codex** | `codex` CLI | JSON-RPC JSONL | OpenAI GPT-4o, GPT-5, o-series, Ollama |
+| **ACP agents** | Goose, Vibe, or other configured ACP binaries | ACP stdio JSON-RPC | Depends on the agent's configured model provider |
 
 Each provider binary is spawned as a subprocess. The Dart host manages its lifecycle, including auto-restart with exponential backoff on crash. The `HarnessFactory` creates the appropriate harness type based on the configured provider ID.
 
 Workflow execution now has a scoped exception to the normal long-lived streaming session model: bounded workflow agent steps can run through a one-shot CLI path that invokes the provider binary directly per workflow prompt while the Dart host still owns the task, session transcript, budgets, and workflow state. Interactive chat, channel turns, and ordinary task turns remain on the streaming harness path.
 
-In a mixed deployment, the `HarnessPool` can contain workers from different providers — for example, a Claude primary harness for interactive chat and Codex workers for background tasks. See [Agents § Providers](agents.md#providers) for configuration details.
+In a mixed deployment, the `HarnessPool` contains provider-scoped workers — for example, a Claude primary harness for interactive chat, Codex workers for background tasks, and an ACP agent pool for Goose or Vibe. Each provider identity has default pool size `1`; override capacity with `providers.<id>.pool_size`. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
 
-## Communication: The JSONL Control Protocol
+`AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host `fs` and `terminal` reverse-calls. Relay or unverified ACP topologies are container-isolation-only until verified.
 
-DartClaw communicates with provider CLI binaries over stdin/stdout using bidirectional line-delimited JSON protocols. Claude uses an ad-hoc JSONL control protocol; Codex uses JSON-RPC JSONL. The Claude side of this protocol family is the same interface used by the official Python, Go, and Elixir SDKs.
+## Communication: Provider Control Protocols
 
-```
+DartClaw communicates with provider CLI binaries over stdin/stdout using bidirectional protocols. Claude uses an ad-hoc JSONL control protocol; Codex uses JSON-RPC JSONL; ACP agents use ACP stdio JSON-RPC. The Claude side of this protocol family is the same interface used by the official Python, Go, and Elixir SDKs.
+
+Claude and Codex both stream provider events over stdio. ACP uses the same parent-child transport shape, but its wire protocol is ACP stdio JSON-RPC and its filesystem/terminal operations are host reverse-calls.
+
+```text
 Dart Host                              Agent CLI Binary
     │                                       │
     │──── spawn with args + env ───────────>│
@@ -69,9 +75,9 @@ Dart Host                              Agent CLI Binary
     │──── initialize (hooks, MCP, prompt) ─>│
     │<──── init response ──────────────────│
     │                                       │
-    │──── user message (JSONL) ───────────>│
+    │──── user message / turn request ────>│
     │<──── stream text delta ──────────────│
-    │<──── hook callback (PreToolUse) ─────│  ← guard evaluation
+    │<──── hook / approval / reverse-call ─│  ← guard evaluation
     │──── hook response (allow/deny) ─────>│
     │<──── stream tool_use ────────────────│
     │<──── stream tool_result ─────────────│
@@ -86,13 +92,14 @@ The protocol supports:
 - **Hook callbacks** — the binary asks the Dart host for permission or lifecycle coordination before key operations (`PreToolUse`, `PostToolUse`, `PermissionDenied`, `PreCompact`), enabling guard enforcement, audit logging, and compaction observability
 - **In-process MCP** — MCP tool calls (memory search, web fetch, etc.) are proxied through the control protocol as JSONRPC messages, handled by the Dart host
 - **Control messages** — interrupt, model switching, permission mode changes
+- **ACP reverse-calls** — verified direct ACP agents route `fs/read_text_file`, `fs/write_text_file`, and `terminal/create` through DartClaw's guard chain before host-side file or terminal work
 
-### Why JSONL over stdin/stdout?
+### Why stdio?
 
 - No network port needed (simpler than HTTP or WebSocket)
 - Works seamlessly when the binary runs inside a Docker container
-- One line = one message — no framing issues
-- Native Dart JSON parsing, no additional protocol libraries needed
+- One parent-child stream keeps framing local to the provider protocol: JSONL for Claude/Codex, JSON-RPC for ACP
+- No provider SDK or daemon layer is required. Claude/Codex framing uses native Dart parsing; ACP uses the minimal `json_rpc_2` client library for stdio JSON-RPC.
 
 ## Package Structure
 
@@ -206,8 +213,8 @@ A "turn" is a single round-trip: user message in, agent response out. The Dart h
 
 1. **TurnManager** — receives the user message, selects a harness from the pool, delegates to a TurnRunner
 2. **TurnRunner** — executes the full turn lifecycle for a single harness: guard evaluation, message persistence, system prompt composition, streaming, progress-aware stall handling, cost tracking, crash recovery
-3. **AgentHarness** — abstract interface to agent binaries. `ClaudeCodeHarness` (Claude) and `CodexHarness` (OpenAI) are the concrete implementations. `HarnessFactory` creates the appropriate type based on provider ID
-4. **HarnessPool** — manages multiple harness instances for concurrent execution. Runner 0 is the "primary" (reserved for interactive chat, cron, channels). Runners 1..N are the "task pool" (acquired by the task executor for background work). In mixed deployments, pool workers can be from different providers
+3. **AgentHarness** — abstract interface to agent binaries. `ClaudeCodeHarness` (Claude), `CodexHarness` (OpenAI), and `AcpHarness` (ACP agents) are the concrete implementations. `HarnessFactory` creates the appropriate type based on provider ID
+4. **HarnessPool** — manages provider-scoped harness instances for concurrent execution. Runner 0 is the "primary" (reserved for interactive chat, cron, channels). Runners 1..N are task runners acquired by the task executor or delegation paths
 
 ```
 User message (web / channel / cron / task)
@@ -221,7 +228,7 @@ TurnManager ──→ HarnessPool.primary (interactive)
 TurnRunner (per-harness)
     ├── GuardChain evaluation (input sanitizer, command/file/network guards)
     ├── System prompt composition (behavior files + context)
-    ├── AgentHarness.turn() → agent binary via JSONL
+    ├── AgentHarness.turn() → provider protocol over stdio
     ├── SSE streaming to web UI
     ├── Message persistence (NDJSON append)
     ├── Usage tracking (token attribution)
@@ -322,7 +329,7 @@ DartClaw follows **defense-in-depth** — multiple overlapping layers, each prov
 | Layer | Mechanism |
 |-------|-----------|
 | **Container isolation** | Docker kernel namespaces (PID, network, mount, user). The primary security boundary. |
-| **Credential isolation** | API keys injected via Unix socket proxy. Container environment is clean. |
+| **Credential isolation** | Claude/Anthropic API keys use the Unix socket `CredentialProxy`, keeping the Claude container environment clean. Codex and ACP credentials are provider-specific and scoped to the selected provider boundary. |
 | **Guard chain** | InputSanitizer (prompt injection), CommandGuard (shell injection), FileGuard (path traversal), NetworkGuard (allowlist), ContentGuard (agent output scanning) |
 | **Message redaction** | Outbound secret/PII redaction via configurable patterns |
 | **Audit logging** | All guard verdicts logged to date-partitioned `audit-YYYY-MM-DD.ndjson` files with retention cleanup. Viewable in the health dashboard. |
@@ -368,19 +375,21 @@ Events are fire-and-forget notifications. If no listener is subscribed, the even
 
 ## MCP Server
 
-DartClaw exposes an internal MCP (Model Context Protocol) server that provides custom tools to the agent. Tool calls are proxied through the JSONL control protocol as JSONRPC messages — no external MCP server process needed.
+DartClaw exposes an internal MCP (Model Context Protocol) server that provides custom tools to the agent. Tool calls are proxied through the active provider protocol — Claude JSONL, Codex JSON-RPC JSONL, or guarded ACP host calls where applicable — with no external MCP server process needed.
 
 Built-in MCP tools:
 
 | Tool | Purpose |
 |------|---------|
 | `memory_save` / `memory_search` | Persistent memory with FTS5 search |
-| `sessions_send` | Synchronous delegation to a subagent (blocks until complete) |
-| `sessions_spawn` | Async delegation to a subagent (returns session ID immediately) |
+| `delegate_to_agent` | Delegates a bounded task to an allowlisted agent and returns terminal status: `completed`, `cancelled`, `budget_exceeded`, or `error` |
+| `sessions_send` | Synchronous session handoff (legacy subagent path) |
 | `web_fetch` | Fetch web content (SSRF-hardened: DNS resolution, private IP blocking) |
 | `brave_search` / `tavily_search` | Web search via configurable provider |
 
 Additional tools can be registered via the `registerTool()` SDK API.
+
+`delegate_to_agent` validates `delegation.enabled`, the allowlisted `agent_id`, non-empty task text, workspace-jailed `work_dir`, budget settings, and the target's security mode before spawn. Direct verified ACP agents can satisfy `require_guard_mediation`; relay or unverified ACP agents cannot. Codex delegation uses `security_mode: "provider_approval"` and requires Codex approvals/sandbox to be enabled.
 
 ## Web UI Architecture
 
@@ -411,11 +420,6 @@ When you send a message:
 | `/memory` | Memory overview, file browser, pruner history |
 | `/settings` | Live configuration editor, guard config viewer, channel access management |
 | `/scheduling` | Cron job management (add/edit/delete) |
-| `/canvas-admin` | Facilitator canvas controls, public share-link management, sandboxed live embed |
-
-### Shareable Canvas
-
-The 0.14.2 canvas subsystem adds a standalone SSE-driven page at `/canvas/<token>` for zero-auth workshop viewers. The server keeps canvas state in memory, validates share tokens from the path itself, and broadcasts updates through `CanvasService`. Facilitators manage the feature from `/canvas-admin`, which embeds the live canvas in a sandboxed iframe and can generate or revoke share links without exposing the rest of the web UI.
 
 ## Configuration System
 

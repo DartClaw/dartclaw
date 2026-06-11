@@ -25,7 +25,7 @@
   <div tl:if="${detail}" class="msg-turn-failed-detail" tl:text="${detail}">Error detail</div>
 </div>
 
-<main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area" data-controller="dc-chat"
+<main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area" data-controller="dc-chat dc-tasks"
   tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-earliest-cursor=${earliestCursor}">
   <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">banner</div>
   <div class="chat-load-earlier">
@@ -35,6 +35,23 @@
     </button>
   </div>
   <div class="messages" id="messages" tl:utext="${messagesHtml}">messages</div>
+  <div tl:if="${hasTurnStatus}" class="turn-status-panel"
+       tl:attr="data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
+    <div class="turn-status-row">
+      <span class="meta-label">Turn</span>
+      <span class="status-badge" data-turn-status-state tl:text="${turnStatus.stateLabel}">waiting</span>
+      <span class="meta-value" data-turn-status-reason tl:text="${turnStatus.reasonLabel}">session lock</span>
+    </div>
+    <div class="turn-status-times">
+      <span data-turn-status-waiting tl:text="${turnStatus.waitingSince}">waiting since</span>
+      <span data-turn-status-stuck tl:text="${turnStatus.stuckSince}">stuck since</span>
+      <span data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}">timeout</span>
+    </div>
+    <button type="button" class="btn btn-ghost" data-turn-cancel
+            tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},disabled=${turnStatus.cancelDisabled}">
+      Cancel Turn
+    </button>
+  </div>
   <div tl:if="${readOnly}" class="input-area">
     <div class="archive-notice">This is an archived session. Resume it to continue the conversation.</div>
   </div>

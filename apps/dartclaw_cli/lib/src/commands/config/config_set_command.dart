@@ -1,23 +1,10 @@
-import 'dart:io';
-
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show ConfigMeta, ConfigMutability, DartclawConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show ConfigMeta, ConfigMutability;
 
-import '../../dartclaw_api_client.dart';
 import '../connected_command_support.dart';
-import '../serve_command.dart' show ExitFn, WriteLine;
 
-class ConfigSetCommand extends Command<void> {
-  final DartclawConfig? _config;
-  final DartclawApiClient? _apiClient;
-  final WriteLine _writeLine;
-  final ExitFn _exitFn;
-
-  ConfigSetCommand({DartclawConfig? config, DartclawApiClient? apiClient, WriteLine? writeLine, ExitFn? exitFn})
-    : _config = config,
-      _apiClient = apiClient,
-      _writeLine = writeLine ?? stdout.writeln,
-      _exitFn = exitFn ?? exit {
+class ConfigSetCommand extends ConnectedCommand {
+  ConfigSetCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser.addFlag('json', negatable: false, help: 'Output as JSON');
   }
 
@@ -28,7 +15,7 @@ class ConfigSetCommand extends Command<void> {
   String get description => 'Update a config value';
 
   @override
-  Future<void> run() async {
+  Future<void> run() => runConnected((apiClient) async {
     final args = argResults!.rest;
     if (args.length < 2) {
       throw UsageException('Usage: dartclaw config set <key> <value>', usage);
@@ -36,29 +23,23 @@ class ConfigSetCommand extends Command<void> {
     final inputKey = args[0];
     final rawValue = args.sublist(1).join(' ');
     final yamlKey = _normalizeYamlKey(inputKey);
-    final apiClient = resolveCliApiClient(globalResults: globalResults, apiClient: _apiClient, config: _config);
-    try {
-      final result = await apiClient.patchObject('/api/config', body: {yamlKey: parseCliValue(rawValue)});
-      if (argResults!['json'] as bool) {
-        writePrettyJson(_writeLine, result);
-        return;
-      }
-      final pendingRestart = ((result['pendingRestart'] as List?) ?? const []).map((value) => value.toString()).toSet();
-      final meta = ConfigMeta.fields[yamlKey] ?? ConfigMeta.byJsonKey[inputKey];
-      var status = 'Applied';
-      if (pendingRestart.contains(yamlKey)) {
-        status = 'Applied (restart required)';
-      } else if (meta?.mutability == ConfigMutability.reloadable) {
-        status = 'Applied (reload required)';
-      } else if (meta?.mutability == ConfigMutability.live) {
-        status = 'Applied (live)';
-      }
-      _writeLine('$status: $yamlKey = $rawValue');
-    } on DartclawApiException catch (error) {
-      _writeLine(error.message);
-      _exitFn(1);
+    final result = await apiClient.patchObject('/api/config', body: {yamlKey: parseCliValue(rawValue)});
+    if (argResults!['json'] as bool) {
+      writePrettyJson(writeLine, result);
+      return;
     }
-  }
+    final pendingRestart = ((result['pendingRestart'] as List?) ?? const []).map((value) => value.toString()).toSet();
+    final meta = ConfigMeta.fields[yamlKey] ?? ConfigMeta.byJsonKey[inputKey];
+    var status = 'Applied';
+    if (pendingRestart.contains(yamlKey)) {
+      status = 'Applied (restart required)';
+    } else if (meta?.mutability == ConfigMutability.reloadable) {
+      status = 'Applied (reload required)';
+    } else if (meta?.mutability == ConfigMutability.live) {
+      status = 'Applied (live)';
+    }
+    writeLine('$status: $yamlKey = $rawValue');
+  });
 }
 
 String _normalizeYamlKey(String input) {

@@ -3,144 +3,128 @@ import 'package:test/test.dart';
 
 void main() {
   group('SessionKey', () {
-    group('webSession', () {
-      test('format is agent:main:web:', () {
-        expect(SessionKey.webSession(), 'agent:main:web:');
-      });
+    final keyCases = [
+      (name: 'webSession default', actual: SessionKey.webSession(), expected: 'agent:main:web:'),
+      (
+        name: 'webSession custom agentId',
+        actual: SessionKey.webSession(agentId: 'search'),
+        expected: 'agent:search:web:',
+      ),
+      (name: 'dmShared default', actual: SessionKey.dmShared(), expected: 'agent:main:dm:shared'),
+      (
+        name: 'dmShared custom agentId',
+        actual: SessionKey.dmShared(agentId: 'search'),
+        expected: 'agent:search:dm:shared',
+      ),
+      (
+        name: 'dmPerContact encodes peerId',
+        actual: SessionKey.dmPerContact(peerId: '123@s.whatsapp.net'),
+        expected: 'agent:main:dm:contact:123%40s.whatsapp.net',
+      ),
+      (
+        name: 'dmPerChannelContact includes channelType and peerId',
+        actual: SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: '123@s.whatsapp.net'),
+        expected: 'agent:main:dm:whatsapp:123%40s.whatsapp.net',
+      ),
+      (
+        name: 'groupShared includes channelType and groupId',
+        actual: SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us'),
+        expected: 'agent:main:group:whatsapp:group%40g.us',
+      ),
+      (
+        name: 'groupPerMember includes channelType, groupId, and peerId',
+        actual: SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'group@g.us', peerId: '123@s.whatsapp.net'),
+        expected: 'agent:main:group:whatsapp:group%40g.us:123%40s.whatsapp.net',
+      ),
+      (
+        name: 'cronSession format',
+        actual: SessionKey.cronSession(jobId: 'daily-summary'),
+        expected: 'agent:main:cron:daily-summary',
+      ),
+      (
+        name: 'cronSession encodes jobId',
+        actual: SessionKey.cronSession(jobId: 'job with spaces'),
+        expected: 'agent:main:cron:job%20with%20spaces',
+      ),
+      (
+        name: 'taskSession format',
+        actual: SessionKey.taskSession(taskId: 'task-123'),
+        expected: 'agent:main:task:task-123',
+      ),
+      (
+        name: 'taskSession encodes taskId',
+        actual: SessionKey.taskSession(taskId: 'task with spaces'),
+        expected: 'agent:main:task:task%20with%20spaces',
+      ),
+    ];
 
-      test('custom agentId', () {
-        expect(SessionKey.webSession(agentId: 'search'), 'agent:search:web:');
+    for (final testCase in keyCases) {
+      test(testCase.name, () {
+        expect(testCase.actual, testCase.expected);
       });
-    });
+    }
 
-    group('dmShared', () {
-      test('format is agent:main:dm:shared', () {
-        expect(SessionKey.dmShared(), 'agent:main:dm:shared');
-      });
+    final invalidCases = [
+      (name: 'dmPerContact empty peerId', build: () => SessionKey.dmPerContact(peerId: '')),
+      (
+        name: 'dmPerChannelContact empty peerId',
+        build: () => SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: ''),
+      ),
+      (name: 'groupShared empty groupId', build: () => SessionKey.groupShared(channelType: 'whatsapp', groupId: '')),
+      (
+        name: 'groupPerMember empty groupId',
+        build: () => SessionKey.groupPerMember(channelType: 'whatsapp', groupId: '', peerId: '123@s.whatsapp.net'),
+      ),
+      (
+        name: 'groupPerMember empty peerId',
+        build: () => SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'group@g.us', peerId: ''),
+      ),
+      (name: 'taskSession empty taskId', build: () => SessionKey.taskSession(taskId: '')),
+    ];
 
-      test('custom agentId', () {
-        expect(SessionKey.dmShared(agentId: 'search'), 'agent:search:dm:shared');
+    for (final testCase in invalidCases) {
+      test('${testCase.name} throws ArgumentError', () {
+        expect(testCase.build, throwsArgumentError);
       });
-    });
-
-    group('dmPerContact', () {
-      test('encodes peerId', () {
-        final key = SessionKey.dmPerContact(peerId: '123@s.whatsapp.net');
-        expect(key, 'agent:main:dm:contact:123%40s.whatsapp.net');
-      });
-
-      test('empty peerId throws ArgumentError', () {
-        expect(() => SessionKey.dmPerContact(peerId: ''), throwsArgumentError);
-      });
-    });
-
-    group('dmPerChannelContact', () {
-      test('format with channelType and peerId', () {
-        final key = SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: '123@s.whatsapp.net');
-        expect(key, 'agent:main:dm:whatsapp:123%40s.whatsapp.net');
-      });
-
-      test('empty peerId throws ArgumentError', () {
-        expect(() => SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: ''), throwsArgumentError);
-      });
-    });
-
-    group('groupShared', () {
-      test('format with channelType and groupId', () {
-        final key = SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us');
-        expect(key, 'agent:main:group:whatsapp:group%40g.us');
-      });
-
-      test('empty groupId throws ArgumentError', () {
-        expect(() => SessionKey.groupShared(channelType: 'whatsapp', groupId: ''), throwsArgumentError);
-      });
-    });
-
-    group('groupPerMember', () {
-      test('format with channelType, groupId, and peerId', () {
-        final key = SessionKey.groupPerMember(
-          channelType: 'whatsapp',
-          groupId: 'group@g.us',
-          peerId: '123@s.whatsapp.net',
-        );
-        expect(key, 'agent:main:group:whatsapp:group%40g.us:123%40s.whatsapp.net');
-      });
-
-      test('empty groupId throws ArgumentError', () {
-        expect(
-          () => SessionKey.groupPerMember(channelType: 'whatsapp', groupId: '', peerId: '123@s.whatsapp.net'),
-          throwsArgumentError,
-        );
-      });
-
-      test('empty peerId throws ArgumentError', () {
-        expect(
-          () => SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'group@g.us', peerId: ''),
-          throwsArgumentError,
-        );
-      });
-    });
-
-    group('cronSession', () {
-      test('produces correct format', () {
-        expect(SessionKey.cronSession(jobId: 'daily-summary'), 'agent:main:cron:daily-summary');
-      });
-
-      test('encodes special characters in jobId', () {
-        expect(SessionKey.cronSession(jobId: 'job with spaces'), 'agent:main:cron:job%20with%20spaces');
-      });
-    });
-
-    group('taskSession', () {
-      test('produces correct format', () {
-        expect(SessionKey.taskSession(taskId: 'task-123'), 'agent:main:task:task-123');
-      });
-
-      test('encodes special characters in taskId', () {
-        expect(SessionKey.taskSession(taskId: 'task with spaces'), 'agent:main:task:task%20with%20spaces');
-      });
-
-      test('empty taskId throws ArgumentError', () {
-        expect(() => SessionKey.taskSession(taskId: ''), throwsArgumentError);
-      });
-    });
+    }
 
     group('parse', () {
-      test('round-trip for web session key', () {
-        final key = SessionKey(agentId: 'main', scope: 'web');
-        final parsed = SessionKey.parse(key.toString());
-        expect(parsed.agentId, 'main');
-        expect(parsed.scope, 'web');
-        expect(parsed.identifiers, '');
-      });
+      final parseCases = [
+        (
+          name: 'web session key',
+          key: SessionKey(agentId: 'main', scope: 'web').toString(),
+          scope: 'web',
+          identifiers: '',
+        ),
+        (
+          name: 'dmPerContact key',
+          key: SessionKey.dmPerContact(peerId: 'test@example.com'),
+          scope: 'dm',
+          identifiers: 'contact:test%40example.com',
+        ),
+        (
+          name: 'groupPerMember preserves colons',
+          key: SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'group@g.us', peerId: '123@s.whatsapp.net'),
+          scope: 'group',
+          identifiers: 'whatsapp:group%40g.us:123%40s.whatsapp.net',
+        ),
+        (
+          name: 'task session key',
+          key: SessionKey.taskSession(taskId: 'task-42'),
+          scope: 'task',
+          identifiers: 'task-42',
+        ),
+      ];
 
-      test('round-trip for dmPerContact key', () {
-        final keyStr = SessionKey.dmPerContact(peerId: 'test@example.com');
-        final parsed = SessionKey.parse(keyStr);
-        expect(parsed.agentId, 'main');
-        expect(parsed.scope, 'dm');
-        expect(parsed.identifiers, 'contact:test%40example.com');
-      });
+      for (final testCase in parseCases) {
+        test('round-trip for ${testCase.name}', () {
+          final parsed = SessionKey.parse(testCase.key);
 
-      test('round-trip for groupPerMember preserves colons', () {
-        final keyStr = SessionKey.groupPerMember(
-          channelType: 'whatsapp',
-          groupId: 'group@g.us',
-          peerId: '123@s.whatsapp.net',
-        );
-        final parsed = SessionKey.parse(keyStr);
-        expect(parsed.agentId, 'main');
-        expect(parsed.scope, 'group');
-        expect(parsed.identifiers, 'whatsapp:group%40g.us:123%40s.whatsapp.net');
-      });
-
-      test('round-trip for task session key', () {
-        final keyStr = SessionKey.taskSession(taskId: 'task-42');
-        final parsed = SessionKey.parse(keyStr);
-        expect(parsed.agentId, 'main');
-        expect(parsed.scope, 'task');
-        expect(parsed.identifiers, 'task-42');
-      });
+          expect(parsed.agentId, 'main');
+          expect(parsed.scope, testCase.scope);
+          expect(parsed.identifiers, testCase.identifiers);
+        });
+      }
 
       test('invalid key throws FormatException', () {
         expect(() => SessionKey.parse('invalid'), throwsFormatException);

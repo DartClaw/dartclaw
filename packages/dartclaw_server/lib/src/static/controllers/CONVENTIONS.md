@@ -4,8 +4,8 @@ This document defines the Stimulus controller contract for Web UI migration stor
 
 ## Naming
 
-- Controller identifier format: `dc-*` kebab-case (example: `dc-hello`).
-- Controller file format: `dc_*_controller.js` (example: `dc_hello_controller.js`).
+- Controller identifier format: `dc-*` kebab-case (example: `dc-health`).
+- Controller file format: `dc_*_controller.js` (example: `dc_health_controller.js`).
 - Keep one default-exported controller class per file.
 
 ## Registration

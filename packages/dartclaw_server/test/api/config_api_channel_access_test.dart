@@ -1,12 +1,12 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/auth/request_auth_context.dart';
 import 'package:path/path.dart' as p;
-import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:test/test.dart';
+
+import 'api_test_helpers.dart';
 
 void main() {
   late Directory tempDir;
@@ -118,34 +118,19 @@ channels:
     );
   }
 
-  Future<Response> get(Router router, String path) {
-    final request = Request('GET', Uri.parse('http://localhost$path'));
-    return router.call(request);
+  ApiRouteTestClient api(Router router) {
+    return ApiRouteTestClient(router.call);
   }
 
-  Future<Response> patch(Router router, String path, Map<String, dynamic> body) {
-    final request = withAdminAuthContext(
-      Request(
-        'PATCH',
-        Uri.parse('http://localhost$path'),
-        body: jsonEncode(body),
-        headers: {'content-type': 'application/json'},
-      ),
-    );
-    return router.call(request);
-  }
-
-  Future<Map<String, dynamic>> parseBody(Response response) async {
-    return jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+  ApiRouteTestClient adminApi(Router router) {
+    return ApiRouteTestClient((request) => router.call(withAdminAuthContext(request)));
   }
 
   group('Channel access fields in GET /api/config', () {
     test('includes channels.whatsapp.dmAccess and channels.signal.dmAccess', () async {
       final router = createRouter();
-      final resp = await get(router, '/api/config');
-      expect(resp.statusCode, 200);
+      final body = await api(router).expectJsonObject('GET', '/api/config');
 
-      final body = await parseBody(resp);
       final channels = body['channels'] as Map<String, dynamic>;
 
       expect(channels['whatsapp']['dmAccess'], 'pairing');
@@ -192,8 +177,7 @@ channels:
 
     test('_meta.fields includes channel access field metadata', () async {
       final router = createRouter();
-      final resp = await get(router, '/api/config');
-      final body = await parseBody(resp);
+      final body = await api(router).expectJsonObject('GET', '/api/config');
       final fields = body['_meta']['fields'] as Map<String, dynamic>;
 
       expect(fields.containsKey('channels.whatsapp.dm_access'), isTrue);
@@ -244,53 +228,55 @@ channels:
   group('PATCH /api/config channel access fields', () {
     test('valid dm_access change returns pendingRestart', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {'channels.whatsapp.dm_access': 'allowlist'});
-      expect(resp.statusCode, 200);
+      final body = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.dm_access': 'allowlist'});
 
-      final body = await parseBody(resp);
       expect(body['pendingRestart'], contains('channels.whatsapp.dm_access'));
       expect(body['errors'], isEmpty);
     });
 
     test('invalid dm_access value returns validation error', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {'channels.whatsapp.dm_access': 'invalid'});
-      expect(resp.statusCode, 400);
+      final body = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.dm_access': 'invalid'}, status: 400);
 
-      final body = await parseBody(resp);
       expect(body['errors'], isNotEmpty);
     });
 
     test('Signal dm_access pairing succeeds', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {'channels.signal.dm_access': 'pairing'});
-      expect(resp.statusCode, 200);
+      final body = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'channels.signal.dm_access': 'pairing'});
 
-      final body = await parseBody(resp);
       expect(body['pendingRestart'], contains('channels.signal.dm_access'));
       expect(body['errors'], isEmpty);
     });
 
     test('require_mention change returns pendingRestart', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {'channels.whatsapp.require_mention': false});
-      expect(resp.statusCode, 200);
+      final body = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.require_mention': false});
 
-      final body = await parseBody(resp);
       expect(body['pendingRestart'], contains('channels.whatsapp.require_mention'));
     });
 
     test('task trigger changes return pendingRestart', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {
-        'channels.whatsapp.task_trigger.enabled': false,
-        'channels.whatsapp.task_trigger.prefix': 'do:',
-        'channels.whatsapp.task_trigger.default_type': 'analysis',
-        'channels.whatsapp.task_trigger.auto_start': true,
-      });
-      expect(resp.statusCode, 200);
+      final body = await adminApi(router).expectJsonObject(
+        'PATCH',
+        '/api/config',
+        json: {
+          'channels.whatsapp.task_trigger.enabled': false,
+          'channels.whatsapp.task_trigger.prefix': 'do:',
+          'channels.whatsapp.task_trigger.default_type': 'analysis',
+          'channels.whatsapp.task_trigger.auto_start': true,
+        },
+      );
 
-      final body = await parseBody(resp);
       expect(
         body['pendingRestart'],
         containsAll([
@@ -305,31 +291,24 @@ channels:
 
     test('unknown task trigger default_type passes validation and round-trips from disk', () async {
       final router = createRouter();
-      final patchResp = await patch(router, '/api/config', {
-        'channels.whatsapp.task_trigger.default_type': 'future_type',
-      });
-      expect(patchResp.statusCode, 200);
+      final patchBody = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.task_trigger.default_type': 'future_type'});
 
-      final patchBody = await parseBody(patchResp);
       expect(patchBody['pendingRestart'], contains('channels.whatsapp.task_trigger.default_type'));
       expect(patchBody['errors'], isEmpty);
 
-      final getResp = await get(router, '/api/config');
-      expect(getResp.statusCode, 200);
-
-      final getBody = await parseBody(getResp);
+      final getBody = await api(router).expectJsonObject('GET', '/api/config');
       final channels = getBody['channels'] as Map<String, dynamic>;
       expect(channels['whatsapp']['taskTrigger']['defaultType'], 'future_type');
     });
 
     test('task trigger default_type is trimmed on PATCH before persisting', () async {
       final router = createRouter();
-      final patchResp = await patch(router, '/api/config', {
-        'channels.whatsapp.task_trigger.default_type': ' analysis ',
-      });
-      expect(patchResp.statusCode, 200);
+      final patchBody = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.task_trigger.default_type': ' analysis '});
 
-      final patchBody = await parseBody(patchResp);
       expect(patchBody['pendingRestart'], contains('channels.whatsapp.task_trigger.default_type'));
       expect(patchBody['errors'], isEmpty);
 
@@ -342,24 +321,27 @@ channels:
 
     test('blank task trigger prefix fails validation', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {'channels.whatsapp.task_trigger.prefix': '   '});
-      expect(resp.statusCode, 400);
+      final body = await adminApi(
+        router,
+      ).expectJsonObject('PATCH', '/api/config', json: {'channels.whatsapp.task_trigger.prefix': '   '}, status: 400);
 
-      final body = await parseBody(resp);
       final errors = (body['errors'] as List).cast<Map<String, dynamic>>();
       expect(errors.single['field'], 'channels.whatsapp.task_trigger.prefix');
     });
 
     test('google chat credential fields are rejected as unknown (not editable via API)', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {
-        'channels.google_chat.service_account': '/tmp/updated-google-service-account.json',
-        'channels.google_chat.audience.type': 'project-number',
-        'channels.google_chat.audience.value': '123456789',
-      });
-      expect(resp.statusCode, 400);
+      final body = await adminApi(router).expectJsonObject(
+        'PATCH',
+        '/api/config',
+        json: {
+          'channels.google_chat.service_account': '/tmp/updated-google-service-account.json',
+          'channels.google_chat.audience.type': 'project-number',
+          'channels.google_chat.audience.value': '123456789',
+        },
+        status: 400,
+      );
 
-      final body = await parseBody(resp);
       final errors = (body['errors'] as List).cast<Map<String, dynamic>>();
       expect(errors, hasLength(3));
       final fields = errors.map((e) => e['field']).toSet();
@@ -375,13 +357,15 @@ channels:
 
     test('google chat allowlist changes return pendingRestart', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {
-        'channels.google_chat.dm_allowlist': ['spaces/AAA/users/2'],
-        'channels.google_chat.group_allowlist': ['spaces/BBB'],
-      });
-      expect(resp.statusCode, 200);
+      final body = await adminApi(router).expectJsonObject(
+        'PATCH',
+        '/api/config',
+        json: {
+          'channels.google_chat.dm_allowlist': ['spaces/AAA/users/2'],
+          'channels.google_chat.group_allowlist': ['spaces/BBB'],
+        },
+      );
 
-      final body = await parseBody(resp);
       expect(
         body['pendingRestart'],
         containsAll(['channels.google_chat.dm_allowlist', 'channels.google_chat.group_allowlist']),

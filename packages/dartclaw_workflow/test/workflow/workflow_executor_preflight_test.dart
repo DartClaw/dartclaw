@@ -1,26 +1,8 @@
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeSkillIntrospector;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
-
-final class _FakeSkillIntrospector implements SkillIntrospector {
-  final Map<String, Set<String>> skillsByProvider;
-  final calls = <({String provider, String? executable})>[];
-  final providerOptionsByProvider = <String, Map<String, dynamic>>{};
-
-  _FakeSkillIntrospector(this.skillsByProvider);
-
-  @override
-  Future<Set<String>> listAvailable({
-    required String provider,
-    String? executable,
-    Map<String, dynamic> providerOptions = const <String, dynamic>{},
-  }) async {
-    calls.add((provider: provider, executable: executable));
-    providerOptionsByProvider[provider] = providerOptions;
-    return skillsByProvider[provider] ?? const <String>{};
-  }
-}
 
 final class _ThrowingSkillIntrospector implements SkillIntrospector {
   final calls = <({String provider, String? executable})>[];
@@ -62,7 +44,7 @@ steps:
     final report = WorkflowDefinitionValidator().validate(definition);
     expect(report.hasErrors, isFalse);
 
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'claude': {'andthen:review'},
     });
     final executor = h.makeExecutor(
@@ -104,7 +86,7 @@ steps:
         WorkflowStep(id: 'three', name: 'Three', provider: 'codex', skill: 'dartclaw-validate-workflow'),
       ],
     );
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'claude': {'andthen:review'},
       'codex': const <String>{},
     });
@@ -158,7 +140,7 @@ steps:
       description: 'preflight unconfigured provider test',
       steps: [WorkflowStep(id: 'review', name: 'Review', provider: 'missing-provider', skill: 'andthen:review')],
     );
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'missing-provider': {'andthen:review'},
     });
     final executor = h.makeExecutor(
@@ -187,7 +169,7 @@ steps:
       description: 'preflight codex alias test',
       steps: [WorkflowStep(id: 'review', name: 'Review', provider: 'codex', skill: 'andthen:review')],
     );
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'codex': {'andthen-review'},
     });
     final executor = h.makeExecutor(
@@ -219,7 +201,7 @@ steps:
       description: 'preflight codex missing alias test',
       steps: [WorkflowStep(id: 'implement', name: 'Implement', provider: 'codex', skill: 'andthen:exec-spec')],
     );
-    final introspector = _FakeSkillIntrospector({'codex': const <String>{}});
+    final introspector = FakeSkillIntrospector({'codex': const <String>{}});
     final executor = h.makeExecutor(
       skillIntrospector: introspector,
       skillPreflightConfig: const WorkflowSkillPreflightConfig(providerExecutables: {'codex': '/bin/codex'}),
@@ -242,7 +224,7 @@ steps:
       description: 'preflight codex family alias test',
       steps: [WorkflowStep(id: 'review', name: 'Review', provider: 'my_agent', skill: 'andthen:review')],
     );
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'my_agent': {'andthen-review'},
     });
     final executor = h.makeExecutor(
@@ -284,7 +266,7 @@ steps:
       description: 'preflight codex executable alias test',
       steps: [WorkflowStep(id: 'review', name: 'Review', provider: 'my_agent', skill: 'andthen:review')],
     );
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'my_agent': {'andthen-review'},
     });
     final executor = h.makeExecutor(
@@ -320,7 +302,7 @@ steps:
       description: 'preflight default provider test',
       steps: [WorkflowStep(id: 'review', name: 'Review', skill: 'andthen:review')],
     );
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'codex': {'andthen-review'},
     });
     final executor = h.makeExecutor(
@@ -356,7 +338,7 @@ steps:
       stepDefaults: [StepConfigDefault(match: 'review', provider: '@reviewer')],
       steps: [WorkflowStep(id: 'review', name: 'Review', skill: 'andthen:review')],
     );
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'codex': {'andthen-review'},
     });
     final executor = h.makeExecutor(
@@ -392,7 +374,7 @@ steps:
       description: 'preflight map default provider test',
       steps: [WorkflowStep(id: 'review', name: 'Review', skill: 'andthen:review', mapOver: 'items')],
     );
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'codex': {'andthen-review'},
     });
     final executor = h.makeExecutor(
@@ -444,7 +426,7 @@ steps:
         ),
       ],
     );
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'codex': {'andthen-exec-spec', 'andthen-quick-review'},
     });
     final executor = h.makeExecutor(
@@ -489,7 +471,7 @@ steps:
         WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{map.item}}']),
       ],
     );
-    final introspector = _FakeSkillIntrospector({'codex': const <String>{}});
+    final introspector = FakeSkillIntrospector({'codex': const <String>{}});
     final executor = h.makeExecutor(
       skillIntrospector: introspector,
       skillPreflightConfig: const WorkflowSkillPreflightConfig(
@@ -527,7 +509,7 @@ steps:
         WorkflowStep(id: 'review', name: 'Review', skill: 'andthen:review'),
       ],
     );
-    final introspector = _FakeSkillIntrospector({
+    final introspector = FakeSkillIntrospector({
       'codex': {'andthen-review'},
     });
     final executor = h.makeExecutor(
@@ -573,7 +555,7 @@ steps:
           WorkflowStep(id: 'validate', name: 'Validate', provider: provider, skill: 'dartclaw-validate-workflow'),
         ],
       );
-      final introspector = _FakeSkillIntrospector({
+      final introspector = FakeSkillIntrospector({
         provider: {'dartclaw-validate-workflow'},
       });
       final executor = h.makeExecutor(

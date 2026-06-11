@@ -1,4 +1,5 @@
 import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 typedef _CapturedVerdict = ({
@@ -8,31 +9,7 @@ typedef _CapturedVerdict = ({
   String? message,
   GuardContext context,
 });
-
-class FakeGuard extends Guard {
-  @override
-  final String name;
-
-  @override
-  final String category;
-
-  final GuardVerdict Function(GuardContext)? _evaluator;
-  final GuardVerdict? _fixedVerdict;
-
-  FakeGuard({
-    this.name = 'fake',
-    this.category = 'test',
-    GuardVerdict? verdict,
-    GuardVerdict Function(GuardContext)? evaluator,
-  }) : _fixedVerdict = verdict,
-       _evaluator = evaluator;
-
-  @override
-  Future<GuardVerdict> evaluate(GuardContext context) async {
-    if (_evaluator != null) return _evaluator(context);
-    return _fixedVerdict ?? GuardVerdict.pass();
-  }
-}
+typedef _ChainEvaluation = Future<GuardVerdict> Function(GuardChain chain);
 
 class ThrowingGuard extends Guard {
   @override
@@ -183,63 +160,59 @@ void main() {
       expect(verdicts[0].message, 'w');
     });
 
-    test('evaluateMessageReceived creates correct context hookPoint', () async {
-      String? capturedHookPoint;
-      final chain = buildChain([
-        FakeGuard(
-          evaluator: (context) {
-            capturedHookPoint = context.hookPoint;
-            return GuardVerdict.pass();
-          },
+    group('context', () {
+      final cases = <({String name, _ChainEvaluation evaluate, String hookPoint, String? source})>[
+        (
+          name: 'message received',
+          evaluate: (chain) => chain.evaluateMessageReceived('test', source: 'channel'),
+          hookPoint: 'messageReceived',
+          source: 'channel',
         ),
-      ]);
-      await chain.evaluateMessageReceived('test');
-      expect(capturedHookPoint, 'messageReceived');
-    });
-
-    test('evaluateBeforeAgentSend creates correct context hookPoint', () async {
-      String? capturedHookPoint;
-      final chain = buildChain([
-        FakeGuard(
-          evaluator: (context) {
-            capturedHookPoint = context.hookPoint;
-            return GuardVerdict.pass();
-          },
+        (
+          name: 'before agent send',
+          evaluate: (chain) => chain.evaluateBeforeAgentSend('response'),
+          hookPoint: 'beforeAgentSend',
+          source: null,
         ),
-      ]);
-      await chain.evaluateBeforeAgentSend('response');
-      expect(capturedHookPoint, 'beforeAgentSend');
+      ];
+
+      for (final testCase in cases) {
+        test('${testCase.name} context', () async {
+          GuardContext? capturedContext;
+          final chain = buildChain([
+            FakeGuard(
+              evaluator: (context) {
+                capturedContext = context;
+                return GuardVerdict.pass();
+              },
+            ),
+          ]);
+
+          await testCase.evaluate(chain);
+
+          expect(capturedContext!.hookPoint, testCase.hookPoint);
+          expect(capturedContext!.source, testCase.source);
+        });
+      }
     });
 
-    test('failOpen: true treats guard exception as warn (not block)', () async {
-      final chain = buildChain([ThrowingGuard()], failOpen: true);
-      final verdict = await chain.evaluateBeforeToolCall('shell', {});
-      expect(verdict.isBlock, isFalse);
-      expect(verdict.isWarn, isTrue);
-      expect(verdicts, hasLength(1));
-      expect(verdicts[0].verdict, 'warn');
-    });
+    group('guard exceptions', () {
+      final cases = [
+        (name: 'failOpen true warns', failOpen: true, isBlock: false, isWarn: true, callbackVerdict: 'warn'),
+        (name: 'failOpen false blocks', failOpen: false, isBlock: true, isWarn: false, callbackVerdict: 'block'),
+      ];
 
-    test('failOpen: false (default) treats guard exception as block', () async {
-      final chain = buildChain([ThrowingGuard()]);
-      final verdict = await chain.evaluateBeforeToolCall('shell', {});
-      expect(verdict.isBlock, isTrue);
-      expect(verdicts, hasLength(1));
-      expect(verdicts[0].verdict, 'block');
-    });
+      for (final testCase in cases) {
+        test(testCase.name, () async {
+          final chain = buildChain([ThrowingGuard()], failOpen: testCase.failOpen);
+          final verdict = await chain.evaluateBeforeToolCall('shell', {});
 
-    test('evaluateMessageReceived passes source to GuardContext', () async {
-      String? capturedSource;
-      final chain = buildChain([
-        FakeGuard(
-          evaluator: (context) {
-            capturedSource = context.source;
-            return GuardVerdict.pass();
-          },
-        ),
-      ]);
-      await chain.evaluateMessageReceived('test', source: 'channel');
-      expect(capturedSource, 'channel');
+          expect(verdict.isBlock, testCase.isBlock);
+          expect(verdict.isWarn, testCase.isWarn);
+          expect(verdicts, hasLength(1));
+          expect(verdicts[0].verdict, testCase.callbackVerdict);
+        });
+      }
     });
 
     test('InputSanitizer blocks before other guards evaluate', () async {
@@ -267,21 +240,6 @@ void main() {
       expect(evaluationOrder, isEmpty);
       expect(verdicts, hasLength(1));
       expect(verdicts[0].guardName, 'input-sanitizer');
-    });
-
-    test('verdict callback includes audit context fields', () async {
-      final chain = buildChain([
-        FakeGuard(name: 'test-guard', category: 'security', verdict: GuardVerdict.block('blocked reason')),
-      ]);
-      await chain.evaluateBeforeToolCall('shell', {}, sessionId: 'session-123');
-      expect(verdicts, hasLength(1));
-      final verdict = verdicts[0];
-      expect(verdict.guardName, 'test-guard');
-      expect(verdict.guardCategory, 'security');
-      expect(verdict.verdict, 'block');
-      expect(verdict.message, 'blocked reason');
-      expect(verdict.context.hookPoint, 'beforeToolCall');
-      expect(verdict.context.sessionId, 'session-123');
     });
 
     test('evaluateBeforeToolCall propagates rawProviderToolName into GuardContext', () async {

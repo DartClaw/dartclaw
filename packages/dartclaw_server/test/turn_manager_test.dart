@@ -6,223 +6,14 @@ import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnMana
 import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
 import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_server/src/turn_wait_status.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide HarnessPool, TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-// ---------------------------------------------------------------------------
-// FakeGuard for guard hook tests
-// ---------------------------------------------------------------------------
-
-class FakeGuard extends Guard {
-  @override
-  final String name;
-  @override
-  final String category;
-  final GuardVerdict Function(GuardContext)? _evaluator;
-  final GuardVerdict? _fixedVerdict;
-
-  FakeGuard({
-    this.name = 'fake',
-    this.category = 'test',
-    GuardVerdict? verdict,
-    GuardVerdict Function(GuardContext)? evaluator,
-  }) : _fixedVerdict = verdict,
-       _evaluator = evaluator;
-
-  @override
-  Future<GuardVerdict> evaluate(GuardContext context) async {
-    if (_evaluator != null) return _evaluator(context);
-    return _fixedVerdict ?? GuardVerdict.pass();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// FakeWorkerService
-// ---------------------------------------------------------------------------
-
-class FakeWorkerService implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
-  Completer<Map<String, dynamic>>? _turnCompleter;
-  Completer<void> _turnInvoked = Completer<void>();
-  bool cancelCalled = false;
-  int turnCalls = 0;
-
-  /// Resolves when the next [turn] call arrives (after composeSystemPrompt completes).
-  Future<void> get turnInvoked => _turnInvoked.future;
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) {
-    turnCalls++;
-    _turnCompleter = Completer<Map<String, dynamic>>();
-    if (!_turnInvoked.isCompleted) _turnInvoked.complete();
-    return _turnCompleter!.future;
-  }
-
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
-
-  @override
-  Future<void> cancel() async {
-    cancelCalled = true;
-    _turnCompleter?.completeError(StateError('Cancelled'));
-  }
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> dispose() async {
-    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
-  }
-
-  void emit(BridgeEvent event) => _eventsCtrl.add(event);
-
-  void completeSuccess() {
-    _turnCompleter?.complete({'ok': true});
-    _turnInvoked = Completer<void>();
-  }
-
-  void completeFail(Object error) {
-    _turnCompleter?.completeError(error);
-    _turnInvoked = Completer<void>();
-  }
-
-  Future<void> closeEvents() => _eventsCtrl.close();
-}
-
-// ---------------------------------------------------------------------------
-// _AppendStrategyWorker — FakeWorkerService variant with append prompt strategy
-// ---------------------------------------------------------------------------
-
-class _AppendStrategyWorker implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
-  Completer<Map<String, dynamic>>? _turnCompleter;
-  Completer<void> _turnInvoked = Completer<void>();
-  String? lastSystemPrompt;
-
-  Future<void> get turnInvoked => _turnInvoked.future;
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.append;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) {
-    lastSystemPrompt = systemPrompt;
-    _turnCompleter = Completer<Map<String, dynamic>>();
-    if (!_turnInvoked.isCompleted) _turnInvoked.complete();
-    return _turnCompleter!.future;
-  }
-
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
-
-  @override
-  Future<void> cancel() async {
-    _turnCompleter?.completeError(StateError('Cancelled'));
-  }
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> dispose() async {
-    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
-  }
-
-  void completeSuccess() {
-    _turnCompleter?.complete({'ok': true});
-    _turnInvoked = Completer<void>();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+import 'turn_manager_test_support.dart';
 
 void main() {
   late Directory tempDir;
@@ -299,6 +90,141 @@ void main() {
       await providerTurns.waitForOutcome(session.id, turnId);
     });
 
+    test('busy provider-pinned session does not block another provider session', () async {
+      final sessionService = SessionService(baseDir: tempDir.path);
+      final claudeSession = await sessionService.createSession(provider: 'claude');
+      final codexSession = await sessionService.createSession(provider: 'codex');
+      final primaryWorker = FakeWorkerService();
+      final claudeWorker = FakeWorkerService();
+      final codexWorker = FakeWorkerService();
+      final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
+      final providerTurns = TurnManager.fromPool(
+        pool: HarnessPool(
+          runners: [
+            TurnRunner(
+              harness: primaryWorker,
+              messages: messages,
+              behavior: behavior,
+              sessions: sessionService,
+              providerId: 'claude',
+            ),
+            TurnRunner(
+              harness: claudeWorker,
+              messages: messages,
+              behavior: behavior,
+              sessions: sessionService,
+              providerId: 'claude',
+            ),
+            TurnRunner(
+              harness: codexWorker,
+              messages: messages,
+              behavior: behavior,
+              sessions: sessionService,
+              providerId: 'codex',
+            ),
+          ],
+          maxConcurrentTasks: 1,
+        ),
+        sessions: sessionService,
+      );
+      addTearDown(providerTurns.pool.dispose);
+
+      final claudeTurnId = await providerTurns.startTurn(claudeSession.id, []);
+      await claudeWorker.turnInvoked;
+      final codexTurnId = await providerTurns.startTurn(codexSession.id, []);
+      await codexWorker.turnInvoked;
+
+      expect(primaryWorker.turnCalls, 0);
+      expect(claudeWorker.turnCalls, 1);
+      expect(codexWorker.turnCalls, 1);
+
+      claudeWorker.completeSuccess();
+      codexWorker.completeSuccess();
+      await providerTurns.waitForOutcome(claudeSession.id, claudeTurnId);
+      await providerTurns.waitForOutcome(codexSession.id, codexTurnId);
+    });
+
+    test('turnStatus prefers active same-session turn over older terminal runner status', () async {
+      final primaryWorker = FakeWorkerService();
+      final taskWorker = FakeWorkerService();
+      addTearDown(primaryWorker.dispose);
+      addTearDown(taskWorker.dispose);
+      final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
+      final primaryRunner = TurnRunner(
+        harness: primaryWorker,
+        messages: messages,
+        behavior: behavior,
+        providerId: 'claude',
+      );
+      final taskRunner = TurnRunner(harness: taskWorker, messages: messages, behavior: behavior, providerId: 'codex');
+      final pooledTurns = TurnManager.fromPool(pool: HarnessPool(runners: [primaryRunner, taskRunner]));
+      addTearDown(pooledTurns.pool.dispose);
+      final session = await SessionService(baseDir: tempDir.path).createSession();
+      final sessionId = session.id;
+
+      final completedTurnId = await primaryRunner.startTurn(sessionId, []);
+      await primaryWorker.turnInvoked;
+      primaryWorker.completeSuccess();
+      await primaryRunner.waitForOutcome(sessionId, completedTurnId);
+
+      final activeTurnId = await taskRunner.startTurn(sessionId, []);
+      await taskWorker.turnInvoked;
+
+      final status = pooledTurns.turnStatus(sessionId);
+      expect(status.turnId, activeTurnId);
+      expect(status.state, TurnWaitState.running);
+      expect(status.provider, 'codex');
+
+      taskWorker.completeSuccess();
+      await taskRunner.waitForOutcome(sessionId, activeTurnId);
+    });
+
+    test('unknown provider-pinned session fails without acquiring configured providers', () async {
+      final sessionService = SessionService(baseDir: tempDir.path);
+      final session = await sessionService.createSession(provider: 'goose');
+      final primaryWorker = FakeWorkerService();
+      final claudeWorker = FakeWorkerService();
+      final codexWorker = FakeWorkerService();
+      final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
+      final providerTurns = TurnManager.fromPool(
+        pool: HarnessPool(
+          runners: [
+            TurnRunner(
+              harness: primaryWorker,
+              messages: messages,
+              behavior: behavior,
+              sessions: sessionService,
+              providerId: 'claude',
+            ),
+            TurnRunner(
+              harness: claudeWorker,
+              messages: messages,
+              behavior: behavior,
+              sessions: sessionService,
+              providerId: 'claude',
+            ),
+            TurnRunner(
+              harness: codexWorker,
+              messages: messages,
+              behavior: behavior,
+              sessions: sessionService,
+              providerId: 'codex',
+            ),
+          ],
+        ),
+        sessions: sessionService,
+      );
+      addTearDown(providerTurns.pool.dispose);
+
+      await expectLater(
+        () => providerTurns.startTurn(session.id, []),
+        throwsA(isA<BusyTurnException>().having((error) => error.message, 'message', contains('Provider goose'))),
+      );
+      expect(primaryWorker.turnCalls, 0);
+      expect(claudeWorker.turnCalls, 0);
+      expect(codexWorker.turnCalls, 0);
+    });
+
     test('same-session second request queues behind first (not 409)', () async {
       final turnId1 = await turns.startTurn('s1', []);
 
@@ -352,7 +278,7 @@ void main() {
   // -------------------------------------------------------------------------
   group('promptStrategy', () {
     test('append-strategy harness receives empty systemPrompt', () async {
-      final appendWorker = _AppendStrategyWorker();
+      final appendWorker = AppendStrategyWorker();
       final appendTurns = TurnManager(
         messages: messages,
         worker: appendWorker,
@@ -644,6 +570,38 @@ void main() {
       try {
         await taskRunner.waitForOutcome(sessionId, turnId);
       } catch (_) {}
+    });
+
+    test('terminal no-op cancel routes by exact turn before other active same-session runners', () async {
+      final primaryWorker = FakeWorkerService();
+      final taskWorker = FakeWorkerService();
+      addTearDown(primaryWorker.dispose);
+      addTearDown(taskWorker.dispose);
+      final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
+      final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
+      final taskRunner = TurnRunner(harness: taskWorker, messages: messages, behavior: behavior);
+      final pooledTurns = TurnManager.fromPool(pool: HarnessPool(runners: [primaryRunner, taskRunner]));
+      addTearDown(pooledTurns.pool.dispose);
+      final session = await SessionService(baseDir: tempDir.path).createSession();
+      final sessionId = session.id;
+
+      final terminalTurnId = await taskRunner.startTurn(sessionId, []);
+      await taskWorker.turnInvoked;
+      taskWorker.completeSuccess();
+      await taskRunner.waitForOutcome(sessionId, terminalTurnId);
+
+      final activeTurnId = await primaryRunner.startTurn(sessionId, []);
+      await primaryWorker.turnInvoked;
+
+      final result = await pooledTurns.cancelTurnById(sessionId, terminalTurnId, TurnCancelReason.operatorCancel);
+
+      expect(result.status, TurnWaitState.completed);
+      expect(result.releasedSessionLock, isFalse);
+      expect(primaryRunner.activeTurnId(sessionId), activeTurnId);
+      expect(primaryWorker.cancelCalled, isFalse);
+
+      primaryWorker.completeSuccess();
+      await primaryRunner.waitForOutcome(sessionId, activeTurnId);
     });
   });
 

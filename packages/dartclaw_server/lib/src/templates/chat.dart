@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'components.dart';
 import 'loader.dart';
+import 'session_info.dart' show sessionTurnStatusView;
 
 // Patterns for special assistant messages stored by TurnManager.
 final _guardBlockPattern = RegExp(r'^\[(?:Response )?[Bb]locked by guard: (.+)\]$', dotAll: true);
@@ -170,9 +171,11 @@ String chatAreaTemplate({
   bool readOnly = false,
   int? earliestCursor,
   bool hasEarlierMessages = false,
+  Map<String, dynamic>? turnStatus,
 }) {
   final placeholder = isStreaming ? 'Agent is responding...' : 'Type a message...';
   final inputDisabled = isStreaming || readOnly;
+  final turnStatusView = sessionTurnStatusView(turnStatus, fallbackSessionId: sessionId);
 
   // Trellis auto-escapes attribute values set via tl:attr, so pass raw sessionId.
   return templateLoader.trellis.renderFragment(
@@ -185,6 +188,8 @@ String chatAreaTemplate({
       'loadEarlierHidden': hasEarlierMessages ? null : true,
       'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
       'messagesHtml': messagesHtml,
+      'turnStatus': turnStatusView,
+      'hasTurnStatus': turnStatusView != null,
       'readOnly': readOnly,
       'sendUrl': '/api/sessions/$sessionId/send',
       'placeholder': placeholder,

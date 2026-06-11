@@ -4,8 +4,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, Harnes
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_server/src/api/chat_command_handler.dart';
 import 'package:dartclaw_server/src/auth/request_auth_context.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         InMemoryDefinitionSource,
@@ -13,7 +12,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionSource,
         WorkflowRun,
         WorkflowRunStatus,
-        WorkflowService,
         WorkflowStep,
         WorkflowVariable;
 import 'package:path/path.dart' as p;
@@ -21,11 +19,13 @@ import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import 'workflow_test_support.dart';
+
 void main() {
   late Database taskDb;
   late Database workflowDb;
   late TaskService tasks;
-  late _FakeWorkflowService workflows;
+  late FakeWorkflowService workflows;
   late SessionService sessions;
   late Directory tempDir;
   late WorkflowDefinitionSource definitions;
@@ -39,7 +39,8 @@ void main() {
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
     sessions = SessionService(baseDir: p.join(tempDir.path, 'sessions'));
-    workflows = _FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows.validateRequiredVars = true;
     workflows.startResult = WorkflowRun(
       id: 'run-1',
       definitionName: 'code-review',
@@ -142,62 +143,4 @@ void main() {
 
 Request _adminSendRequest(String sessionId) {
   return withAdminAuthContext(Request('POST', Uri.parse('http://localhost/api/sessions/$sessionId/send')));
-}
-
-class _FakeWorkflowService extends WorkflowService {
-  _FakeWorkflowService._super(
-    SqliteWorkflowRunRepository repository,
-    TaskService taskService,
-    MessageService messageService,
-    EventBus eventBus,
-    KvService kvService,
-    String dataDir,
-  ) : super.lifecycleOnly(
-        repository: repository,
-        taskService: taskService,
-        messageService: messageService,
-        eventBus: eventBus,
-        kvService: kvService,
-        dataDir: dataDir,
-      );
-
-  factory _FakeWorkflowService({
-    required Database db,
-    required TaskService taskService,
-    required EventBus eventBus,
-    required String dataDir,
-  }) {
-    final repo = SqliteWorkflowRunRepository(db);
-    final messages = MessageService(baseDir: p.join(dataDir, 'sessions'));
-    final kv = KvService(filePath: p.join(dataDir, 'kv.json'));
-    return _FakeWorkflowService._super(repo, taskService, messages, eventBus, kv, dataDir);
-  }
-
-  final List<String> calls = <String>[];
-  WorkflowRun? startResult;
-  final List<WorkflowRun> activeRuns = <WorkflowRun>[];
-
-  @override
-  Future<WorkflowRun> start(
-    WorkflowDefinition definition,
-    Map<String, String> variables, {
-    String? projectId,
-    bool allowDirtyLocalPath = false,
-    bool headless = false,
-  }) async {
-    for (final entry in definition.variables.entries) {
-      if (entry.value.required && !variables.containsKey(entry.key)) {
-        throw ArgumentError('Required variable "${entry.key}" not provided');
-      }
-    }
-    calls.add('start:${definition.name}');
-    final run = startResult!;
-    activeRuns.add(run.copyWith(definitionName: definition.name, variablesJson: variables));
-    return run;
-  }
-
-  @override
-  Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) async {
-    return activeRuns.where((run) => definitionName == null || run.definitionName == definitionName).toList();
-  }
 }

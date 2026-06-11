@@ -46,6 +46,23 @@ Set by `loop_step_runner.dart` and `_persistLoopStepCheckpoint`.
 | `_loop.current.iteration` | `int` | Current loop iteration (1-based) |
 | `_loop.current.stepId` | `String?` | Step ID at which the loop was checkpointed |
 
+### `_loop.<loopId>.foreach.<foreachStepId>[<iterIndex>].*`
+
+Set by `loop_step_runner.dart` (`_writeNestedLoopCheckpoint`) for a loop nested inside a
+`foreach` body. Per-iteration, per-item resume state for the nested loop – kept separate from
+the global `_loop.current.*` so one foreach item's loop position never gates or overwrites
+another's. Written into the enclosing foreach's run context after every loop body step (so it
+survives crash/resume) and cleared when the loop converges or fails for that item. On resume the
+foreach re-dispatches the in-progress loop child (it stays absent from
+`completedSubStepIdsByIndex`), and the controller restores its position from these keys.
+
+| Key | Type | Semantics |
+|-----|------|-----------|
+| `_loop.<loopId>.foreach.<foreachStepId>[<iterIndex>].iteration` | `int` | 1-based loop iteration to resume at |
+| `_loop.<loopId>.foreach.<foreachStepId>[<iterIndex>].stepId` | `String?` | Loop body step ID to resume at (`null` ⇒ start of iteration) |
+| `_loop.<loopId>.foreach.<foreachStepId>[<iterIndex>].tokens` | `int` | Loop-body tokens accumulated so far for this item's loop. Seeds the controller's token accumulator on resume and feeds the in-loop budget check, so a crash-resumed loop neither undercounts the run total nor lets *this loop instance* run past the remaining budget. Tokens of settled or sibling foreach iterations (and pre-loop children) still reach `run.totalTokens` only at foreach completion, but mid-foreach budget checks add them back as an evaluation-only basis: `foreachScopeConsumedTokens` (`workflow_budget_monitor.dart`) sums the persisted `<childId>[<i>].tokenCount` keys plus sibling in-flight `…tokens` checkpoints, and the foreach controller, per-child dispatch, and nested-loop checks (and the 80% warning) pass that sum as `additionalTokens`. Never added to `run.totalTokens` directly – that would double-count with the foreach's completion sum, which remains the single write path. |
+| `_loop.<loopId>.foreach.<foreachStepId>[<iterIndex>].iterData` | `Map` | Snapshot of the iteration context (completed body-step outputs), restored so a resumed step sees prior outputs. Holds the loop's bare review keys – never promoted to a top-level key, and dropped when the loop ends. |
+
 ### `_parallel.current.*`
 
 Not currently persisted — parallel groups run as a single atomic step with no mid-group

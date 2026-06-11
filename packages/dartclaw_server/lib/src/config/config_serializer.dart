@@ -167,21 +167,6 @@ class ConfigSerializer {
           'pushEnabled': runtime.gitSyncPushEnabled,
         },
       },
-      'canvas': {
-        'enabled': config.canvas.enabled,
-        'share': {
-          'defaultPermission': config.canvas.share.defaultPermission,
-          'defaultTtlMinutes': config.canvas.share.defaultTtlMinutes,
-          'maxConnections': config.canvas.share.maxConnections,
-          'autoShare': config.canvas.share.autoShare,
-          'showQr': config.canvas.share.showQr,
-        },
-        'workshopMode': {
-          'taskBoard': config.canvas.workshopMode.taskBoard,
-          'showContributorStats': config.canvas.workshopMode.showContributorStats,
-          'showBudgetBar': config.canvas.workshopMode.showBudgetBar,
-        },
-      },
       'workflow': {
         'workspaceDir': config.workflow.workspaceDir,
         'defaults': {

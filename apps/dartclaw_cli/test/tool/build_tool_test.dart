@@ -65,9 +65,13 @@ String _hostArchName() {
 }
 
 String _hashFile(String path) {
-  final sha256sum = Process.runSync('sha256sum', [path]);
-  if (sha256sum.exitCode == 0) {
-    return (sha256sum.stdout as String).trim().split(RegExp(r'\s+')).first;
+  try {
+    final sha256sum = Process.runSync('sha256sum', [path]);
+    if (sha256sum.exitCode == 0) {
+      return (sha256sum.stdout as String).trim().split(RegExp(r'\s+')).first;
+    }
+  } on ProcessException {
+    // Fall through to the macOS/BSD checksum tool.
   }
 
   final shasum = Process.runSync('shasum', ['-a', '256', path]);
@@ -227,4 +231,21 @@ void main() {
     expect(resolved, isNotNull);
     expect(resolved!.root, installPath);
   }, timeout: const Timeout(Duration(minutes: 15)));
+
+  test('produces target-stamped release archives', () {
+    for (final target in ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64']) {
+      final result = Process.runSync(
+        'bash',
+        [buildScriptPath],
+        workingDirectory: repoRoot,
+        environment: {'DARTCLAW_RELEASE_TARGET': target, 'DARTCLAW_BUILD_SKIP_COMPILE': '1'},
+      );
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+
+      final archive = File(p.join(buildDir.path, 'dartclaw-v$version-$target.tar.gz'));
+      expect(archive.existsSync(), isTrue);
+      expect(File('${archive.path}.sha256').existsSync(), isTrue);
+      expect(_readFile(sumsFile), contains('dartclaw-v$version-$target.tar.gz'));
+    }
+  });
 }

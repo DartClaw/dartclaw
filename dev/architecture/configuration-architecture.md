@@ -54,7 +54,7 @@ All three tiers persist to YAML via `ConfigWriter` so changes survive restarts. 
 │  ────────────────────────────────────────────────────────────────    │
 │  server: ServerConfig          agent: AgentConfig                    │
 │  advisor: AdvisorConfig        auth: AuthConfig                      │
-│  canvas: CanvasConfig          gateway: GatewayConfig                │
+│  gateway: GatewayConfig                                              │
 │  sessions: SessionConfig       context: ContextConfig                │
 │  security: SecurityConfig      memory: MemoryConfig                  │
 │  search: SearchConfig          providers: ProvidersConfig             │
@@ -90,7 +90,6 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | `agent` | `AgentConfig` | Agent harness | `model`, `effort`, `maxTurns`, `provider` |
 | `advisor` | `AdvisorConfig` | Self-reflection advisor | `enabled`, `model`, `effort`, `triggers`, `periodicIntervalMinutes`, `maxWindowTurns` |
 | `auth` | `AuthConfig` | Authentication | `cookieSecure`, `trustedProxies`, tokens |
-| `canvas` | `CanvasConfig` | Shareable canvas | `enabled`, `share.*` (permission, TTL, maxConnections, QR), `workshopMode.*` |
 | `gateway` | `GatewayConfig` | Gateway/proxy | `authMode`, `token`, `hsts`, `reload` (`ReloadConfig`: mode, debounceMs) |
 | `sessions` | `SessionConfig` | Session lifecycle | `resetHour`, `idleTimeoutMinutes`, `scopeConfig` (dm/group scope), `maintenanceConfig` |
 | `context` | `ContextConfig` | Context management | `reserveTokens`, `maxResultBytes`, `warningThreshold`, `compactInstructions`, `identifierPreservation` |
@@ -118,7 +117,6 @@ Several sections contain deeply nested typed configs:
 
 - `GovernanceConfig` nests `RateLimitsConfig` (with `PerSenderRateLimitConfig` and `GlobalRateLimitConfig`), `BudgetConfig`, `LoopDetectionConfig`, `CrowdCodingConfig`, and `TurnProgressConfig`
 - `SessionConfig` nests `SessionScopeConfig` (with per-channel overrides) and `SessionMaintenanceConfig`
-- `CanvasConfig` nests `CanvasShareConfig` and `CanvasWorkshopConfig`
 - `GatewayConfig` nests `ReloadConfig`
 
 ---
@@ -701,12 +699,11 @@ Comprehensive listing of all sections with hot-reload status:
 | `alerts` | `AlertsConfig` | Yes (targets, cooldowns, thresholds) | Alert delivery targets, routing |
 | `usage` | `UsageConfig` | No | Budget warning, file size limits |
 
-### Channels & Canvas
+### Channels & Projects
 
 | Section | Config Class | Hot-Reloadable | Key Responsibilities |
 |---------|-------------|---------------|---------------------|
 | `channels` | `ChannelConfig` | No | Per-channel configs (WhatsApp, Signal, Google Chat) |
-| `canvas` | `CanvasConfig` | No | Shareable canvas, workshop mode, QR |
 | `projects` | `ProjectConfig` | No | Multi-project definitions |
 
 ---
@@ -721,7 +718,6 @@ Comprehensive listing of all sections with hot-reload status:
 | **0.10.2** | Composed config model | Decomposed `DartclawConfig` from 72 flat fields into 14+ typed sections. `registerExtensionParser()` + typed `config.extension<T>()`. Consumer migration across 35+ files |
 | **0.12** | Governance config | `GovernanceConfig` with rate limits, budget, loop detection. All default disabled for backward compat |
 | **0.14** | Multi-project config | `ProjectConfig`, `ProvidersConfig`, `CredentialsConfig`, `CredentialRegistry`, `ProviderValidator` |
-| **0.14.2** | Canvas config | `CanvasConfig` with share and workshop mode sections |
 | **0.16** | Live Config Tier 3 | `ConfigNotifier`, `ConfigDelta`, `Reconfigurable` interface. `ReloadTriggerService` (SIGUSR1 + file-watch). `ReloadConfig` on `GatewayConfig`. Guard chain hot-reload. 8+ services implement `Reconfigurable` |
 | **0.16.3** | Workflow & advisor config | `WorkflowConfig`, `AdvisorConfig`, `AlertsConfig`, `HistoryConfig`. Config section count grew to 25+ |
 | **0.17** | Personalization & knowledge config | `OnboardingConfig` (personalization onboarding) and `KnowledgeConfig` (scheduled inbox ingestion + wiki-lint jobs) added as restart-tier sections |

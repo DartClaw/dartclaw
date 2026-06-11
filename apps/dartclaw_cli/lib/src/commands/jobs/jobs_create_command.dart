@@ -1,24 +1,10 @@
-import 'dart:io';
-
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_server/dartclaw_server.dart' show CronExpression;
 
-import '../../dartclaw_api_client.dart';
 import '../connected_command_support.dart';
-import '../serve_command.dart' show ExitFn, WriteLine;
 
-class JobsCreateCommand extends Command<void> {
-  final DartclawConfig? _config;
-  final DartclawApiClient? _apiClient;
-  final WriteLine _writeLine;
-  final ExitFn _exitFn;
-
-  JobsCreateCommand({DartclawConfig? config, DartclawApiClient? apiClient, WriteLine? writeLine, ExitFn? exitFn})
-    : _config = config,
-      _apiClient = apiClient,
-      _writeLine = writeLine ?? stdout.writeln,
-      _exitFn = exitFn ?? exit {
+class JobsCreateCommand extends ConnectedCommand {
+  JobsCreateCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('name', help: 'Job name')
       ..addOption('schedule', help: 'Cron schedule expression')
@@ -38,7 +24,7 @@ class JobsCreateCommand extends Command<void> {
   String get description => 'Create a scheduled job';
 
   @override
-  Future<void> run() async {
+  Future<void> run() => runConnected((apiClient) async {
     final name = (argResults!['name'] as String?)?.trim();
     final schedule = (argResults!['schedule'] as String?)?.trim();
     final type = (argResults!['type'] as String?)?.trim() ?? 'prompt';
@@ -79,17 +65,11 @@ class JobsCreateCommand extends Command<void> {
       throw UsageException('--type must be prompt or task', usage);
     }
 
-    final apiClient = resolveCliApiClient(globalResults: globalResults, apiClient: _apiClient, config: _config);
-    try {
-      final job = await apiClient.postObject('/api/scheduling/jobs', body: body);
-      if (argResults!['json'] as bool) {
-        writePrettyJson(_writeLine, job);
-      } else {
-        _writeLine('Created job $name. Restart the server to load scheduling changes.');
-      }
-    } on DartclawApiException catch (error) {
-      _writeLine(error.message);
-      _exitFn(1);
+    final job = await apiClient.postObject('/api/scheduling/jobs', body: body);
+    if (argResults!['json'] as bool) {
+      writePrettyJson(writeLine, job);
+    } else {
+      writeLine('Created job $name. Restart the server to load scheduling changes.');
     }
-  }
+  });
 }

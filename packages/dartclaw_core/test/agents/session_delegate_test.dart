@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
@@ -90,28 +88,6 @@ void main() {
       final content = result['content'] as List;
       final text = content.first['text'] as String;
       expect(text.length, lessThanOrEqualTo(15)); // some slack for UTF-8
-    });
-
-    test('sessions_spawn returns session ID immediately', () async {
-      final completer = Completer<void>();
-      final delegate = SessionDelegate(
-        dispatch: ({required sessionId, required message, required agentId}) async {
-          await completer.future;
-          return 'done';
-        },
-        limits: limits,
-        agents: {'search': searchAgent},
-      );
-
-      final result = await delegate.handleSessionsSpawn({'agent': 'search', 'message': 'background search'});
-
-      expect(result['isError'], isNull);
-      final content = result['content'] as List;
-      expect(content.first['text'], contains('Spawned session:'));
-
-      // Allow background to complete
-      completer.complete();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
     });
 
     test('sessions_send frees limit slot after completion', () async {

@@ -14,4 +14,4 @@ export 'turn_manager.dart' show TurnContext;
 export 'turn_progress_monitor.dart' show TurnProgressMonitor;
 export 'version.dart' show dartclawVersion;
 export 'workspace/workspace_git_sync.dart' show WorkspaceGitSync;
-export 'workspace/workspace_service.dart' show WorkspaceService, WorkspaceMigrationException;
+export 'workspace/workspace_service.dart' show WorkspaceService;

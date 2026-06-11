@@ -237,7 +237,7 @@ steps:
     parallel: true
     prompt: '--mode mixed --auto --output-dir "{{workflow.runtime_artifacts_dir}}/reviews" {{context.plan}}'
     outputs:
-      review_findings: review_report_path
+      plan-review.review_findings: review_report_path
       plan-review.findings_count: findings_count
       plan-review.gating_findings_count: gating_findings_count
 
@@ -246,7 +246,7 @@ steps:
     skill: andthen:architecture
     parallel: true
     outputs:
-      architecture_review_findings: review_report_path
+      architecture-review.review_findings: review_report_path
       architecture-review.findings_count: findings_count
       architecture-review.gating_findings_count: gating_findings_count
 
@@ -283,7 +283,9 @@ steps:
           gating_findings_count: gating_findings_count
 ```
 
-The aggregator's `outputs:` keys must be exactly `review_findings`, `findings_count`, and `gating_findings_count`; the validator rejects any other shape. It sums `<source-step-id>.findings_count` and `<source-step-id>.gating_findings_count`, then writes one merged markdown report at `{{workflow.runtime_artifacts_dir}}/reviews/aggregated-<aggregator-step-id>.md`. Each source report becomes a `# <source-step-id>` section; missing report paths produce a short placeholder section. The output preset names come from `schema_presets.dart`, so use the shorthand shown above instead of spelling out schemas manually.
+Each parallel source review step prefixes **all** of its output keys with its own step id — `<source-step-id>.review_findings`, `<source-step-id>.findings_count`, `<source-step-id>.gating_findings_count`. Prefixing is always collision-safe: the review skill emits the bare `review_findings` key and the host accepts it for the prefixed output via the filesystem-claim alias. Use the uniform prefixed form on every source step; do not fall back to a bare `review_findings` or a hand-named per-skill variant.
+
+The aggregator's own `outputs:` keys must be exactly `review_findings`, `findings_count`, and `gating_findings_count` — the canonical post-aggregate keys the validator requires and the remediation loop reads. The aggregator sums each source's `<source-step-id>.findings_count` and `<source-step-id>.gating_findings_count`, then writes one merged markdown report at `{{workflow.runtime_artifacts_dir}}/reviews/aggregated-<aggregator-step-id>.md`. Each source report becomes a `# <source-step-id>` section; missing report paths produce a short placeholder section. The output preset names come from `schema_presets.dart`, so use the shorthand shown above instead of spelling out schemas manually.
 
 ### Workflow Run Statuses and Retry
 

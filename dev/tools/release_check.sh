@@ -42,10 +42,10 @@ skip()    { printf "  %sSKIP%s  %s\n" "$C_YLW" "$C_RST" "$1"; }
 section "1. Exported bundle cleanup (transient dev docs must be empty before merge to main)"
 leaked_bundle=""
 # dev/bundle is the current export root. The other dev/* directories and root
-# markdown files are legacy transient export paths; canonical public docs live
-# under dev/state/, dev/guidelines/, dev/architecture/, dev/design-system/,
-# docs/, or package-specific directories.
-for exported_dir in dev/bundle dev/specs dev/adrs dev/research dev/wireframes dev/diagrams; do
+# markdown files listed here are legacy transient export paths. Canonical public
+# docs live under dev/state/, dev/guidelines/, dev/architecture/,
+# dev/design-system/, dev/adrs/, docs/, or package-specific directories.
+for exported_dir in dev/bundle dev/specs dev/research dev/wireframes dev/diagrams; do
   if [[ -d "$exported_dir" ]]; then
     leaked=$(find "$exported_dir" -type f ! -name '.gitkeep' 2>/dev/null)
     if [[ -n "$leaked" ]]; then
@@ -147,7 +147,8 @@ if [[ ${#FAILED[@]} -eq 0 ]]; then
   printf "%sAll automated gates passed.%s\n\n" "$C_GRN" "$C_RST"
   cat <<'NEXT'
 Manual gates still required before tagging:
-  - Integration tests:   dart test -t integration
+  - Integration tests:   bash dev/testing/profiles/workflow-live/run.sh --full
+                         plus any package-specific --run-skipped live files
   - UI smoke test:       bash dev/testing/profiles/plain/run.sh
                          (requires a running dev server)
 

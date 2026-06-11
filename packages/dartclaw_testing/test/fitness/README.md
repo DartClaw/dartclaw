@@ -52,6 +52,40 @@ The current LOC count, target, and a named remediation story or deadline are man
 
 ---
 
+## `max_test_file_loc_test.dart`
+
+**What it enforces**: Every `*_test.dart` file under `packages/` and `apps/` must have <= 800 lines unless it is explicitly allowlisted.
+
+**Why**: Mega-tests hide duplicated setup and weak assertions. This ceiling prevents new large test files while existing over-limit suites are reduced through table-driving and shared fixtures.
+
+### How to resolve a failure
+
+**Option A (preferred)**: Table-drive repeated cases, extract shared fixtures, split by behavior, or delete weak implementation-detail assertions.
+
+**Option B (baseline exception with shrink target)**: Add an entry to `allowlist/max_test_file_loc.txt`:
+```
+packages/dartclaw_foo/test/big_suite_test.dart  # 920 LOC; shrink under 800 via <plan/spec>
+```
+
+The current LOC count and shrink target are mandatory.
+
+---
+
+## `no_duplicate_local_fakes_test.dart`
+
+**What it enforces**: A local fake/stub/mock/recording class name may not be redeclared across multiple test files unless allowlisted.
+
+**Why**: Duplicate fakes drift from each other and from the real external boundary. Shared test support keeps setup lean and makes interface changes fail in one place.
+
+### How to resolve a failure
+
+Move the fake to `dartclaw_testing` when it represents a reusable external boundary, or to a package-local `*_test_support.dart` file when the type is package-owned and not barrel-eligible. Temporary baseline duplicates require:
+```
+_FakeHarness  # migrate to FakeAgentHarness or package-local harness test support
+```
+
+---
+
 ## `package_cycles_test.dart`
 
 **What it enforces**: The production dependency graph of workspace packages must be a directed acyclic graph (DAG). Zero cycles are permitted; the allowlist `allowlist/package_cycles.txt` must remain empty.

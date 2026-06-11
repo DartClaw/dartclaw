@@ -252,8 +252,8 @@ class ServiceWiring {
     final alertRouter = _wireAlertRouter(ctx, storage, channel);
     // 6. Build server – restart sentinel, provider status, builder pre-server cascade
     _wireRestartSentinel(ctx);
-    final (providerStatus, canvasService) = await _wireProviderStatusAndCanvas(harness, security);
-    ctx.builder = _buildServerBuilderPreServer(config, ctx, storage, harness, task, channel, security, canvasService);
+    final providerStatus = await _wireProviderStatus(harness, security);
+    ctx.builder = _buildServerBuilderPreServer(config, ctx, storage, harness, task, channel, security);
     ctx.bindTurns(ctx.builder.buildTurns());
     await ctx._serverTurns.detectAndCleanOrphanedTurns();
     ctx.configNotifier.register(ctx._serverTurns);
@@ -286,16 +286,7 @@ class ServiceWiring {
     );
     final server = serverFactory(ctx.builder);
     ctx.bindServer(server);
-    final (workshopSubscriber, advisorSubscriber) = _registerMcpTools(
-      config,
-      ctx,
-      server,
-      harness,
-      storage,
-      security,
-      channel,
-      canvasService,
-    );
+    final advisorSubscriber = _registerMcpTools(config, ctx, server, harness, storage, security, channel);
     if (channel.spaceEventsWiring != null) {
       await channel.spaceEventsWiring!.start();
     }
@@ -315,7 +306,6 @@ class ServiceWiring {
       lifecycleManager,
       scopeReconciler,
       groupSessionInit,
-      workshopSubscriber,
       advisorSubscriber,
     );
   }
@@ -471,21 +461,15 @@ class ServiceWiring {
     restartPendingFile.deleteSync();
   }
 
-  Future<(ProviderStatusService, CanvasService?)> _wireProviderStatusAndCanvas(
-    HarnessWiring harness,
-    SecurityWiring security,
-  ) async {
+  Future<ProviderStatusService> _wireProviderStatus(HarnessWiring harness, SecurityWiring security) async {
     final providerStatus = ProviderStatusService(
-      providers: config.providers,
+      providers: ProvidersConfig(entries: harness.providerStatusEntries),
       registry: CredentialRegistry(credentials: config.credentials, env: Platform.environment),
       defaultProvider: config.agent.provider,
       pool: harness.pool,
     );
     await providerStatus.probe();
-    final canvasService = config.canvas.enabled
-        ? CanvasService(maxConnections: config.canvas.share.maxConnections)
-        : null;
-    return (providerStatus, canvasService);
+    return providerStatus;
   }
 
   WorkflowRoleDefaults _buildWorkflowRoleDefaults() {

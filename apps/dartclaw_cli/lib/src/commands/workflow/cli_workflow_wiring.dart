@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show CredentialRegistry, DartclawConfig;
+import 'package:dartclaw_config/dartclaw_config.dart'
+    show CredentialRegistry, DartclawConfig, ProviderEntry, ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         ArtifactKind,
@@ -359,10 +360,10 @@ class CliWorkflowWiring {
     // `max_parallel > 1` (e.g. `plan-and-implement` foreach), because the
     // executor's `effectiveConcurrency(poolAvailable)` path saw `poolAvailable`
     // drop to 0 whenever the single live runner was busy.
-    final desiredDefaultRunners = providerEntry?.poolSize ?? 0;
-    final defaultRunnersToSpawn = desiredDefaultRunners > 0
-        ? (desiredDefaultRunners > maxConcurrentTasks ? maxConcurrentTasks : desiredDefaultRunners)
-        : 1;
+    final desiredDefaultRunners = providerEntry?.effectivePoolSize ?? 1;
+    final defaultRunnersToSpawn = desiredDefaultRunners > maxConcurrentTasks
+        ? maxConcurrentTasks
+        : desiredDefaultRunners;
     final taskRunners = <TurnRunner>[];
     for (var i = 0; i < defaultRunnersToSpawn; i++) {
       taskRunners.add(await _buildTaskRunner(defaultProviderId));
@@ -539,19 +540,32 @@ class CliWorkflowWiring {
   /// Standalone workflow execution relies on task runners for agent-backed
   /// steps; without them, queued tasks never start in pool mode.
   Future<void> ensureTaskRunnersForProviders(Set<String> providerIds) async {
+    final providerEntries = _effectiveWorkflowProviderEntries(config);
+    // Resolve each requested provider to an entry. A workflow step may request a
+    // built-in provider (claude/codex) that isn't the configured default; for
+    // those, synthesize a default entry from the resolved executable rather than
+    // refusing. Genuinely unknown providers still fail closed.
+    final resolved = <String, ProviderEntry>{};
+    var additionalRunners = 0;
     for (final providerId in providerIds) {
-      if (pool.hasTaskRunnerForProvider(providerId)) {
-        workflowCliRunner.providers.putIfAbsent(
-          providerId,
-          () => WorkflowCliProviderConfig(
-            executable: _resolveProviderExecutable(config, providerId),
-            environment: _providerEnvironment(providerId, _credentialRegistry),
-            options: _providerOptions(config, providerId),
-          ),
-        );
-        continue;
+      final providerEntry = providerEntries[providerId] ?? _builtInProviderEntry(providerId);
+      if (providerEntry == null) {
+        throw StateError('Provider "$providerId" is not configured for standalone workflow execution');
       }
-      pool.addRunner(await _buildTaskRunner(providerId));
+      resolved[providerId] = providerEntry;
+      final have = pool.taskRunnerCountForProvider(providerId);
+      final want = providerEntry.effectivePoolSize;
+      if (want > have) additionalRunners += want - have;
+    }
+    // Initial pool capacity is sized from config; grow it to fit runners for any
+    // additional workflow-required providers before adding them.
+    pool.ensureCapacity(pool.taskRunnerCount + additionalRunners);
+    for (final entry in resolved.entries) {
+      final providerId = entry.key;
+      final targetCount = entry.value.effectivePoolSize;
+      while (pool.taskRunnerCountForProvider(providerId) < targetCount) {
+        pool.addRunner(await _buildTaskRunner(providerId));
+      }
       workflowCliRunner.providers.putIfAbsent(
         providerId,
         () => WorkflowCliProviderConfig(
@@ -561,6 +575,17 @@ class CliWorkflowWiring {
         ),
       );
     }
+  }
+
+  /// Synthesizes a default [ProviderEntry] for a built-in provider family
+  /// (claude/codex) requested by a workflow but absent from config; returns null
+  /// for unknown providers so they fail closed.
+  ProviderEntry? _builtInProviderEntry(String providerId) {
+    final family = ProviderIdentity.family(providerId);
+    if (family != ProviderIdentity.claude && family != ProviderIdentity.codex) {
+      return null;
+    }
+    return ProviderEntry(executable: _resolveProviderExecutable(config, providerId));
   }
 
   Future<TurnRunner> _buildTaskRunner(String providerId) async {
@@ -585,4 +610,13 @@ class CliWorkflowWiring {
       providerId: providerId,
     );
   }
+}
+
+Map<String, ProviderEntry> _effectiveWorkflowProviderEntries(DartclawConfig config) {
+  final entries = Map<String, ProviderEntry>.from(config.providers.entries);
+  entries.putIfAbsent(
+    config.agent.provider,
+    () => ProviderEntry(executable: _resolveProviderExecutable(config, config.agent.provider)),
+  );
+  return entries;
 }

@@ -1,13 +1,7 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:test/test.dart';
 
-DartclawConfig _loadYaml(String yaml) {
-  return DartclawConfig.load(
-    configPath: 'dartclaw.yaml',
-    fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null,
-    env: {'HOME': '/tmp'},
-  );
-}
+import 'support/load_config.dart';
 
 void main() {
   group('AgentConfig.provider', () {
@@ -17,19 +11,27 @@ void main() {
     });
 
     test('parses agent.provider from YAML', () {
-      final config = _loadYaml('''
+      final config = loadYaml(
+        '''
 agent:
   provider: codex
-''');
+''',
+        configPath: 'dartclaw.yaml',
+        env: const {'HOME': '/tmp'},
+      );
 
       expect(config.agent.provider, 'codex');
     });
 
     test('invalid type for agent.provider produces warning and uses default', () {
-      final config = _loadYaml('''
+      final config = loadYaml(
+        '''
 agent:
   provider: 42
-''');
+''',
+        configPath: 'dartclaw.yaml',
+        env: const {'HOME': '/tmp'},
+      );
 
       expect(config.agent.provider, 'claude');
       expect(config.warnings, anyElement(contains('Invalid type for provider')));

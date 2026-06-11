@@ -1,13 +1,15 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:path/path.dart' as p;
-import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:test/test.dart';
+
+import '../signal_test_support.dart';
+import '../whatsapp_test_support.dart';
+import 'api_test_helpers.dart';
 
 void main() {
   late Directory tempDir;
@@ -50,7 +52,7 @@ channels:
     final WhatsAppChannel? waChannel;
     if (waController != null) {
       waChannel = WhatsAppChannel(
-        gowa: _FakeGowaManager(),
+        gowa: FakeGowaManager(),
         config: const WhatsAppConfig(enabled: true),
         dmAccess: waController,
         mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
@@ -63,7 +65,7 @@ channels:
     final SignalChannel? sigChannel;
     if (sigController != null) {
       sigChannel = SignalChannel(
-        sidecar: _FakeSignalCliManager(),
+        sidecar: FakeSignalCliManager(),
         config: const SignalConfig(enabled: true),
         dmAccess: sigController,
         mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
@@ -83,18 +85,8 @@ channels:
     );
   }
 
-  Future<Response> request(Router router, String method, String path, [Map<String, dynamic>? body]) {
-    final req = Request(
-      method,
-      Uri.parse('http://localhost$path'),
-      body: body != null ? jsonEncode(body) : null,
-      headers: body != null ? {'content-type': 'application/json'} : {},
-    );
-    return router.call(req);
-  }
-
-  Future<Map<String, dynamic>> parseBody(Response response) async {
-    return jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+  ApiRouteTestClient api(Router router) {
+    return ApiRouteTestClient(router.call);
   }
 
   group('Allowlist CRUD', () {
@@ -109,18 +101,18 @@ channels:
     });
 
     test('GET returns empty allowlist initially', () async {
-      final resp = await request(router, 'GET', '/api/config/channels/whatsapp/dm-allowlist');
-      expect(resp.statusCode, 200);
-      final body = await parseBody(resp);
+      final body = await api(router).expectJsonObject('GET', '/api/config/channels/whatsapp/dm-allowlist');
+
       expect(body['allowlist'], isEmpty);
     });
 
     test('POST adds entry, returns updated list', () async {
-      final resp = await request(router, 'POST', '/api/config/channels/whatsapp/dm-allowlist', {
-        'entry': '1234567890@s.whatsapp.net',
-      });
-      expect(resp.statusCode, 200);
-      final body = await parseBody(resp);
+      final body = await api(router).expectJsonObject(
+        'POST',
+        '/api/config/channels/whatsapp/dm-allowlist',
+        json: {'entry': '1234567890@s.whatsapp.net'},
+      );
+
       expect(body['added'], isTrue);
       expect(body['allowlist'], contains('1234567890@s.whatsapp.net'));
 
@@ -129,104 +121,102 @@ channels:
     });
 
     test('POST with invalid format returns 400', () async {
-      final resp = await request(router, 'POST', '/api/config/channels/whatsapp/dm-allowlist', {'entry': 'no-at-sign'});
-      expect(resp.statusCode, 400);
+      await api(router).expectResponse(
+        'POST',
+        '/api/config/channels/whatsapp/dm-allowlist',
+        json: {'entry': 'no-at-sign'},
+        status: 400,
+      );
     });
 
     test('POST duplicate returns 409', () async {
       waCtrl.addToAllowlist('dup@s.whatsapp.net');
-      final resp = await request(router, 'POST', '/api/config/channels/whatsapp/dm-allowlist', {
-        'entry': 'dup@s.whatsapp.net',
-      });
-      expect(resp.statusCode, 409);
+      await api(router).expectResponse(
+        'POST',
+        '/api/config/channels/whatsapp/dm-allowlist',
+        json: {'entry': 'dup@s.whatsapp.net'},
+        status: 409,
+      );
     });
 
     test('DELETE removes entry, returns updated list', () async {
       waCtrl.addToAllowlist('remove@s.whatsapp.net');
-      final resp = await request(router, 'DELETE', '/api/config/channels/whatsapp/dm-allowlist', {
-        'entry': 'remove@s.whatsapp.net',
-      });
-      expect(resp.statusCode, 200);
-      final body = await parseBody(resp);
+      final body = await api(router).expectJsonObject(
+        'DELETE',
+        '/api/config/channels/whatsapp/dm-allowlist',
+        json: {'entry': 'remove@s.whatsapp.net'},
+      );
+
       expect(body['removed'], isTrue);
       expect(body['allowlist'], isNot(contains('remove@s.whatsapp.net')));
       expect(waCtrl.isAllowed('remove@s.whatsapp.net'), isFalse);
     });
 
     test('DELETE non-existent entry returns 404', () async {
-      final resp = await request(router, 'DELETE', '/api/config/channels/whatsapp/dm-allowlist', {
-        'entry': 'nonexistent@s.whatsapp.net',
-      });
-      expect(resp.statusCode, 404);
+      await api(router).expectResponse(
+        'DELETE',
+        '/api/config/channels/whatsapp/dm-allowlist',
+        json: {'entry': 'nonexistent@s.whatsapp.net'},
+        status: 404,
+      );
     });
 
     test('GET/POST/DELETE for unconfigured channel returns 404', () async {
       final noChannelsRouter = createRouter();
 
-      var resp = await request(noChannelsRouter, 'GET', '/api/config/channels/whatsapp/dm-allowlist');
-      expect(resp.statusCode, 404);
+      await api(noChannelsRouter).expectResponse('GET', '/api/config/channels/whatsapp/dm-allowlist', status: 404);
 
-      resp = await request(noChannelsRouter, 'POST', '/api/config/channels/whatsapp/dm-allowlist', {
-        'entry': 'test@s.whatsapp.net',
-      });
-      expect(resp.statusCode, 404);
+      await api(noChannelsRouter).expectResponse(
+        'POST',
+        '/api/config/channels/whatsapp/dm-allowlist',
+        json: {'entry': 'test@s.whatsapp.net'},
+        status: 404,
+      );
 
-      resp = await request(noChannelsRouter, 'DELETE', '/api/config/channels/whatsapp/dm-allowlist', {
-        'entry': 'test@s.whatsapp.net',
-      });
-      expect(resp.statusCode, 404);
+      await api(noChannelsRouter).expectResponse(
+        'DELETE',
+        '/api/config/channels/whatsapp/dm-allowlist',
+        json: {'entry': 'test@s.whatsapp.net'},
+        status: 404,
+      );
     });
 
     test('Signal: POST with UUID entry succeeds', () async {
-      final resp = await request(router, 'POST', '/api/config/channels/signal/dm-allowlist', {
-        'entry': '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
-      });
-      expect(resp.statusCode, 200);
-      final body = await parseBody(resp);
+      final body = await api(router).expectJsonObject(
+        'POST',
+        '/api/config/channels/signal/dm-allowlist',
+        json: {'entry': '12bfcd5a-3363-45f4-94b6-3fe247f11ab8'},
+      );
+
       expect(body['added'], isTrue);
       expect(sigCtrl.isAllowed('12bfcd5a-3363-45f4-94b6-3fe247f11ab8'), isTrue);
     });
 
     test('Signal: POST with phone entry succeeds', () async {
-      final resp = await request(router, 'POST', '/api/config/channels/signal/dm-allowlist', {'entry': '+1234567890'});
-      expect(resp.statusCode, 200);
-      final body = await parseBody(resp);
+      final body = await api(
+        router,
+      ).expectJsonObject('POST', '/api/config/channels/signal/dm-allowlist', json: {'entry': '+1234567890'});
+
       expect(body['added'], isTrue);
       expect(sigCtrl.isAllowed('+1234567890'), isTrue);
     });
 
     test('WhatsApp: POST with JID entry succeeds', () async {
-      final resp = await request(router, 'POST', '/api/config/channels/whatsapp/dm-allowlist', {
-        'entry': '1234567890@s.whatsapp.net',
-      });
-      expect(resp.statusCode, 200);
+      await api(router).expectResponse(
+        'POST',
+        '/api/config/channels/whatsapp/dm-allowlist',
+        json: {'entry': '1234567890@s.whatsapp.net'},
+        status: 200,
+      );
     });
 
     test('WhatsApp: POST without @ returns 400', () async {
-      final resp = await request(router, 'POST', '/api/config/channels/whatsapp/dm-allowlist', {'entry': '1234567890'});
-      expect(resp.statusCode, 400);
+      await api(router).expectResponse(
+        'POST',
+        '/api/config/channels/whatsapp/dm-allowlist',
+        json: {'entry': '1234567890'},
+        status: 400,
+      );
     });
   });
-}
-
-// --- Fakes ---
-
-class _FakeGowaManager extends GowaManager {
-  _FakeGowaManager() : super(executable: '', host: '', port: 0, webhookUrl: '', osName: '');
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> reset() async {}
-}
-
-class _FakeSignalCliManager extends SignalCliManager {
-  _FakeSignalCliManager() : super(executable: '', host: '', port: 0, phoneNumber: '');
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> reset() async {}
 }

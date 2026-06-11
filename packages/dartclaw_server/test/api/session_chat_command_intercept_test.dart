@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,10 +5,8 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_server/dartclaw_server.dart' hide TurnManager;
 import 'package:dartclaw_server/src/api/chat_command_handler.dart';
 import 'package:dartclaw_server/src/auth/request_auth_context.dart';
-import 'package:dartclaw_server/src/turn_manager.dart' show TurnManager;
-import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, openTaskDbInMemory;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide FakeTurnManager, TurnManager;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         InMemoryDefinitionSource,
@@ -17,130 +14,23 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionSource,
         WorkflowRun,
         WorkflowRunStatus,
-        WorkflowService,
         WorkflowStep,
         WorkflowVariable;
-import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-class _FakeTurnManager extends TurnManager {
-  _FakeTurnManager(MessageService messages, AgentHarness worker)
-    : super(
-        messages: messages,
-        worker: worker,
-        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent'),
-      );
-
-  bool reserveCalled = false;
-
-  @override
-  Future<String> reserveTurn(
-    String sessionId, {
-    String agentName = 'main',
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-    bool isHumanInput = false,
-    BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
-    List<String>? allowedTools,
-    bool readOnly = false,
-  }) async {
-    reserveCalled = true;
-    return 'turn-1';
-  }
-
-  @override
-  void executeTurn(
-    String sessionId,
-    String turnId,
-    List<Map<String, dynamic>> messages, {
-    String? source,
-    String agentName = 'main',
-    bool resume = false,
-  }) {}
-
-  @override
-  void releaseTurn(String sessionId, String turnId) {}
-
-  @override
-  bool isActive(String sessionId) => false;
-
-  @override
-  String? activeTurnId(String sessionId) => null;
-
-  @override
-  bool isActiveTurn(String sessionId, String turnId) => false;
-
-  @override
-  TurnOutcome? recentOutcome(String sessionId, String turnId) => null;
-
-  @override
-  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) => Completer<TurnOutcome>().future;
-
-  @override
-  Future<void> cancelTurn(String sessionId) async {}
-}
-
-class _FakeWorkflowService extends WorkflowService {
-  _FakeWorkflowService._super(
-    SqliteWorkflowRunRepository repository,
-    TaskService taskService,
-    MessageService messageService,
-    EventBus eventBus,
-    KvService kvService,
-    String dataDir,
-  ) : super.lifecycleOnly(
-        repository: repository,
-        taskService: taskService,
-        messageService: messageService,
-        eventBus: eventBus,
-        kvService: kvService,
-        dataDir: dataDir,
-      );
-
-  factory _FakeWorkflowService({
-    required Database db,
-    required TaskService taskService,
-    required EventBus eventBus,
-    required String dataDir,
-  }) {
-    final repo = SqliteWorkflowRunRepository(db);
-    final messages = MessageService(baseDir: p.join(dataDir, 'sessions'));
-    final kv = KvService(filePath: p.join(dataDir, 'kv.json'));
-    return _FakeWorkflowService._super(repo, taskService, messages, eventBus, kv, dataDir);
-  }
-
-  WorkflowRun? startResult;
-
-  @override
-  Future<WorkflowRun> start(
-    WorkflowDefinition definition,
-    Map<String, String> variables, {
-    String? projectId,
-    bool allowDirtyLocalPath = false,
-    bool headless = false,
-  }) async {
-    for (final entry in definition.variables.entries) {
-      if (entry.value.required && !variables.containsKey(entry.key)) {
-        throw ArgumentError('Required variable "${entry.key}" not provided');
-      }
-    }
-    return startResult!;
-  }
-}
+import '../session_turn_manager_test_support.dart';
+import 'workflow_test_support.dart';
 
 void main() {
   late Directory tempDir;
   late SessionService sessions;
   late MessageService messages;
   late FakeAgentHarness worker;
-  late _FakeTurnManager turns;
+  late FakeTurnManager turns;
   late Handler handler;
-  late _FakeWorkflowService workflows;
+  late FakeWorkflowService workflows;
   late WorkflowDefinitionSource definitions;
 
   setUp(() {
@@ -148,18 +38,19 @@ void main() {
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
     worker = FakeAgentHarness();
-    turns = _FakeTurnManager(messages, worker);
+    turns = FakeTurnManager(messages, worker);
 
     final eventBus = EventBus();
     final taskDb = openTaskDbInMemory();
     final taskRepo = SqliteTaskRepository(taskDb);
     final tasks = TaskService(taskRepo, eventBus: eventBus);
-    workflows = _FakeWorkflowService(
+    workflows = FakeWorkflowService(
       db: sqlite3.openInMemory(),
       taskService: tasks,
       eventBus: eventBus,
       dataDir: tempDir.path,
     );
+    workflows.validateRequiredVars = true;
     workflows.startResult = WorkflowRun(
       id: 'run-1',
       definitionName: 'code-review',

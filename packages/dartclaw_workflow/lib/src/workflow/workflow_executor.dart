@@ -219,7 +219,7 @@ class WorkflowExecutor {
               activeCursor,
             _ => null,
           };
-          final pauseOrCancel = await _executeLoop(
+          final loopResult = await _executeLoop(
             run,
             definition,
             loop,
@@ -230,7 +230,7 @@ class WorkflowExecutor {
             startFromStepId: loopCursor?.stepId,
             onRunUpdated: (updated) => run = updated,
           );
-          if (pauseOrCancel) return;
+          if (loopResult.halted) return;
           activeCursor = null;
           final nextStepIndex = nodeIndex + 1 < nodes.length
               ? _firstStepIndexForNode(nodes[nodeIndex + 1], stepIndexById)

@@ -158,14 +158,8 @@ dart test --reporter=failures-only apps/dartclaw_cli
 dart test -j 1 --reporter=failures-only \
   packages/dartclaw_workflow packages/dartclaw_server apps/dartclaw_cli
 
-# Test all packages sequentially
-for pkg in packages/dartclaw_models packages/dartclaw_core packages/dartclaw_config \
-  packages/dartclaw_security packages/dartclaw_storage packages/dartclaw_whatsapp \
-  packages/dartclaw_signal packages/dartclaw_google_chat packages/dartclaw_workflow \
-  packages/dartclaw_server packages/dartclaw_testing packages/dartclaw \
-  apps/dartclaw_cli; do
-  echo "=== $pkg ===" && dart test --reporter=failures-only "$pkg" || exit 1
-done
+# Test all packages with the CI-equivalent package/test serialization policy
+bash dev/tools/test_workspace.sh
 
 # Specific test directory
 dart test --reporter=failures-only packages/dartclaw_core/test/storage
@@ -192,7 +186,7 @@ bash dev/testing/profiles/workflow-live/run.sh --canary merge-resolve
 bash dev/testing/profiles/workflow-live/run.sh --full
 
 # Run live core integration tests (requires real claude binary + API credentials)
-dart test --reporter=failures-only -t integration packages/dartclaw_core
+dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_core
 
 # Per-package coverage
 dart test --coverage=coverage/ packages/dartclaw_core

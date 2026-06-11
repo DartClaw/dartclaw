@@ -51,11 +51,7 @@ $_header
           isA<FormatException>().having(
             (e) => e.message,
             'message',
-            allOf(
-              contains('extraction.type'),
-              contains('unknown_value'),
-              anyOf(contains('regex'), contains('jsonpath'), contains('artifact')),
-            ),
+            allOf(contains('extraction.type'), contains('unknown_value'), contains('artifact')),
           ),
         ),
       );
@@ -69,7 +65,7 @@ $_header
     name: Step One
     prompt: Do something
     extraction:
-      type: regex
+      type: artifact
 ''';
       expect(
         () => parser.parse(yaml, sourcePath: 'test/fixture.yaml'),

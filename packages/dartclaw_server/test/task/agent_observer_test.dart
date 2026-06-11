@@ -1,8 +1,9 @@
 import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
 import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
-import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:test/test.dart';
+
+import '../turn_runner_test_support.dart';
 
 void main() {
   late HarnessPool pool;
@@ -10,7 +11,7 @@ void main() {
   late AgentObserver observer;
 
   setUp(() {
-    final runners = [_FakeRunner(), _FakeRunner(providerId: 'codex'), _FakeRunner()];
+    final runners = [FakeTurnRunner(), FakeTurnRunner(providerId: 'codex'), FakeTurnRunner()];
     pool = HarnessPool(runners: runners);
     eventBus = EventBus();
     observer = AgentObserver(pool: pool, eventBus: eventBus);
@@ -189,77 +190,4 @@ void main() {
     expect(json['totalToolCalls'], 1);
     expect(json['failedToolCalls'], 0);
   });
-}
-
-class _FakeRunner extends TurnRunner {
-  _FakeRunner({super.providerId = 'claude'})
-    : super(
-        harness: _MinimalHarness(),
-        messages: _NoOpMessages(),
-        behavior: BehaviorFileService(workspaceDir: '/tmp/agent-observer-test'),
-        sessions: _NoOpSessions(),
-      );
-}
-
-class _MinimalHarness implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-  @override
-  WorkerState get state => WorkerState.idle;
-  @override
-  Stream<BridgeEvent> get events => const Stream.empty();
-  @override
-  Future<void> start() async {}
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) async => {};
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
-
-  @override
-  Future<void> cancel() async {}
-  @override
-  Future<void> stop() async {}
-  @override
-  Future<void> dispose() async {}
-}
-
-class _NoOpMessages implements MessageService {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-class _NoOpSessions implements SessionService {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
 }

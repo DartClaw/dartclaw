@@ -11,6 +11,8 @@ export default class DcChatController extends Stimulus.Controller {
     this.activeReferenceIndex = 0;
     this.streaming = false;
     this.recoveryActive = false;
+    this.canCancel = false;
+    this.turnStatusTimer = null;
     this.handleBeforeRequest = this.handleBeforeRequest.bind(this);
     this.handleAfterRequest = this.handleAfterRequest.bind(this);
     this.handleSseMessage = this.handleSseMessage.bind(this);
@@ -40,6 +42,7 @@ export default class DcChatController extends Stimulus.Controller {
     document.body.removeEventListener('htmx:sseMessage', this.handleSseMessage);
     document.body.removeEventListener('htmx:sseClose', this.handleSseClose);
     this.element.removeEventListener('click', this.handleLoadEarlierClick);
+    this._stopTurnStatusPolling();
     const textarea = this.textarea;
     if (textarea) {
       textarea.removeEventListener('input', this.handleTextareaInput);
@@ -119,7 +122,12 @@ export default class DcChatController extends Stimulus.Controller {
     const button = this.sendButton;
     if (button) {
       if (this.streaming) {
-        button.disabled = false;
+        // Only enable Stop once the authoritative turn-status snapshot reports
+        // the turn is cancellable. A plain `running` turn returns
+        // can_cancel: false, so Stop stays disabled until the poll observes it
+        // become cancellable (waiting/stuck) — avoiding a Stop control that
+        // looks active but always fails.
+        button.disabled = !this.canCancel;
         button.type = 'button';
         button.textContent = 'Stop';
         button.classList.add('btn-stop');
@@ -143,6 +151,7 @@ export default class DcChatController extends Stimulus.Controller {
     document.body.classList.add('streaming');
     if (button) button.disabled = false;
     this.closePalettes();
+    this._startTurnStatusPolling();
     this.updateSendState();
   }
 
@@ -154,6 +163,7 @@ export default class DcChatController extends Stimulus.Controller {
       textarea.placeholder = 'Type a message...';
     }
     this.streaming = false;
+    this._stopTurnStatusPolling();
     if (button) button.disabled = !textarea || !textarea.value.trim();
     this.updateSendState();
   }
@@ -210,7 +220,20 @@ export default class DcChatController extends Stimulus.Controller {
   stopTurn() {
     if (!this.sessionId) return;
     this.sendButton.disabled = true;
-    fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/turn/stop', { method: 'POST' })
+    const sessionPath = '/api/sessions/' + encodeURIComponent(this.sessionId);
+    fetch(sessionPath + '/turn-status')
+      .then((response) => {
+        if (!response.ok) throw new Error('Status failed');
+        return response.json();
+      })
+      .then((status) => {
+        if (!status.turn_id || status.can_cancel !== true) throw new Error('Turn is not cancellable');
+        return fetch(sessionPath + '/turns/' + encodeURIComponent(status.turn_id) + '/cancel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'operator_cancel' }),
+        });
+      })
       .then((response) => {
         if (!response.ok) throw new Error('Stop failed');
         this.showRecovery('Turn stopped. Edit your message or send again.');
@@ -220,6 +243,37 @@ export default class DcChatController extends Stimulus.Controller {
         this.sendButton.disabled = false;
         showBanner('error', 'Failed to stop active turn');
       });
+  }
+
+  _startTurnStatusPolling() {
+    this._stopTurnStatusPolling();
+    this.canCancel = false;
+    this.updateSendState();
+    if (!this.sessionId) return;
+    const poll = () => {
+      if (!this.streaming || !this.sessionId) return;
+      fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/turn-status')
+        .then((response) => (response.ok ? response.json() : null))
+        .then((status) => {
+          if (!this.streaming) return;
+          const next = Boolean(status && status.can_cancel === true);
+          if (next !== this.canCancel) {
+            this.canCancel = next;
+            this.updateSendState();
+          }
+        })
+        .catch(() => {});
+    };
+    poll();
+    this.turnStatusTimer = setInterval(poll, 2500);
+  }
+
+  _stopTurnStatusPolling() {
+    if (this.turnStatusTimer !== null) {
+      clearInterval(this.turnStatusTimer);
+      this.turnStatusTimer = null;
+    }
+    this.canCancel = false;
   }
 
   handleLoadEarlierClick(event) {

@@ -18,6 +18,7 @@ import 'channel_session_title.dart';
 import 'feedback_observer_factory.dart';
 import 'model_resolver.dart';
 import 'reserved_command_handler.dart';
+import 'space_events_auth.dart';
 import 'storage_wiring.dart';
 import 'task_wiring.dart';
 
@@ -342,66 +343,33 @@ class ChannelWiring {
         MessageDeduplicator? deduplicator;
         WorkspaceEventsManager? subscriptionManager;
         if (googleChatConfig.spaceEvents.enabled && googleChatConfig.pubsub.isConfigured) {
-          try {
-            deduplicator = MessageDeduplicator();
-
-            // Create auth client for Workspace Events subscription management.
-            // User OAuth (GA) is preferred; service account (Developer Preview) is fallback.
-            http.Client? spaceEventsAuthClient;
-            if (googleChatConfig.spaceEvents.authMode == 'user') {
-              final credentialStore = UserOAuthCredentialStore(dataDir: _dataDir);
-              final userCredentials = credentialStore.load();
-              if (userCredentials != null) {
-                final requiredScopes = googleChatConfig.spaceEvents.requiredUserAuthScopes;
-                final missingScopes = requiredScopes.difference(userCredentials.scopes.toSet());
-                try {
-                  if (missingScopes.isEmpty) {
-                    spaceEventsAuthClient = UserOAuthAuthService.createClient(credentials: userCredentials);
-                    _log.info('Space Events using user OAuth authentication');
-                  } else {
-                    _log.warning(
-                      'Stored user OAuth credentials are missing required scopes for the configured '
-                      'space_events.event_types: ${missingScopes.join(', ')}. '
-                      'Run "dartclaw google-auth --force" to refresh them. Falling back to service account auth.',
-                    );
-                  }
-                } catch (e) {
-                  _log.warning('Failed to create user OAuth client: $e — falling back to service account');
-                }
-              } else {
-                _log.warning(
-                  'space_events.auth_mode is "user" but no user OAuth credentials found. '
-                  'Run "dartclaw google-auth" to authenticate, or set auth_mode: app. '
-                  'Falling back to service account auth.',
-                );
-              }
+          // Workspace Events subscriptions authenticate solely via user OAuth.
+          // On missing/insufficient credentials the helper logs an actionable
+          // error and returns null; there is no service-account fallback.
+          final spaceEventsAuthClient = resolveSpaceEventsUserOAuthClient(
+            spaceEvents: googleChatConfig.spaceEvents,
+            dataDir: _dataDir,
+            log: _log,
+          );
+          if (spaceEventsAuthClient != null) {
+            try {
+              deduplicator = MessageDeduplicator();
+              subscriptionManager = WorkspaceEventsManager(
+                authClient: spaceEventsAuthClient,
+                config: googleChatConfig.spaceEvents,
+                dataDir: _dataDir,
+                discoverSpaces: channel.restClient.listSpaces,
+              );
+              _log.info('Space Events infrastructure initialized (dedup + subscription manager)');
+            } catch (e) {
+              _log.warning('Failed to initialize Space Events infrastructure: $e – space events disabled');
+              deduplicator = null;
+              subscriptionManager = null;
             }
-
-            // Fall back to service account auth.
-            spaceEventsAuthClient ??= await GcpAuthService(
-              serviceAccountJson: credentialJson,
-              scopes: <String>[
-                'https://www.googleapis.com/auth/chat.bot',
-                'https://www.googleapis.com/auth/chat.spaces.readonly',
-                ...googleChatConfig.spaceEvents.requiredAppAuthScopes,
-              ],
-            ).initialize();
-
-            subscriptionManager = WorkspaceEventsManager(
-              authClient: spaceEventsAuthClient,
-              config: googleChatConfig.spaceEvents,
-              dataDir: _dataDir,
-              discoverSpaces: channel.restClient.listSpaces,
-            );
-            _log.info('Space Events infrastructure initialized (dedup + subscription manager)');
-          } catch (e) {
-            _log.warning('Failed to initialize Space Events infrastructure: $e — space events disabled');
-            deduplicator = null;
-            subscriptionManager = null;
           }
         } else if (googleChatConfig.spaceEvents.enabled && !googleChatConfig.pubsub.isConfigured) {
           _log.warning(
-            'space_events.enabled is true but pubsub is not configured — '
+            'space_events.enabled is true but pubsub is not configured – '
             'Space Events disabled. Configure pubsub.project_id and pubsub.subscription.',
           );
         }

@@ -31,6 +31,9 @@ void main() {
       final BridgeEvent delta = DeltaEvent('hello');
       final BridgeEvent toolUse = ToolUseEvent(toolName: 'bash', toolId: 't1', input: {});
       final BridgeEvent toolResult = ToolResultEvent(toolId: 't1', output: 'ok', isError: false);
+      final BridgeEvent approvalWait = ToolApprovalWaitEvent(requestId: 'r1', toolName: 'bash');
+      final BridgeEvent approvalResolved = ToolApprovalResolvedEvent(requestId: 'r1');
+      final BridgeEvent progress = ProviderProgressBridgeEvent(kind: 'agent_thought_chunk', text: 'thinking');
       final BridgeEvent init = SystemInitEvent(contextWindow: 200000);
 
       // Pattern matching works — exhaustive switch
@@ -38,6 +41,9 @@ void main() {
         DeltaEvent(:final text) => text,
         ToolUseEvent() => 'tool',
         ToolResultEvent() => 'result',
+        ToolApprovalWaitEvent() => 'approval_wait',
+        ToolApprovalResolvedEvent() => 'approval_resolved',
+        ProviderProgressBridgeEvent() => 'progress',
         SystemInitEvent() => 'init',
         CompactionStartingBridgeEvent() => 'compaction_starting',
         CompactionCompletedBridgeEvent() => 'compaction_completed',
@@ -48,6 +54,9 @@ void main() {
       expect(delta, isA<DeltaEvent>());
       expect(toolUse, isA<ToolUseEvent>());
       expect(toolResult, isA<ToolResultEvent>());
+      expect(approvalWait, isA<ToolApprovalWaitEvent>());
+      expect(approvalResolved, isA<ToolApprovalResolvedEvent>());
+      expect(progress, isA<ProviderProgressBridgeEvent>());
       expect(init, isA<SystemInitEvent>());
     });
 
@@ -162,7 +171,7 @@ void main() {
       expect(origin.recipientId, 'wa:user');
     });
 
-    test('harness operational types importable', () {
+    test('harness operational types importable', () async {
       ProcessFactory processFactory() => _unexpectedProcessStart;
       CommandProbe commandProbe() => _unexpectedCommandProbe;
       DelayFactory delayFactory() => _noopDelay;
@@ -172,6 +181,18 @@ void main() {
       expect(commandProbe(), isA<CommandProbe>());
       expect(delayFactory(), isA<DelayFactory>());
       expect(healthProbe(), isA<HealthProbe>());
+      final acpHarness = AcpHarness(cwd: '/tmp');
+      addTearDown(acpHarness.dispose);
+      expect(acpHarness, isA<AcpHarness>());
+      expect(AcpProtocolAdapter, isNotNull);
+      expect(const ProgressMessage(text: 'thinking', kind: 'agent_thought_chunk'), isA<ProgressMessage>());
+      expect(const SessionMetadataUpdate(title: 'Plan cleanup'), isA<SessionMetadataUpdate>());
+      expect(const ProtocolDiagnostic(message: 'skipped'), isA<ProtocolDiagnostic>());
+      expect(const AcpHarnessException(AcpHarnessErrorCode.authRequired, 'auth').code, 'ACP_AUTH_REQUIRED');
+      const permission = AcpPermissionResult(granted: false, reason: 'denied');
+      const audit = AcpReverseCallAuditEvent(rawProviderToolName: 'terminal/create', canonicalToolName: 'shell');
+      expect(permission.granted, isFalse);
+      expect(audit.rawProviderToolName, 'terminal/create');
       expect(ToolApprovalPolicy.allowAll, ToolApprovalPolicy.allowAll);
       expect(WorkerState.idle.name, 'idle');
     });

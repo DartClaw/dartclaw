@@ -138,7 +138,7 @@ class FileGuardConfig {
 /// Glob-based file path protection guard.
 ///
 /// Only evaluates on `beforeToolCall`. Handles canonical `shell`,
-/// `file_write`, and `file_edit` tools.
+/// `file_read`, `file_write`, and `file_edit` tools.
 class FileGuard extends Guard {
   @override
   String get name => 'file';
@@ -164,7 +164,8 @@ class FileGuard extends Guard {
 
     final pathOps = switch (toolName) {
       'shell' => _extractPathsFromBash(toolInput['command'] as String? ?? ''),
-      'file_write' || 'file_edit' => _extractPathsFromTool(toolInput),
+      'file_read' => _extractPathsFromTool(toolInput, FileOperation.read),
+      'file_write' || 'file_edit' => _extractPathsFromTool(toolInput, FileOperation.write),
       _ => <_PathOp>[],
     };
 
@@ -181,13 +182,13 @@ class FileGuard extends Guard {
   // Path extraction
   // -------------------------------------------------------------------------
 
-  List<_PathOp> _extractPathsFromTool(Map<String, dynamic> input) {
+  List<_PathOp> _extractPathsFromTool(Map<String, dynamic> input, FileOperation operation) {
     final results = <_PathOp>[];
 
     void addPath(Object? value) {
       final path = _stringValue(value);
       if (path != null && path.isNotEmpty) {
-        results.add(_PathOp(path, FileOperation.write));
+        results.add(_PathOp(path, operation));
       }
     }
 

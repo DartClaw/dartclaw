@@ -30,7 +30,8 @@ const _publicPrefixes = ['/webhook/', '/static/'];
 /// 1. Public path -> pass through
 /// 2. Valid session cookie (HMAC-signed) -> pass through
 /// 3. Valid Bearer token -> pass through
-/// 4. Else -> browser? redirect /login : 401 JSON
+/// 4. GET with `?token=<valid>` -> set cookie, redirect to token-stripped URL
+/// 5. Else -> browser? redirect /login : 401 JSON
 Middleware authMiddleware({
   required TokenService tokenService,
   required String gatewayToken,
@@ -75,7 +76,22 @@ Middleware authMiddleware({
       }
     }
 
-    // 4. Unauthorized
+    // 4. Token bootstrap: any GET with ?token=<valid>. Sets the session cookie
+    // and redirects to the same route with the token stripped, so the token
+    // appears in the URL only once (ADR-006 Option C).
+    if (request.method == 'GET') {
+      final tokenParam = request.url.queryParameters['token'];
+      if (tokenParam != null && tokenService.validateToken(tokenParam)) {
+        rateLimiter?.reset(remoteKey);
+        final sessionToken = createSessionToken(gatewayToken);
+        return Response.found(
+          _locationWithoutToken(request),
+          headers: {'set-cookie': sessionCookieHeader(sessionToken, secure: cookieSecure)},
+        );
+      }
+    }
+
+    // 5. Unauthorized
     final limited = rateLimiter?.shouldLimit(remoteKey) ?? false;
     if (!limited) {
       rateLimiter?.recordFailure(remoteKey);

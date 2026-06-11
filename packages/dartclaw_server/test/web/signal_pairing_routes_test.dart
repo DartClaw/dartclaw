@@ -6,72 +6,8 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
+import '../signal_test_support.dart';
 import '../test_utils.dart';
-
-// ---------------------------------------------------------------------------
-// Fake SignalCliManager — configurable sidecar behavior for route tests
-// ---------------------------------------------------------------------------
-class _FakeSignalCliManager extends SignalCliManager {
-  bool fakeHealthy;
-  bool fakeRegistered;
-  String? fakeLinkUri;
-  bool smsRequested = false;
-  bool voiceRequested = false;
-  String? lastVerifyCode;
-  bool verifyThrows = false;
-  bool smsThrows = false;
-  bool voiceThrows = false;
-  bool healthCheckThrows = false;
-
-  _FakeSignalCliManager({this.fakeHealthy = true, this.fakeRegistered = false, this.fakeLinkUri})
-    : super(executable: 'signal-cli', phoneNumber: '+15551234567');
-
-  @override
-  bool get isRunning => fakeHealthy;
-
-  @override
-  Future<bool> healthCheck() async {
-    if (healthCheckThrows) {
-      throw const SocketException(
-        'Connection refused (OS Error: Connection refused, errno = 61), address = 127.0.0.1, port = 47000',
-      );
-    }
-    return fakeHealthy;
-  }
-
-  @override
-  Future<bool> isAccountRegistered() async => fakeRegistered;
-
-  @override
-  Future<String?> getLinkDeviceUri({String deviceName = 'DartClaw'}) async => fakeLinkUri;
-
-  @override
-  Future<void> requestSmsVerification({String? phone, String? captcha}) async {
-    if (smsThrows) throw Exception('SMS send failed');
-    smsRequested = true;
-  }
-
-  @override
-  Future<void> requestVoiceVerification({String? phone, String? captcha}) async {
-    if (voiceThrows) throw Exception('Voice call failed');
-    voiceRequested = true;
-  }
-
-  @override
-  Future<void> verifySmsCode(String code, {String? phone}) async {
-    lastVerifyCode = code;
-    if (verifyThrows) throw Exception('Invalid code');
-  }
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> reset() async {}
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -82,14 +18,14 @@ void main() {
 
   late Directory tempDir;
   late SessionService sessions;
-  late _FakeSignalCliManager fakeSidecar;
+  late FakeSignalCliManager fakeSidecar;
   late SignalChannel signalChannel;
   late Handler handler;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_signal_route_test_');
     sessions = SessionService(baseDir: tempDir.path);
-    fakeSidecar = _FakeSignalCliManager(
+    fakeSidecar = FakeSignalCliManager(
       fakeHealthy: true,
       fakeRegistered: false,
       fakeLinkUri: 'sgnl://linkdevice?uuid=test-uuid',

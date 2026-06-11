@@ -37,15 +37,12 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
-        WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowSerializationEnactedEvent,
         WorkflowStep,
-        WorkflowTurnAdapter,
-        WorkflowTurnOutcome,
         workflowContextClose,
         workflowContextOpen;
 import 'package:path/path.dart' as p;
@@ -230,13 +227,8 @@ void main() {
         });
 
         final executor = h.makeExecutor(
-          turnAdapter: WorkflowTurnAdapter(
-            reserveTurn: (_) => Future.value('turn-p1'),
-            executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-            waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            initializeWorkflowGit:
-                ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                    const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+          turnAdapter: standardTurnAdapter(
+            turnId: 'turn-p1',
             promoteWorkflowBranch:
                 ({
                   required runId,
@@ -330,13 +322,8 @@ void main() {
 
         int promotionCount = 0;
         final executor = h.makeExecutor(
-          turnAdapter: WorkflowTurnAdapter(
-            reserveTurn: (_) => Future.value('turn-p2'),
-            executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-            waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            initializeWorkflowGit:
-                ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                    const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+          turnAdapter: standardTurnAdapter(
+            turnId: 'turn-p2',
             promoteWorkflowBranch:
                 ({
                   required runId,
@@ -438,13 +425,8 @@ void main() {
 
         // S01 always succeeds. S02 conflicts first two times, succeeds on third.
         final executor = h.makeExecutor(
-          turnAdapter: WorkflowTurnAdapter(
-            reserveTurn: (_) => Future.value('turn-p3'),
-            executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-            waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            initializeWorkflowGit:
-                ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                    const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+          turnAdapter: standardTurnAdapter(
+            turnId: 'turn-p3',
             promoteWorkflowBranch:
                 ({
                   required runId,
@@ -548,13 +530,8 @@ void main() {
         });
 
         final executor = h.makeExecutor(
-          turnAdapter: WorkflowTurnAdapter(
-            reserveTurn: (_) => Future.value('turn-p4'),
-            executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-            waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            initializeWorkflowGit:
-                ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                    const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+          turnAdapter: standardTurnAdapter(
+            turnId: 'turn-p4',
             promoteWorkflowBranch:
                 ({
                   required runId,
@@ -632,13 +609,8 @@ void main() {
         });
 
         final executor = h.makeExecutor(
-          turnAdapter: WorkflowTurnAdapter(
-            reserveTurn: (_) => Future.value('turn-p5'),
-            executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-            waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-            initializeWorkflowGit:
-                ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-                    const WorkflowGitIntegrationBranchResult(integrationBranch: 'dartclaw/integration/test'),
+          turnAdapter: standardTurnAdapter(
+            turnId: 'turn-p5',
             promoteWorkflowBranch:
                 ({
                   required runId,

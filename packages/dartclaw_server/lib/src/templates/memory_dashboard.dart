@@ -1,3 +1,5 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show formatLocalDateTime;
+
 import 'components.dart';
 import 'helpers.dart';
 import 'layout.dart';
@@ -153,13 +155,7 @@ Map<String, dynamic> _buildContext(Map<String, dynamic> status, String sidebar, 
   };
 }
 
-String _formatTimestamp(String? iso) {
-  if (iso == null) return 'N/A';
-  final dt = DateTime.tryParse(iso);
-  if (dt == null) return iso;
-  return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
-      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-}
+String _formatTimestamp(String? iso) => formatLocalDateTime(iso, seconds: false, emptyPlaceholder: 'N/A');
 
 String _formatDate(String? iso) {
   if (iso == null) return 'N/A';

@@ -128,6 +128,8 @@ class WorkflowDefinitionParser {
         final parsedForeach = _parseInlineForeachStep(entry, sourcePath);
         steps.add(parsedForeach.controller);
         steps.addAll(parsedForeach.childSteps);
+        steps.addAll(parsedForeach.nestedLoopSteps);
+        inlineLoops.addAll(parsedForeach.nestedLoops);
       } else {
         steps.add(_parseStep(entry, sourcePath));
       }
@@ -160,12 +162,29 @@ class WorkflowDefinitionParser {
       throw FormatException('Foreach "$id" must include a non-empty "steps" list${_at(sourcePath)}.');
     }
     final childSteps = <WorkflowStep>[];
+    final nestedLoops = <WorkflowLoop>[];
+    final nestedLoopSteps = <WorkflowStep>[];
     for (final childRaw in childStepsRaw) {
       if (childRaw is! YamlMap) {
         throw FormatException('Foreach "$id" step entries must be mappings${_at(sourcePath)}.');
       }
-      if (_isInlineLoopStep(childRaw) || _isInlineForeachStep(childRaw)) {
-        throw FormatException('Foreach "$id" cannot contain nested loops or foreach steps${_at(sourcePath)}.');
+      if (_isInlineForeachStep(childRaw)) {
+        throw FormatException('Foreach "$id" cannot contain nested foreach steps${_at(sourcePath)}.');
+      }
+      if (_isInlineLoopStep(childRaw)) {
+        // A loop nested in a foreach body converges independently per item.
+        // Reuse the inline-loop parse for the body; synthesize a loop
+        // controller step the foreach dispatches (loop-in-loop is still
+        // rejected by _parseInlineLoopStep).
+        final parsedLoop = _parseInlineLoopStep(childRaw, sourcePath);
+        final loopName = childRaw['name'] as String;
+        childSteps.add(WorkflowStep(id: parsedLoop.loop.id, name: loopName, taskType: WorkflowTaskType.loop));
+        nestedLoops.add(parsedLoop.loop);
+        nestedLoopSteps.addAll(parsedLoop.steps);
+        if (parsedLoop.finalizerStep != null) {
+          nestedLoopSteps.add(parsedLoop.finalizerStep!);
+        }
+        continue;
       }
       childSteps.add(_parseStep(childRaw, sourcePath));
     }
@@ -193,7 +212,12 @@ class WorkflowDefinitionParser {
         sourcePath,
       ),
     );
-    return _ParsedInlineForeachStep(controller: controller, childSteps: childSteps);
+    return _ParsedInlineForeachStep(
+      controller: controller,
+      childSteps: childSteps,
+      nestedLoops: nestedLoops,
+      nestedLoopSteps: nestedLoopSteps,
+    );
   }
 
   _ParsedInlineLoopStep _parseInlineLoopStep(YamlMap raw, String? sourcePath) {
@@ -1057,7 +1081,23 @@ class _ParsedInlineLoopStep {
 
 class _ParsedInlineForeachStep {
   final WorkflowStep controller;
+
+  /// Child steps the foreach dispatches per item, in order. A `type: loop`
+  /// child contributes its loop *controller* step here (not its body steps).
   final List<WorkflowStep> childSteps;
 
-  const _ParsedInlineForeachStep({required this.controller, required this.childSteps});
+  /// Inline loops declared directly inside the foreach body. Their controller
+  /// step ids appear in [childSteps]; their body steps are in [nestedLoopSteps].
+  final List<WorkflowLoop> nestedLoops;
+
+  /// Body (and finalizer) steps of the foreach-nested loops. Flattened into the
+  /// definition's `steps` list but owned by the loop, not the foreach node.
+  final List<WorkflowStep> nestedLoopSteps;
+
+  const _ParsedInlineForeachStep({
+    required this.controller,
+    required this.childSteps,
+    this.nestedLoops = const [],
+    this.nestedLoopSteps = const [],
+  });
 }

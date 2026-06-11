@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/mcp/search_provider.dart';
 import 'package:dartclaw_server/src/mcp/tavily_search_tool.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeContentClassifier;
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -20,16 +21,6 @@ class _MockProvider implements SearchProvider {
   Future<List<SearchResult>> search(String query, {int count = 5}) async {
     if (shouldThrow) throw Exception(errorMessage);
     return results.take(count).toList();
-  }
-}
-
-class _FakeClassifier implements ContentClassifier {
-  String result;
-  _FakeClassifier({this.result = 'safe'});
-
-  @override
-  Future<String> classify(String content, {Duration timeout = const Duration(seconds: 15)}) async {
-    return result;
   }
 }
 
@@ -142,7 +133,7 @@ void main() {
 
     group('ContentGuard integration', () {
       test('safe content passes through', () async {
-        final classifier = _FakeClassifier(result: 'safe');
+        final classifier = FakeContentClassifier(result: 'safe');
         final guard = ContentGuard(classifier: classifier);
         final provider = _MockProvider(
           results: [SearchResult(title: 'Title', url: 'https://a.com', snippet: 'Safe text')],
@@ -155,7 +146,7 @@ void main() {
       });
 
       test('blocked content returns error result', () async {
-        final classifier = _FakeClassifier(result: 'harmful_content');
+        final classifier = FakeContentClassifier(result: 'harmful_content');
         final guard = ContentGuard(classifier: classifier);
         final provider = _MockProvider(
           results: [SearchResult(title: 'Bad', url: 'https://a.com', snippet: 'Harmful content')],

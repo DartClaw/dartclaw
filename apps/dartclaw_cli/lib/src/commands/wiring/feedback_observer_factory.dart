@@ -95,6 +95,8 @@ class FeedbackObserverFactory {
                     message: 'Google Chat feedback status update failed',
                   ),
                 );
+              case ProviderProgressEvent():
+                break;
               case TurnStallProgressEvent():
                 break; // Already handled by TurnRunner (SSE + cancel)
             }

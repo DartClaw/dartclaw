@@ -10,6 +10,7 @@ import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import '../task/task_review_test_support.dart';
 import 'api_test_helpers.dart';
 
 void main() {
@@ -17,6 +18,7 @@ void main() {
   late TaskService tasks;
   late EventBus eventBus;
   late Handler handler;
+  late ApiRouteTestClient api;
   late Directory tempDir;
   late ThreadBindingStore threadBindingStore;
 
@@ -33,6 +35,7 @@ void main() {
     threadBindingStore = ThreadBindingStore(File('${tempDir.path}/thread-bindings.json'));
     await threadBindingStore.load();
     handler = taskRoutes(tasks, dataDir: tempDir.path, threadBindingStore: threadBindingStore).call;
+    api = ApiRouteTestClient(handler);
   });
 
   tearDown(() async {
@@ -80,32 +83,25 @@ void main() {
 
   group('POST /api/tasks', () {
     test('creates task in draft', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
-          'title': 'Draft task',
-          'description': 'Describe the work',
-          'type': 'coding',
-        }),
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Draft task', 'description': 'Describe the work', 'type': 'coding'},
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
-      final body = decodeObject(await response.readAsString());
       expect(body['title'], 'Draft task');
       expect(body['status'], 'draft');
     });
 
     test('task payload nests agent execution fields', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
-          'title': 'Nested task',
-          'description': 'Describe the work',
-          'type': 'coding',
-          'provider': 'codex',
-        }),
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Nested task', 'description': 'Describe the work', 'type': 'coding', 'provider': 'codex'},
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
-      final body = decodeObject(await response.readAsString());
       expect(body.containsKey('provider'), isFalse);
       expect(body.containsKey('sessionId'), isFalse);
       expect(body['agentExecution'], isA<Map<String, dynamic>>());
@@ -113,8 +109,10 @@ void main() {
     });
 
     test('persists model, sessionId, and maxTokens onto agent execution', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/tasks',
+        json: {
           'title': 'Execution-seeded task',
           'description': 'Describe the work',
           'type': 'coding',
@@ -122,11 +120,10 @@ void main() {
           'model': 'claude-opus-4-7',
           'sessionId': 'sess-42',
           'maxTokens': 8000,
-        }),
+        },
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
-      final body = decodeObject(await response.readAsString());
       final ae = body['agentExecution'] as Map<String, dynamic>;
       expect(ae['provider'], 'claude');
       expect(ae['model'], 'claude-opus-4-7');
@@ -135,214 +132,198 @@ void main() {
     });
 
     test('accepts whole-number JSON double for maxTokens', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
-          'title': 'Double task',
-          'description': 'Describe the work',
-          'type': 'coding',
-          'maxTokens': 8000.0,
-        }),
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Double task', 'description': 'Describe the work', 'type': 'coding', 'maxTokens': 8000.0},
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
-      final body = decodeObject(await response.readAsString());
       expect((body['agentExecution'] as Map<String, dynamic>)['budgetTokens'], 8000);
     });
 
     test('rejects non-numeric maxTokens', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
-          'title': 'Bad task',
-          'description': 'Describe the work',
-          'type': 'coding',
-          'maxTokens': 'lots',
-        }),
+      await api.expectResponse(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Bad task', 'description': 'Describe the work', 'type': 'coding', 'maxTokens': 'lots'},
+        status: 400,
       );
-
-      expect(response.statusCode, 400);
     });
 
     test('rejects fractional maxTokens', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
-          'title': 'Fractional task',
-          'description': 'Describe the work',
-          'type': 'coding',
-          'maxTokens': 1.5,
-        }),
+      await api.expectResponse(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Fractional task', 'description': 'Describe the work', 'type': 'coding', 'maxTokens': 1.5},
+        status: 400,
       );
-
-      expect(response.statusCode, 400);
     });
 
     test('rejects non-positive maxTokens', () async {
       for (final value in <num>[0, -1, 0.0]) {
-        final response = await handler(
-          jsonRequest('POST', '/api/tasks', {
-            'title': 'Zero task',
-            'description': 'Describe the work',
-            'type': 'coding',
-            'maxTokens': value,
-          }),
+        await api.expectResponse(
+          'POST',
+          '/api/tasks',
+          json: {'title': 'Zero task', 'description': 'Describe the work', 'type': 'coding', 'maxTokens': value},
+          status: 400,
         );
-        expect(response.statusCode, 400, reason: 'maxTokens=$value should be rejected');
       }
     });
 
     test('rejects non-string model and sessionId', () async {
-      final modelResponse = await handler(
-        jsonRequest('POST', '/api/tasks', {
-          'title': 'Bad task',
-          'description': 'Describe the work',
-          'type': 'coding',
-          'model': 42,
-        }),
+      await api.expectResponse(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Bad task', 'description': 'Describe the work', 'type': 'coding', 'model': 42},
+        status: 400,
       );
-      expect(modelResponse.statusCode, 400);
 
-      final sessionResponse = await handler(
-        jsonRequest('POST', '/api/tasks', {
-          'title': 'Bad task',
-          'description': 'Describe the work',
-          'type': 'coding',
-          'sessionId': true,
-        }),
+      await api.expectResponse(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Bad task', 'description': 'Describe the work', 'type': 'coding', 'sessionId': true},
+        status: 400,
       );
-      expect(sessionResponse.statusCode, 400);
     });
 
     test('strips model key from configJson when persisted onto AE', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/tasks',
+        json: {
           'title': 'Model in config',
           'description': 'Describe the work',
           'type': 'coding',
           'configJson': {'model': 'claude-opus-4-7', 'allowedTools': <String>[]},
-        }),
+        },
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
-      final body = decodeObject(await response.readAsString());
       expect((body['agentExecution'] as Map<String, dynamic>)['model'], 'claude-opus-4-7');
       expect((body['configJson'] as Map<String, dynamic>).containsKey('model'), isFalse);
     });
 
     test('creates task with autoStart as queued', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
-          'title': 'Queued task',
-          'description': 'Describe the work',
-          'type': 'research',
-          'autoStart': true,
-        }),
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Queued task', 'description': 'Describe the work', 'type': 'research', 'autoStart': true},
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
-      final body = decodeObject(await response.readAsString());
       expect(body['status'], 'queued');
     });
 
     test('persists projectId when provided', () async {
       final handlerWithProjects = taskRoutes(tasks, projectService: makeProjectService()).call;
+      final projectApi = ApiRouteTestClient(handlerWithProjects);
 
-      final response = await handlerWithProjects(
-        jsonRequest('POST', '/api/tasks', {
-          'title': 'Project task',
-          'description': 'Describe the work',
-          'type': 'coding',
-          'projectId': 'my-app',
-        }),
+      final body = await projectApi.expectJsonObject(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Project task', 'description': 'Describe the work', 'type': 'coding', 'projectId': 'my-app'},
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
-      final body = decodeObject(await response.readAsString());
       expect(body['projectId'], 'my-app');
       expect((await tasks.get(body['id'] as String))!.projectId, 'my-app');
     });
 
     test('returns 400 for unknown projectId', () async {
       final handlerWithProjects = taskRoutes(tasks, projectService: makeProjectService()).call;
+      final projectApi = ApiRouteTestClient(handlerWithProjects);
 
-      final response = await handlerWithProjects(
-        jsonRequest('POST', '/api/tasks', {
+      final code = await projectApi.expectJsonErrorCode(
+        'POST',
+        '/api/tasks',
+        json: {
           'title': 'Project task',
           'description': 'Describe the work',
           'type': 'coding',
           'projectId': 'missing-project',
-        }),
+        },
+        status: 400,
       );
 
-      expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(code, 'INVALID_INPUT');
     });
 
     test('echoes goalId on create', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
-          'title': 'Goal-linked task',
-          'description': 'Describe the work',
-          'type': 'coding',
-          'goalId': 'goal-1',
-        }),
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Goal-linked task', 'description': 'Describe the work', 'type': 'coding', 'goalId': 'goal-1'},
+        status: 201,
       );
 
-      expect(response.statusCode, 201);
-      final body = decodeObject(await response.readAsString());
       expect(body['goalId'], 'goal-1');
     });
 
     test('returns 400 for missing title', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {'description': 'Describe the work', 'type': 'coding'}),
+      final code = await api.expectJsonErrorCode(
+        'POST',
+        '/api/tasks',
+        json: {'description': 'Describe the work', 'type': 'coding'},
+        status: 400,
       );
 
-      expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(code, 'INVALID_INPUT');
     });
 
     test('returns 400 for missing description', () async {
-      final response = await handler(jsonRequest('POST', '/api/tasks', {'title': 'Task', 'type': 'coding'}));
+      final code = await api.expectJsonErrorCode(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Task', 'type': 'coding'},
+        status: 400,
+      );
 
-      expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(code, 'INVALID_INPUT');
     });
 
     test('returns 400 for invalid type', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {'title': 'Task', 'description': 'Describe the work', 'type': 'invalid'}),
+      final code = await api.expectJsonErrorCode(
+        'POST',
+        '/api/tasks',
+        json: {'title': 'Task', 'description': 'Describe the work', 'type': 'invalid'},
+        status: 400,
       );
 
-      expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(code, 'INVALID_INPUT');
     });
 
     test('returns 400 for malformed string fields', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
+      final code = await api.expectJsonErrorCode(
+        'POST',
+        '/api/tasks',
+        json: {
           'title': 'Task',
           'description': 'Describe the work',
           'type': 123,
           'goalId': 456,
           'acceptanceCriteria': 789,
-        }),
+        },
+        status: 400,
       );
 
-      expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(code, 'INVALID_INPUT');
     });
 
     test('returns 400 when configJson includes internal underscore-prefixed keys', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks', {
+      final code = await api.expectJsonErrorCode(
+        'POST',
+        '/api/tasks',
+        json: {
           'title': 'Task',
           'description': 'Describe the work',
           'type': 'coding',
           'configJson': {'_workflowWorkspaceDir': '/tmp/override'},
-        }),
+        },
+        status: 400,
       );
 
-      expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(code, 'INVALID_INPUT');
     });
 
     // Note: draft-only creation (autoStart:false) does not fire a TaskStatusChangedEvent.
@@ -737,7 +718,7 @@ void main() {
     });
 
     test('cleans project-backed worktree using the selected project context', () async {
-      final worktreeManager = _RecordingWorktreeManager();
+      final worktreeManager = RecordingWorktreeManager();
       final taskFileGuard = TaskFileGuard();
       final handlerWithProjects = taskRoutes(
         tasks,
@@ -1276,18 +1257,5 @@ class _ThrowingMergeExecutor extends MergeExecutor {
     MergeStrategy? strategy,
   }) async {
     throw error;
-  }
-}
-
-class _RecordingWorktreeManager extends WorktreeManager {
-  _RecordingWorktreeManager() : super(dataDir: '/tmp', projectDir: '/tmp');
-
-  final List<String> cleanedTaskIds = [];
-  final List<String?> cleanedProjectIds = [];
-
-  @override
-  Future<void> cleanup(String taskId, {Project? project}) async {
-    cleanedTaskIds.add(taskId);
-    cleanedProjectIds.add(project?.id);
   }
 }

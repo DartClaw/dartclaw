@@ -1,9 +1,10 @@
-import 'dart:collection';
 import 'dart:convert';
 
 import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, GatewayConfig, ServerConfig;
 import 'package:test/test.dart';
+
+import 'helpers/fake_api_transport.dart';
 
 void main() {
   group('DartclawApiClient', () {
@@ -27,7 +28,7 @@ void main() {
     });
 
     test('request includes bearer token when present', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [
           _jsonResponse(200, {'ok': true}),
         ],
@@ -44,7 +45,7 @@ void main() {
     });
 
     test('request omits bearer token when auth mode is none', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [
           _jsonResponse(200, {'ok': true}),
         ],
@@ -61,7 +62,7 @@ void main() {
     });
 
     test('tokenOverride forces bearer auth even when local config auth_mode is none', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [
           _jsonResponse(200, {'ok': true}),
         ],
@@ -78,7 +79,7 @@ void main() {
     });
 
     test('401 responses produce token guidance without leaking the token', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [
           _jsonResponse(401, {
             'error': {'code': 'AUTH_REQUIRED', 'message': 'Unauthorized'},
@@ -102,7 +103,7 @@ void main() {
     });
 
     test('probeHealth treats 401 as reachable when requested', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         sendResponses: [
           _jsonResponse(401, {'error': 'Unauthorized'}),
         ],
@@ -115,7 +116,7 @@ void main() {
     });
 
     test('streamEvents parses multi-line data frames', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         streamResponses: [
           ApiResponse(
             statusCode: 200,
@@ -136,7 +137,7 @@ void main() {
     });
 
     test('streamEvents reconnects after a disconnect when the callback allows it', () async {
-      final transport = _FakeTransport(
+      final transport = FakeApiTransport(
         streamResponses: [
           ApiResponse(
             statusCode: 200,
@@ -168,28 +169,6 @@ void main() {
       expect(events.single['newStatus'], 'completed');
     });
   });
-}
-
-class _FakeTransport implements ApiTransport {
-  final Queue<ApiResponse> _sendResponses;
-  final Queue<ApiResponse> _streamResponses;
-  final List<ApiRequest> requests = <ApiRequest>[];
-
-  _FakeTransport({List<ApiResponse> sendResponses = const [], List<ApiResponse> streamResponses = const []})
-    : _sendResponses = Queue<ApiResponse>.of(sendResponses),
-      _streamResponses = Queue<ApiResponse>.of(streamResponses);
-
-  @override
-  Future<ApiResponse> send(ApiRequest request) async {
-    requests.add(request);
-    return _sendResponses.removeFirst();
-  }
-
-  @override
-  Future<ApiResponse> openStream(ApiRequest request) async {
-    requests.add(request);
-    return _streamResponses.removeFirst();
-  }
 }
 
 ApiResponse _jsonResponse(int statusCode, Object body) {

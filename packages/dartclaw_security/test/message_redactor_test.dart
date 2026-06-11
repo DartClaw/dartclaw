@@ -8,173 +8,181 @@ void main() {
     redactor = MessageRedactor();
   });
 
-  group('MessageRedactor — built-in patterns', () {
-    test('redacts Stripe live keys with proportional reveal', () {
-      const input = 'key: sk_live_abc123def456ghi789';
-      final result = redactor.redact(input);
-      expect(result, startsWith('key: sk_live_'));
-      expect(result, contains('***'));
-      expect(result, isNot(contains('ghi789')));
+  group('MessageRedactor', () {
+    test('redacts built-in secret patterns while preserving safe context', () {
+      final cases =
+          <
+            ({
+              String input,
+              List<String> expectedContains,
+              List<String> notContains,
+              String? expectedEquals,
+              bool startsWithStripeLivePrefix,
+            })
+          >[
+            (
+              input: 'key: sk_live_abc123def456ghi789',
+              expectedContains: ['***'],
+              notContains: ['ghi789'],
+              expectedEquals: null,
+              startsWithStripeLivePrefix: true,
+            ),
+            (
+              input: 'sk_test_longSecretKeyValue12345',
+              expectedContains: ['***'],
+              notContains: const [],
+              expectedEquals: null,
+              startsWithStripeLivePrefix: false,
+            ),
+            (
+              input: 'pk_live_abc123',
+              expectedContains: ['***'],
+              notContains: const [],
+              expectedEquals: null,
+              startsWithStripeLivePrefix: false,
+            ),
+            (
+              input: 'pk_test_xyz789',
+              expectedContains: ['***'],
+              notContains: const [],
+              expectedEquals: null,
+              startsWithStripeLivePrefix: false,
+            ),
+            (
+              input: 'Using sk-ant-abc123_XYZ-def456 for auth',
+              expectedContains: ['***'],
+              notContains: ['def456'],
+              expectedEquals: null,
+              startsWithStripeLivePrefix: false,
+            ),
+            (
+              input: 'AWS key: AKIAIOSFODNN7EXAMPLE',
+              expectedContains: ['***'],
+              notContains: ['EXAMPLE'],
+              expectedEquals: null,
+              startsWithStripeLivePrefix: false,
+            ),
+            (
+              input: 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig',
+              expectedContains: ['***'],
+              notContains: ['payload.sig'],
+              expectedEquals: null,
+              startsWithStripeLivePrefix: false,
+            ),
+            (
+              input:
+                  'cert:\n-----BEGIN RSA PRIVATE KEY-----\n'
+                  'MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGcY5unA67hq\n'
+                  '-----END RSA PRIVATE KEY-----\ndone',
+              expectedContains: ['[REDACTED]', 'cert:\n', '\ndone'],
+              notContains: ['MIIEow'],
+              expectedEquals: null,
+              startsWithStripeLivePrefix: false,
+            ),
+            (
+              input: '-----BEGIN CERTIFICATE-----\ndata\n-----END CERTIFICATE-----',
+              expectedContains: const [],
+              notContains: const [],
+              expectedEquals: '[REDACTED]',
+              startsWithStripeLivePrefix: false,
+            ),
+          ];
+
+      for (final (:input, :expectedContains, :notContains, :expectedEquals, :startsWithStripeLivePrefix) in cases) {
+        final result = redactor.redact(input);
+        if (expectedEquals != null) {
+          expect(result, equals(expectedEquals), reason: input);
+        }
+        if (startsWithStripeLivePrefix) {
+          expect(result, startsWith('key: sk_live_'), reason: input);
+        }
+        for (final text in expectedContains) {
+          expect(result, contains(text), reason: input);
+        }
+        for (final text in notContains) {
+          expect(result, isNot(contains(text)), reason: input);
+        }
+      }
     });
 
-    test('redacts Stripe test and publishable keys', () {
-      expect(redactor.redact('sk_test_longSecretKeyValue12345'), contains('***'));
-      expect(redactor.redact('pk_live_abc123'), contains('***'));
-      expect(redactor.redact('pk_test_xyz789'), contains('***'));
+    test('uses proportional reveal for custom pattern matches', () {
+      final cases = <({MessageRedactor redactor, String input, String expected})>[
+        (
+          redactor: MessageRedactor(extraPatterns: [r'XXXX']),
+          input: 'prefix XXXX suffix',
+          expected: 'prefix XX*** suffix',
+        ),
+        (
+          redactor: MessageRedactor(extraPatterns: [r'ABCDEFGHIJKL']),
+          input: 'prefix ABCDEFGHIJKL suffix',
+          expected: 'prefix ABCDEF*** suffix',
+        ),
+        (
+          redactor: MessageRedactor(extraPatterns: [r'A{20}']),
+          input: 'prefix ${'A' * 20} suffix',
+          expected: 'prefix ${'A' * 8}*** suffix',
+        ),
+      ];
+
+      for (final (:redactor, :input, :expected) in cases) {
+        expect(redactor.redact(input), expected);
+      }
     });
 
-    test('redacts Anthropic API keys', () {
-      const input = 'Using sk-ant-abc123_XYZ-def456 for auth';
-      final result = redactor.redact(input);
-      expect(result, contains('***'));
-      expect(result, isNot(contains('def456')));
-    });
+    test('handles custom patterns, safe text, multiple matches, and idempotency', () {
+      final custom = MessageRedactor(extraPatterns: [r'CUSTOM_\w+']);
+      expect(custom.redact('CUSTOM_SECRET_123'), contains('***'));
+      expect(custom.redact('sk-ant-abc123'), contains('***'));
+      expect(MessageRedactor(extraPatterns: [r'(unclosed']).redact('normal text'), 'normal text');
 
-    test('redacts AWS access key IDs', () {
-      const input = 'AWS key: AKIAIOSFODNN7EXAMPLE';
-      final result = redactor.redact(input);
-      expect(result, contains('***'));
-      expect(result, isNot(contains('EXAMPLE')));
-    });
+      expect(redactor.redact(''), '');
+      const normal = 'Normal log message with session=abc123 and turn=def456';
+      expect(redactor.redact(normal), normal);
 
-    test('redacts Bearer tokens', () {
-      const input = 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig';
-      final result = redactor.redact(input);
-      expect(result, contains('***'));
-      expect(result, isNot(contains('payload.sig')));
-    });
+      const multi = 'key=sk-ant-abc123 header=Bearer xyz.abc.def token=sk_live_longkey123';
+      final multiResult = redactor.redact(multi);
+      expect(multiResult, isNot(contains('abc123')));
+      expect(multiResult, isNot(contains('abc.def')));
+      expect(multiResult, isNot(contains('longkey123')));
 
-    test('fully redacts PEM blocks', () {
-      const input =
-          'cert:\n-----BEGIN RSA PRIVATE KEY-----\n'
-          'MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGcY5unA67hq\n'
-          '-----END RSA PRIVATE KEY-----\ndone';
-      final result = redactor.redact(input);
-      expect(result, contains('[REDACTED]'));
-      expect(result, isNot(contains('MIIEow')));
-      expect(result, contains('cert:\n'));
-      expect(result, contains('\ndone'));
-    });
+      const stripe = 'key: sk_live_verylongsecretkeyvalue12345';
+      final once = redactor.redact(stripe);
+      expect(redactor.redact(once), once);
 
-    test('fully redacts PEM certificates', () {
-      const input = '-----BEGIN CERTIFICATE-----\ndata\n-----END CERTIFICATE-----';
-      final result = redactor.redact(input);
-      expect(result, equals('[REDACTED]'));
+      const pem = '-----BEGIN RSA PRIVATE KEY-----\ndata\n-----END RSA PRIVATE KEY-----';
+      final pemOnce = redactor.redact(pem);
+      expect(redactor.redact(pemOnce), pemOnce);
+      expect(pemOnce, '[REDACTED]');
     });
   });
-
-  group('MessageRedactor — proportional reveal', () {
-    test('short match: 4 chars -> 2 preserved', () {
-      final r = MessageRedactor(extraPatterns: [r'XXXX']);
-      final result = r.redact('prefix XXXX suffix');
-      expect(result, equals('prefix XX*** suffix'));
-    });
-
-    test('medium match: 12 chars -> 6 preserved', () {
-      final r = MessageRedactor(extraPatterns: [r'ABCDEFGHIJKL']);
-      final result = r.redact('prefix ABCDEFGHIJKL suffix');
-      expect(result, equals('prefix ABCDEF*** suffix'));
-    });
-
-    test('long match: 20 chars -> 8 preserved (capped)', () {
-      final r = MessageRedactor(extraPatterns: [r'A{20}']);
-      final result = r.redact('prefix ${'A' * 20} suffix');
-      expect(result, equals('prefix ${'A' * 8}*** suffix'));
-    });
-  });
-
-  group('MessageRedactor — custom patterns', () {
-    test('applies extra patterns alongside built-ins', () {
-      final r = MessageRedactor(extraPatterns: [r'CUSTOM_\w+']);
-      expect(r.redact('CUSTOM_SECRET_123'), contains('***'));
-      expect(r.redact('sk-ant-abc123'), contains('***')); // Built-in still works
-    });
-
-    test('invalid extra pattern is skipped without throwing', () {
-      final r = MessageRedactor(extraPatterns: [r'(unclosed']);
-      expect(r.redact('normal text'), equals('normal text'));
-    });
-  });
-
-  group('MessageRedactor — edge cases', () {
-    test('empty string returns empty string', () {
-      expect(redactor.redact(''), equals(''));
-    });
-
-    test('normal text unchanged', () {
-      const input = 'Normal log message with session=abc123 and turn=def456';
-      expect(redactor.redact(input), equals(input));
-    });
-
-    test('multiple matches in single input all redacted', () {
-      const input = 'key=sk-ant-abc123 header=Bearer xyz.abc.def token=sk_live_longkey123';
-      final result = redactor.redact(input);
-      expect(result, isNot(contains('abc123')));
-      expect(result, isNot(contains('abc.def')));
-      expect(result, isNot(contains('longkey123')));
-    });
-
-    test('idempotency: redact(redact(text)) == redact(text)', () {
-      const input = 'key: sk_live_verylongsecretkeyvalue12345';
-      final once = redactor.redact(input);
-      expect(redactor.redact(once), equals(once));
-    });
-
-    test('PEM block idempotency', () {
-      const input = '-----BEGIN RSA PRIVATE KEY-----\ndata\n-----END RSA PRIVATE KEY-----';
-      final once = redactor.redact(input);
-      expect(redactor.redact(once), equals(once));
-      expect(once, equals('[REDACTED]'));
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // recompilePatterns() — hot-reload participation via _MessageRedactorAdapter
-  // ---------------------------------------------------------------------------
 
   group('MessageRedactor.recompilePatterns()', () {
-    test('new pattern takes effect after recompile', () {
-      final r = MessageRedactor();
-      const input = 'XYZWIDGET-abc123def456';
-      // Before recompile: not matched by any built-in
-      expect(r.redact(input), equals(input));
+    test('replaces extra patterns while preserving built-ins and ignoring invalid regexes', () {
+      final widget = MessageRedactor();
+      const widgetInput = 'XYZWIDGET-abc123def456';
+      expect(widget.redact(widgetInput), widgetInput);
+      widget.recompilePatterns([r'XYZWIDGET-\S+']);
+      expect(widget.redact(widgetInput), contains('***'));
+      expect(widget.redact(widgetInput), isNot(contains('abc123def456')));
 
-      r.recompilePatterns([r'XYZWIDGET-\S+']);
-      expect(r.redact(input), contains('***'));
-      expect(r.redact(input), isNot(contains('abc123def456')));
-    });
+      final removed = MessageRedactor(extraPatterns: [r'XYZWIDGET-\S+']);
+      expect(removed.redact(widgetInput), contains('***'));
+      removed.recompilePatterns([]);
+      expect(removed.redact(widgetInput), widgetInput);
 
-    test('old extra pattern removed after recompile with empty list', () {
-      final r = MessageRedactor(extraPatterns: [r'XYZWIDGET-\S+']);
-      const input = 'XYZWIDGET-abc123def456';
-      expect(r.redact(input), contains('***'));
+      final builtIn = MessageRedactor(extraPatterns: [r'MYTOKEN=\S+']);
+      builtIn.recompilePatterns([]);
+      expect(builtIn.redact('Using sk-ant-abc123_XYZ-def456 for auth'), contains('***'));
 
-      r.recompilePatterns([]);
-      expect(r.redact(input), equals(input));
-    });
+      final invalid = MessageRedactor();
+      expect(() => invalid.recompilePatterns([r'(unclosed']), returnsNormally);
+      expect(invalid.redact('normal text'), 'normal text');
 
-    test('built-in patterns still apply after recompile', () {
-      final r = MessageRedactor(extraPatterns: [r'MYTOKEN=\S+']);
-      r.recompilePatterns([]);
-
-      // Built-in Anthropic key pattern still works
-      const input = 'Using sk-ant-abc123_XYZ-def456 for auth';
-      expect(r.redact(input), contains('***'));
-    });
-
-    test('recompile with invalid pattern skips it without throwing', () {
-      final r = MessageRedactor();
-      expect(() => r.recompilePatterns([r'(unclosed']), returnsNormally);
-      expect(r.redact('normal text'), equals('normal text'));
-    });
-
-    test('multiple recompiles: only latest patterns active', () {
-      final r = MessageRedactor();
-      r.recompilePatterns([r'FIRST=\S+']);
-      r.recompilePatterns([r'SECOND=\S+']);
-
-      expect(r.redact('FIRST=secret'), equals('FIRST=secret')); // old pattern gone
-      expect(r.redact('SECOND=secret'), contains('***')); // new pattern active
+      final latest = MessageRedactor();
+      latest.recompilePatterns([r'FIRST=\S+']);
+      latest.recompilePatterns([r'SECOND=\S+']);
+      expect(latest.redact('FIRST=secret'), 'FIRST=secret');
+      expect(latest.redact('SECOND=secret'), contains('***'));
     });
   });
 }

@@ -296,6 +296,7 @@ class TasksPage extends DashboardPage {
       bindings: _lookupBindings(context.threadBindingStore, taskId),
       conflictData: conflictData,
       tokenSummary: tokenSummary,
+      turnStatus: task.sessionId == null ? null : context.turns?.turnStatus(task.sessionId!).toJson(),
       messagesHtml: messagesHtml,
       timelineHtml: timelineHtml,
       bannerHtml: context.restartBannerHtml(),

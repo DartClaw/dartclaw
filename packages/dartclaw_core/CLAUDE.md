@@ -1,15 +1,15 @@
 # Package Rules — `dartclaw_core`
 
-**Role**: sqlite3-free runtime primitives — `AgentHarness`/`ClaudeCodeHarness`/`CodexHarness`, `Channel`/`ChannelManager`/`ChannelTaskBridge`, `BridgeEvent` and `DartclawEvent`/`EventBus`, file-backed `SessionService`/`MessageService`/`KvService`, `TaskEvent`/`TaskEventKind`, `TurnTrace`/`TurnTraceSummary`/`ToolCallRecord`, task/goal/execution repository **interfaces**.
+**Role**: sqlite3-free runtime primitives — `AgentHarness`/`ClaudeCodeHarness`/`CodexHarness`/`AcpHarness`, `Channel`/`ChannelManager`/`ChannelTaskBridge`, `BridgeEvent` and `DartclawEvent`/`EventBus`, file-backed `SessionService`/`MessageService`/`KvService`, `TaskEvent`/`TaskEventKind`, `TurnTrace`/`TurnTraceSummary`/`ToolCallRecord`, task/goal/execution repository **interfaces**.
 
 ## Architecture
-- **Harness layer** — provider abstraction. `AgentHarness` (interface), `ClaudeCodeHarness` (Bun standalone binary), `CodexHarness` (Rust static binary), `HarnessFactory` (construction + capability probes).
+- **Harness layer** — provider abstraction. `AgentHarness` (interface), `ClaudeCodeHarness` (Bun standalone binary), `CodexHarness` (Rust static binary), `AcpHarness` (Agent Client Protocol — stdio JSON-RPC agents via `acp_client.dart`/`acp_protocol_adapter.dart`), `HarnessFactory` (construction + capability probes).
 - **Protocol layer** — wire-format adapters between harnesses and the host. `ProtocolAdapter` (interface), `ClaudeProtocolAdapter` (JSONL stream + tool-name normalization to canonical taxonomy), `CodexProtocolAdapter` (JSON-RPC + approval round-trip).
 - **Channel layer** — inbound message routing scaffolding. `Channel` (interface; concrete impls in `dartclaw_*` channel packages), `ChannelManager` (per-channel ownership via `ownsJid`), `ChannelTaskBridge` (binding → rate limit → review → trigger → fall-through policy).
 - **Event bus** — `EventBus` (broadcast, fire-and-forget); `BridgeEvent` (sealed; protocol-stream signals from harnesses); `DartclawEvent` (sealed; app-semantics events surfaced to subscribers).
 - **File-backed services** — workspace-state primitives. `SessionService`, `MessageService` (1-based cursor over `messages.ndjson`), `KvService` (atomic JSON via `atomicWriteJson`).
 - **Repository contracts** — interface-only persistence ports: `TaskRepository`, `GoalRepository`, `AgentExecutionRepository`, `WorkflowStepExecutionRepository`. Concrete SQLite impls live in `dartclaw_storage`.
-- **Cross-cutting** — `RepoLock` (advisory file lock for shared `.git/` writes), `atomicWriteJson` (the only sanctioned JSON write path).
+- **Cross-cutting** — `RepoLock` (advisory file lock for shared `.git/` writes), `atomicWriteJson` (the only sanctioned JSON write path), `httpRequest` (`src/util/http_request.dart`; shared one-shot `HttpClient` lifecycle returning `(statusCode, body)` — owns create→open→headers→write→close→utf8-decode→`close(force:true)`, does not interpret status; only for callers that read the full utf8 body and need no response headers/streaming).
 
 ## Shape
 - **Harness**: `HarnessFactory.create` → `start()` (spawns provider binary) → `runTurn(...)` (writes stdin, reads stdout via `ProtocolAdapter`) → `resetSessionContinuity(sessionId)` when a DartClaw session reset must drop provider-side conversation state → `stop()`. All mutating ops serialized via `_withLock()`; spawn-generation counter discards stale exit handlers.
@@ -18,8 +18,8 @@
 
 ## Boundaries
 - **Never** add `package:sqlite3` to `pubspec.yaml`. Enforced by `dev/tools/arch_check.dart` (check #2). Concrete SQLite repos belong in `dartclaw_storage`; if you need a new persisted entity, define the interface here (e.g. `TaskRepository` in `src/task/`) and the SQLite impl in `dartclaw_storage`.
-- Allowed deps: `dartclaw_models`, `dartclaw_security`, `dartclaw_config`, plus `stream_channel`, `uuid`, `collection`, `logging`, `meta`, `path`. Do **not** import `dartclaw_storage`, `dartclaw_workflow`, or `dartclaw_server`.
-- LOC ceiling: 12 500 (arch_check check #4). Barrel ceiling: 94 exports. Prefer adding to existing files over new top-level exports.
+- Allowed deps: `dartclaw_models`, `dartclaw_security`, `dartclaw_config`, plus `stream_channel`, `json_rpc_2`, `uuid`, `collection`, `logging`, `meta`, `path`. Do **not** import `dartclaw_storage`, `dartclaw_workflow`, or `dartclaw_server`.
+- LOC ceiling: 12 800 (arch_check check #4). Barrel ceiling: 94 exports. Prefer adding to existing files / sub-barrels over new top-level exports.
 - Never import another workspace package's `lib/src/` (arch_check #3). The exception clause in the barrel for `parseMemoryEntries`/`memoryTimestampRe` is documented and finite — do not extend it.
 
 ## Conventions
@@ -40,8 +40,9 @@
 
 ## Testing
 - Layout mirrors `lib/src/` (e.g. `test/harness/`, `test/channel/`). Barrel surface is locked by `test/barrel_export_test.dart` — update it when you legitimately change the public API.
-- `integration` tag is skipped by default (live API creds); `dart test` runs unit + contract. Integration runs via `dart test -t integration`.
+- `integration` tag is skipped by default (live API creds); `dart test` runs unit + contract. Integration runs via `dart test --run-skipped -t integration packages/dartclaw_core`.
 - Shared fakes live in `dartclaw_testing` (`fake_agent_harness.dart`, `fake_codex_process.dart`, `fake_channel.dart`, `in_memory_session_service.dart`, etc.) — reuse them, do not re-roll.
+- Harness-test fakes that wrap `dartclaw_security` types (not barrel-eligible) live in `test/harness/harness_test_support.dart` (e.g. `RecordingGuard`, a capture-only `Guard` with `contexts`/`lastContext` and a configurable verdict) — reuse there.
 - Async harness loops: never use `(_) async {}` polling without yielding to the timer queue (microtask starvation causes multi-GB leaks; see `dev/state/LEARNINGS.md`).
 
 ## Key files

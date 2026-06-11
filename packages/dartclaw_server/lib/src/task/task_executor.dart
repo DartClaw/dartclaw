@@ -117,6 +117,7 @@ class TaskExecutor {
   late final TaskRunnerPoolCoordinator _runnerPoolCoordinator = TaskRunnerPoolCoordinator(
     pool: _pool,
     onSpawnNeeded: _onSpawnNeeded,
+    onProviderUnavailable: _recordProviderUnavailable,
     log: _log,
   );
   late final TaskFailureHandler _failureHandler = TaskFailureHandler(
@@ -186,6 +187,10 @@ class TaskExecutor {
 
   Future<void> _failForProject(Task task, String projectId) =>
       _failureHandler.markFailedOrRetry(task, errorSummary: 'Project "$projectId" not found', retryable: false);
+
+  void _recordProviderUnavailable(Task task, String message) {
+    _eventRecorder?.recordError(task.id, message: message);
+  }
 
   Future<bool> _pollOnceInner() async {
     // Pool mode: dispatch as many queued tasks as there are compatible idle runners.
@@ -308,6 +313,7 @@ class TaskExecutor {
       String? directory,
       String? model,
       String? effort,
+      String? taskId,
       BehaviorFileService? behaviorOverride,
       PromptScope? promptScope,
     })
@@ -661,6 +667,7 @@ class TaskExecutor {
         directory: turnDirectory,
         model: modelOverride,
         effort: effortOverride,
+        taskId: task.id,
         behaviorOverride: taskBehavior,
         promptScope: promptScope,
       );

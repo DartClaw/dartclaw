@@ -69,6 +69,23 @@ void main() {
       expect(pool.tryAcquire(), isNotNull);
     });
 
+    test('busy provider does not block another provider with idle capacity', () {
+      final primary = _makeRunner();
+      final taskClaude = _makeRunner(providerId: 'claude');
+      final taskCodex = _makeRunner(providerId: 'codex');
+      final pool = HarnessPool(runners: [primary, taskClaude, taskCodex], maxConcurrentTasks: 1);
+
+      final acquiredClaude = pool.tryAcquireForProvider('claude');
+      expect(acquiredClaude, isNotNull);
+
+      final acquiredCodex = pool.tryAcquireForProvider('codex');
+      expect(acquiredCodex, isNotNull);
+      expect(acquiredCodex!.providerId, 'codex');
+      expect(pool.tryAcquire(), isNull);
+      expect(pool.primary, isNot(same(acquiredClaude)));
+      expect(pool.primary, isNot(same(acquiredCodex)));
+    });
+
     test('release returns a provider-specific runner to the available pool', () {
       final primary = _makeRunner();
       final taskClaude = _makeRunner(providerId: 'claude');

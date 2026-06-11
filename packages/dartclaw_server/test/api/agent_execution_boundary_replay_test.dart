@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/src/alerts/alert_delivery_adapter.dart';
 import 'package:dartclaw_server/src/alerts/alert_router.dart';
 import 'package:dartclaw_server/src/api/task_sse_routes.dart';
 import 'package:dartclaw_server/src/task/task_service.dart';
@@ -13,16 +12,7 @@ import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-class _FakeAdapter extends AlertDeliveryAdapter {
-  final List<(AlertTarget, ChannelResponse)> delivered = [];
-
-  _FakeAdapter() : super((_) => null);
-
-  @override
-  Future<void> deliver(AlertTarget target, ChannelResponse response) async {
-    delivered.add((target, response));
-  }
-}
+import '../alerts/alert_test_support.dart';
 
 void main() {
   late Database db;
@@ -31,7 +21,7 @@ void main() {
   late ThreadBindingStore threadBindingStore;
   late ThreadBindingLifecycleManager lifecycleManager;
   late AlertRouter alertRouter;
-  late _FakeAdapter adapter;
+  late FakeAlertDeliveryAdapter adapter;
   late Handler handler;
   late Directory tempDir;
 
@@ -44,7 +34,7 @@ void main() {
     await threadBindingStore.load();
     lifecycleManager = ThreadBindingLifecycleManager(store: threadBindingStore, eventBus: eventBus);
     lifecycleManager.start();
-    adapter = _FakeAdapter();
+    adapter = FakeAlertDeliveryAdapter();
     alertRouter = AlertRouter(
       bus: eventBus,
       adapter: adapter,

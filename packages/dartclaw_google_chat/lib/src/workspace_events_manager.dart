@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
@@ -102,7 +103,7 @@ class WorkspaceEventsManager {
 
   /// Creates a Workspace Events subscription manager.
   ///
-  /// [authClient] — authenticated HTTP client from [GcpAuthService].
+  /// [authClient] – authenticated HTTP client used for Workspace Events API calls.
   /// [config] — Workspace Events configuration from [SpaceEventsConfig].
   /// [dataDir] — directory for persisting subscription metadata.
   /// [delay] — optional delay override for testing.
@@ -188,11 +189,9 @@ class WorkspaceEventsManager {
   /// Persists current subscription records to disk (atomic write).
   Future<void> _saveToDisk() async {
     final json = {'subscriptions': _subscriptions.values.map((r) => r.toJson()).toList()};
-    final tempFile = File('${_persistFile.path}.tmp');
     try {
       await _persistFile.parent.create(recursive: true);
-      await tempFile.writeAsString(jsonEncode(json));
-      await tempFile.rename(_persistFile.path);
+      await atomicWriteJson(_persistFile, json);
     } on Exception catch (e, st) {
       _log.warning('Failed to persist subscriptions', e, st);
     }

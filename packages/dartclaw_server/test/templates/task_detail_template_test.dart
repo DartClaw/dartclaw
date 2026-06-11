@@ -1,5 +1,6 @@
 import 'package:dartclaw_server/src/templates/loader.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
+import 'package:dartclaw_server/src/templates/session_info.dart';
 import 'package:dartclaw_server/src/templates/task_detail.dart';
 import 'package:test/test.dart';
 
@@ -41,6 +42,30 @@ void main() {
     expect(html, contains('data-task-start'));
     expect(html, contains('Start Task'));
     expect(html, contains('data-controller="dc-tasks"'));
+  });
+
+  test('renders session turn status with tasks controller mount', () {
+    final html = sessionInfoTemplate(
+      sessionId: 'session-123',
+      sessionTitle: 'Session',
+      messageCount: 2,
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      turnStatus: const {
+        'session_id': 'session-123',
+        'turn_id': 'turn-456',
+        'state': 'waiting',
+        'wait_reason': 'session_lock',
+        'can_cancel': true,
+      },
+    );
+
+    expect(html, contains('data-controller="dc-tasks"'));
+    expect(html, contains('data-turn-status-session-id="session-123"'));
+    expect(html, contains('data-turn-status-turn-id="turn-456"'));
+    expect(html, contains('data-turn-cancel'));
+    expect(html, contains('data-session-id="session-123"'));
+    expect(html, contains('data-turn-id="turn-456"'));
   });
 
   test('renders provider badge in the task meta grid', () {
@@ -264,5 +289,62 @@ void main() {
     );
 
     expect(html, isNot(contains('task-timeline')));
+  });
+
+  test('renders turn wait status with cancel affordance when cancellable', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Running task',
+        'type': 'coding',
+        'status': 'running',
+        'description': 'Do work',
+        'sessionId': 'session-123',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [],
+      messagesHtml: '<div>message</div>',
+      turnStatus: const {
+        'session_id': 'session-123',
+        'turn_id': 'turn-456',
+        'state': 'stuck',
+        'wait_reason': 'session_lock',
+        'waiting_since': '2026-03-10T10:00:00.000Z',
+        'stuck_since': '2026-03-10T10:02:00.000Z',
+        'global_timeout_at': '2026-03-10T10:05:00.000Z',
+        'can_cancel': true,
+      },
+    );
+
+    expect(html, contains('data-turn-status-session-id="session-123"'));
+    expect(html, contains('data-turn-status-turn-id="turn-456"'));
+    expect(html, contains('data-turn-status-state'));
+    expect(html, contains('Stuck'));
+    expect(html, contains('session lock'));
+    expect(html, contains('data-turn-cancel'));
+    expect(html, contains('Cancel Turn'));
+  });
+
+  test('does not render idle turn cancel affordance', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Done task',
+        'type': 'coding',
+        'status': 'accepted',
+        'description': 'Do work',
+        'sessionId': 'session-123',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [],
+      messagesHtml: '<div>message</div>',
+      turnStatus: const {'session_id': 'session-123', 'state': 'idle', 'can_cancel': false},
+    );
+
+    expect(html, isNot(contains('data-turn-cancel')));
   });
 }

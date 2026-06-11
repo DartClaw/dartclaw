@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'output_resolver.dart';
 import 'path_safety_policy.dart';
 import 'schema_presets.dart';
+import 'step_output_validation_helpers.dart';
 import 'workflow_definition.dart' show WorkflowStep;
 
 /// Closed status enum from the AndThen `ops` skill's `update-plan` form.
@@ -96,11 +97,7 @@ StorySpecPathResolution resolveStorySpecPaths(
   }
 
   final rawStorySpecs = outputs['story_specs'];
-  final storySpecs = switch (rawStorySpecs) {
-    final Map<String, dynamic> typed => typed,
-    final Map<dynamic, dynamic> dynamicMap => dynamicMap.map((key, value) => MapEntry('$key', value)),
-    _ => null,
-  };
+  final storySpecs = asStringKeyedMap(rawStorySpecs);
   if (storySpecs == null) {
     return StorySpecPathResolution(outputs: outputs, specPaths: const <String>[]);
   }
@@ -112,11 +109,7 @@ StorySpecPathResolution resolveStorySpecPaths(
   final paths = <String>[];
   final normalizedItems = <Map<String, dynamic>>[];
   for (final item in rawItems) {
-    final itemMap = switch (item) {
-      final Map<String, dynamic> typed => Map<String, dynamic>.from(typed),
-      final Map<dynamic, dynamic> dynamicMap => dynamicMap.map((key, value) => MapEntry('$key', value)),
-      _ => <String, dynamic>{},
-    };
+    final itemMap = asStringKeyedMap(item) ?? <String, dynamic>{};
     final status = _normalizeStoryStatus(itemMap);
     if (_closedStoryStatuses.contains(status)) continue;
 

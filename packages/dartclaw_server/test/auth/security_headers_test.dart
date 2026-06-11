@@ -18,9 +18,8 @@ void main() {
     expect(csp, contains('https://fonts.googleapis.com'));
     expect(csp, contains('https://fonts.gstatic.com'));
     expect(csp, contains("frame-ancestors 'none'"));
-    // Same-origin iframes allowed (canvas-admin Live Canvas preview); without
-    // frame-src this falls back to default-src 'none' and blocks all frames.
-    expect(csp, contains("frame-src 'self'"));
+    // No frame-src: it inherits default-src 'none', so the app embeds no frames.
+    expect(csp, isNot(contains('frame-src')));
     // Inline theme script allowed via hash, not unsafe-inline
     expect(csp, contains('sha256-'));
     expect(csp, isNot(contains("script-src 'unsafe-inline'")));
@@ -54,25 +53,12 @@ void main() {
     expect(responseOff.headers['strict-transport-security'], isNull);
   });
 
-  group('route-owned CSP', () {
-    const routeCsp = "default-src 'none'; script-src 'nonce-abc'; frame-ancestors 'self'";
-    Handler buildHandlerWithRouteCsp() =>
-        securityHeadersMiddleware()((_) => Response.ok('ok', headers: {'Content-Security-Policy': routeCsp}));
-
-    test('preserves a route-set CSP instead of overriding it', () async {
-      final response = await buildHandlerWithRouteCsp()(Request('GET', Uri.parse('http://localhost/embed')));
-      expect(response.headers['content-security-policy'], routeCsp);
-    });
-
-    test('omits X-Frame-Options DENY so the route controls framing via frame-ancestors', () async {
-      final response = await buildHandlerWithRouteCsp()(Request('GET', Uri.parse('http://localhost/embed')));
-      expect(response.headers['x-frame-options'], isNull);
-    });
-
-    test('still applies the other baseline security headers', () async {
-      final response = await buildHandlerWithRouteCsp()(Request('GET', Uri.parse('http://localhost/embed')));
-      expect(response.headers['x-content-type-options'], 'nosniff');
-      expect(response.headers['referrer-policy'], 'no-referrer');
-    });
+  test('applies the global CSP and X-Frame-Options unconditionally', () async {
+    // Every response gets the global CSP + DENY; no route opts out of framing policy.
+    final response = await securityHeadersMiddleware()(
+      (_) => Response.ok('ok', headers: {'Content-Security-Policy': "script-src 'nonce-abc'"}),
+    )(Request('GET', Uri.parse('http://localhost/embed')));
+    expect(response.headers['content-security-policy'], contains("frame-ancestors 'none'"));
+    expect(response.headers['x-frame-options'], 'DENY');
   });
 }

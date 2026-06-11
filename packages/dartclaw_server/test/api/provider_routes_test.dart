@@ -1,10 +1,10 @@
 import 'dart:convert';
 
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import '../helpers/probe_helpers.dart';
+import 'api_test_helpers.dart';
 
 void main() {
   group('GET /api/providers', () {
@@ -34,11 +34,8 @@ void main() {
         authProbe: (_, {String? providerId}) async => false,
       );
 
-      final response = await providerRoutes(
-        providerStatus: providerStatus,
-      ).call(Request('GET', Uri.parse('http://localhost/api/providers')));
-
-      expect(response.statusCode, 200);
+      final client = ApiRouteTestClient(providerRoutes(providerStatus: providerStatus).call);
+      final response = await client.expectResponse('GET', '/api/providers', status: 200);
 
       final rawBody = await response.readAsString();
       expect(rawBody, isNot(contains('anthropic-secret-value')));

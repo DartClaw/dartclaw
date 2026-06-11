@@ -1,0 +1,13 @@
+# Allowlist for no_duplicate_local_fakes_test.dart
+# Format: <ClassName>  # <rationale>
+# Rationale is mandatory - explain the migration target.
+
+FakeWorkerService  # existing duplicate AgentHarness fake; migrate to FakeAgentHarness or a shared server test helper
+_FakeChannel  # existing duplicate channel fake; migrate to FakeChannel or a package-local shared helper
+_FakeContainerExecutor  # existing duplicate container executor fake; migrate to shared harness/container test support
+_FakeHarness  # existing duplicate AgentHarness fake; migrate to FakeAgentHarness or a package-local shared helper
+_FakeSessionService  # existing duplicate session-service fake; migrate to InMemorySessionService or package-local support
+_FakeWorkerService  # existing duplicate AgentHarness fake; migrate to FakeAgentHarness or package-local support
+_MockProvider  # existing duplicate MCP search provider mock; migrate to shared MCP provider test support
+_StubHarness  # existing duplicate harness-pool stub; migrate to package-local harness pool test support
+_StubSessionService  # existing duplicate web page session stub; migrate to shared web page test support

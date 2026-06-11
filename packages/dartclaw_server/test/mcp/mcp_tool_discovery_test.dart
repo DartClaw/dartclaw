@@ -74,7 +74,7 @@ void main() {
         'memory_search',
         'memory_read',
         'sessions_send',
-        'sessions_spawn',
+        'delegate_to_agent',
         'web_fetch',
       ]) {
         handler.registerTool(_StubTool(name));
@@ -84,7 +84,7 @@ void main() {
       final names = tools.map((t) => t['name']).toSet();
       expect(
         names,
-        containsAll(['memory_save', 'memory_search', 'memory_read', 'sessions_send', 'sessions_spawn', 'web_fetch']),
+        containsAll(['memory_save', 'memory_search', 'memory_read', 'sessions_send', 'delegate_to_agent', 'web_fetch']),
       );
       expect(tools, hasLength(6));
     });

@@ -3,6 +3,48 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 
+/// Headers for an SSE (`text/event-stream`) response.
+///
+/// Excludes `X-Accel-Buffering` — use [eventStreamHeadersNoBuffer] for
+/// endpoints that must disable proxy buffering.
+const Map<String, String> eventStreamHeaders = {
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  'Connection': 'keep-alive',
+};
+
+/// [eventStreamHeaders] plus `X-Accel-Buffering: no` to disable proxy/nginx
+/// response buffering so events flush immediately.
+const Map<String, String> eventStreamHeadersNoBuffer = {
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  'Connection': 'keep-alive',
+  'X-Accel-Buffering': 'no',
+};
+
+/// Encodes a `data: <data>\n\n` SSE frame to UTF-8 bytes.
+///
+/// [data] is the already-serialized data payload (e.g. a JSON string); it is
+/// emitted verbatim on the `data:` line.
+List<int> sseDataFrame(String data) => utf8.encode('data: $data\n\n');
+
+/// Encodes an `event: <event>\ndata: <data>\n\n` SSE frame to UTF-8 bytes.
+///
+/// [data] is the already-serialized data payload, emitted verbatim.
+List<int> sseEventFrame(String event, String data) => utf8.encode('event: $event\ndata: $data\n\n');
+
+/// JSON-encodes [data] and adds it as a `data:` SSE frame to [controller],
+/// unless the controller is already closed. Swallows the add error if the
+/// client disconnects between the closed-check and [StreamController.add].
+void sendSseData(StreamController<List<int>> controller, Map<String, dynamic> data) {
+  if (controller.isClosed) return;
+  try {
+    controller.add(sseDataFrame(jsonEncode(data)));
+  } catch (_) {
+    // Client disconnected — cleaned up by onCancel.
+  }
+}
+
 /// Manages SSE broadcast to all connected clients.
 ///
 /// Clients subscribe by calling [subscribe], which returns a
@@ -28,9 +70,7 @@ class SseBroadcast {
 
   /// Broadcasts an SSE event to all connected clients.
   void broadcast(String event, Map<String, dynamic> data) {
-    final encoded = jsonEncode(data);
-    final frame = 'event: $event\ndata: $encoded\n\n';
-    final bytes = utf8.encode(frame);
+    final bytes = sseEventFrame(event, jsonEncode(data));
 
     final stale = <StreamController<List<int>>>[];
     for (final client in _clients) {

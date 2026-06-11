@@ -65,6 +65,24 @@ final class TextDeltaProgressEvent extends TurnProgressEvent {
   String toString() => 'TextDeltaProgressEvent(text: $text)';
 }
 
+/// Non-response provider progress emitted during a turn.
+final class ProviderProgressEvent extends TurnProgressEvent {
+  final String kind;
+  final String text;
+
+  const ProviderProgressEvent({required super.snapshot, required this.kind, required this.text});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is ProviderProgressEvent && other.kind == kind && other.text == text;
+
+  @override
+  int get hashCode => Object.hash(kind, text);
+
+  @override
+  String toString() => 'ProviderProgressEvent(kind: $kind, text: $text)';
+}
+
 /// Periodic status tick emitted at a configurable interval.
 final class StatusTickProgressEvent extends TurnProgressEvent {
   const StatusTickProgressEvent({required super.snapshot});

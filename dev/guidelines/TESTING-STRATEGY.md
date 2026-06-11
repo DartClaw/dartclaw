@@ -12,8 +12,11 @@
 
 **Principles:**
 - Test behavior, not implementation — assert on observable outcomes, not internal state
+- Behavior-over-implementation is the default – a behavior-preserving refactor must not break tests
+- Table-drive any matrix where three or more cases share the same arrange/act/assert shape
 - A "unit" is a behavior, not a class — tests may involve multiple collaborating classes; the boundary is the public API, not the class boundary
 - The right test at the right layer — prefer the cheapest test that covers the risk
+- Prove each behavior at the lowest effective layer once – higher layers keep wiring/status smokes, not re-proofs
 - Sociable by default — let real collaborators participate; reserve test doubles for external boundaries (network, harness, channels, third-party APIs)
 - Security-critical code gets exhaustive coverage; plumbing code gets smoke coverage
 - False-positive tests (verifying we *don't* block legitimate input) are as valuable as true-positive tests
@@ -21,21 +24,42 @@
 - Test gates must encode their infrastructure assumptions — if a suite binds ports, starts processes, or relies on filesystem/static-asset fixtures, run it with explicit serialization or isolate those resources per test
 - Tests are production code — same lint rules, same review standards
 
+**Delete-on-sight categories**:
+- **Implementation-detail assertions** – internal call order/count, callback argument shape, cache internals, `same()` identity mirrors, and `watchKeys`/getter constants unless the identity itself is the public behavior.
+- **Weak assertions** – `toString` contains, length-only checks, "constructs with fields" getter mirrors, base-class identity checks, structural scans that only prove a file contains a string, and no-executor constant tests.
+- **Structural mirrors** – tests that restate enum values, route/title/nav group getters, or a model's field list without proving behavior.
+
+**Vital-core and data-format exception**: parser, codec, auth, guard, concurrency, crash-recovery, storage-CAS, workflow-correctness, and public configuration tests may be reduced by table-driving and fixture extraction only. Do not drop malformed-input, false-positive, boundary, or compatibility cases in those files.
+
 **Calibration** (Fowler): The sign of too little testing is that you cannot confidently change your code. The sign of too much is that you spend more time changing your tests than your production code.
 
 **Behavioral boundary rule** (Khorikov): Intra-system communications (domain classes calling each other) are implementation details — do not verify with mocks. Inter-system communications (calls to external systems like channels, harness binaries, third-party APIs) are part of observable behavior — fakes and assertions on those interactions are appropriate.
+
+**BDD frameworks: evaluated, not adopted.** Dart BDD packages either target Flutter/widget tests or mostly rename `group`/`test` without removing DartClaw's real friction (fixture/harness setup, route requests, filesystem and workflow matrices). Use BDD *language* — behavior-first test names, scenario grouping, and small table- or `Given/When/Then`-shaped helpers — where it improves scanning. Do not add a BDD framework dependency.
 
 ---
 
 ## Test Layers
 
-DartClaw uses a four-layer test model. The primary boundary between layers is **whether infrastructure setup is required** — not how many classes participate. A test involving five collaborating classes through a public API with no I/O is a unit test. A test of a single service that needs a temp directory is an integration test.
+DartClaw uses a four-layer, testing-trophy model. The primary boundary between layers is **whether infrastructure setup is required** — not how many classes participate. A test involving five collaborating classes through a public API with no I/O is a unit test. A test of a single service that needs a temp directory is an integration test.
 
-### Layer 1 — Unit Tests (~60% of test count)
+The suite should be **component/integration-heavy by default** because many DartClaw regressions happen at composition boundaries: storage + services, workflow execution, task lifecycle, route behavior, guards, channels, and harness adapters. Unit tests still matter, but only where they buy cheap precision and clear failure localization.
+
+```text
+        Live / E2E        very few, explicit, expensive
+      API / Handler       public HTTP/SSE/template contracts
+    Component / Integration broad body of production-shaped behavior
+  Focused Unit            dense pure logic, security rules, parsers, validators
+Static checks             format, analyzer, architecture, fitness
+```
+
+**Layer choice rule**: pick the lowest level that proves the behavior without heavy mocking. If a unit test needs elaborate fakes for DartClaw-owned collaborators, promote it to a component/integration test. If an integration test mostly proves pure parser/validator logic, demote that behavior to a focused unit test and keep at most one integration smoke for wiring.
+
+### Layer 1 — Focused Unit Tests
 
 **What**: Behavioral tests through public APIs. No file I/O, no network, no subprocesses, no database. May involve a single function or multiple collaborating classes — the distinguishing factor is zero infrastructure, not class count.
 
-**Targets**: Parsers, validators, models, config readers, pattern matchers, guard evaluators, guard chains (with test doubles for individual guards), state machines, utility functions, multi-class domain logic.
+**Targets**: Parsers, validators, models, config readers, pattern matchers, guard evaluators, guard chains, state machines, output normalization, path containment, redaction, budget math, schema presets, and other dense pure logic.
 
 **Sociable tests are welcome here.** When a behavior involves multiple classes working together (e.g., `GuardChain` + `Guard` implementations, `ReviewCommandParser` + value objects), test them together through the entry-point's public API. Only introduce test doubles when a collaborator crosses an external boundary or is genuinely impractical to construct.
 
@@ -46,7 +70,7 @@ DartClaw uses a four-layer test model. The primary boundary between layers is **
 - Use constructor injection for any dependency
 - Parallel-safe by default; if a test cannot run alongside other package tests, it is not Layer 1
 
-**When to write**: Always, for any component that has branching logic or transforms data.
+**When to write**: When the behavior is cheaper and clearer to prove without infrastructure, or when the edge-case matrix would make an integration test slow, noisy, or hard to diagnose. Security-critical pure rules still get exhaustive focused unit coverage.
 
 **When to skip**: Trivial delegating methods with zero branching. Generated boilerplate. Private helpers whose behavior is fully covered by public API tests.
 
@@ -60,11 +84,11 @@ group('SessionKey', () {
 });
 ```
 
-### Layer 2 — Integration Tests (~30% of test count)
+### Layer 2 — Component / Integration Tests
 
 **What**: Behavioral tests that need infrastructure — temp directories, in-memory SQLite, or fakes for external boundaries (harness, channels, third-party APIs). May involve one service or several wired together.
 
-**Targets**: Services with file-based or SQLite storage, multi-service interactions, EventBus subscriber chains, channel message routing, task lifecycle flows.
+**Targets**: Services with file-based or SQLite storage, multi-service interactions, EventBus subscriber chains, channel message routing, task lifecycle flows, workflow execution with fake harnesses, CLI/server wiring seams, and repository contracts.
 
 **Characteristics**:
 - Temp directories for file-based storage (`Directory.systemTemp.createTempSync`)
@@ -76,7 +100,7 @@ group('SessionKey', () {
   `File.statSync().mode & 0x1ff` and compare the octal string; do not shell out to platform-specific `stat` flags
   (`stat -f` is BSD/macOS, `stat -c` is GNU/Linux).
 
-**When to write**: For any behavior that requires storage, persistence, or interaction with an external boundary that must be faked.
+**When to write**: As the default for production-shaped behavior that needs storage, persistence, process/channel/harness boundaries, or several real DartClaw collaborators. Prefer this layer over mock-heavy unit tests.
 
 **When to skip**: When the service is a thin wrapper that delegates entirely to a tested component.
 
@@ -99,7 +123,7 @@ test('task transitions from queued to running', () async {
 });
 ```
 
-### Layer 3 — API/Handler Tests (~8% of test count)
+### Layer 3 — API / Handler Tests
 
 **What**: Real shelf handlers invoked directly via `handler(Request(...))` — no TCP, no bind. Server wired with real storage and fakes for external boundaries.
 
@@ -111,7 +135,7 @@ test('task transitions from queued to running', () async {
 - Test both authenticated and unauthenticated paths
 - No real network — fast and deterministic
 
-**When to write**: For every API endpoint that external consumers (web UI, CLI, channels) depend on. For auth middleware. For any response that has conditional structure (fragment vs full page, JSON error envelope).
+**When to write**: For every API endpoint that external consumers (web UI, CLI, channels) depend on. For auth middleware. For any response that has conditional structure (fragment vs full page, JSON error envelope). These are the primary public contract tests for server behavior.
 
 **When to skip**: Endpoints that are trivial pass-through to a tested service with no transformation.
 
@@ -129,7 +153,7 @@ test('GET /api/tasks returns task list', () async {
 });
 ```
 
-### Layer 4 — Live Integration & E2E Tests (<2% of test count)
+### Layer 4 — Live Integration & E2E Tests
 
 **What**: Tests that require real external systems, real binaries, or the fully assembled runtime wiring.
 
@@ -139,7 +163,7 @@ test('GET /api/tasks returns task list', () async {
 - Long timeouts (`Timeout(Duration(seconds: 60))`)
 - Require environment setup (API keys, binaries, hardware)
 
-**When to write**: For protocol-level verification (JSONL round-trip with real binary), channel E2E pairing flows, deployment smoke tests, and server-builder wiring that must exercise the real package composition.
+**When to write**: For protocol-level verification (JSONL round-trip with real binary), channel E2E pairing flows, deployment smoke tests, live workflow canaries, and server-builder wiring that must exercise the real package composition.
 
 **When to skip**: Almost always — prefer Layer 2 integration tests with `FakeAgentHarness` / `FakeProcess`. Only write Layer 4 tests when the real binary's behavior cannot be faithfully simulated.
 
@@ -223,14 +247,14 @@ The workflow integration tier (`packages/dartclaw_workflow` Layer 4 suite, run t
 
 ```bash
 DARTCLAW_TEST_PROVIDER=claude ANTHROPIC_API_KEY=... \
-  dart test packages/dartclaw_workflow -t integration
+  dart test --run-skipped -t integration packages/dartclaw_workflow
 ```
 
 Mix-and-match works too — e.g. keep the codex provider but force a faster executor for a quick local sweep:
 
 ```bash
 DARTCLAW_TEST_EXECUTOR_MODEL=gpt-5.3-codex-spark \
-  dart test packages/dartclaw_workflow -t integration
+  dart test --run-skipped -t integration packages/dartclaw_workflow
 ```
 
 ### Visual / UI Smoke Tests (Manual)
@@ -357,10 +381,13 @@ Package-level `dart_test.yaml` files mirror the workspace defaults where a packa
 
 | Profile | Command | Purpose |
 |---------|---------|---------|
-| `plain` | `bash dev/testing/plain/run.sh` | No channels, guards on, seeded data |
-| `channels` | `bash dev/testing/channels/run.sh` | WhatsApp + Signal enabled |
+| `plain` | `bash dev/testing/profiles/plain/run.sh` | Minimal seeded data, no channels |
+| `channels` | `bash dev/testing/profiles/channels/run.sh` | WhatsApp + Signal enabled |
+| `governance` | `bash dev/testing/profiles/governance/run.sh` | Tight governance limits and budget seeding |
+| `visual` | `bash dev/testing/profiles/visual/run.sh` | Desktop visual smoke profile with seeded content |
+| `workflows` | `bash dev/testing/profiles/workflows/run.sh` | Workflow execution profile and CLI wrapper |
 
-Both serve on port 3333. Use `--port <N>` to override.
+Profiles have documented default ports in `dev/testing/README.md`. Use `--port <N>` to override server profiles.
 
 ---
 
@@ -478,13 +505,8 @@ Do not write FIS or release gates that rely on the default package-parallel aggr
 ### All Packages
 
 ```bash
-# Quick: test all packages sequentially
-for pkg in packages/dartclaw_models packages/dartclaw_core packages/dartclaw_config \
-  packages/dartclaw_security packages/dartclaw_storage packages/dartclaw_whatsapp \
-  packages/dartclaw_signal packages/dartclaw_google_chat packages/dartclaw_server \
-  packages/dartclaw_testing packages/dartclaw apps/dartclaw_cli; do
-  echo "=== $pkg ===" && dart test "$pkg" || exit 1
-done
+# Test all packages with the CI-equivalent package/test serialization policy
+bash dev/tools/test_workspace.sh
 ```
 
 ### Live Integration Tests
@@ -558,11 +580,11 @@ These are guidance targets, not enforcement gates. A package at 65% with well-ch
 
 ## Fitness Functions
 
-DartClaw ships a Level-1 fitness suite at `packages/dartclaw_testing/test/fitness/` — six Dart test files that run in ≤30s on every commit and catch the drift classes surfaced in 0.16.4.
+DartClaw ships a fitness suite at `packages/dartclaw_testing/test/fitness/` that runs on every commit and catches the drift classes surfaced in earlier milestones.
 
 Run locally: `bash dev/tools/run-fitness.sh`
 
-The six L1 checks (plus a separate `dart format --line-length=120 --set-exit-if-changed` CI gate):
+The L1 checks (plus a separate `dart format --line-length=120 --set-exit-if-changed` CI gate):
 
 | Test file | What it enforces |
 |-----------|-----------------|

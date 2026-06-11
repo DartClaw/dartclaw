@@ -6,6 +6,8 @@ import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
+import 'harness_test_support.dart';
+
 CodexHarness _buildHarness({
   required FakeCodexProcess process,
   GuardChain? guardChain,
@@ -20,25 +22,6 @@ CodexHarness _buildHarness({
     environment: environment ?? const {'OPENAI_API_KEY': 'sk-test-key'},
     guardChain: guardChain,
   );
-}
-
-class _RecordingGuard extends Guard {
-  _RecordingGuard({this.verdict});
-
-  final GuardVerdict? verdict;
-  final contexts = <GuardContext>[];
-
-  @override
-  String get name => 'recording-guard';
-
-  @override
-  String get category => 'test';
-
-  @override
-  Future<GuardVerdict> evaluate(GuardContext context) async {
-    contexts.add(context);
-    return verdict ?? GuardVerdict.pass();
-  }
 }
 
 class _ThrowingGuard extends Guard {
@@ -58,7 +41,7 @@ void main() {
   group('CodexHarness approval flow', () {
     test('routes approval requests through GuardChain and allows approved tools', () async {
       final fake = FakeCodexProcess();
-      final guard = _RecordingGuard();
+      final guard = RecordingGuard();
       final harness = _buildHarness(
         process: fake,
         guardChain: GuardChain(guards: [guard]),
@@ -100,7 +83,7 @@ void main() {
 
     test('routes approval requests through GuardChain and denies blocked tools', () async {
       final fake = FakeCodexProcess();
-      final guard = _RecordingGuard(verdict: GuardVerdict.block('Blocked by test guard'));
+      final guard = RecordingGuard(verdict: GuardVerdict.block('Blocked by test guard'));
       final harness = _buildHarness(
         process: fake,
         guardChain: GuardChain(guards: [guard]),
@@ -137,7 +120,7 @@ void main() {
 
     test('infers file_change kind before approval evaluation', () async {
       final fake = FakeCodexProcess();
-      final guard = _RecordingGuard();
+      final guard = RecordingGuard();
       final harness = _buildHarness(
         process: fake,
         guardChain: GuardChain(guards: [guard]),
@@ -203,7 +186,7 @@ void main() {
 
     test('warns and falls back to codex-prefixed tool names for unmapped approvals', () async {
       final fake = FakeCodexProcess();
-      final guard = _RecordingGuard();
+      final guard = RecordingGuard();
       final records = <LogRecord>[];
       final oldLevel = Logger.root.level;
       Logger.root.level = Level.ALL;
@@ -314,7 +297,7 @@ void main() {
 
     test('redacts env before guard evaluation and fails closed on approval-path errors', () async {
       final fake = FakeCodexProcess();
-      final redactingGuard = _RecordingGuard();
+      final redactingGuard = RecordingGuard();
       final records = <LogRecord>[];
       final oldLevel = Logger.root.level;
       Logger.root.level = Level.ALL;
@@ -378,7 +361,7 @@ void main() {
       final allowHarness = _buildHarness(
         process: fakeAllow,
         environment: const {'OPENAI_API_KEY': 'sk-test-key'},
-        guardChain: GuardChain(guards: [_RecordingGuard()]),
+        guardChain: GuardChain(guards: [RecordingGuard()]),
       );
       addTearDown(() async => allowHarness.dispose());
       await startHarness(allowHarness, fakeAllow);

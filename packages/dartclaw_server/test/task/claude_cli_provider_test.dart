@@ -17,10 +17,10 @@ void main() {
         processStarter: (exe, args, {workingDirectory, environment}) async {
           executable = exe;
           arguments = List<String>.from(args);
-          final payload = jsonEncode({
+          final payload = _streamJsonStdout({
             'session_id': 'claude-provider-test',
             'result': 'hello',
-            'input_tokens': 5,
+            'usage': {'input_tokens': 5, 'output_tokens': 2},
           }).replaceAll("'", "'\\''");
           return Process.start('/bin/sh', ['-lc', "printf '%s' '$payload'"]);
         },
@@ -36,7 +36,10 @@ void main() {
       );
 
       expect(executable, 'claude');
-      expect(arguments, containsAll(['-p', '--output-format', 'json']));
+      expect(
+        arguments,
+        containsAll(['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages']),
+      );
       expect(arguments, containsAll(['--model', 'claude-opus-4']));
       expect(arguments, containsAll(['--max-turns', '3']));
       expect(arguments, isNot(contains('--setting-sources')));
@@ -52,7 +55,7 @@ void main() {
         },
         processStarter: (exe, args, {workingDirectory, environment}) async {
           arguments = List<String>.from(args);
-          final payload = jsonEncode({
+          final payload = _streamJsonStdout({
             'session_id': 'claude-provider-test',
             'result': 'hello',
           }).replaceAll("'", "'\\''");
@@ -85,7 +88,7 @@ void main() {
       final container = _FakeContainerExecutor(
         hostRoot: workingDirectory.path,
         containerRoot: '/workspace',
-        stdout: jsonEncode({'session_id': 'claude-container-provider', 'result': 'ok'}),
+        stdout: _streamJsonStdout({'session_id': 'claude-container-provider', 'result': 'ok'}),
       );
 
       final runner = WorkflowCliRunner(
@@ -104,13 +107,59 @@ void main() {
       expect(container.lastCommand, isNot(contains('--setting-sources')));
     });
 
+    test('parses tokens from the terminal result event usage map, ignoring earlier events', () async {
+      late WorkflowCliTurnResult result;
+      final runner = WorkflowCliRunner(
+        providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          // Preceding stream events (including a decoy with conflicting token
+          // fields) must be skipped; only the terminal `result` event counts.
+          final payload = _streamJsonStdout(
+            {
+              'session_id': 'claude-usage-test',
+              'result': 'done',
+              'total_cost_usd': 0.5,
+              'usage': {
+                'input_tokens': 11,
+                'output_tokens': 22,
+                'cache_read_input_tokens': 33,
+                'cache_creation_input_tokens': 44,
+              },
+            },
+            events: [
+              {
+                'type': 'assistant',
+                'usage': {'input_tokens': 999, 'output_tokens': 999},
+              },
+            ],
+          ).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$payload'"]);
+        },
+      );
+
+      result = await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Hi',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+
+      expect(result.responseText, 'done');
+      expect(result.providerSessionId, 'claude-usage-test');
+      expect(result.inputTokens, 11);
+      expect(result.outputTokens, 22);
+      expect(result.cacheReadTokens, 33);
+      expect(result.cacheWriteTokens, 44);
+      expect(result.totalCostUsd, 0.5);
+    });
+
     test('non-zero exit surfaces the stdout result-JSON diagnostic, not just the stderr warning', () async {
       final runner = WorkflowCliRunner(
         providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
         processStarter: (exe, args, {workingDirectory, environment}) async {
           // claude -p reports turn errors in the stdout result JSON; stderr
           // carries only the benign env-scrub warning. Exit 1.
-          final payload = jsonEncode({
+          final payload = _streamJsonStdout({
             'subtype': 'error_during_execution',
             'is_error': true,
             'result': 'reviewer panel crashed',
@@ -144,6 +193,18 @@ void main() {
   });
 }
 
+/// Builds claude `--output-format stream-json` stdout: a leading `system/init`
+/// event, any [events], then the terminal `result` event carrying [result]'s
+/// fields. Mirrors the real CLI's NDJSON-per-line output.
+String _streamJsonStdout(Map<String, dynamic> result, {List<Map<String, dynamic>> events = const []}) {
+  final lines = <String>[
+    jsonEncode({'type': 'system', 'subtype': 'init', 'session_id': result['session_id'] ?? 'sess'}),
+    ...events.map(jsonEncode),
+    jsonEncode({'type': 'result', ...result}),
+  ];
+  return lines.join('\n');
+}
+
 class _FakeContainerExecutor implements ContainerExecutor {
   @override
   final String profileId = 'workspace';
@@ -159,7 +220,7 @@ class _FakeContainerExecutor implements ContainerExecutor {
   String? lastWorkingDirectory;
 
   _FakeContainerExecutor({required this.hostRoot, required this.containerRoot, String? stdout})
-    : stdout = stdout ?? jsonEncode({'session_id': 'fake', 'result': 'ok'});
+    : stdout = stdout ?? _streamJsonStdout({'session_id': 'fake', 'result': 'ok'});
 
   @override
   Future<void> start() async {}

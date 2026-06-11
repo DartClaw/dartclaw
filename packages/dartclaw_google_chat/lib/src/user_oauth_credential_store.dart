@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
 
 /// Stored user OAuth credentials for Workspace Events API access.
@@ -75,16 +76,12 @@ class UserOAuthCredentialStore {
     if (!dir.existsSync()) dir.createSync(recursive: true);
 
     final target = File(filePath);
-    final temp = File('${target.path}.tmp');
-    temp.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(credentials.toJson()));
-    temp.renameSync(target.path);
-
-    if (!Platform.isWindows) {
-      try {
-        Process.runSync('chmod', ['600', target.path]);
-      } catch (_) {
-        // chmod not available — non-critical.
-      }
+    final serialized = const JsonEncoder.withIndent('  ').convert(credentials.toJson());
+    secureWriteFileSync(target, serialized, restrictPermissions: false);
+    try {
+      chmodOwnerOnlySync(target.path);
+    } catch (_) {
+      // chmod not available — non-critical.
     }
   }
 

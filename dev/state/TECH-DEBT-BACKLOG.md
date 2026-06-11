@@ -2,6 +2,67 @@
 
 Open items only. Resolved or obsolete historical entries were removed during backlog cleanup; milestone docs, specs, and CHANGELOG entries are the historical record.
 
+## TD-113 – Replace S01 turn-monitor real-time sleeps with controlled timer tests
+
+**Severity**: Low (test determinism – new test harness required)
+**Found**: 2026-06-08 S01 remediation-loop iter 4
+**Affects**: `packages/dartclaw_server/test/turn_runner_test.dart`
+**Target**: Future turn-monitor test harness cleanup
+
+**Context**: The S01 review flagged multiple wait/stuck monitor assertions that still use short `Future.delayed` sleeps. This pass added targeted recovery-boundary coverage and preserved focused test stability, but fully replacing the existing runner-level sleeps needs a controlled timer seam or fake-async-compatible runner fixture because the current tests compose async storage, harness, lock, event, and timer behavior.
+
+**Blocker**: new test harness required – eliminating these sleeps without weakening coverage requires an injectable timer/clock seam or a fake-async-compatible runner fixture for `TurnRunner` and `SessionLockManager` monitor timers.
+
+**Fix**: Introduce controlled timer support for turn-monitor tests, then migrate the S01 wait/stuck assertions from real-time sleeps to fake time.
+
+**Source report**: `dev/tools/dartclaw-workflows/.data/workflows/runs/5a5c8177-4f86-4d9c-8c49-9401e1a7ab9d/runtime-artifacts/reviews/s01-stuck-turn-status-and-early-cancel-mixed-review-codex-2026-06-08-4.md` finding 6.
+
+Last reviewed: 2026-06-08
+
+---
+
+## TD-111 – Move turn wait-state semantics out of server string fields
+
+**Severity**: Medium (architecture / API contract – caller API change required)
+**Found**: 2026-06-08 S01 remediation of aggregated architecture review
+**Affects**: `packages/dartclaw_core/lib/src/events/turn_wait_events.dart`, `packages/dartclaw_server/lib/src/turn_wait_status.dart`, `packages/dartclaw_server/lib/src/api/task_sse_routes.dart`
+**Target**: Future turn-status contract hardening
+
+**Context**: The S01 architecture review flagged that `TurnWaitStateChangedEvent.state` and `.waitReason` are raw strings in `dartclaw_core`, while the typed wait-state/reason model lives server-side. This keeps the current package dependency direction intact, but it leaves core/server/SSE/UI consumers coupled by semantic string names rather than compiler-checked values.
+
+**Blocker**: caller API change required – moving the wait-state and wait-reason semantic types into `dartclaw_core` changes the public event contract and requires coordinated updates across server event emission, SSE serialization, tests, and any downstream event consumers.
+
+**Fix**: Move the semantic wait-state/reason value types or enums into `dartclaw_core`, keep JSON names at the server API/SSE boundary, and add exhaustive serializer/event tests.
+
+**Trigger**: Any future expansion of wait reasons/states, ACP/delegation status integration, or a planned core event contract cleanup.
+
+**References**: `dev/tools/dartclaw-workflows/.data/workflows/runs/5a5c8177-4f86-4d9c-8c49-9401e1a7ab9d/runtime-artifacts/reviews/aggregated-review-aggregate.md` ARCH-002.
+
+Last reviewed: 2026-06-08
+
+---
+
+## TD-112 – Decide whether SessionLockManager should keep wait/stuck timer policy
+
+**Severity**: Low (architecture / cohesion – decision needed)
+**Found**: 2026-06-08 S01 remediation of aggregated architecture review
+**Affects**: `packages/dartclaw_server/lib/src/concurrency/session_lock_manager.dart`, `packages/dartclaw_server/lib/src/turn_runner.dart`
+**Target**: Future wait-monitor extraction decision
+
+**Context**: The S01 architecture review flagged that `SessionLockManager.acquire()` now accepts wait/stuck thresholds and callbacks, so a low-level queue primitive owns some operator-facing monitor timing. This is acceptable for the current two-threshold S01 scope, but could become a cohesion problem if wait categories or policy grow.
+
+**Blocker**: decision needed – extraction is explicitly conditional on wait policy growth; creating a `TurnWaitMonitor` now would be speculative and risks broadening a narrow remediation.
+
+**Fix**: If wait/stuck policy expands, decide whether to extract a `TurnWaitMonitor` owned by `TurnRunner`/`TurnManager` and leave `SessionLockManager` focused on lock ownership plus queue metadata.
+
+**Trigger**: New wait categories, per-provider wait policy, or further operator-facing monitor behavior lands.
+
+**References**: `dev/tools/dartclaw-workflows/.data/workflows/runs/5a5c8177-4f86-4d9c-8c49-9401e1a7ab9d/runtime-artifacts/reviews/aggregated-review-aggregate.md` ARCH-003.
+
+Last reviewed: 2026-06-08
+
+---
+
 ## TD-109 – Inbox extraction turn runs tool-capable over untrusted source (least-privilege / excessive agency)
 
 **Severity**: High (security – OWASP LLM06 excessive agency over untrusted input)
@@ -220,9 +281,11 @@ Last reviewed: 2026-05-18
 
 **Fix shape**: pick a canonical name per concept (e.g. `review_findings` for findings array, `verdict` for the boolean/enum gate value), document in the public workflow guide, sweep built-ins to align.
 
+**Partially resolved (2026-06-08)**: the review-report **path** output key is now standardized — every parallel review source step prefixes all its keys as `<stepId>.review_findings`/`<stepId>.findings_count`/`<stepId>.gating_findings_count`; the `aggregate-reviews` step's own outputs and single-review `code-review` keep the bare canonical `review_findings`/`findings_count`/`gating_findings_count`. Documented in `docs/guide/workflows.md` + `packages/dartclaw_workflow/CLAUDE.md`, contract-locked in `built_in_workflow_contracts_test.dart`. **Remaining**: the broader `review_findings`-array vs `verdict`-gate-value concept naming (and any downstream gate branching on either) is untouched — that is the open part of this item.
+
 **Trigger**: a chained workflow breaks because the consumer expects one key and the producer emits another; UBIQUITOUS_LANGUAGE.md sweep; workflow author confusion.
 
-Last reviewed: 2026-05-18
+Last reviewed: 2026-06-08
 
 ---
 

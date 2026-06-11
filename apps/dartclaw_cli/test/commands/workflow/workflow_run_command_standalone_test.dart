@@ -8,17 +8,12 @@ import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillIntrospector;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-class _FakeExit implements Exception {
-  final int code;
-  const _FakeExit(this.code);
-}
-
-Never _fakeExit(int code) => throw _FakeExit(code);
+import '../../helpers/fake_api_transport.dart';
+import '../../helpers/fake_exit.dart';
 
 HarnessFactory _harnessFactoryFor(AgentHarness Function() builder) {
   final factory = HarnessFactory();
@@ -32,21 +27,6 @@ HarnessFactory _harnessFactoryForProviders(Iterable<String> providers, AgentHarn
     factory.register(provider, (_) => builder());
   }
   return factory;
-}
-
-final class _FakeSkillIntrospector implements SkillIntrospector {
-  final Map<String, Set<String>> skillsByProvider;
-
-  const _FakeSkillIntrospector(this.skillsByProvider);
-
-  @override
-  Future<Set<String>> listAvailable({
-    required String provider,
-    String? executable,
-    Map<String, dynamic> providerOptions = const <String, dynamic>{},
-  }) async {
-    return skillsByProvider[provider] ?? const <String>{};
-  }
 }
 
 void main() {
@@ -89,15 +69,15 @@ steps:
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stdoutLine: output.add,
         stderrLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
         runAndthenSkillsBootstrap: false,
-        skillIntrospector: const _FakeSkillIntrospector({}),
+        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'ci-demo', '--standalone', '--json']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 0)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
       );
 
       expect(output.first, contains('"type":"run_started"'));
@@ -108,16 +88,12 @@ steps:
 
     test('standalone run with no config exits with init workflow guidance', () async {
       final output = <String>[];
-      final command = WorkflowRunCommand(
-        environment: {'HOME': tempDir.path},
-        stderrLine: output.add,
-        exitFn: _fakeExit,
-      );
+      final command = WorkflowRunCommand(environment: {'HOME': tempDir.path}, stderrLine: output.add, exitFn: fakeExit);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'code-review', '--standalone']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
       expect(output.single, contains('No config found at ${p.join(tempDir.path, '.dartclaw', 'dartclaw.yaml')}'));
@@ -144,22 +120,22 @@ steps:
         config: config,
         apiClient: DartclawApiClient(
           baseUri: Uri.parse('http://localhost:3333'),
-          transport: _FakeTransport(sendResponses: [_response(503)]),
+          transport: FakeApiTransport(sendResponses: [_response(503)]),
         ),
         environment: const {},
         harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
         runAndthenSkillsBootstrap: false,
-        skillIntrospector: const _FakeSkillIntrospector({}),
+        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'ci-demo', '--standalone']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
       expect(output, [
@@ -188,14 +164,14 @@ steps:
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stdoutLine: output.add,
         stderrLine: output.add,
-        exitFn: _fakeExit,
-        skillIntrospector: const _FakeSkillIntrospector({}),
+        exitFn: fakeExit,
+        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'source-only-skill', '--standalone', '--no-skill-bootstrap']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
       expect(output, [
@@ -232,8 +208,8 @@ steps:
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stdoutLine: output.add,
         stderrLine: output.add,
-        exitFn: _fakeExit,
-        skillIntrospector: const _FakeSkillIntrospector({
+        exitFn: fakeExit,
+        skillIntrospector: FakeSkillIntrospector({
           'claude': {'dartclaw-discover-andthen-spec'},
           'codex': {},
         }),
@@ -242,7 +218,7 @@ steps:
 
       await expectLater(
         () => runner.run(['run', 'provider-mismatch', '--standalone', '--no-skill-bootstrap']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
       expect(output, [
@@ -276,14 +252,14 @@ steps:
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
-        exitFn: _fakeExit,
-        skillIntrospector: const _FakeSkillIntrospector({}),
+        exitFn: fakeExit,
+        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'ci-demo', '--standalone', '--no-skill-bootstrap']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
       expect(output.any((line) => line.contains('was excluded at load time')), isTrue);
@@ -308,15 +284,15 @@ steps:
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
         runAndthenSkillsBootstrap: false,
-        skillIntrospector: const _FakeSkillIntrospector({}),
+        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'mybroken', '--standalone']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
       expect(output.any((line) => line.contains('"mybroken" was excluded at load time')), isTrue);
@@ -338,15 +314,15 @@ steps:
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
         runAndthenSkillsBootstrap: false,
-        skillIntrospector: const _FakeSkillIntrospector({}),
+        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'definitely-unknown', '--standalone']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
       final renderedOutput = output.join('\n');
@@ -381,15 +357,15 @@ steps:
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
         runAndthenSkillsBootstrap: false,
-        skillIntrospector: const _FakeSkillIntrospector({}),
+        skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['run', 'ci-demo', '--standalone']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
 
       expect(output.any((line) => line.contains('was excluded at load time')), isTrue);
@@ -449,20 +425,6 @@ steps:
       expect(createdHarnesses['claude'], isNotEmpty);
     });
   });
-}
-
-class _FakeTransport implements ApiTransport {
-  final List<ApiResponse> _sendResponses;
-
-  _FakeTransport({List<ApiResponse> sendResponses = const []}) : _sendResponses = List<ApiResponse>.from(sendResponses);
-
-  @override
-  Future<ApiResponse> send(ApiRequest request) async => _sendResponses.removeAt(0);
-
-  @override
-  Future<ApiResponse> openStream(ApiRequest request) {
-    throw UnimplementedError();
-  }
 }
 
 ApiResponse _response(int statusCode, [Object? body]) {

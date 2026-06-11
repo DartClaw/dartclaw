@@ -4,6 +4,8 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/deploy/config_command.dart';
 import 'package:test/test.dart';
 
+import '../../helpers/capturing_stdout.dart';
+
 void main() {
   late Directory tmpDir;
 
@@ -35,7 +37,7 @@ void main() {
           '--host=localhost',
           '--port=3000',
         ]),
-        stdout: () => _CapturingStdout(output),
+        stdout: () => CapturingStdout(output),
       );
 
       final pfFile = File('${tmpDir.path}/firewall/pf.conf');
@@ -62,7 +64,7 @@ void main() {
           '--data-dir=${tmpDir.path}',
           '--bin-path=/usr/local/bin/dartclaw',
         ]),
-        stdout: () => _CapturingStdout(output),
+        stdout: () => CapturingStdout(output),
       );
 
       if (Platform.isMacOS) {
@@ -93,7 +95,7 @@ void main() {
 
       await IOOverrides.runZoned(
         () => runner.run(['config', '--output-dir=${tmpDir.path}', '--data-dir=${tmpDir.path}']),
-        stdout: () => _CapturingStdout(output),
+        stdout: () => CapturingStdout(output),
       );
 
       // Should skip the existing pf.conf
@@ -113,7 +115,7 @@ void main() {
 
       await IOOverrides.runZoned(
         () => runner.run(['config', '--output-dir=${tmpDir.path}', '--data-dir=${tmpDir.path}', '--force']),
-        stdout: () => _CapturingStdout(output),
+        stdout: () => CapturingStdout(output),
       );
 
       // Should overwrite
@@ -128,7 +130,7 @@ void main() {
 
       await IOOverrides.runZoned(
         () => runner.run(['config', '--output-dir=${tmpDir.path}', '--data-dir=${tmpDir.path}']),
-        stdout: () => _CapturingStdout(output),
+        stdout: () => CapturingStdout(output),
       );
 
       expect(output.join('\n'), contains('Generated'));
@@ -136,22 +138,4 @@ void main() {
       expect(output.join('\n'), contains('Next steps'));
     });
   });
-}
-
-class _CapturingStdout implements Stdout {
-  final List<String> lines;
-  _CapturingStdout(this.lines);
-
-  @override
-  void writeln([Object? object = '']) {
-    lines.add(object.toString());
-  }
-
-  @override
-  void write(Object? object) {
-    lines.add(object.toString());
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
 }

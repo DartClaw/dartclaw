@@ -1,22 +1,23 @@
-import 'dart:convert';
-
-import 'package:dartclaw_core/dartclaw_core.dart' hide HarnessPool, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessPool, TurnRunner;
 import 'package:dartclaw_server/src/harness_pool.dart' show HarnessPool;
-import 'package:dartclaw_server/src/turn_runner.dart' show TurnRunner;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
+
+import '../turn_runner_test_support.dart';
+import 'api_test_helpers.dart';
 
 void main() {
   late HarnessPool pool;
   late AgentObserver observer;
   late Handler handler;
+  late ApiRouteTestClient api;
 
   setUp(() {
-    final runners = [_FakeRunner(), _FakeRunner()];
+    final runners = [FakeTurnRunner(), FakeTurnRunner()];
     pool = HarnessPool(runners: runners);
     observer = AgentObserver(pool: pool);
     handler = agentRoutes(observer).call;
+    api = ApiRouteTestClient(handler);
   });
 
   tearDown(() {
@@ -27,11 +28,8 @@ void main() {
     observer.markBusy(1, taskId: 'task-1');
     observer.recordTurn(1, inputTokens: 100, outputTokens: 50, isError: false);
 
-    final request = Request('GET', Uri.parse('http://localhost/api/agents'));
-    final response = await handler(request);
+    final body = await api.expectJsonObject('GET', '/api/agents');
 
-    expect(response.statusCode, 200);
-    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
     final runners = body['runners'] as List;
     expect(runners, hasLength(2));
     expect(runners[0]['runnerId'], 0);
@@ -49,99 +47,17 @@ void main() {
   });
 
   test('GET /api/agents/<id> returns single runner', () async {
-    final request = Request('GET', Uri.parse('http://localhost/api/agents/0'));
-    final response = await handler(request);
+    final body = await api.expectJsonObject('GET', '/api/agents/0');
 
-    expect(response.statusCode, 200);
-    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
     expect(body['runnerId'], 0);
     expect(body['role'], 'primary');
   });
 
   test('GET /api/agents/<id> returns 404 for out-of-range', () async {
-    final request = Request('GET', Uri.parse('http://localhost/api/agents/99'));
-    final response = await handler(request);
-
-    expect(response.statusCode, 404);
+    await api.expectResponse('GET', '/api/agents/99', status: 404);
   });
 
   test('GET /api/agents/<id> returns 400 for non-integer', () async {
-    final request = Request('GET', Uri.parse('http://localhost/api/agents/abc'));
-    final response = await handler(request);
-
-    expect(response.statusCode, 400);
+    await api.expectResponse('GET', '/api/agents/abc', status: 400);
   });
-}
-
-class _FakeRunner extends TurnRunner {
-  _FakeRunner()
-    : super(
-        harness: _MinimalHarness(),
-        messages: _NoOpMessages(),
-        behavior: BehaviorFileService(workspaceDir: '/tmp/agent-routes-test'),
-        sessions: _NoOpSessions(),
-      );
-}
-
-class _MinimalHarness implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-  @override
-  WorkerState get state => WorkerState.idle;
-  @override
-  Stream<BridgeEvent> get events => const Stream.empty();
-  @override
-  Future<void> start() async {}
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) async => {};
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
-
-  @override
-  Future<void> cancel() async {}
-  @override
-  Future<void> stop() async {}
-  @override
-  Future<void> dispose() async {}
-}
-
-class _NoOpMessages implements MessageService {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-class _NoOpSessions implements SessionService {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
 }

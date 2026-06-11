@@ -8,7 +8,6 @@ DartclawServerBuilder _buildServerBuilderPreServer(
   TaskWiring task,
   ChannelWiring channel,
   SecurityWiring security,
-  CanvasService? canvasService,
 ) {
   return DartclawServerBuilder()
     ..sessions = storage.sessions
@@ -37,7 +36,6 @@ DartclawServerBuilder _buildServerBuilderPreServer(
     ..selfImprovement = harness.selfImprovement
     ..usageTracker = harness.usageTracker
     ..eventBus = ctx.eventBus
-    ..canvasService = canvasService
     ..authEnabled = harness.authEnabled
     ..pool = harness.pool
     ..contentGuardDisplay = ContentGuardDisplayParams(

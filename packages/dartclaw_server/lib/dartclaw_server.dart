@@ -14,7 +14,7 @@ export 'package:dartclaw_core/dartclaw_core.dart' show BusyTurnException, Prompt
 export 'src/harness_pool.dart' show HarnessPool;
 export 'src/security/security_exports.dart' show GoogleJwtVerifier, buildGuardsFromConfig;
 export 'src/turn_manager.dart' show TurnManager;
-export 'src/turn_runner.dart' show TurnRunner;
+export 'src/turn_runner.dart' show TurnRunner, TurnRunnerCancellation;
 
 export 'src/api/api_exports.dart';
 export 'src/alerts/alerts_exports.dart';
@@ -22,7 +22,6 @@ export 'src/advisor/advisor_exports.dart';
 export 'src/audit/audit_exports.dart';
 export 'src/auth/auth_exports.dart';
 export 'src/behavior/behavior_exports.dart';
-export 'src/canvas/canvas_exports.dart';
 export 'src/config/config_exports.dart';
 export 'src/context/context_exports.dart';
 export 'src/container/container_exports.dart';

@@ -26,7 +26,8 @@ export 'package:dartclaw_models/dartclaw_models.dart';
 export 'src/storage/session_service.dart' show SessionService;
 export 'src/storage/message_service.dart' show MessageService;
 export 'src/storage/kv_service.dart' show KvService;
-export 'src/storage/atomic_write.dart' show atomicWriteJson;
+export 'src/storage/atomic_write.dart'
+    show atomicWriteJson, secureWriteFile, secureWriteFileSync, chmodOwnerOnly, chmodOwnerOnlySync;
 
 // Bridge events (sealed — subtypes accessible via pattern matching)
 export 'src/bridge/bridge_events.dart'
@@ -35,6 +36,9 @@ export 'src/bridge/bridge_events.dart'
         DeltaEvent,
         ToolUseEvent,
         ToolResultEvent,
+        ToolApprovalWaitEvent,
+        ToolApprovalResolvedEvent,
+        ProviderProgressBridgeEvent,
         SystemInitEvent,
         CompactionStartingBridgeEvent,
         CompactionCompletedBridgeEvent;
@@ -68,6 +72,7 @@ export 'src/channel/turn_progress_event.dart'
         ToolStartedProgressEvent,
         ToolCompletedProgressEvent,
         TextDeltaProgressEvent,
+        ProviderProgressEvent,
         StatusTickProgressEvent,
         TurnStallProgressEvent;
 export 'src/channel/message_deduplicator.dart' show MessageDeduplicator;
@@ -79,6 +84,27 @@ export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, Pairi
 
 // Harness interfaces
 export 'src/harness/agent_harness.dart' show AgentHarness, PromptStrategy;
+export 'src/harness/acp_client.dart' show AcpClient, AcpPromptResult;
+export 'src/harness/acp_errors.dart' show AcpHarnessErrorCode, AcpHarnessException;
+export 'src/harness/acp_harness.dart' show AcpHarness;
+export 'src/harness/acp_protocol_adapter.dart' show AcpProtocolAdapter;
+export 'src/harness/acp_reverse_call_handlers.dart'
+    show
+        AcpPermissionDecision,
+        AcpPermissionRequest,
+        AcpPermissionResult,
+        AcpReverseCallAuditEvent,
+        AcpReverseCallAuditSink;
+export 'src/harness/acp_target_validation.dart'
+    show
+        AcpTargetEvidenceStatus,
+        AcpTargetOperation,
+        AcpTargetOperationEvidence,
+        AcpTargetValidationResult,
+        AcpTargetValidationStatus,
+        AcpTargetProbe,
+        AcpTargetValidator,
+        acpSecurityClassificationId;
 export 'src/harness/base_protocol_adapter.dart' show intValue, stringValue;
 export 'src/harness/claude_settings_builder.dart' show ClaudeSettingsBuilder;
 export 'src/harness/canonical_tool.dart' show CanonicalTool;
@@ -99,12 +125,23 @@ export 'src/harness/merge_resolve_env_vars.dart'
         mergeResolveEnvVarNames;
 export 'src/harness/mcp_tool.dart' show McpTool;
 export 'src/harness/claude_protocol.dart' show claudeHardeningEnvVars;
+export 'src/harness/process_lifecycle.dart' show killWithEscalation;
 export 'src/harness/process_types.dart' show ProcessFactory, CommandProbe, DelayFactory, HealthProbe;
 export 'src/harness/protocol_adapter.dart' show ProtocolAdapter;
 // Protocol message boundary. `ToolResult` remains owned by `tool_result.dart`
 // in this barrel because it is already part of the MCP public API.
 export 'src/harness/protocol_message.dart'
-    show ProtocolMessage, TextDelta, ToolUse, ControlRequest, TurnComplete, SystemInit, CompactBoundary;
+    show
+        ProtocolMessage,
+        TextDelta,
+        ToolUse,
+        ControlRequest,
+        TurnComplete,
+        ProgressMessage,
+        SessionMetadataUpdate,
+        ProtocolDiagnostic,
+        SystemInit,
+        CompactBoundary;
 export 'src/harness/tool_policy.dart' show ToolApprovalPolicy;
 export 'src/harness/tool_result.dart' show ToolResult, ToolResultError, ToolResultText;
 
@@ -163,6 +200,10 @@ export 'src/concurrency/repo_lock.dart' show RepoLock;
 // Project service interface
 export 'src/project/project_service.dart' show ProjectService;
 
+// Utilities (single sub-barrel — keeps the top-level export surface compact)
+export 'src/util/util.dart'
+    show formatLocalDateTime, humanizeDuration, humanizeDurationMs, humanizeSpan, HttpClientFactory, httpRequest;
+
 // Events
 export 'src/events/event_bus.dart' show EventBus;
 export 'src/events/session_lifecycle_subscriber.dart' show SessionLifecycleSubscriber;
@@ -194,6 +235,7 @@ export 'src/events/dartclaw_event.dart'
         EmergencyStopEvent,
         ProjectLifecycleEvent,
         ProjectStatusChangedEvent,
+        TurnWaitStateChangedEvent,
         TaskEventCreatedEvent,
         BudgetWarningEvent,
         LoopIterationCompletedEvent,

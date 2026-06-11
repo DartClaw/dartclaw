@@ -11,12 +11,7 @@ import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRe
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun;
 import 'package:test/test.dart';
 
-class _FakeExit implements Exception {
-  final int code;
-  const _FakeExit(this.code);
-}
-
-Never _fakeExit(int code) => throw _FakeExit(code);
+import '../../helpers/fake_exit.dart';
 
 void main() {
   group('WorkflowStatusCommand', () {
@@ -34,7 +29,7 @@ void main() {
 
     test('missing run ID throws UsageException', () {
       final output = <String>[];
-      final command = WorkflowStatusCommand(writeLine: output.add, exitFn: _fakeExit);
+      final command = WorkflowStatusCommand(writeLine: output.add, exitFn: fakeExit);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       expect(() => runner.run(['status']), throwsA(isA<UsageException>()));
@@ -51,13 +46,13 @@ void main() {
         config: config,
         taskDbFactory: (_) => tmpDb,
         writeLine: output.add,
-        exitFn: _fakeExit,
+        exitFn: fakeExit,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       await expectLater(
         () => runner.run(['status', '--standalone', 'nonexistent-run-id']),
-        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
     });
 
@@ -85,7 +80,7 @@ void main() {
           config: config,
           taskDbFactory: (_) => tmpDb,
           writeLine: output.add,
-          exitFn: _fakeExit,
+          exitFn: fakeExit,
         );
         final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
         await runner.run(['status', '--standalone', runId]);

@@ -11,11 +11,8 @@ import 'package:dartclaw_core/dartclaw_core.dart' show RepoLock;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
-        KvService,
-        MessageService,
         OutputConfig,
         TaskStatus,
-        TaskStatusChangedEvent,
         TaskType,
         WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
@@ -30,72 +27,37 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStep,
         WorkflowVariable,
         WorkflowGitContext,
-        WorkflowPersistencePorts,
         WorkflowStartResolution,
-        WorkflowTurnOutcome,
         WorkflowTurnAdapter;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskCancellationSubscriber, TaskService;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
-import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeTurnManager;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import 'workflow_executor_test_support.dart' show standardTurnAdapter;
+import 'workflow_service_test_support.dart';
+
 void main() {
+  late WorkflowServiceTestHarness harness;
   late Directory tempDir;
-  late String sessionsDir;
   late TaskService taskService;
-  late MessageService messageService;
-  late KvService kvService;
   late SqliteWorkflowRunRepository repository;
   late EventBus eventBus;
   late WorkflowService workflowService;
 
   setUp(() {
-    tempDir = Directory.systemTemp.createTempSync('dartclaw_wf_svc_test_');
-    sessionsDir = p.join(tempDir.path, 'sessions');
-    Directory(sessionsDir).createSync(recursive: true);
-
-    final db = sqlite3.openInMemory();
-    eventBus = EventBus();
-    final taskRepository = SqliteTaskRepository(db);
-    final agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
-    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
-    final executionTransactor = SqliteExecutionRepositoryTransactor(db);
-    taskService = TaskService(
-      taskRepository,
-      agentExecutionRepository: agentExecutionRepository,
-      executionTransactor: executionTransactor,
-      eventBus: eventBus,
-    );
-    repository = SqliteWorkflowRunRepository(db);
-    messageService = MessageService(baseDir: sessionsDir);
-    kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
-
-    workflowService = WorkflowService(
-      repository: repository,
-      taskService: taskService,
-      messageService: messageService,
-      persistencePorts: WorkflowPersistencePorts(
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionRepositoryTransactor: executionTransactor,
-      ),
-      eventBus: eventBus,
-      kvService: kvService,
-      dataDir: tempDir.path,
-    );
+    harness = WorkflowServiceTestHarness()..setUp();
+    tempDir = harness.tempDir;
+    taskService = harness.taskService;
+    repository = harness.repository;
+    eventBus = harness.eventBus;
+    workflowService = harness.workflowService;
   });
 
   tearDown(() async {
-    await workflowService.dispose();
-    await taskService.dispose();
-    await messageService.dispose();
-    await kvService.dispose();
-    await eventBus.dispose();
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    await harness.tearDown(currentService: workflowService);
   });
 
   WorkflowDefinition makeDefinition({
@@ -103,41 +65,49 @@ void main() {
     Map<String, WorkflowVariable> variables = const {},
     WorkflowGitStrategy? gitStrategy,
   }) {
-    return WorkflowDefinition(
-      name: 'test-workflow',
-      description: 'Test workflow',
-      variables: variables,
-      gitStrategy: gitStrategy,
-      steps:
-          steps ??
-          [
-            const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
-          ],
-    );
+    return harness.makeDefinition(steps: steps, variables: variables, gitStrategy: gitStrategy);
   }
 
-  void autoCompleteNewTasks() {
-    eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
-      await Future<void>.delayed(Duration.zero);
-      // Use real transitions so DB state matches what executor reads.
-      try {
-        await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
-        await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
-        await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
-      } on StateError {
-        // Ignore invalid transition errors if task already moved.
-      }
-    });
+  WorkflowService lifecycleOnlyService({WorkflowTurnAdapter? turnAdapter, WorkflowGitContext? gitContext}) {
+    return harness.lifecycleOnlyService(turnAdapter: turnAdapter, gitContext: gitContext);
+  }
+
+  void autoCompleteNewTasks([List<String>? titles]) {
+    harness.autoCompleteNewTasks(titles);
   }
 
   Future<void> waitForRunStatus(String runId, WorkflowRunStatus expected) async {
-    for (var i = 0; i < 200; i++) {
-      final stored = await repository.getById(runId);
-      if (stored?.status == expected) return;
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
-    final stored = await repository.getById(runId);
-    fail('Expected workflow $runId to reach ${expected.name}, found ${stored?.status.name}');
+    await harness.waitForRunStatus(runId, expected);
+  }
+
+  void writeContextSnapshot(String runId, Map<String, dynamic> contextJson) {
+    harness.writeContextSnapshot(runId, contextJson);
+  }
+
+  Future<WorkflowRun> insertRun({
+    required String id,
+    WorkflowDefinition? definition,
+    WorkflowRunStatus status = WorkflowRunStatus.running,
+    int? currentStepIndex,
+    Map<String, String> variablesJson = const {},
+    Map<String, dynamic> contextJson = const {},
+    WorkflowExecutionCursor? executionCursor,
+    WorkflowWorktreeBinding? workflowWorktree,
+    String? errorMessage,
+    bool writeContextFile = false,
+  }) async {
+    return harness.insertRun(
+      id: id,
+      definition: definition,
+      status: status,
+      currentStepIndex: currentStepIndex,
+      variablesJson: variablesJson,
+      contextJson: contextJson,
+      executionCursor: executionCursor,
+      workflowWorktree: workflowWorktree,
+      errorMessage: errorMessage,
+      writeContextFile: writeContextFile,
+    );
   }
 
   test('start() creates run in pending→running, fires status events', () async {
@@ -209,17 +179,9 @@ void main() {
       },
     );
 
-    workflowService = WorkflowService.lifecycleOnly(
-      repository: repository,
-      taskService: taskService,
-      messageService: messageService,
-      eventBus: eventBus,
-      kvService: kvService,
-      dataDir: tempDir.path,
-      turnAdapter: WorkflowTurnAdapter(
-        reserveTurn: (_) async => 'turn-id',
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+    workflowService = lifecycleOnlyService(
+      turnAdapter: standardTurnAdapter(
+        turnId: 'turn-id',
         resolveStartContext: (definition, variables, {projectId, allowDirtyLocalPath = false}) async {
           final head = await Process.run('git', [
             'symbolic-ref',
@@ -249,17 +211,9 @@ void main() {
   });
 
   test('start() fails preflight before creating run or coding task', () async {
-    workflowService = WorkflowService.lifecycleOnly(
-      repository: repository,
-      taskService: taskService,
-      messageService: messageService,
-      eventBus: eventBus,
-      kvService: kvService,
-      dataDir: tempDir.path,
-      turnAdapter: WorkflowTurnAdapter(
-        reserveTurn: (_) async => 'turn-id',
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+    workflowService = lifecycleOnlyService(
+      turnAdapter: standardTurnAdapter(
+        turnId: 'turn-id',
         resolveStartContext: (definition, variables, {projectId, allowDirtyLocalPath = false}) async {
           throw ArgumentError('Ref "missing/ref" not found');
         },
@@ -281,14 +235,7 @@ void main() {
   });
 
   test('lifecycleOnly start() rejects agent workflows before creating run or task', () async {
-    workflowService = WorkflowService.lifecycleOnly(
-      repository: repository,
-      taskService: taskService,
-      messageService: messageService,
-      eventBus: eventBus,
-      kvService: kvService,
-      dataDir: tempDir.path,
-    );
+    workflowService = lifecycleOnlyService();
     final definition = makeDefinition(
       steps: const [
         WorkflowStep(id: 'coding-step', name: 'Coding', type: WorkflowTaskType.agent, prompts: ['Implement']),
@@ -351,19 +298,12 @@ void main() {
   });
 
   test('repository worktree binding round-trips on workflow_runs', () async {
-    final now = DateTime.now();
-    await repository.insert(
-      WorkflowRun(
-        id: 'run-binding',
-        definitionName: 'test-workflow',
-        status: WorkflowRunStatus.running,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: makeDefinition(
-          steps: const [
-            WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
-          ],
-        ).toJson(),
+    await insertRun(
+      id: 'run-binding',
+      definition: makeDefinition(
+        steps: const [
+          WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+        ],
       ),
     );
     const binding = WorkflowWorktreeBinding(
@@ -383,13 +323,7 @@ void main() {
 
   test('resume() hydrates persisted workflow worktree binding before respawn', () async {
     final hydrated = <WorkflowWorktreeBinding>[];
-    workflowService = WorkflowService.lifecycleOnly(
-      repository: repository,
-      taskService: taskService,
-      messageService: messageService,
-      eventBus: eventBus,
-      kvService: kvService,
-      dataDir: tempDir.path,
+    workflowService = lifecycleOnlyService(
       gitContext: WorkflowGitContext(
         gitPort: FakeGitGateway(),
         hydrateBinding: (binding) {
@@ -399,25 +333,19 @@ void main() {
       ),
     );
 
-    final now = DateTime.now();
-    await repository.insert(
-      WorkflowRun(
-        id: 'run-hydrate',
-        definitionName: 'test-workflow',
-        status: WorkflowRunStatus.paused,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: makeDefinition(
-          steps: const [
-            WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
-          ],
-        ).toJson(),
-        workflowWorktree: const WorkflowWorktreeBinding(
-          key: 'run-hydrate',
-          path: '/tmp/worktrees/wf-run-hydrate',
-          branch: 'dartclaw/workflow/runhydrate/integration',
-          workflowRunId: 'run-hydrate',
-        ),
+    await insertRun(
+      id: 'run-hydrate',
+      status: WorkflowRunStatus.paused,
+      definition: makeDefinition(
+        steps: const [
+          WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+        ],
+      ),
+      workflowWorktree: const WorkflowWorktreeBinding(
+        key: 'run-hydrate',
+        path: '/tmp/worktrees/wf-run-hydrate',
+        branch: 'dartclaw/workflow/runhydrate/integration',
+        workflowRunId: 'run-hydrate',
       ),
     );
     autoCompleteNewTasks();
@@ -431,13 +359,7 @@ void main() {
 
   test('resume() hydrates every persisted workflow worktree binding for the run', () async {
     final hydrated = <WorkflowWorktreeBinding>[];
-    workflowService = WorkflowService.lifecycleOnly(
-      repository: repository,
-      taskService: taskService,
-      messageService: messageService,
-      eventBus: eventBus,
-      kvService: kvService,
-      dataDir: tempDir.path,
+    workflowService = lifecycleOnlyService(
       gitContext: WorkflowGitContext(
         gitPort: FakeGitGateway(),
         hydrateBinding: (binding) {
@@ -447,19 +369,13 @@ void main() {
       ),
     );
 
-    final now = DateTime.now();
-    await repository.insert(
-      WorkflowRun(
-        id: 'run-hydrate-many',
-        definitionName: 'test-workflow',
-        status: WorkflowRunStatus.paused,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: makeDefinition(
-          steps: const [
-            WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
-          ],
-        ).toJson(),
+    await insertRun(
+      id: 'run-hydrate-many',
+      status: WorkflowRunStatus.paused,
+      definition: makeDefinition(
+        steps: const [
+          WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
+        ],
       ),
     );
     await repository.setWorktreeBinding(
@@ -488,21 +404,14 @@ void main() {
   });
 
   test('resume() throws when persisted workflow worktree binding runId mismatches the run', () async {
-    final now = DateTime.now();
-    await repository.insert(
-      WorkflowRun(
-        id: 'run-mismatch',
-        definitionName: 'test-workflow',
-        status: WorkflowRunStatus.paused,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: makeDefinition().toJson(),
-        workflowWorktree: const WorkflowWorktreeBinding(
-          key: 'run-mismatch',
-          path: '/tmp/worktrees/wf-run-mismatch',
-          branch: 'dartclaw/workflow/runmismatch/integration',
-          workflowRunId: 'run-other',
-        ),
+    await insertRun(
+      id: 'run-mismatch',
+      status: WorkflowRunStatus.paused,
+      workflowWorktree: const WorkflowWorktreeBinding(
+        key: 'run-mismatch',
+        path: '/tmp/worktrees/wf-run-mismatch',
+        branch: 'dartclaw/workflow/runmismatch/integration',
+        workflowRunId: 'run-other',
       ),
     );
 
@@ -540,17 +449,9 @@ void main() {
 
   test('cancel() invokes workflow git cleanup after child tasks are cancelled', () async {
     final cleanupObservedNonTerminalCounts = <int>[];
-    workflowService = WorkflowService.lifecycleOnly(
-      repository: repository,
-      taskService: taskService,
-      messageService: messageService,
-      eventBus: eventBus,
-      kvService: kvService,
-      dataDir: tempDir.path,
-      turnAdapter: WorkflowTurnAdapter(
-        reserveTurn: (_) async => 'turn-id',
-        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+    workflowService = lifecycleOnlyService(
+      turnAdapter: standardTurnAdapter(
+        turnId: 'turn-id',
         cleanupWorkflowGit: ({required runId, required projectId, required status, required preserveWorktrees}) async {
           final tasks = await taskService.list();
           final remaining = tasks.where((task) => task.workflowRunId == runId && !task.status.terminal).length;
@@ -559,16 +460,11 @@ void main() {
       ),
     );
 
-    final run = WorkflowRun(
+    final run = await insertRun(
       id: 'cancel-order-run',
-      definitionName: 'test-workflow',
       status: WorkflowRunStatus.running,
-      startedAt: DateTime.now(),
-      updatedAt: DateTime.now(),
       variablesJson: const {'PROJECT': 'my-app'},
-      definitionJson: makeDefinition().toJson(),
     );
-    await repository.insert(run);
     final task = await taskService.create(
       id: 'cancel-order-task',
       title: 'cancel order task',
@@ -588,17 +484,9 @@ void main() {
   group('cancel() cleanup honors gitStrategy.cleanup', () {
     Future<bool?> cancelAndCapturePreserve(WorkflowGitStrategy? strategy) async {
       bool? observed;
-      workflowService = WorkflowService.lifecycleOnly(
-        repository: repository,
-        taskService: taskService,
-        messageService: messageService,
-        eventBus: eventBus,
-        kvService: kvService,
-        dataDir: tempDir.path,
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) async => 'turn-id',
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+      workflowService = lifecycleOnlyService(
+        turnAdapter: standardTurnAdapter(
+          turnId: 'turn-id',
           cleanupWorkflowGit:
               ({required runId, required projectId, required status, required preserveWorktrees}) async {
                 observed = preserveWorktrees;
@@ -613,37 +501,33 @@ void main() {
           WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['noop']),
         ],
       );
-      final run = WorkflowRun(
+      final run = await insertRun(
         id: 'cancel-cleanup-${strategy?.cleanup?.enabled ?? 'default'}',
-        definitionName: definition.name,
         status: WorkflowRunStatus.running,
-        startedAt: DateTime.now(),
-        updatedAt: DateTime.now(),
         variablesJson: const {'PROJECT': 'my-app'},
-        definitionJson: definition.toJson(),
+        definition: definition,
       );
-      await repository.insert(run);
       await workflowService.cancel(run.id);
       return observed;
     }
 
-    test('default strategy → preserveWorktrees=false', () async {
-      expect(await cancelAndCapturePreserve(null), isFalse);
-    });
-
-    test('cleanup.enabled: true → preserveWorktrees=false', () async {
-      expect(
-        await cancelAndCapturePreserve(const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true))),
-        isFalse,
-      );
-    });
-
-    test('cleanup.enabled: false → preserveWorktrees=true', () async {
-      expect(
-        await cancelAndCapturePreserve(const WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false))),
-        isTrue,
-      );
-    });
+    for (final row in const [
+      (name: 'default strategy', strategy: null, expected: false),
+      (
+        name: 'cleanup.enabled: true',
+        strategy: WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: true)),
+        expected: false,
+      ),
+      (
+        name: 'cleanup.enabled: false',
+        strategy: WorkflowGitStrategy(cleanup: WorkflowGitCleanupStrategy(enabled: false)),
+        expected: true,
+      ),
+    ]) {
+      test('${row.name} sets preserveWorktrees=${row.expected}', () async {
+        expect(await cancelAndCapturePreserve(row.strategy), row.expected);
+      });
+    }
   });
 
   test('cancel() propagates to the active turn when the cancellation subscriber is installed', () async {
@@ -651,15 +535,7 @@ void main() {
     final subscriber = TaskCancellationSubscriber(tasks: taskService, turns: turns)..subscribe(eventBus);
     addTearDown(subscriber.dispose);
 
-    final run = WorkflowRun(
-      id: 'cancel-turn-run',
-      definitionName: 'test-workflow',
-      status: WorkflowRunStatus.running,
-      startedAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      definitionJson: makeDefinition().toJson(),
-    );
-    await repository.insert(run);
+    final run = await insertRun(id: 'cancel-turn-run', status: WorkflowRunStatus.running);
 
     final task = await taskService.create(
       id: 'cancel-turn-task',
@@ -723,17 +599,12 @@ void main() {
   test('recoverIncompleteRuns() resumes running runs', () async {
     // Seed a "running" run directly in the repository.
     final definition = makeDefinition();
-    final now = DateTime.now();
-    final run = WorkflowRun(
+    await insertRun(
       id: 'recover-run-1',
-      definitionName: 'test-workflow',
       status: WorkflowRunStatus.running,
-      startedAt: now,
-      updatedAt: now,
       currentStepIndex: 0,
-      definitionJson: definition.toJson(),
+      definition: definition,
     );
-    await repository.insert(run);
 
     autoCompleteNewTasks();
 
@@ -763,15 +634,11 @@ void main() {
       ],
     );
 
-    final now = DateTime.now();
-    final run = WorkflowRun(
+    await insertRun(
       id: 'recover-loop-step',
-      definitionName: definition.name,
       status: WorkflowRunStatus.running,
-      startedAt: now,
-      updatedAt: now,
       currentStepIndex: 0,
-      definitionJson: definition.toJson(),
+      definition: definition,
       contextJson: {
         '_loop.current.id': 'loop1',
         '_loop.current.iteration': 1,
@@ -782,23 +649,12 @@ void main() {
         'loopA.tokenCount': 50,
       },
     );
-    await repository.insert(run);
 
     final createdTaskTitles = <String>[];
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
-      await Future<void>.delayed(Duration.zero);
-      final task = await taskService.get(e.taskId);
-      if (task != null) {
-        createdTaskTitles.add(task.title);
-      }
-      await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
-      await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
-      await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
-    });
+    autoCompleteNewTasks(createdTaskTitles);
 
     await workflowService.recoverIncompleteRuns();
     await Future<void>.delayed(const Duration(milliseconds: 250));
-    await sub.cancel();
 
     expect(createdTaskTitles, hasLength(1));
     expect(createdTaskTitles.first, contains('Loop B'));
@@ -823,15 +679,11 @@ void main() {
       ],
     );
 
-    final now = DateTime.now();
-    final run = WorkflowRun(
+    await insertRun(
       id: 'recover-map-step',
-      definitionName: definition.name,
       status: WorkflowRunStatus.running,
-      startedAt: now,
-      updatedAt: now,
       currentStepIndex: 0,
-      definitionJson: definition.toJson(),
+      definition: definition,
       executionCursor: WorkflowExecutionCursor.map(
         stepId: 'map',
         stepIndex: 0,
@@ -848,23 +700,12 @@ void main() {
         'variables': <String, dynamic>{},
       },
     );
-    await repository.insert(run);
 
     final createdTaskTitles = <String>[];
-    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
-      await Future<void>.delayed(Duration.zero);
-      final task = await taskService.get(e.taskId);
-      if (task != null) {
-        createdTaskTitles.add(task.title);
-      }
-      await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
-      await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
-      await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
-    });
+    autoCompleteNewTasks(createdTaskTitles);
 
     await workflowService.recoverIncompleteRuns();
     await Future<void>.delayed(const Duration(milliseconds: 250));
-    await sub.cancel();
 
     expect(createdTaskTitles, hasLength(1));
     expect(createdTaskTitles.single, contains('(3/3)'));
@@ -876,16 +717,7 @@ void main() {
 
   test('recoverIncompleteRuns() skips paused runs', () async {
     final definition = makeDefinition();
-    final now = DateTime.now();
-    final pausedRun = WorkflowRun(
-      id: 'paused-run-1',
-      definitionName: 'test-workflow',
-      status: WorkflowRunStatus.paused,
-      startedAt: now,
-      updatedAt: now,
-      definitionJson: definition.toJson(),
-    );
-    await repository.insert(pausedRun);
+    await insertRun(id: 'paused-run-1', status: WorkflowRunStatus.paused, definition: definition);
 
     await workflowService.recoverIncompleteRuns();
     await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -926,14 +758,11 @@ void main() {
         ],
       );
       final now = DateTime.now();
-      final run = WorkflowRun(
+      return insertRun(
         id: runId,
-        definitionName: definition.name,
         status: WorkflowRunStatus.paused,
-        startedAt: now,
-        updatedAt: now,
         currentStepIndex: nextStepIndex,
-        definitionJson: definition.toJson(),
+        definition: definition,
         variablesJson: variables,
         contextJson: {
           'data': <String, dynamic>{
@@ -954,12 +783,8 @@ void main() {
           '_approval.pending.stepId': stepId,
           '_approval.pending.stepIndex': nextStepIndex - 1,
         },
+        writeContextFile: true,
       );
-      await repository.insert(run);
-      final contextDir = Directory(p.join(tempDir.path, 'workflows', 'runs', runId));
-      contextDir.createSync(recursive: true);
-      File(p.join(contextDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
-      return run;
     }
 
     test('resume() on approval-paused run records approved status and fires WorkflowApprovalResolvedEvent', () async {
@@ -1061,17 +886,9 @@ void main() {
 
     test('recoverIncompleteRuns() cleans workflow git after expired approval deadline', () async {
       final cleanupStatuses = <({String runId, String projectId, String status, bool preserveWorktrees})>[];
-      workflowService = WorkflowService.lifecycleOnly(
-        repository: repository,
-        taskService: taskService,
-        messageService: messageService,
-        eventBus: eventBus,
-        kvService: kvService,
-        dataDir: tempDir.path,
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) async => 'turn-id',
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+      workflowService = lifecycleOnlyService(
+        turnAdapter: standardTurnAdapter(
+          turnId: 'turn-id',
           cleanupWorkflowGit:
               ({required runId, required projectId, required status, required preserveWorktrees}) async {
                 cleanupStatuses.add((
@@ -1119,10 +936,13 @@ void main() {
   });
 
   group('retry()', () {
-    WorkflowRun buildFailedRun({
+    Future<WorkflowRun> insertFailedRun({
       String runId = 'run-failed',
       String failingStepId = 'step1',
       int currentStepIndex = 0,
+      WorkflowExecutionCursor? executionCursor,
+      Map<String, dynamic> contextJson = const {},
+      Map<String, dynamic>? diskContextJson,
     }) {
       final definition = makeDefinition(
         steps: [
@@ -1130,22 +950,25 @@ void main() {
           const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
         ],
       );
-      final now = DateTime.now();
-      return WorkflowRun(
+      final context = {
+        '$failingStepId.status': 'failed',
+        'step.$failingStepId.outcome': 'failed',
+        'step.$failingStepId.outcome.reason': 'boom',
+        ...contextJson,
+      };
+      return insertRun(
         id: runId,
-        definitionName: definition.name,
         status: WorkflowRunStatus.failed,
-        startedAt: now,
-        updatedAt: now,
         errorMessage: 'boom',
         currentStepIndex: currentStepIndex,
-        definitionJson: definition.toJson(),
-        contextJson: {
-          '$failingStepId.status': 'failed',
-          'step.$failingStepId.outcome': 'failed',
-          'step.$failingStepId.outcome.reason': 'boom',
-        },
-      );
+        definition: definition,
+        contextJson: context,
+        executionCursor: executionCursor,
+        writeContextFile: diskContextJson == null,
+      ).then((run) {
+        if (diskContextJson != null) writeContextSnapshot(run.id, diskContextJson);
+        return run;
+      });
     }
 
     test('throws StateError when run is not in failed status', () async {
@@ -1159,11 +982,7 @@ void main() {
       final statusEvents = <WorkflowRunStatusChangedEvent>[];
       eventBus.on<WorkflowRunStatusChangedEvent>().listen(statusEvents.add);
 
-      final run = buildFailedRun();
-      await repository.insert(run);
-      // Seed context.json so _loadContext doesn't build from DB only.
-      final ctxDir = Directory(p.join(tempDir.path, 'workflows', 'runs', run.id))..createSync(recursive: true);
-      File(p.join(ctxDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
+      final run = await insertFailedRun();
       autoCompleteNewTasks();
 
       final retried = await workflowService.retry(run.id);
@@ -1177,10 +996,7 @@ void main() {
     });
 
     test('clears failing step status/outcome context keys', () async {
-      final run = buildFailedRun();
-      await repository.insert(run);
-      final ctxDir = Directory(p.join(tempDir.path, 'workflows', 'runs', run.id))..createSync(recursive: true);
-      File(p.join(ctxDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
+      final run = await insertFailedRun();
       autoCompleteNewTasks();
 
       await workflowService.retry(run.id);
@@ -1193,8 +1009,7 @@ void main() {
     });
 
     test('retry with execution cursor prefers DB context over divergent disk snapshot', () async {
-      final base = buildFailedRun();
-      final run = base.copyWith(
+      final run = await insertFailedRun(
         executionCursor: WorkflowExecutionCursor.foreach(
           stepId: 'step1',
           stepIndex: 0,
@@ -1202,17 +1017,14 @@ void main() {
           completedIndices: [0],
         ),
         contextJson: {
-          ...base.contextJson,
           'story_results': ['db-completed'],
         },
-      );
-      await repository.insert(run);
-      final ctxDir = Directory(p.join(tempDir.path, 'workflows', 'runs', run.id))..createSync(recursive: true);
-      File(p.join(ctxDir.path, 'context.json')).writeAsStringSync(
-        jsonEncode({
-          ...run.contextJson,
+        diskContextJson: {
+          'step1.status': 'failed',
+          'step.step1.outcome': 'failed',
+          'step.step1.outcome.reason': 'boom',
           'story_results': ['stale-disk'],
-        }),
+        },
       );
 
       final retried = await workflowService.retry(run.id);
@@ -1222,81 +1034,131 @@ void main() {
     });
   });
 
-  // Restart, idempotency, and operator race hardening ─────────────────
-  //
-  // Evidence consumed from S52 closure ledger (final-gap-closure-ledger.md):
-  //   OPERATOR-RACES   → live defect → S55 (action precedence matrix + illegal-combo guards)
-  //   RESTART-IDEMPOTENCY → live defect → S55 (partial-promotion idempotency spec)
-  //   CONCURRENT-CHECKOUT → live defect → S55 (concurrent-workflow arbitration via RepoLock)
-  //   APPROVAL-HOLD    → live defect → S55 (hold state preservation proof)
-  //   STRUCT-OUTPUT-COMPAT → deferred → PRODUCT-BACKLOG (not a runtime gap; S55 TI08 confirmed closed)
-  //
-  // S53/S54 contracts consumed: ADR-022 status meanings (WorkflowRunStatus.terminal/paused/
-  //   awaitingApproval/failed/running/cancelled/completed), retry cursor from failed-step,
-  //   worktree binding hydration on resume. S55 adds operator-race and restart proof only.
-
   group('operator lifecycle action precedence', () {
-    // State/action precedence matrix (FR3-AC1):
-    //   running         → pause(✓) cancel(✓) retry(✗) resume(✗) conflict-resolution(✗→ignored)
-    //   paused          → resume(✓) cancel(✓) retry(✗) pause(✗)
-    //   awaitingApproval → resume(✓) cancel(✓) retry(✗) pause(✗)
-    //   failed          → retry(✓) cancel(✗→noop on terminal) resume(✗) pause(✗)
-    //   completed       → cancel(✗→noop) retry(✗) resume(✗) pause(✗)
-    //   cancelled       → cancel(✗→noop) retry(✗) resume(✗) pause(✗)
+    final approvalContext = <String, dynamic>{
+      '_approval.pending.stepId': 'gate',
+      '_approval.pending.stepIndex': 0,
+      'gate.approval.status': 'pending',
+      'data': <String, dynamic>{},
+      'variables': <String, dynamic>{},
+    };
+    final illegalCombos =
+        <
+          ({
+            String name,
+            WorkflowRunStatus status,
+            Future<void> Function(WorkflowService svc, String runId) action,
+            bool noOp,
+            Map<String, dynamic>? contextJson,
+            int currentStepIndex,
+          })
+        >[
+          (
+            name: 'retry() on awaitingApproval run is rejected with StateError',
+            status: WorkflowRunStatus.awaitingApproval,
+            action: (svc, id) => svc.retry(id),
+            noOp: false,
+            contextJson: approvalContext,
+            currentStepIndex: 1,
+          ),
+          (
+            name: 'retry() on running run is rejected with StateError',
+            status: WorkflowRunStatus.running,
+            action: (svc, id) => svc.retry(id),
+            noOp: false,
+            contextJson: null,
+            currentStepIndex: 0,
+          ),
+          (
+            name: 'resume() on failed run is rejected with StateError',
+            status: WorkflowRunStatus.failed,
+            action: (svc, id) => svc.resume(id),
+            noOp: false,
+            contextJson: null,
+            currentStepIndex: 0,
+          ),
+          (
+            name: 'cancel() is a no-op on completed run',
+            status: WorkflowRunStatus.completed,
+            action: (svc, id) => svc.cancel(id),
+            noOp: true,
+            contextJson: null,
+            currentStepIndex: 0,
+          ),
+          (
+            name: 'cancel() is a no-op on cancelled run',
+            status: WorkflowRunStatus.cancelled,
+            action: (svc, id) => svc.cancel(id),
+            noOp: true,
+            contextJson: null,
+            currentStepIndex: 0,
+          ),
+          (
+            name: 'retry() on completed run is rejected with StateError',
+            status: WorkflowRunStatus.completed,
+            action: (svc, id) => svc.retry(id),
+            noOp: false,
+            contextJson: null,
+            currentStepIndex: 0,
+          ),
+          (
+            name: 'retry() on cancelled run is rejected with StateError',
+            status: WorkflowRunStatus.cancelled,
+            action: (svc, id) => svc.retry(id),
+            noOp: false,
+            contextJson: null,
+            currentStepIndex: 0,
+          ),
+          (
+            name: 'resume() on completed run is rejected with StateError',
+            status: WorkflowRunStatus.completed,
+            action: (svc, id) => svc.resume(id),
+            noOp: false,
+            contextJson: null,
+            currentStepIndex: 0,
+          ),
+          (
+            name: 'resume() on cancelled run is rejected with StateError',
+            status: WorkflowRunStatus.cancelled,
+            action: (svc, id) => svc.resume(id),
+            noOp: false,
+            contextJson: null,
+            currentStepIndex: 0,
+          ),
+        ];
 
-    test('retry() on awaitingApproval run is rejected with StateError', () async {
-      // OPERATOR-RACES: awaitingApproval must reject retry (FR3-AC1 illegal combo).
-      // Resume is the documented action; retry is not valid from approval-hold state.
-      final definition = makeDefinition(
-        steps: [
-          const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
-          const WorkflowStep(id: 'step2', name: 'Step 2', type: WorkflowTaskType.approval, prompts: ['Approve?']),
-        ],
-      );
-      final now = DateTime.now();
-      final run = WorkflowRun(
-        id: 'run-awaiting-retry',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.awaitingApproval,
-        startedAt: now,
-        updatedAt: now,
-        currentStepIndex: 1,
-        definitionJson: definition.toJson(),
-        contextJson: {
-          '_approval.pending.stepId': 'gate',
-          '_approval.pending.stepIndex': 0,
-          'gate.approval.status': 'pending',
-          'data': <String, dynamic>{},
-          'variables': <String, dynamic>{},
-        },
-      );
-      await repository.insert(run);
+    for (final row in illegalCombos) {
+      test(row.name, () async {
+        final runId = 'run-illegal-${illegalCombos.indexOf(row)}';
+        await insertRun(
+          id: runId,
+          status: row.status,
+          currentStepIndex: row.currentStepIndex,
+          contextJson: row.contextJson ?? const {},
+        );
 
-      // retry() must throw StateError — not valid from awaitingApproval.
-      await expectLater(workflowService.retry('run-awaiting-retry'), throwsA(isA<StateError>()));
-    });
+        if (row.noOp) {
+          await row.action(workflowService, runId);
+          final stored = await workflowService.get(runId);
+          expect(stored?.status, equals(row.status));
+        } else {
+          await expectLater(row.action(workflowService, runId), throwsA(isA<StateError>()));
+        }
+      });
+    }
 
     test('resume() accepts awaitingApproval run, clears approval-tracking keys, and flips status to running', () async {
-      // OPERATOR-RACES: resume is the legal action from awaitingApproval (FR3-AC1).
-      // Confirms the run transitions to running and approval tracking is cleared.
-      // Note: this test verifies the synchronous pre-execution state mutations performed
-      // by resume() — it does not observe the subsequent executor dispatch. Cursor-based
-      // "no replay" of prior steps is proven by the retry() cursor test below.
       final definition = makeDefinition(
         steps: [
           const WorkflowStep(id: 'gate', name: 'Gate', type: WorkflowTaskType.approval, prompts: ['Approve?']),
           const WorkflowStep(id: 'step2', name: 'Step 2', type: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
-      final now = DateTime.now();
-      final run = WorkflowRun(
+      await insertRun(
         id: 'run-awaiting-resume',
-        definitionName: definition.name,
         status: WorkflowRunStatus.awaitingApproval,
-        startedAt: now,
-        updatedAt: now,
         currentStepIndex: 1,
-        definitionJson: definition.toJson(),
+        definition: definition,
         contextJson: {
           '_approval.pending.stepId': 'gate',
           '_approval.pending.stepIndex': 0,
@@ -1304,182 +1166,27 @@ void main() {
           'data': <String, dynamic>{},
           'variables': <String, dynamic>{},
         },
+        writeContextFile: true,
       );
-      await repository.insert(run);
-      final contextDir = Directory(p.join(tempDir.path, 'workflows', 'runs', run.id))..createSync(recursive: true);
-      File(p.join(contextDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
       autoCompleteNewTasks();
 
-      // resume() must succeed and record approval.
       final resumed = await workflowService.resume('run-awaiting-resume');
       expect(resumed.status, equals(WorkflowRunStatus.running));
 
-      // Approval tracking keys must be cleared.
       expect(resumed.contextJson.containsKey('_approval.pending.stepId'), isFalse);
       expect(resumed.contextJson.containsKey('_approval.pending.stepIndex'), isFalse);
     });
 
-    test('retry() on running run is rejected with StateError', () async {
-      // OPERATOR-RACES: retry must reject non-failed states (FR3-AC1 illegal combo).
-      // Insert a running run directly to avoid spawning a live executor.
-      final definition = makeDefinition();
-      final now = DateTime.now();
-      final run = WorkflowRun(
-        id: 'run-running-retry',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.running,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: definition.toJson(),
-      );
-      await repository.insert(run);
-      await expectLater(workflowService.retry('run-running-retry'), throwsA(isA<StateError>()));
-    });
-
     test('retry() on paused run is rejected with StateError', () async {
-      // OPERATOR-RACES: retry is illegal from paused (FR3-AC1 illegal combo).
       final definition = makeDefinition();
       final run = await workflowService.start(definition, {});
       await workflowService.pause(run.id);
       await expectLater(workflowService.retry(run.id), throwsA(isA<StateError>()));
     });
-
-    test('resume() on failed run is rejected with StateError', () async {
-      // OPERATOR-RACES: resume is illegal from failed (FR3-AC1 illegal combo).
-      final definition = makeDefinition();
-      final now = DateTime.now();
-      final run = WorkflowRun(
-        id: 'run-failed-resume',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.failed,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: definition.toJson(),
-      );
-      await repository.insert(run);
-      await expectLater(workflowService.resume('run-failed-resume'), throwsA(isA<StateError>()));
-    });
-
-    test('cancel() is a no-op on completed run', () async {
-      // OPERATOR-RACES: cancel on terminal states is idempotent (FR3-AC1).
-      // WorkflowService.cancel() short-circuits on terminal states.
-      final definition = makeDefinition();
-      final now = DateTime.now();
-      final run = WorkflowRun(
-        id: 'run-completed-cancel',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.completed,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: definition.toJson(),
-        completedAt: now,
-      );
-      await repository.insert(run);
-
-      // cancel() must not throw and run must remain completed.
-      await workflowService.cancel('run-completed-cancel');
-      final stored = await workflowService.get('run-completed-cancel');
-      expect(stored?.status, equals(WorkflowRunStatus.completed));
-    });
-
-    test('cancel() is a no-op on cancelled run', () async {
-      // OPERATOR-RACES: cancel on already-cancelled is idempotent (FR3-AC1).
-      final definition = makeDefinition();
-      final now = DateTime.now();
-      final run = WorkflowRun(
-        id: 'run-cancelled-cancel',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.cancelled,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: definition.toJson(),
-        completedAt: now,
-      );
-      await repository.insert(run);
-
-      await workflowService.cancel('run-cancelled-cancel');
-      final stored = await workflowService.get('run-cancelled-cancel');
-      expect(stored?.status, equals(WorkflowRunStatus.cancelled));
-    });
-
-    test('retry() on completed run is rejected with StateError', () async {
-      // OPERATOR-RACES: retry must reject terminal states (FR3-AC1 illegal combo).
-      final definition = makeDefinition();
-      final now = DateTime.now();
-      final run = WorkflowRun(
-        id: 'run-completed-retry',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.completed,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: definition.toJson(),
-        completedAt: now,
-      );
-      await repository.insert(run);
-      await expectLater(workflowService.retry('run-completed-retry'), throwsA(isA<StateError>()));
-    });
-
-    test('retry() on cancelled run is rejected with StateError', () async {
-      // OPERATOR-RACES: retry must reject terminal states (FR3-AC1 illegal combo).
-      final definition = makeDefinition();
-      final now = DateTime.now();
-      final run = WorkflowRun(
-        id: 'run-cancelled-retry',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.cancelled,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: definition.toJson(),
-        completedAt: now,
-      );
-      await repository.insert(run);
-      await expectLater(workflowService.retry('run-cancelled-retry'), throwsA(isA<StateError>()));
-    });
-
-    test('resume() on completed run is rejected with StateError', () async {
-      // OPERATOR-RACES: resume must reject terminal states (FR3-AC1 illegal combo).
-      final definition = makeDefinition();
-      final now = DateTime.now();
-      final run = WorkflowRun(
-        id: 'run-completed-resume',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.completed,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: definition.toJson(),
-        completedAt: now,
-      );
-      await repository.insert(run);
-      await expectLater(workflowService.resume('run-completed-resume'), throwsA(isA<StateError>()));
-    });
-
-    test('resume() on cancelled run is rejected with StateError', () async {
-      // OPERATOR-RACES: resume must reject terminal states (FR3-AC1 illegal combo).
-      final definition = makeDefinition();
-      final now = DateTime.now();
-      final run = WorkflowRun(
-        id: 'run-cancelled-resume',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.cancelled,
-        startedAt: now,
-        updatedAt: now,
-        definitionJson: definition.toJson(),
-        completedAt: now,
-      );
-      await repository.insert(run);
-      await expectLater(workflowService.resume('run-cancelled-resume'), throwsA(isA<StateError>()));
-    });
   });
 
   group('restart/retry idempotency after side effects', () {
-    // RESTART-IDEMPOTENCY (FR3-AC2): retry after partial promotion/publish must restart
-    // from the failure cursor, not replay completed promoted work.
-    // The cursor mechanism from S53 (WorkflowExecutionCursor) is the idempotency carrier.
-    // A map execution cursor with completedIndices proves which items are already settled.
-
     test('retry() starts from persisted execution cursor — not from step 0', () async {
-      // RESTART-IDEMPOTENCY: retry after a failure mid-map must resume at the cursor,
-      // not replay the completed promoted items.
       final definition = WorkflowDefinition(
         name: 'map-retry',
         description: 'map retry idempotency',
@@ -1495,8 +1202,6 @@ void main() {
           WorkflowStep(id: 'update-state', name: 'Update State', prompts: ['update']),
         ],
       );
-      final now = DateTime.now();
-      // Simulate a run that has completed 2/3 items and failed at item index 2.
       final cursor = WorkflowExecutionCursor.map(
         stepId: 'implement',
         stepIndex: 0,
@@ -1504,14 +1209,11 @@ void main() {
         completedIndices: const [0, 1],
         resultSlots: const ['done-a', 'done-b', null],
       );
-      final run = WorkflowRun(
+      await insertRun(
         id: 'run-map-retry',
-        definitionName: definition.name,
         status: WorkflowRunStatus.failed,
-        startedAt: now,
-        updatedAt: now,
         errorMessage: 'item 2 failed',
-        definitionJson: definition.toJson(),
+        definition: definition,
         executionCursor: cursor,
         contextJson: {
           'data': <String, dynamic>{
@@ -1522,29 +1224,10 @@ void main() {
           'variables': <String, dynamic>{},
         },
       );
-      await repository.insert(run);
 
-      // Track which map-step tasks are dispatched (we ignore update-state tasks
-      // because they belong to the next step, not the map replay surface).
       final allDispatchedTitles = <String>[];
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        await Future<void>.delayed(Duration.zero);
-        final task = await taskService.get(e.taskId);
-        if (task != null) {
-          allDispatchedTitles.add(task.title);
-        }
-        try {
-          await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
-          await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
-          await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
-        } on StateError {
-          // Ignore.
-        }
-      });
+      autoCompleteNewTasks(allDispatchedTitles);
 
-      // Wait for the retry to drive the run to a terminal state — no sleep.
       final terminalCompleter = Completer<WorkflowRunStatus>();
       final statusSub = eventBus
           .on<WorkflowRunStatusChangedEvent>()
@@ -1555,19 +1238,14 @@ void main() {
 
       await workflowService.retry('run-map-retry');
       final terminalStatus = await terminalCompleter.future.timeout(const Duration(seconds: 5));
-      await sub.cancel();
       await statusSub.cancel();
 
-      // Only item index 2 (c) should have been dispatched as a map task — items 0 (a)
-      // and 1 (b) were already settled in the cursor and must not be replayed.
-      // The title format is "Implement (N/3)"; items 0 and 1 render as "(1/3)" and "(2/3)".
       final mapDispatched = allDispatchedTitles.where((t) => t.contains('Implement')).toList();
       expect(
         mapDispatched.any((t) => t.contains('(1/3)') || t.contains('(2/3)')),
         isFalse,
         reason: 'Completed map items (0,1) must not be replayed on retry',
       );
-      // Exactly one map task must have been dispatched — the pending slot at index 2, "(3/3)".
       expect(mapDispatched, hasLength(1), reason: 'only the pending cursor item should dispatch');
       expect(mapDispatched.single, contains('(3/3)'));
       expect(terminalStatus, equals(WorkflowRunStatus.completed));
@@ -1575,20 +1253,9 @@ void main() {
   });
 
   group('approval/needsInput hold state preservation', () {
-    // APPROVAL-HOLD (FR3-AC5): awaitingApproval transitions must preserve run context,
-    // worktree bindings, and audit evidence. No cleanup is invoked during a hold.
-
     test('resume() after awaitingApproval preserves worktree bindings from before hold', () async {
-      // APPROVAL-HOLD: worktree binding created before the approval hold must survive
-      // through hold and still be present when resume() rehydrates it.
       final hydrated = <WorkflowWorktreeBinding>[];
-      workflowService = WorkflowService.lifecycleOnly(
-        repository: repository,
-        taskService: taskService,
-        messageService: messageService,
-        eventBus: eventBus,
-        kvService: kvService,
-        dataDir: tempDir.path,
+      workflowService = lifecycleOnlyService(
         gitContext: WorkflowGitContext(
           gitPort: FakeGitGateway(),
           hydrateBinding: (binding) {
@@ -1602,15 +1269,11 @@ void main() {
           const WorkflowStep(id: 'step2', name: 'Step 2', type: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
-      final now = DateTime.now();
-      final run = WorkflowRun(
+      await insertRun(
         id: 'run-hold-worktree',
-        definitionName: definition.name,
         status: WorkflowRunStatus.awaitingApproval,
-        startedAt: now,
-        updatedAt: now,
         currentStepIndex: 1,
-        definitionJson: definition.toJson(),
+        definition: definition,
         contextJson: {
           '_approval.pending.stepId': 'gate',
           '_approval.pending.stepIndex': 0,
@@ -1624,13 +1287,10 @@ void main() {
           branch: 'dartclaw/workflow/hold/integration',
           workflowRunId: 'run-hold-worktree',
         ),
+        writeContextFile: true,
       );
-      await repository.insert(run);
-      final contextDir = Directory(p.join(tempDir.path, 'workflows', 'runs', run.id))..createSync(recursive: true);
-      File(p.join(contextDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
       autoCompleteNewTasks();
 
-      // resume() must hydrate the persisted worktree binding.
       await workflowService.resume('run-hold-worktree');
 
       expect(hydrated, hasLength(1));
@@ -1639,8 +1299,6 @@ void main() {
     });
 
     test('awaitingApproval run preserves run context and audit state through hold', () async {
-      // APPROVAL-HOLD (FR3-AC5): the run context (variables, step outcomes, token counts)
-      // must be readable after a hold. No cleanup erases evidence during awaitingApproval.
       final definition = makeDefinition(
         steps: [
           const WorkflowStep(id: 'impl', name: 'Impl', prompts: ['Implement']),
@@ -1648,16 +1306,11 @@ void main() {
           const WorkflowStep(id: 'publish', name: 'Publish', prompts: ['Publish']),
         ],
       );
-      final now = DateTime.now();
-      // Simulate: impl step completed with token evidence, then gate paused run.
-      final run = WorkflowRun(
+      await insertRun(
         id: 'run-hold-context',
-        definitionName: definition.name,
         status: WorkflowRunStatus.awaitingApproval,
-        startedAt: now,
-        updatedAt: now,
         currentStepIndex: 2,
-        definitionJson: definition.toJson(),
+        definition: definition,
         contextJson: {
           '_approval.pending.stepId': 'gate',
           '_approval.pending.stepIndex': 1,
@@ -1673,30 +1326,17 @@ void main() {
           'variables': <String, dynamic>{},
         },
       );
-      await repository.insert(run);
 
-      // Re-read the stored run to confirm evidence is intact during hold.
       final stored = await workflowService.get('run-hold-context');
       expect(stored?.status, equals(WorkflowRunStatus.awaitingApproval));
-      // Prior step outcome evidence must be intact.
       expect(stored?.contextJson['step.impl.outcome'], equals('succeeded'));
       expect(stored?.contextJson['impl.tokenCount'], equals(150));
-      // Approval tracking keys must be present.
       expect(stored?.contextJson['_approval.pending.stepId'], equals('gate'));
     });
   });
 
   group('concurrent checkout contention rule', () {
-    // CONCURRENT-CHECKOUT (FR3-AC3): Two workflow runs targeting the same local checkout
-    // are serialized at the git-operation level via RepoLock (WorkflowGitPortProcess).
-    // The workflow-level rule: the second run proceeds but its git operations queue
-    // behind the first run's lock holder — no uncoordinated side effects occur.
-    // This test proves the documented rule by verifying RepoLock's serial behavior.
-
     test('RepoLock serializes concurrent operations on the same key', () async {
-      // CONCURRENT-CHECKOUT: proves that the RepoLock mechanism (the documented
-      // checkout-contention guard) prevents concurrent execution for the same key.
-      // Both runs wait and execute in order, not concurrently.
       final lock = RepoLock();
       final executionOrder = <String>[];
       final completerA = Completer<void>();
@@ -1712,22 +1352,16 @@ void main() {
         executionOrder.add('B-end');
       });
 
-      // Let A start.
       await Future<void>.delayed(Duration.zero);
-      // B should not have started yet because A holds the lock.
       expect(executionOrder, equals(['A-start']), reason: 'B must not start while A holds the lock');
 
-      // Release A.
       completerA.complete();
       await Future.wait([futureA, futureB]);
 
-      // B runs after A completes — serial execution guaranteed.
       expect(executionOrder, equals(['A-start', 'A-end', 'B-start', 'B-end']));
     });
 
     test('RepoLock allows concurrent operations on different keys', () async {
-      // CONCURRENT-CHECKOUT: different checkouts do not contend on the same lock key.
-      // Two workflows on different repos can proceed without serialization.
       final lock = RepoLock();
       final executionOrder = <String>[];
       final completerA = Completer<void>();
@@ -1743,14 +1377,10 @@ void main() {
         executionOrder.add('B-end');
       });
 
-      // Wait for B to finish — it must NOT be blocked by A's held lock.
       await futureB;
 
-      // Proof of non-serialization: B has started AND ended while A is still holding
-      // its lock (A-end has not happened yet because completerA hasn't been completed).
       expect(executionOrder, equals(['A-start', 'B-start', 'B-end']));
 
-      // Now release A and drain.
       completerA.complete();
       await futureA;
       expect(executionOrder, equals(['A-start', 'B-start', 'B-end', 'A-end']));
@@ -1758,34 +1388,10 @@ void main() {
   });
 
   group('local human-edit detection boundary', () {
-    // CONCURRENT-CHECKOUT/local human-edit (FR3-AC4):
-    // S54 owns the local-path dirty/branch safety check at workflow-start time
-    // (WorkflowLocalPathPreflight). Mid-run edits to the working tree of a local-path
-    // checkout are outside the protected boundary — the workflow engine does not
-    // re-inspect the working tree after the start preflight.
-    //
-    // Documented boundary: the protected edge is workflow start (dirty/branch check);
-    // mid-run human edits are an operator responsibility.
-    // Operator mitigation: do not modify the working tree of the target checkout
-    // while a local-path workflow is running; use a dedicated branch and pause/cancel
-    // to take over if mid-run edits are required.
-    //
-    // This test verifies the preflight DOES catch dirty state at start.
-
     test('WorkflowService start() propagates preflight dirty-path rejection', () async {
-      // FR3-AC4: start() surfaces preflight errors (including dirty-tree rejection)
-      // before creating any run or task. This is the protected boundary.
-      workflowService = WorkflowService.lifecycleOnly(
-        repository: repository,
-        taskService: taskService,
-        messageService: messageService,
-        eventBus: eventBus,
-        kvService: kvService,
-        dataDir: tempDir.path,
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) async => 'turn-id',
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+      workflowService = lifecycleOnlyService(
+        turnAdapter: standardTurnAdapter(
+          turnId: 'turn-id',
           resolveStartContext: (definition, variables, {projectId, allowDirtyLocalPath = false}) async {
             // Simulate dirty-path preflight rejection (as WorkflowLocalPathPreflight does).
             throw ArgumentError(

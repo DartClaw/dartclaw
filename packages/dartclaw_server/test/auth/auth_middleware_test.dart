@@ -1,11 +1,12 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/auth/request_auth_context.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
+
+import 'auth_test_support.dart';
 
 void main() {
   final gatewayToken = 'a' * 64;
@@ -155,25 +156,26 @@ void main() {
       expect(body['error'], 'Unauthorized');
     });
 
-    test('query token bootstrap is rejected without setting a cookie', () async {
+    test('query token bootstrap sets cookie and redirects to token-stripped URL', () async {
       final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
       final handler = mw(makeOk());
       final response = await handler(
         Request('GET', Uri.parse('http://localhost/?token=$gatewayToken'), headers: {'accept': 'application/json'}),
       );
-      expect(response.statusCode, 401);
-      expect(response.headers['set-cookie'], isNull);
+      expect(response.statusCode, 302);
+      expect(response.headers['location'], '/');
+      expect(response.headers['set-cookie'], contains(sessionCookieName));
     });
 
-    test('query token browser requests redirect to login without leaking the token', () async {
+    test('query token bootstrap strips the token from the redirect target', () async {
       final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
       final handler = mw(makeOk());
       final response = await handler(
         Request('GET', Uri.parse('http://localhost/settings?token=$gatewayToken'), headers: {'accept': 'text/html'}),
       );
       expect(response.statusCode, 302);
-      expect(response.headers['location'], '/login?next=%2Fsettings');
-      expect(response.headers['set-cookie'], isNull);
+      expect(response.headers['location'], '/settings');
+      expect(response.headers['set-cookie'], contains(sessionCookieName));
     });
 
     test('invalid token bootstrap does not set cookie', () async {
@@ -257,7 +259,7 @@ void main() {
       );
       final handler = mw(makeOk());
       final response = await handler(
-        _request(
+        authRequest(
           headers: {'authorization': 'Bearer wrong', 'x-forwarded-for': '10.0.0.1'},
           socketAddress: '192.168.1.100',
         ),
@@ -308,7 +310,7 @@ void main() {
 
       for (var i = 0; i < 5; i++) {
         final response = await handler(
-          _request(
+          authRequest(
             headers: {'authorization': 'Bearer wrong', 'x-forwarded-for': '10.0.0.${i + 1}'},
             socketAddress: '192.168.1.50',
           ),
@@ -317,7 +319,7 @@ void main() {
       }
 
       final limited = await handler(
-        _request(
+        authRequest(
           headers: {'authorization': 'Bearer wrong', 'x-forwarded-for': '10.0.0.99'},
           socketAddress: '192.168.1.50',
         ),
@@ -337,7 +339,7 @@ void main() {
 
       for (var i = 0; i < 5; i++) {
         final response = await handler(
-          _request(
+          authRequest(
             headers: {'authorization': 'Bearer wrong', 'x-forwarded-for': '10.0.0.1'},
             socketAddress: '192.168.1.100',
           ),
@@ -346,7 +348,7 @@ void main() {
       }
 
       final limited = await handler(
-        _request(
+        authRequest(
           headers: {'authorization': 'Bearer wrong', 'x-forwarded-for': '10.0.0.1'},
           socketAddress: '192.168.1.100',
         ),
@@ -354,7 +356,7 @@ void main() {
       expect(limited.statusCode, 429);
 
       final differentClient = await handler(
-        _request(
+        authRequest(
           headers: {'authorization': 'Bearer wrong', 'x-forwarded-for': '10.0.0.2'},
           socketAddress: '192.168.1.100',
         ),
@@ -374,7 +376,7 @@ void main() {
 
       for (var i = 0; i < 5; i++) {
         final response = await handler(
-          _request(
+          authRequest(
             headers: {'authorization': 'Bearer wrong', 'x-forwarded-for': '10.0.0.${i + 1}'},
             socketAddress: '192.168.1.50',
           ),
@@ -383,7 +385,7 @@ void main() {
       }
 
       final limited = await handler(
-        _request(
+        authRequest(
           headers: {'authorization': 'Bearer wrong', 'x-forwarded-for': '10.0.0.99'},
           socketAddress: '192.168.1.50',
         ),
@@ -421,26 +423,4 @@ void main() {
       expect(limited.statusCode, 429);
     });
   });
-}
-
-Request _request({Map<String, String> headers = const {}, required String socketAddress}) {
-  return Request(
-    'GET',
-    Uri.parse('http://localhost/api/sessions'),
-    headers: headers,
-    context: {'shelf.io.connection_info': _FakeConnectionInfo(socketAddress)},
-  );
-}
-
-class _FakeConnectionInfo implements HttpConnectionInfo {
-  @override
-  final InternetAddress remoteAddress;
-
-  @override
-  final int remotePort = 443;
-
-  @override
-  final int localPort = 3000;
-
-  _FakeConnectionInfo(String address) : remoteAddress = InternetAddress.tryParse(address)!;
 }

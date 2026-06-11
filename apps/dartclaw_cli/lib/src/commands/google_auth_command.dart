@@ -94,7 +94,7 @@ class GoogleAuthCommand extends Command<void> {
     final port = int.tryParse(argResults!['port'] as String) ?? 0;
 
     final spaceEventsConfig = googleChatConfig?.spaceEvents ?? const SpaceEventsConfig();
-    final unsupportedEventTypes = spaceEventsConfig.unsupportedEventTypesForAuthMode('user');
+    final unsupportedEventTypes = spaceEventsConfig.unsupportedEventTypes;
     if (unsupportedEventTypes.isNotEmpty) {
       throw UsageException(
         'User OAuth does not support the configured space_events.event_types: '
@@ -138,7 +138,7 @@ class GoogleAuthCommand extends Command<void> {
 
     _writeLine('');
     _writeLine('User OAuth credentials stored at: ${store.filePath}');
-    _writeLine('DartClaw will use these for Workspace Events subscriptions when auth_mode: user');
+    _writeLine('DartClaw will use these for Workspace Events subscriptions.');
   }
 
   String? _resolveCredentialsPath({required String? cliPath, required DartclawConfig? config}) {

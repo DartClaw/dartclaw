@@ -1,19 +1,19 @@
-import 'dart:async';
-
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:test/test.dart';
 
+import '../task/task_review_test_support.dart';
+
 void main() {
   late TaskService tasks;
   late EventBus eventBus;
   late RecordingMessageQueue queue;
   late FakeChannel channel;
-  late _RecordingMergeExecutor mergeExecutor;
-  late _RecordingWorktreeManager worktreeManager;
-  late _RecordingTaskFileGuard taskFileGuard;
+  late RecordingMergeExecutor mergeExecutor;
+  late RecordingWorktreeManager worktreeManager;
+  late RecordingTaskFileGuard taskFileGuard;
   late TaskReviewService reviewService;
   late ChannelManager manager;
   late TaskNotificationSubscriber notificationSubscriber;
@@ -23,11 +23,11 @@ void main() {
     tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
     queue = RecordingMessageQueue();
     channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
-    mergeExecutor = _RecordingMergeExecutor(
+    mergeExecutor = RecordingMergeExecutor(
       result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-1): Fix login'),
     );
-    worktreeManager = _RecordingWorktreeManager();
-    taskFileGuard = _RecordingTaskFileGuard();
+    worktreeManager = RecordingWorktreeManager();
+    taskFileGuard = RecordingTaskFileGuard();
     reviewService = TaskReviewService(
       tasks: tasks,
       mergeExecutor: mergeExecutor,
@@ -108,45 +108,4 @@ void main() {
       contains("Task 'Fix login' accepted. Changes merged."),
     );
   });
-}
-
-class _RecordingMergeExecutor extends MergeExecutor {
-  final MergeResult result;
-  int callCount = 0;
-
-  _RecordingMergeExecutor({required this.result}) : super(projectDir: '.');
-
-  @override
-  Future<MergeResult> merge({
-    required String branch,
-    required String baseRef,
-    required String taskId,
-    required String taskTitle,
-    String? expectedBaseSha,
-    MergeStrategy? strategy,
-  }) async {
-    callCount += 1;
-    return result;
-  }
-}
-
-class _RecordingWorktreeManager extends WorktreeManager {
-  final List<String> cleanedTaskIds = [];
-
-  _RecordingWorktreeManager() : super(dataDir: '/tmp', projectDir: '/tmp');
-
-  @override
-  Future<void> cleanup(String taskId, {Project? project}) async {
-    cleanedTaskIds.add(taskId);
-  }
-}
-
-class _RecordingTaskFileGuard extends TaskFileGuard {
-  final List<String> deregisteredTaskIds = [];
-
-  @override
-  void deregister(String taskId) {
-    deregisteredTaskIds.add(taskId);
-    super.deregister(taskId);
-  }
 }

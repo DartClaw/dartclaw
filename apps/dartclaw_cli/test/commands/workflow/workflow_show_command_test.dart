@@ -9,13 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';
-
-class _FakeExit implements Exception {
-  final int code;
-  const _FakeExit(this.code);
-}
-
-Never _fakeExit(int code) => throw _FakeExit(code);
+import '../../helpers/fake_exit.dart';
 
 ApiResponse yamlResponse(int statusCode, String body) {
   return ApiResponse(
@@ -56,7 +50,7 @@ void main() {
             apiClient: apiClient,
             write: stdoutBuffer.write,
             writeLine: (_) {},
-            exitFn: _fakeExit,
+            exitFn: fakeExit,
           ),
         );
 
@@ -79,7 +73,7 @@ steps:
 
       final runner = CommandRunner<void>('dartclaw', 'test')
         ..addCommand(
-          WorkflowShowCommand(config: config, write: stdoutBuffer.write, writeLine: (_) {}, exitFn: _fakeExit),
+          WorkflowShowCommand(config: config, write: stdoutBuffer.write, writeLine: (_) {}, exitFn: fakeExit),
         );
 
       await runner.run(['show', 'show-demo', '--standalone']);
@@ -117,7 +111,7 @@ steps:
             projectFallbackCwd: workspace.path,
             write: stdoutBuffer.write,
             writeLine: (_) {},
-            exitFn: _fakeExit,
+            exitFn: fakeExit,
           ),
         );
 

@@ -14,7 +14,7 @@ This directory hosts everything needed to run DartClaw against pre-configured en
 | `plain` | 3335 | `bash dev/testing/profiles/plain/run.sh` | Minimal seeded data, no channels. Backs `UI-SMOKE-TEST.md` and most `scenarios/session-*` scenarios. |
 | `channels` | 3336 | `bash dev/testing/profiles/channels/run.sh` | WhatsApp + Signal channels enabled. Hardware pairing flow is documented in `dartclaw-private/docs/testing/channel-e2e-manual.md`. |
 | `governance` | 3337 | `bash dev/testing/profiles/governance/run.sh` | Tight governance limits + budget seeding. Backs the governance-enforcement scenario. |
-| `visual` | 3338 | `bash dev/testing/profiles/visual/run.sh` | Desktop visual smoke profile. Feature-visibility flags on so Health/Memory/Tasks/Projects/Workflows/Canvas all render with seeded content. |
+| `visual` | 3338 | `bash dev/testing/profiles/visual/run.sh` | Desktop visual smoke profile. Feature-visibility flags on so Health/Memory/Tasks/Projects/Workflows all render with seeded content. |
 | `workflows` | 3333 | `bash dev/testing/profiles/workflows/run.sh` | Codex-first workflow execution against the `DartClaw/workflow-test-todo-app` fixture repo. Requires `GITHUB_TOKEN` for publish runs. |
 | `workflow-contract` | n/a | `bash dev/testing/profiles/workflow-contract/run.sh` | Fast deterministic workflow contract checks. Use while iterating on workflow YAML, gates, output contracts, and resolver behavior. |
 | `workflow-live` | n/a | `bash dev/testing/profiles/workflow-live/run.sh --canary <name>` | Explicit live workflow integration canaries and full sweep. Captures logs and summarizes warning patterns. |

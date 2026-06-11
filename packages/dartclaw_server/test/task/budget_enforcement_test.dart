@@ -12,13 +12,15 @@ import 'package:test/test.dart';
 import 'task_executor_test_support.dart';
 
 void main() {
-  late _FakeBudgetWorker worker;
+  late FakeTaskWorker worker;
   late TaskExecutorTestHarness h;
   late GoalService goals;
   late KvService kvService;
 
   setUp(() async {
-    worker = _FakeBudgetWorker();
+    worker = FakeTaskWorker()
+      ..inputTokens = 10
+      ..outputTokens = 10;
     h = TaskExecutorTestHarness(worker);
     await h.setUp(tempPrefix: 'dartclaw_budget_test_');
     goals = GoalService(SqliteGoalRepository(sqlite3.openInMemory()));
@@ -219,17 +221,9 @@ void main() {
       final badKv = KvService(filePath: '/nonexistent/path/kv.json');
       addTearDown(badKv.dispose);
 
-      final executor = TaskExecutor(
-        services: TaskExecutorServices(
-          tasks: h.tasks,
-          sessions: h.sessions,
-          messages: h.messages,
-          artifactCollector: h.collector,
-          kvService: badKv,
-        ),
-        runners: TaskExecutorRunners(turns: h.turns),
+      final executor = h.buildWorkflowExecutor(
+        kvService: badKv,
         limits: const TaskExecutorLimits(budgetConfig: TaskBudgetConfig(defaultMaxTokens: 1000)),
-        pollInterval: const Duration(milliseconds: 10),
       );
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
@@ -479,77 +473,4 @@ void main() {
       expect((await h.tasks.get('task-zero-budget'))!.status, TaskStatus.review);
     });
   });
-}
-
-class _FakeBudgetWorker implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
-
-  String responseText = '';
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-  }) async {
-    if (responseText.isNotEmpty) {
-      _eventsCtrl.add(DeltaEvent(responseText));
-    }
-    return const <String, dynamic>{'input_tokens': 10, 'output_tokens': 10};
-  }
-
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
-
-  @override
-  Future<void> cancel() async {}
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> dispose() async {
-    if (!_eventsCtrl.isClosed) {
-      await _eventsCtrl.close();
-    }
-  }
 }

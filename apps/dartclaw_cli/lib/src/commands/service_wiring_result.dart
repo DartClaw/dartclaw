@@ -16,7 +16,6 @@ WiringResult _assembleWiringResult(
   ThreadBindingLifecycleManager? lifecycleManager,
   ScopeReconciler scopeReconciler,
   GroupSessionInitializer groupSessionInit,
-  WorkshopCanvasSubscriber? workshopCanvasSubscriber,
   AdvisorSubscriber? advisorSubscriber,
 ) {
   return WiringResult(
@@ -52,7 +51,6 @@ WiringResult _assembleWiringResult(
       await storage.turnStateStore.dispose();
       await scheduling.dispose();
       await project.dispose();
-      await workshopCanvasSubscriber?.dispose();
       await advisorSubscriber?.dispose();
     },
   );

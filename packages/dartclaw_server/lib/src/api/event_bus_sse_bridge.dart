@@ -11,8 +11,8 @@ import 'sse_broadcast.dart';
 /// delivery remains owned by the imperative emit in `EmergencyStopHandler` so
 /// wire output remains stable and avoids duplicate critical-stop frames.
 ///
-/// `AdvisorInsightEvent` global SSE delivery is intentionally additive to the
-/// existing canvas push path.
+/// `AdvisorInsightEvent` is delivered to the global SSE channel here; the
+/// advisor's other consumers (Google Chat insight card, alerts) are unaffected.
 class EventBusSseBridge {
   final StreamSubscription<LoopDetectedEvent> _loopDetectedSub;
   final StreamSubscription<TaskReviewReadyEvent> _taskReviewReadySub;

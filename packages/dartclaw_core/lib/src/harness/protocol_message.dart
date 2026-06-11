@@ -37,6 +37,40 @@ final class ToolResult extends ProtocolMessage {
   String toString() => 'ToolResult(toolId: $toolId, isError: $isError)';
 }
 
+/// Non-response progress or thought text from the provider.
+final class ProgressMessage extends ProtocolMessage {
+  final String text;
+  final String kind;
+
+  const ProgressMessage({required this.text, required this.kind});
+
+  @override
+  String toString() => 'ProgressMessage(kind: $kind, text: ${text.length > 80 ? '${text.substring(0, 80)}...' : text})';
+}
+
+/// Session metadata update from the provider.
+final class SessionMetadataUpdate extends ProtocolMessage {
+  final String? title;
+  final Map<String, dynamic> metadata;
+
+  const SessionMetadataUpdate({this.title, this.metadata = const <String, dynamic>{}});
+
+  @override
+  String toString() => 'SessionMetadataUpdate(title: $title, metadata: $metadata)';
+}
+
+/// Diagnostic for skipped or malformed provider protocol input.
+final class ProtocolDiagnostic extends ProtocolMessage {
+  final String message;
+  final String? method;
+  final String? updateType;
+
+  const ProtocolDiagnostic({required this.message, this.method, this.updateType});
+
+  @override
+  String toString() => 'ProtocolDiagnostic(method: $method, updateType: $updateType, message: $message)';
+}
+
 /// Control request from the provider.
 final class ControlRequest extends ProtocolMessage {
   final String requestId;

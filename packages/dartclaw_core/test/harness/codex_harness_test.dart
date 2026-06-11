@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/src/bridge/bridge_events.dart';
@@ -24,6 +25,72 @@ class _PassGuard extends Guard {
   Future<GuardVerdict> evaluate(GuardContext context) async {
     lastContext = context;
     return GuardVerdict.pass();
+  }
+}
+
+class _FailingWriteCodexProcess extends FakeCodexProcess {
+  _FailingWriteCodexProcess() : super();
+
+  bool failWrites = false;
+
+  late final IOSink _failingStdin = _SwitchableFailingSink(super.stdin, () => failWrites);
+
+  @override
+  IOSink get stdin => _failingStdin;
+}
+
+class _SwitchableFailingSink implements IOSink {
+  _SwitchableFailingSink(this._delegate, this._shouldFail);
+
+  final IOSink _delegate;
+  final bool Function() _shouldFail;
+
+  @override
+  Encoding encoding = utf8;
+
+  @override
+  void add(List<int> data) {
+    if (_shouldFail()) throw StateError('stdin write failed');
+    _delegate.add(data);
+  }
+
+  @override
+  void addError(Object error, [StackTrace? stackTrace]) => _delegate.addError(error, stackTrace);
+
+  @override
+  Future<void> addStream(Stream<List<int>> stream) => _delegate.addStream(stream);
+
+  @override
+  Future<void> close() => _delegate.close();
+
+  @override
+  Future<void> get done => _delegate.done;
+
+  @override
+  Future<void> flush() => _delegate.flush();
+
+  @override
+  void write(Object? object) {
+    if (_shouldFail()) throw StateError('stdin write failed');
+    _delegate.write(object);
+  }
+
+  @override
+  void writeAll(Iterable<Object?> objects, [String separator = '']) {
+    if (_shouldFail()) throw StateError('stdin write failed');
+    _delegate.writeAll(objects, separator);
+  }
+
+  @override
+  void writeCharCode(int charCode) {
+    if (_shouldFail()) throw StateError('stdin write failed');
+    _delegate.writeCharCode(charCode);
+  }
+
+  @override
+  void writeln([Object? object = '']) {
+    if (_shouldFail()) throw StateError('stdin write failed');
+    _delegate.writeln(object);
   }
 }
 
@@ -240,6 +307,7 @@ void main() {
 
           fake.emitTurnStarted();
           fake.emitDelta('Hello ');
+          fake.emitItemCompleted('reasoning', 'reason-1', {'summary': 'thinking'});
           fake.emitItemStarted('command_execution', 'tool-1', {'command': 'ls -la'});
           fake.emitItemCompleted('command_execution', 'tool-1', {'aggregated_output': 'done\n', 'exit_code': 0});
           fake.emitApprovalRequest(requestId: '3', toolUseId: 'tool-1');
@@ -255,10 +323,23 @@ void main() {
           expect(result['output_tokens'], 34);
           expect(result['cache_read_tokens'], 7);
           expect(result['duration_ms'], isA<int>());
-          expect(events.length, 3);
+          expect(events.length, 6);
           expect(events[0], isA<DeltaEvent>());
-          expect(events[1], isA<ToolUseEvent>());
-          expect(events[2], isA<ToolResultEvent>());
+          expect(
+            events[1],
+            isA<ProviderProgressBridgeEvent>()
+                .having((event) => event.kind, 'kind', 'codex_reasoning')
+                .having((event) => event.text, 'text', 'thinking'),
+          );
+          expect(events[2], isA<ToolUseEvent>());
+          expect(events[3], isA<ToolResultEvent>());
+          expect(
+            events[4],
+            isA<ToolApprovalWaitEvent>()
+                .having((event) => event.requestId, 'requestId', '3')
+                .having((event) => event.toolName, 'toolName', 'shell'),
+          );
+          expect(events[5], isA<ToolApprovalResolvedEvent>().having((event) => event.requestId, 'requestId', '3'));
           expect(
             fake.sentMessages.any(
               (message) =>
@@ -270,6 +351,45 @@ void main() {
           );
         },
       );
+
+      test('does not emit approval resolved when approval response write fails', () async {
+        final fake = _FailingWriteCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+        final events = <BridgeEvent>[];
+        final sub = harness.events.listen(events.add);
+        addTearDown(() async => sub.cancel());
+
+        final turnFuture = harness.turn(
+          sessionId: 'sess-approval-write-fails',
+          messages: [
+            {'role': 'user', 'content': 'write a summary'},
+          ],
+          systemPrompt: 'be concise',
+        );
+
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake);
+        fake.failWrites = true;
+        fake.emitApprovalRequest(requestId: 'approval-fails', toolUseId: 'tool-1');
+        fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+
+        await turnFuture;
+
+        expect(
+          events,
+          contains(
+            isA<ToolApprovalWaitEvent>()
+                .having((event) => event.requestId, 'requestId', 'approval-fails')
+                .having((event) => event.toolName, 'toolName', 'shell'),
+          ),
+        );
+        expect(
+          events.whereType<ToolApprovalResolvedEvent>().map((event) => event.requestId),
+          isNot(contains('approval-fails')),
+        );
+      });
 
       test('reuses the same thread for repeated turns in the same session', () async {
         final fake = FakeCodexProcess();

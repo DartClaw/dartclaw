@@ -8,18 +8,19 @@
    2. Shell Layout (grid, sidebar, topbar)
    3. Buttons
    4. Chat (messages, tool indicators, streaming, input)
-   5. Wells (grouping containers)
+   5. Wells (grouping containers, terminal frame)
    6. Cards (content containers with hover/semantics)
    7. Panels (severity-indicated cards)
    8. Metric Cards (dashboard KPIs)
    9. Tint Cards (subtle semantic hover)
    10. Featured Cards (gradient border emphasis)
-   11. Status Indicators (dots, badges, pills, scanning bar)
+   11. Status Indicators (dots, badges, pills, scanning bar, meters, skeletons)
    12. Gradient Dividers
    13. Banners, Toasts, Empty State
    14. Data Tables
-   15. Theme Toggle, Scrollbar, Utilities
-   16. Reduced Motion */
+   15. Theme Toggle, Scrollbar, Utilities (pixel-art, text-gradient, kbd)
+   16. Identity & Signature Elements (pixel claw mark/loader, identicons, print-in)
+   17. Reduced Motion */
 
 
 /* ================================================================
@@ -35,11 +36,34 @@ html {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Atmospheric ground: three faint off-axis color glows over the base gradient.
+   The glows are what keep large empty regions from reading flat — keep them
+   below ~8% mix or they compete with semantic color. */
 body {
-  background: linear-gradient(170deg, var(--bg-crust) 0%, var(--bg-base) 50%, var(--bg-mantle) 100%);
+  background:
+    radial-gradient(ellipse 55% 38% at 12% -8%, var(--ambient-a), transparent 70%),
+    radial-gradient(ellipse 50% 42% at 90% -10%, var(--ambient-b), transparent 70%),
+    radial-gradient(ellipse 65% 50% at 50% 112%, var(--ambient-c), transparent 70%),
+    linear-gradient(170deg, var(--bg-crust) 0%, var(--bg-base) 50%, var(--bg-mantle) 100%);
   background-attachment: fixed;
   color: var(--fg);
   min-height: 100dvh;
+}
+
+/* Film grain over the ground only (negative z-index paints above the body
+   background but below all in-flow content). Kills gradient banding. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--noise);
+  opacity: var(--noise-opacity);
+  pointer-events: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -117,11 +141,11 @@ a:hover { text-decoration: underline; }
   min-height: var(--topbar-h);
 }
 
-/* Animated gradient logo */
+/* Animated gradient logo — first and last stops match so the slide loops seamlessly */
 .sidebar-header .logo {
   font-size: var(--text-lg);
   font-weight: var(--weight-bold);
-  background: linear-gradient(90deg, var(--accent), var(--info), var(--accent));
+  background: linear-gradient(90deg, var(--accent), var(--teal), var(--info), var(--mauve), var(--accent));
   background-size: 200% auto;
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -206,7 +230,7 @@ a:hover { text-decoration: underline; }
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-caps);
   color: var(--fg-sub0);
   padding: var(--sp-2) var(--sp-4) var(--sp-1);
 }
@@ -315,36 +339,45 @@ a:hover { text-decoration: underline; }
   background: var(--bg-surface0);
   color: var(--fg);
   cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--border-highlight);  /* Top-lit edge */
   transition: background var(--transition), border-color var(--transition),
-              box-shadow var(--transition-glow);
+              translate var(--transition), box-shadow var(--transition-glow);
   white-space: nowrap;
 }
 
 .btn:hover {
   background: color-mix(in oklab, var(--bg-surface0) 60%, var(--bg-surface1) 40%);
   border-color: var(--bg-surface2);
+  translate: 0 -1px;
+  box-shadow: inset 0 1px 0 var(--border-highlight), var(--shadow-sm);
 }
-.btn:active { background: var(--bg-surface1); }
-.btn:disabled, .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+.btn:active { background: var(--bg-surface1); translate: 0 0; box-shadow: inset 0 1px 0 var(--border-highlight); }
+.btn:disabled, .btn[disabled] { opacity: 0.4; cursor: not-allowed; translate: none; }
 
 .btn-primary {
-  background: var(--accent);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 90%, white) 0%, var(--accent) 100%);
   color: var(--bg-crust);
   border-color: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 .btn-primary:hover {
-  background: color-mix(in oklab, var(--accent) 85%, white 15%);
-  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 24%, transparent);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 78%, white) 0%,
+    color-mix(in oklab, var(--accent) 92%, white) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25),
+              0 0 16px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 .btn-primary:active {
   background: color-mix(in oklab, var(--accent) 80%, black 20%);
 }
 
-.btn-ghost { background: transparent; border-color: transparent; color: var(--fg-sub0); }
-.btn-ghost:hover { background: var(--bg-surface0); color: var(--fg); }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--fg-sub0); box-shadow: none; }
+.btn-ghost:hover { background: var(--bg-surface0); color: var(--fg); box-shadow: none; }
 
-.btn-danger { background: transparent; color: var(--error); border-color: var(--error); }
-.btn-danger:hover { background: color-mix(in srgb, var(--error) 10%, var(--bg-base)); }
+.btn-danger { background: transparent; color: var(--error); border-color: var(--error); box-shadow: none; }
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--error) 10%, var(--bg-base));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--error) 14%, transparent);
+}
 
 .btn-icon { padding: var(--sp-1); min-width: 32px; min-height: 32px; }
 .btn-full { width: 100%; justify-content: center; }
@@ -388,14 +421,22 @@ a:hover { text-decoration: underline; }
   border-radius: 0 var(--radius) var(--radius) 0;
 }
 
-.msg-user { border-left-color: var(--accent); }
-.msg-assistant { border-left-color: var(--info); }
+/* Role tint bleeds from the border edge — gives the thread resting-state
+   depth without boxing every message into a card. */
+.msg-user {
+  border-left-color: var(--accent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 45%);
+}
+.msg-assistant {
+  border-left-color: var(--info);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--info) 4%, transparent) 0%, transparent 45%);
+}
 
 .msg-role {
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-caps);
   margin-bottom: var(--sp-1);
 }
 .msg-user .msg-role { color: var(--accent); }
@@ -538,6 +579,64 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--inset-sm);
 }
 
+/* --- Terminal frame ---
+   A well-deep presented as a terminal window: title bar with traffic-light
+   dots + recessed body. For hero/demo/log contexts where the terminal
+   should read as an object, not just a region. Plain output stays .well-deep. */
+
+.terminal-frame {
+  border: var(--border);
+  border-top-color: var(--border-highlight);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-crust);
+  box-shadow: var(--shadow-sm);
+}
+
+.terminal-frame-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-mantle);
+  border-bottom: var(--border);
+  font-size: var(--text-xs);
+  color: var(--fg-overlay);
+}
+
+/* Three traffic-light dots from a single element via box-shadow offsets */
+.terminal-frame-dots {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 28px;  /* Room for the two shadow dots */
+  background: var(--error);
+  box-shadow: 14px 0 0 var(--warning), 28px 0 0 var(--success);
+  opacity: 0.75;
+}
+
+.terminal-frame-body { padding: var(--sp-3); overflow-x: auto; }
+.terminal-frame-body pre { margin: 0; background: transparent; border: none; box-shadow: none; padding: 0; }
+
+/* CRT modifier — scanlines + corner vignette over the body. Hero/demo
+   terminals only (landing pages, empty states, replays) — one per view.
+   fg-derived line color works in both themes. */
+.terminal-frame--crt .terminal-frame-body {
+  position: relative;
+}
+.terminal-frame--crt .terminal-frame-body::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg,
+      color-mix(in srgb, var(--fg) 4%, transparent) 0 1px,
+      transparent 1px 3px),
+    radial-gradient(ellipse 120% 100% at 50% 50%, transparent 60%,
+      color-mix(in srgb, var(--bg-pit) 35%, transparent) 100%);
+}
+
 
 /* ================================================================
    6. CARDS — Content Containers
@@ -548,6 +647,7 @@ a:hover { text-decoration: underline; }
    .card          — Default. bg-mantle, luminous top-edge, accent glow on hover.
    .card-sunken   — Inset. Code wells, form fields, pits.
    .card-elevated — Floating. Modals, dropdowns, popovers.
+   .card-glass    — Translucent + backdrop blur. Overlays above live content.
    .card-active   — Selected/focused. Persistent glow.
    ================================================================ */
 
@@ -559,7 +659,7 @@ a:hover { text-decoration: underline; }
   padding: var(--sp-4);
   box-shadow: var(--shadow-sm);
   transition: box-shadow var(--transition-glow), border-color var(--transition-glow),
-              background var(--transition);
+              background var(--transition), translate var(--transition);
 }
 
 .card:hover, .card.card-hover {
@@ -568,6 +668,7 @@ a:hover { text-decoration: underline; }
   background:
     radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--accent) 4%, transparent) 0%, transparent 70%),
     var(--bg-mantle);
+  translate: 0 -1px;
 }
 
 /* Card sub-elements */
@@ -625,6 +726,7 @@ a:hover { text-decoration: underline; }
 .card-sunken:hover {
   background: var(--bg-crust);
   box-shadow: var(--inset-sm);
+  translate: none;  /* Recessed surfaces don't lift */
 }
 
 /* --- Card Elevated --- */
@@ -639,6 +741,31 @@ a:hover { text-decoration: underline; }
   background:
     radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 70%),
     var(--bg-surface0);
+}
+
+/* --- Card Glass ---
+   Translucent surface + backdrop blur. The depth tier ABOVE elevated:
+   for surfaces that float over live content (modals, command palettes,
+   popovers anchored to scrolling regions). Needs content behind it to
+   read as glass — never use as an in-flow card.
+   The material is three parts: blurred backdrop, a top-light sheen,
+   and bright edges — without the sheen and edges it reads as a grey slab. */
+.card-glass {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fg) 6%, transparent) 0%, transparent 45%),
+    var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.6);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.6);
+  border-color: color-mix(in srgb, var(--fg) 14%, transparent);
+  border-top-color: color-mix(in srgb, var(--fg) 25%, transparent);
+  box-shadow: var(--shadow-lg),
+              inset 0 1px 0 color-mix(in srgb, var(--fg) 10%, transparent);
+}
+.card-glass:hover {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fg) 6%, transparent) 0%, transparent 45%),
+    var(--glass-bg);
+  translate: none;  /* Overlays anchor to a trigger — they don't drift */
 }
 
 /* --- Card Active --- */
@@ -719,17 +846,18 @@ a:hover { text-decoration: underline; }
 
 .card-metric { text-align: center; padding: var(--sp-4) var(--sp-3); }
 .card-metric .metric-value {
-  font-size: 1.75rem;
+  font-size: var(--text-3xl);
   font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
   color: var(--fg);
-  line-height: 1.2;
+  line-height: 1.15;
   margin-bottom: var(--sp-1);
 }
 .card-metric .metric-label {
   font-size: var(--text-xs);
   color: var(--fg-sub0);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-caps);
 }
 
 .card-metric--accent .metric-value { color: var(--accent); }
@@ -819,8 +947,8 @@ a:hover { text-decoration: underline; }
     var(--bg-mantle) padding-box,
     linear-gradient(135deg,
       color-mix(in srgb, var(--accent) 30%, transparent),
-      color-mix(in srgb, var(--accent) 8%, transparent),
-      color-mix(in srgb, var(--info) 20%, transparent)) border-box;
+      color-mix(in srgb, var(--teal) 10%, transparent),
+      color-mix(in srgb, var(--mauve) 22%, transparent)) border-box;
 }
 .card-featured-accent:hover {
   background:
@@ -828,8 +956,8 @@ a:hover { text-decoration: underline; }
     var(--bg-mantle) padding-box,
     linear-gradient(135deg,
       color-mix(in srgb, var(--accent) 50%, transparent),
-      color-mix(in srgb, var(--accent) 15%, transparent),
-      color-mix(in srgb, var(--info) 35%, transparent)) border-box;
+      color-mix(in srgb, var(--teal) 18%, transparent),
+      color-mix(in srgb, var(--mauve) 38%, transparent)) border-box;
   box-shadow: var(--shadow-md), 0 0 20px color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
@@ -1044,6 +1172,63 @@ a:hover { text-decoration: underline; }
 }
 
 
+/* --- Meters (determinate progress) ---
+   Recessed track + gradient fill with a soft glow. Budget consumption,
+   turn progress, upload state. Pair with a visible label/percentage —
+   color alone must not carry the reading. */
+
+.meter {
+  height: 6px;
+  background: var(--bg-crust);
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: var(--inset-sm);
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent);
+  transition: width 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.meter-fill--info {
+  background: linear-gradient(90deg, color-mix(in oklab, var(--info) 70%, var(--bg-surface1)), var(--info));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--info) 35%, transparent);
+}
+.meter-fill--warning {
+  background: linear-gradient(90deg, color-mix(in oklab, var(--warning) 70%, var(--bg-surface1)), var(--warning));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--warning) 35%, transparent);
+}
+.meter-fill--error {
+  background: linear-gradient(90deg, color-mix(in oklab, var(--error) 70%, var(--bg-surface1)), var(--error));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--error) 35%, transparent);
+}
+
+/* --- Skeletons (indeterminate loading) ---
+   Shimmer placeholders that match the eventual content's shape.
+   Use for initial loads; the scan-bar stays the in-flight indicator. */
+
+.skeleton {
+  border-radius: var(--radius);
+  background: linear-gradient(100deg,
+    var(--bg-surface0) 40%,
+    color-mix(in oklab, var(--bg-surface0) 60%, var(--bg-surface1)) 50%,
+    var(--bg-surface0) 60%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  min-height: var(--sp-4);
+}
+
+.skeleton-text { height: 0.75em; margin: var(--sp-1) 0; }
+
+@keyframes skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+
 /* ================================================================
    12. GRADIENT DIVIDERS
    Static section separators. 1px height, NOT animated
@@ -1122,7 +1307,9 @@ a:hover { text-decoration: underline; }
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-3);
-  background: var(--bg-mantle);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
   border: var(--border);
   border-left: 3px solid var(--fg-overlay);
   border-radius: var(--radius);
@@ -1177,7 +1364,7 @@ a:hover { text-decoration: underline; }
 }
 
 .empty-state .icon {
-  font-size: var(--text-xl);
+  font-size: var(--text-2xl);
   color: var(--accent);
   text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent),
                0 0 16px color-mix(in srgb, var(--accent) 22%, transparent);
@@ -1197,7 +1384,7 @@ a:hover { text-decoration: underline; }
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-caps);
   color: var(--fg-sub0);
   margin-bottom: var(--sp-2);
 }
@@ -1234,15 +1421,19 @@ a:hover { text-decoration: underline; }
   text-align: left;
   border-bottom: var(--border);
 }
+/* Open header (no filled bar) — caption-toned label over a stronger rule
+   reads lighter and more deliberate than a boxed header row. */
 .data-table th {
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--fg);
-  background: var(--bg-surface0);
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-sub0);
+  border-bottom: 1px solid var(--bg-surface1);
 }
 .data-table td { color: var(--fg-sub1); }
+.data-table tbody tr { transition: background var(--transition); }
+.data-table tbody tr:hover { background: color-mix(in srgb, var(--bg-surface0) 45%, transparent); }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
 
@@ -1289,9 +1480,165 @@ a:hover { text-decoration: underline; }
 .text-info    { color: var(--info); }
 .text-overlay { color: var(--fg-overlay); }
 
+/* Crisp scaling for the 8-bit brand assets (mascot avatar, banner).
+   Without this, downscaled pixel art smears into mush. */
+.pixel-art { image-rendering: pixelated; }
+
+/* Static gradient text — hero titles and brand moments only, max once per view */
+.text-gradient {
+  background: linear-gradient(90deg, var(--accent), var(--teal) 50%, var(--info));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Keycap — keyboard shortcuts in help text, tooltips, command hints */
+kbd, .kbd {
+  display: inline-block;
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  padding: 0 var(--sp-2);
+  color: var(--fg-sub1);
+  background: var(--bg-surface0);
+  border: 1px solid var(--bg-surface2);
+  border-bottom-width: 2px;  /* Keycap depth */
+  border-radius: var(--radius);
+  vertical-align: middle;
+}
+
 
 /* ================================================================
-   16. REDUCED MOTION
+   16. IDENTITY & SIGNATURE ELEMENTS
+
+   The ownable bits — claw mark, claw loader, identicons, print-in.
+   Signature elements live on scarcity: one claw moment per view.
+   ================================================================ */
+
+/* --- Claw mark ---
+   The mascot's claw-swipe, abstracted: three chunky stepped strokes drawn
+   as true pixel art in the claw gradient hues (green → teal → blue).
+   Pixel cells, not smooth vectors — the brand is 8-bit (see
+   assets/logo-avatar-512-8bit.png). Scales with font-size via the --px
+   cell unit. Markup-free. Logo lockups, empty states, hero moments. */
+/* Shared pixel grid: 14×8 cells, three strokes two cells wide stepping
+   one cell left every two rows — cells stay edge-connected so each stroke
+   reads as a solid chunky slash, not scattered squares. Left cell is the
+   hue, right cell a crust-shaded tone (pixel-art bevel). Stroke lists are
+   shared with the loader via custom properties. */
+.claw-mark, .claw-loader {
+  --px: 0.125em;
+  --claw-c1: var(--accent);
+  --claw-c2: var(--teal);
+  --claw-c3: var(--info);
+  --claw-c1d: color-mix(in srgb, var(--accent) 82%, var(--bg-crust));
+  --claw-c2d: color-mix(in srgb, var(--teal) 82%, var(--bg-crust));
+  --claw-c3d: color-mix(in srgb, var(--info) 82%, var(--bg-crust));
+  --claw-stroke-1:
+    calc(var(--px)*4) 0                 var(--claw-c1), calc(var(--px)*5) 0                 var(--claw-c1d),
+    calc(var(--px)*4) var(--px)         var(--claw-c1), calc(var(--px)*5) var(--px)         var(--claw-c1d),
+    calc(var(--px)*3) calc(var(--px)*2) var(--claw-c1), calc(var(--px)*4) calc(var(--px)*2) var(--claw-c1d),
+    calc(var(--px)*3) calc(var(--px)*3) var(--claw-c1), calc(var(--px)*4) calc(var(--px)*3) var(--claw-c1d),
+    calc(var(--px)*2) calc(var(--px)*4) var(--claw-c1), calc(var(--px)*3) calc(var(--px)*4) var(--claw-c1d),
+    calc(var(--px)*2) calc(var(--px)*5) var(--claw-c1), calc(var(--px)*3) calc(var(--px)*5) var(--claw-c1d);
+  --claw-stroke-2:
+    calc(var(--px)*8) 0                 var(--claw-c2), calc(var(--px)*9) 0                 var(--claw-c2d),
+    calc(var(--px)*8) var(--px)         var(--claw-c2), calc(var(--px)*9) var(--px)         var(--claw-c2d),
+    calc(var(--px)*7) calc(var(--px)*2) var(--claw-c2), calc(var(--px)*8) calc(var(--px)*2) var(--claw-c2d),
+    calc(var(--px)*7) calc(var(--px)*3) var(--claw-c2), calc(var(--px)*8) calc(var(--px)*3) var(--claw-c2d),
+    calc(var(--px)*6) calc(var(--px)*4) var(--claw-c2), calc(var(--px)*7) calc(var(--px)*4) var(--claw-c2d),
+    calc(var(--px)*6) calc(var(--px)*5) var(--claw-c2), calc(var(--px)*7) calc(var(--px)*5) var(--claw-c2d),
+    calc(var(--px)*5) calc(var(--px)*6) var(--claw-c2), calc(var(--px)*6) calc(var(--px)*6) var(--claw-c2d),
+    calc(var(--px)*5) calc(var(--px)*7) var(--claw-c2), calc(var(--px)*6) calc(var(--px)*7) var(--claw-c2d);
+  --claw-stroke-3:
+    calc(var(--px)*12) 0                 var(--claw-c3), calc(var(--px)*13) 0                 var(--claw-c3d),
+    calc(var(--px)*12) var(--px)         var(--claw-c3), calc(var(--px)*13) var(--px)         var(--claw-c3d),
+    calc(var(--px)*11) calc(var(--px)*2) var(--claw-c3), calc(var(--px)*12) calc(var(--px)*2) var(--claw-c3d),
+    calc(var(--px)*11) calc(var(--px)*3) var(--claw-c3), calc(var(--px)*12) calc(var(--px)*3) var(--claw-c3d),
+    calc(var(--px)*10) calc(var(--px)*4) var(--claw-c3), calc(var(--px)*11) calc(var(--px)*4) var(--claw-c3d),
+    calc(var(--px)*10) calc(var(--px)*5) var(--claw-c3), calc(var(--px)*11) calc(var(--px)*5) var(--claw-c3d);
+  display: inline-block;
+  width: calc(var(--px) * 14);
+  height: calc(var(--px) * 8);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.claw-mark::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: var(--px);
+  height: var(--px);
+  box-shadow: var(--claw-stroke-1), var(--claw-stroke-2), var(--claw-stroke-3);
+}
+
+/* --- Claw loader ---
+   The claw, scratching: the same three pixel strokes pulsing in sequence.
+   DartClaw's signature indeterminate indicator for agent "thinking"
+   moments. Stepped opacity (steps() easing) — 8-bit things snap, they
+   don't tween. The scan-bar stays the anonymous in-place sweep. */
+.claw-loader span {
+  position: absolute;
+  top: 0; left: 0;
+  width: var(--px);
+  height: var(--px);
+  animation: claw-step 0.9s steps(2, jump-none) infinite;
+}
+.claw-loader span:nth-child(1) { box-shadow: var(--claw-stroke-1); }
+.claw-loader span:nth-child(2) { box-shadow: var(--claw-stroke-2); animation-delay: 150ms; }
+.claw-loader span:nth-child(3) { box-shadow: var(--claw-stroke-3); animation-delay: 300ms; }
+
+@keyframes claw-step {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 1; }
+}
+
+/* --- Identicons ---
+   Deterministic dual-hue gradient avatars for agents, sessions, and
+   channels. Pick the variant by hashing the entity id (hash % 6 + 1) so
+   the same entity always gets the same colors. Content: 1–2 initials.
+   Size via font-size on the element. */
+.identicon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2em;
+  height: 2.2em;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0;
+  color: var(--bg-crust);
+  user-select: none;
+}
+.identicon--1 { background: linear-gradient(135deg, var(--accent), var(--teal)); }
+.identicon--2 { background: linear-gradient(135deg, var(--info), var(--sky)); }
+.identicon--3 { background: linear-gradient(135deg, var(--mauve), var(--lavender)); }
+.identicon--4 { background: linear-gradient(135deg, var(--pink), var(--mauve)); }
+.identicon--5 { background: linear-gradient(135deg, var(--teal), var(--sky)); }
+.identicon--6 { background: linear-gradient(135deg, var(--lavender), var(--info)); }
+
+/* --- Print-in ---
+   Signature entry motion: content "prints" into place (rise + fade via
+   @starting-style, no JS). Apply to cards, messages, and HTMX-swapped
+   fragments so everything arrives the same way. Browsers without
+   @starting-style simply render instantly — graceful degradation. */
+.print-in {
+  transition: opacity 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              translate 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@starting-style {
+  .print-in {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+
+/* ================================================================
+   17. REDUCED MOTION
    ================================================================ */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1301,5 +1648,6 @@ a:hover { text-decoration: underline; }
     transition-duration: 0.01ms !important;
   }
   .status-dot--live::before,
-  .status-dot--live::after { animation: none; }
+  .status-dot--live::after,
+  .claw-loader span { animation: none; }
 }

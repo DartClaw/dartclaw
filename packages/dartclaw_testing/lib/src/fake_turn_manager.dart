@@ -10,6 +10,7 @@ typedef FakeReserveTurnCallback =
       String? model,
       String? effort,
       int? maxTurns,
+      String? taskId,
       bool isHumanInput,
       PromptScope? promptScope,
       List<String>? allowedTools,
@@ -34,6 +35,7 @@ typedef FakeStartTurnCallback =
       String? model,
       String? effort,
       int? maxTurns,
+      String? taskId,
       bool isHumanInput,
       List<String>? allowedTools,
       bool readOnly,
@@ -54,6 +56,7 @@ typedef RecordedReserveTurn = ({
   String? model,
   String? effort,
   int? maxTurns,
+  String? taskId,
   bool isHumanInput,
   PromptScope? promptScope,
   List<String>? allowedTools,
@@ -77,6 +80,7 @@ typedef RecordedStartTurn = ({
   String? model,
   String? effort,
   int? maxTurns,
+  String? taskId,
   bool isHumanInput,
   List<String>? allowedTools,
   bool readOnly,
@@ -214,6 +218,7 @@ class FakeTurnManager implements TurnManager {
     String? model,
     String? effort,
     int? maxTurns,
+    String? taskId,
     bool isHumanInput = false,
     PromptScope? promptScope,
     List<String>? allowedTools,
@@ -227,6 +232,7 @@ class FakeTurnManager implements TurnManager {
       model: model,
       effort: effort,
       maxTurns: maxTurns,
+      taskId: taskId,
       isHumanInput: isHumanInput,
       promptScope: promptScope,
       allowedTools: allowedTools == null ? null : List.unmodifiable(allowedTools),
@@ -241,6 +247,7 @@ class FakeTurnManager implements TurnManager {
         model: model,
         effort: effort,
         maxTurns: maxTurns,
+        taskId: taskId,
         isHumanInput: isHumanInput,
         promptScope: promptScope,
         allowedTools: allowedTools,
@@ -306,6 +313,7 @@ class FakeTurnManager implements TurnManager {
     String? model,
     String? effort,
     int? maxTurns,
+    String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
@@ -319,6 +327,7 @@ class FakeTurnManager implements TurnManager {
       model: model,
       effort: effort,
       maxTurns: maxTurns,
+      taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools == null ? null : List.unmodifiable(allowedTools),
       readOnly: readOnly,
@@ -333,6 +342,7 @@ class FakeTurnManager implements TurnManager {
         model: model,
         effort: effort,
         maxTurns: maxTurns,
+        taskId: taskId,
         isHumanInput: isHumanInput,
         allowedTools: allowedTools,
         readOnly: readOnly,
@@ -346,6 +356,7 @@ class FakeTurnManager implements TurnManager {
       model: model,
       effort: effort,
       maxTurns: maxTurns,
+      taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools,
       readOnly: readOnly,
@@ -484,6 +495,9 @@ class _FakeHarnessPool implements HarnessPool {
 
   @override
   bool hasTaskRunnerForProvider(String providerId) => false;
+
+  @override
+  int taskRunnerCountForProvider(String providerId) => 0;
 
   @override
   Set<String> get taskProfiles => {};

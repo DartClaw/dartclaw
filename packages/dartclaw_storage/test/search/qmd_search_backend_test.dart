@@ -5,6 +5,8 @@ import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'search_test_support.dart';
+
 /// Fake search backend that records calls and returns canned results.
 class FakeFts5Backend implements SearchBackend {
   final List<String> searchCalls = [];
@@ -18,34 +20,6 @@ class FakeFts5Backend implements SearchBackend {
 
   @override
   Future<void> indexAfterWrite() async {}
-}
-
-/// Fake QMD manager that simulates running/not-running states.
-class FakeQmdManager extends QmdManager {
-  bool fakeRunning;
-  List<Map<String, dynamic>>? nextQueryResult;
-  bool shouldThrow = false;
-
-  FakeQmdManager({this.fakeRunning = true})
-    : super(
-        commandRunner: (exe, args, {workingDirectory}) async {
-          return ProcessResult(0, 0, '', '');
-        },
-      );
-
-  @override
-  bool get isRunning => fakeRunning;
-
-  @override
-  Future<List<Map<String, dynamic>>> query(String queryText, {String depth = 'standard', int limit = 10}) async {
-    if (shouldThrow) throw Exception('QMD unreachable');
-    return nextQueryResult ?? [];
-  }
-
-  @override
-  Future<void> triggerIndex() async {
-    if (shouldThrow) throw Exception('Index failed');
-  }
 }
 
 void main() {

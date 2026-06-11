@@ -26,7 +26,7 @@ bash dev/testing/profiles/plain/run.sh
 | Token | `devtoken0` (`dev/testing/profiles/plain/data/gateway_token`) |
 | Auto-auth URL | `http://localhost:3335/?token=devtoken0` |
 | Pre-seeded | 1 main session (Workspace/Agent), 2 scheduled jobs, workspace memory files, guards on |
-| Not seeded | tasks, workflow runs, projects, canvas — empty-state versions of those pages are testable; deeper TCs note when seeding is required |
+| Not seeded | tasks, workflow runs, projects — empty-state versions of those pages are testable; deeper TCs note when seeding is required |
 | Channels | all disabled |
 
 ### Generic dev server (no profile)
@@ -320,14 +320,13 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + SYS
 2. Confirm each lands on the correct page and the correct nav item is highlighted
 
 **Pass — full SYSTEM nav (registration order, conditional items in italic):**
-Health → Settings → Memory → Scheduling → Tasks → *Canvas* → *Projects* → *Workflows*
+Health → Settings → Memory → Scheduling → Tasks → *Projects* → *Workflows*
 
 Conditional items appear when:
-- Canvas — `canvasService` is configured
 - Projects — `projectService` is configured (any number of projects)
 - Workflows — `workflowService` is configured
 
-Plain profile typically shows all 8.
+Plain profile typically shows all 7.
 
 **Fail:** Any link missing when its service is configured; wrong page loads; active state not updated
 
@@ -457,7 +456,7 @@ immediately after success (not on the next 30s poll)
 
 ---
 
-## Workflows, Projects, Canvas
+## Workflows, Projects
 
 ### TC-26: Workflows List
 **Steps:**
@@ -516,19 +515,6 @@ immediately after success (not on the next 30s poll)
 - SYSTEM nav: **Projects (active)**
 
 **Fail:** Empty state shows raw HTML or unstyled; nav not active
-
----
-
-### TC-30: Canvas Admin
-**Steps:**
-1. Navigate to `/canvas-admin`
-
-**Pass:**
-- Two-card layout: **Live Canvas** (iframe preview) and **Share Links** (generate / copy / QR / revoke)
-- Empty share-link state: "No active share links yet."
-- SYSTEM nav: **Canvas (active)**
-
-**Fail:** Iframe missing; share-link controls broken; nav not active
 
 ---
 

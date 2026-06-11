@@ -6,40 +6,62 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 
 | Dependency | Version | Purpose |
 |-----------|---------|---------|
+| Homebrew | Latest | Preferred DartClaw install path on supported macOS and Linux hosts |
 | Dart SDK | ^3.12.0 | Build toolchain for source checkouts and development runs |
 | `claude` CLI | Latest | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | `codex` CLI | Latest | Agent binary — optional, for OpenAI models (see [Agents § Providers](agents.md#providers)) |
+| Goose or Vibe | Latest | Optional ACP agent binaries; install only when configured under `harness.acp.agents` |
 | SQLite | System lib | Search index |
 
-Install Dart, Claude Code, and SQLite:
+Install DartClaw first, then install and verify provider CLIs separately:
 
 ```bash
-brew tap dart-lang/dart && brew install dart
-# Agent CLI — Claude (default provider)
+brew tap DartClaw/dartclaw
+brew install dartclaw
+dartclaw --version
+
+# Provider CLI — Claude (default provider)
 curl -fsSL https://claude.ai/install.sh | bash
-# Agent CLI — Codex (optional, for OpenAI models)
+claude --version
+
+# Provider CLI — Codex (optional, for OpenAI models)
 # See https://github.com/openai/codex for installation
-sudo apt-get install libsqlite3-dev
+codex --version
+
+# ACP agents — optional, install separately from DartClaw
+goose --version
+vibe-acp --version
 ```
 
 Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex (`provider: codex`), use the Codex CLI's normal sign-in flow or export `CODEX_API_KEY`.
 
 ## Install DartClaw
 
-This guide treats the standalone `dartclaw` binary as the primary runtime entrypoint.
+Homebrew is the only package manager for DartClaw releases. It installs the `dartclaw` binary and companion assets for supported macOS and Linux hosts:
 
-If you are working from a source checkout today, build that binary first:
+```bash
+brew tap DartClaw/dartclaw
+brew install dartclaw
+dartclaw --version
+```
+
+Provider CLIs are not Homebrew dependencies of DartClaw. Install the providers you plan to use and verify them explicitly:
+
+```bash
+claude --version
+codex --version
+goose --version
+vibe-acp --version
+```
+
+If you are working from a source checkout, build the standalone binary directly:
 
 ```bash
 git clone <repo-url> && cd dartclaw
 dart pub get
 bash dev/tools/build.sh
+build/dartclaw --version
 ```
-
-Then either:
-
-- run `build/dartclaw` directly from the checkout, or
-- copy `build/dartclaw` onto your `PATH` as `dartclaw`
 
 All command examples below use `dartclaw`. If you have not installed it onto `PATH`, replace `dartclaw` with `build/dartclaw`.
 

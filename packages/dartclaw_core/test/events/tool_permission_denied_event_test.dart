@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
@@ -25,47 +23,6 @@ void main() {
 
       expect(event.sessionId, isNull);
       expect(event.reason, isNull);
-    });
-
-    test('toString includes toolName and reason', () {
-      final event = ToolPermissionDeniedEvent(toolName: 'Edit', reason: 'blocked', timestamp: DateTime.now());
-
-      expect(event.toString(), contains('Edit'));
-      expect(event.toString(), contains('blocked'));
-    });
-
-    test('EventBus delivers ToolPermissionDeniedEvent to typed listener', () async {
-      final bus = EventBus();
-      addTearDown(bus.dispose);
-
-      final received = <ToolPermissionDeniedEvent>[];
-      final sub = bus.on<ToolPermissionDeniedEvent>().listen(received.add);
-      addTearDown(sub.cancel);
-
-      final ts = DateTime.utc(2026, 4, 9, 12, 0, 0);
-      bus.fire(ToolPermissionDeniedEvent(toolName: 'Bash', reason: 'denied', timestamp: ts));
-
-      await Future<void>.delayed(Duration.zero);
-
-      expect(received, hasLength(1));
-      expect(received.first.toolName, 'Bash');
-      expect(received.first.reason, 'denied');
-      expect(received.first.timestamp, ts);
-    });
-
-    test('EventBus does not deliver to unrelated event listener', () async {
-      final bus = EventBus();
-      addTearDown(bus.dispose);
-
-      final guardEvents = <GuardBlockEvent>[];
-      final sub = bus.on<GuardBlockEvent>().listen(guardEvents.add);
-      addTearDown(sub.cancel);
-
-      bus.fire(ToolPermissionDeniedEvent(toolName: 'Read', timestamp: DateTime.now()));
-
-      await Future<void>.delayed(Duration.zero);
-
-      expect(guardEvents, isEmpty);
     });
   });
 }

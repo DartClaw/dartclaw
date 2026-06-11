@@ -17,6 +17,9 @@ class ProviderEntry {
   /// const ProviderEntry({required this.executable, this.poolSize.
   const ProviderEntry({required this.executable, this.poolSize = 0, this.options = const {}});
 
+  /// Effective task-worker capacity after applying the legacy unset default.
+  int get effectivePoolSize => poolSize > 0 ? poolSize : 1;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||

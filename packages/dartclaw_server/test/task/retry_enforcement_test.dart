@@ -17,16 +17,7 @@ void main() {
     worker = _CountingWorker();
     h = TaskExecutorTestHarness(worker);
     await h.setUp(tempPrefix: 'dartclaw_retry_test_');
-    executor = TaskExecutor(
-      services: TaskExecutorServices(
-        tasks: h.tasks,
-        sessions: h.sessions,
-        messages: h.messages,
-        artifactCollector: h.collector,
-      ),
-      runners: TaskExecutorRunners(turns: h.turns),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    executor = h.buildWorkflowExecutor();
   });
 
   tearDown(() => h.tearDown(executor: executor, workerDispose: worker.dispose));
@@ -174,17 +165,7 @@ void main() {
             return ProcessResult(0, 0, '', '');
           },
         );
-        final retryExecutor = TaskExecutor(
-          services: TaskExecutorServices(
-            tasks: h.tasks,
-            sessions: h.sessions,
-            messages: h.messages,
-            artifactCollector: h.collector,
-            worktreeManager: worktreeManager,
-          ),
-          runners: TaskExecutorRunners(turns: h.turns),
-          pollInterval: const Duration(milliseconds: 10),
-        );
+        final retryExecutor = h.buildWorkflowExecutor(worktreeManager: worktreeManager);
         addTearDown(retryExecutor.stop);
 
         worker.responses = [_WorkerResponse.fail('any error'), _WorkerResponse.succeed('done')];

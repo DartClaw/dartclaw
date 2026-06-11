@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show MemoryPruner, TaskEventService, TurnTraceService, WebhookDeliveryStore, openWebhookDeliveryStore;
@@ -42,9 +42,6 @@ import 'auth/origin_host_guard.dart';
 import 'auth/security_headers.dart';
 import 'auth/token_service.dart';
 import 'behavior/heartbeat_scheduler.dart';
-import 'canvas/canvas_admin_routes.dart';
-import 'canvas/canvas_routes.dart';
-import 'canvas/canvas_service.dart';
 import 'health/health_service.dart';
 import 'memory/memory_status_service.dart';
 import 'mcp/mcp_router.dart';
@@ -66,6 +63,7 @@ import 'task/task_service.dart';
 import 'task/worktree_manager.dart';
 import 'templates/error_page.dart';
 import 'templates/sidebar.dart' show NavItem, SidebarData, buildSidebar;
+import 'turn_manager.dart' show TurnManager;
 import 'web/dashboard_page.dart';
 import 'web/page_registry.dart';
 import 'web/sidebar_data_builder.dart';
@@ -220,7 +218,6 @@ class DartclawServer {
     await _channels.spaceEventsWiring?.dispose();
     await _observability.eventBusSseBridge?.cancel();
     await _observability.sseBroadcast?.dispose();
-    await _web.canvasService?.dispose();
     await _channels.channelManager?.dispose();
     final pool = _turn.pool;
     if (pool != null) {
@@ -293,8 +290,6 @@ class DartclawServer {
     _mountGoogleChatSubscriptionRoutes(router);
     _mountAgentRoutes(router);
     _mountSessionRoutes(router);
-    _mountCanvasRoutes(router);
-    _mountCanvasAdminRoutes(router);
     _mountWebRoutes(router);
 
     return _buildPipeline(router);
@@ -641,22 +636,6 @@ class DartclawServer {
     router.mount('/', sessionRouter.call);
   }
 
-  void _mountCanvasRoutes(Router router) {
-    final canvasService = _web.canvasService;
-    if (canvasService == null) return;
-
-    final canvasRouter = canvasRoutes(canvasService: canvasService, turns: _turn.turns, sessions: _core.sessions);
-    router.mount('/canvas', canvasRouter.call);
-  }
-
-  void _mountCanvasAdminRoutes(Router router) {
-    final canvasService = _web.canvasService;
-    if (canvasService == null) return;
-
-    final adminRouter = canvasAdminRoutes(canvasService: canvasService);
-    router.mount('/', adminRouter.call);
-  }
-
   void _mountWebRoutes(Router router) {
     final webRouter = webRoutes(
       _core.sessions,
@@ -691,7 +670,6 @@ class DartclawServer {
       taskEventService: _tasks.taskEventService,
       progressTracker: _tasks.progressTracker,
       threadBindingStore: _channels.threadBindingStore,
-      canvasEnabled: _web.canvasService != null,
       workflowService: _web.workflowService,
       workflowDefinitionSource: _web.workflowDefinitionSource,
     );
@@ -730,7 +708,7 @@ class DartclawServer {
                 : [_channels.googleChatWebhookHandler!.config.webhookPath]),
             ...?(githubPublicPath == null ? null : [githubPublicPath]),
           ],
-          publicPrefixes: [if (_web.canvasService != null) '/canvas/'],
+          publicPrefixes: const [],
         ),
       );
     } else if (!_core.authEnabled) {

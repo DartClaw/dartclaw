@@ -7,12 +7,16 @@ void main() {
     final channel = FakeChannel(type: ChannelType.signal);
     final guard = FakeGuard.block('blocked');
     final repo = InMemoryAgentExecutionRepository();
-    final bindingCoordinator = FakeWorkflowTaskBindingCoordinator();
+    final channelManager = FakeChannelManager();
+    final classifier = FakeContentClassifier();
+    final introspector = FakeSkillIntrospector(const {});
 
     expect(harness.state, WorkerState.idle);
     expect(channel.type, ChannelType.signal);
     expect(guard.evaluate, isNotNull);
     expect(repo, isA<AgentExecutionRepository>());
-    expect(bindingCoordinator, isA<WorkflowTaskBindingCoordinator>());
+    expect(channelManager.received, isEmpty);
+    expect(classifier.result, 'safe');
+    expect(introspector.calls, isEmpty);
   });
 }

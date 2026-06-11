@@ -7,10 +7,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
 SubscriptionRecord sampleRecord({
   String spaceId = 'SPACE_1',
   String subscriptionName = 'subscriptions/sub-1',
@@ -39,7 +35,6 @@ SpaceEventsConfig testConfig({
   );
 }
 
-/// Creates a mock HTTP client that responds to Workspace Events API calls.
 MockClient createMockClient({
   int createStatus = 200,
   Map<String, dynamic>? createResponse,
@@ -120,10 +115,6 @@ WorkspaceEventsManager makeManager({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 void main() {
   late Directory tempDir;
 
@@ -137,8 +128,14 @@ void main() {
     }
   });
 
+  File subscriptionsFile([Directory? root]) => File('${(root ?? tempDir).path}/google-chat-subscriptions.json');
+
+  void writeSubscriptions(List<Map<String, dynamic>> subscriptions, {Directory? root}) {
+    subscriptionsFile(root).writeAsStringSync(jsonEncode({'subscriptions': subscriptions}));
+  }
+
   group('SubscriptionRecord', () {
-    test('toJson serializes all fields', () {
+    test('round-trips all fields through JSON', () {
       final now = DateTime.utc(2024, 3, 15, 10, 30);
       final expire = DateTime.utc(2024, 3, 15, 14, 30);
       final record = SubscriptionRecord(
@@ -152,18 +149,7 @@ void main() {
       expect(json['subscriptionName'], 'subscriptions/abc123');
       expect(json['expireTime'], expire.toIso8601String());
       expect(json['createdAt'], now.toIso8601String());
-    });
-
-    test('fromJson parses all fields', () {
-      final now = DateTime.utc(2024, 3, 15, 10, 30);
-      final expire = DateTime.utc(2024, 3, 15, 14, 30);
-      final record = SubscriptionRecord(
-        spaceId: 'SPACE_1',
-        subscriptionName: 'subscriptions/abc123',
-        expireTime: expire,
-        createdAt: now,
-      );
-      final roundTripped = SubscriptionRecord.fromJson(record.toJson());
+      final roundTripped = SubscriptionRecord.fromJson(json);
       expect(roundTripped.spaceId, record.spaceId);
       expect(roundTripped.subscriptionName, record.subscriptionName);
       expect(roundTripped.expireTime, record.expireTime);
@@ -192,54 +178,49 @@ void main() {
   });
 
   group('expandEventTypes', () {
-    test('expands shorthand to fully-qualified form', () {
-      final result = WorkspaceEventsManager.expandEventTypes(['message.created', 'message.updated']);
-      expect(result, ['google.workspace.chat.message.v1.created', 'google.workspace.chat.message.v1.updated']);
-    });
+    const qualifiedMessage = 'google.workspace.chat.message.v1.created';
+    const qualifiedReaction = 'google.workspace.chat.reaction.v1.created';
+    final cases = [
+      (
+        name: 'expands shorthand to fully-qualified form',
+        input: ['message.created', 'message.updated'],
+        expected: ['google.workspace.chat.message.v1.created', 'google.workspace.chat.message.v1.updated'],
+      ),
+      (name: 'passes through already-qualified types', input: [qualifiedMessage], expected: [qualifiedMessage]),
+      (
+        name: 'handles mixed shorthand and qualified',
+        input: [qualifiedReaction, 'message.deleted'],
+        expected: [qualifiedReaction, 'google.workspace.chat.message.v1.deleted'],
+      ),
+      (name: 'passes through malformed shorthand without dot', input: ['invalid'], expected: ['invalid']),
+      (
+        name: 'expands all supported resource types',
+        input: ['reaction.created', 'membership.updated', 'space.deleted'],
+        expected: [
+          'google.workspace.chat.reaction.v1.created',
+          'google.workspace.chat.membership.v1.updated',
+          'google.workspace.chat.space.v1.deleted',
+        ],
+      ),
+    ];
 
-    test('passes through already-qualified types', () {
-      const qualified = 'google.workspace.chat.message.v1.created';
-      final result = WorkspaceEventsManager.expandEventTypes([qualified]);
-      expect(result, [qualified]);
-    });
-
-    test('handles mixed shorthand and qualified', () {
-      const qualified = 'google.workspace.chat.reaction.v1.created';
-      final result = WorkspaceEventsManager.expandEventTypes([qualified, 'message.deleted']);
-      expect(result, [qualified, 'google.workspace.chat.message.v1.deleted']);
-    });
-
-    test('passes through malformed shorthand without dot', () {
-      final result = WorkspaceEventsManager.expandEventTypes(['invalid']);
-      expect(result, ['invalid']);
-    });
-
-    test('expands all supported resource types', () {
-      final result = WorkspaceEventsManager.expandEventTypes([
-        'reaction.created',
-        'membership.updated',
-        'space.deleted',
-      ]);
-      expect(result, [
-        'google.workspace.chat.reaction.v1.created',
-        'google.workspace.chat.membership.v1.updated',
-        'google.workspace.chat.space.v1.deleted',
-      ]);
-    });
+    for (final testCase in cases) {
+      test(testCase.name, () {
+        expect(WorkspaceEventsManager.expandEventTypes(testCase.input), testCase.expected);
+      });
+    }
   });
 
   group('normalizeSpaceId', () {
-    test('strips spaces/ prefix', () {
-      expect(WorkspaceEventsManager.normalizeSpaceId('spaces/AAABBBCCC'), 'AAABBBCCC');
-    });
-
-    test('returns bare ID unchanged', () {
-      expect(WorkspaceEventsManager.normalizeSpaceId('AAABBBCCC'), 'AAABBBCCC');
-    });
-
-    test('handles only prefix', () {
-      expect(WorkspaceEventsManager.normalizeSpaceId('spaces/'), '');
-    });
+    for (final testCase in const [
+      (name: 'strips spaces/ prefix', input: 'spaces/AAABBBCCC', expected: 'AAABBBCCC'),
+      (name: 'returns bare ID unchanged', input: 'AAABBBCCC', expected: 'AAABBBCCC'),
+      (name: 'handles only prefix', input: 'spaces/', expected: ''),
+    ]) {
+      test(testCase.name, () {
+        expect(WorkspaceEventsManager.normalizeSpaceId(testCase.input), testCase.expected);
+      });
+    }
   });
 
   group('subscribe', () {
@@ -287,9 +268,8 @@ void main() {
       expect(body['payloadOptions']['includeResource'], isTrue);
 
       // Verify persisted to disk
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      expect(file.existsSync(), isTrue);
-      final persisted = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      expect(subscriptionsFile().existsSync(), isTrue);
+      final persisted = jsonDecode(subscriptionsFile().readAsStringSync()) as Map<String, dynamic>;
       expect(persisted['subscriptions'], hasLength(1));
       expect(persisted['subscriptions'][0]['spaceId'], 'SPACE_1');
     });
@@ -320,8 +300,7 @@ void main() {
       expect(result, isNull);
 
       // No file should be written
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      expect(file.existsSync(), isFalse);
+      expect(subscriptionsFile().existsSync(), isFalse);
     });
 
     test('expands event types in request body', () async {
@@ -501,9 +480,8 @@ void main() {
         final record = await manager.subscribe('SPACE_1');
 
         expect(record, isNotNull);
-        final file = File('${tempDir.path}/google-chat-subscriptions.json');
-        expect(file.existsSync(), isTrue);
-        final persisted = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+        expect(subscriptionsFile().existsSync(), isTrue);
+        final persisted = jsonDecode(subscriptionsFile().readAsStringSync()) as Map<String, dynamic>;
         expect(persisted['subscriptions'], [
           {
             'spaceId': 'SPACE_1',
@@ -536,8 +514,7 @@ void main() {
       expect(requests.any((r) => r.method == 'DELETE'), isTrue);
 
       // Verify JSON file updated
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      final persisted = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      final persisted = jsonDecode(subscriptionsFile().readAsStringSync()) as Map<String, dynamic>;
       expect((persisted['subscriptions'] as List), isEmpty);
     });
 
@@ -762,21 +739,15 @@ void main() {
 
   group('reconcile', () {
     test('loads and verifies active subscriptions', () async {
-      // Write a subscriptions JSON file
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
       final expireTime = DateTime.now().toUtc().add(const Duration(hours: 2));
-      file.writeAsStringSync(
-        jsonEncode({
-          'subscriptions': [
-            {
-              'spaceId': 'SPACE_1',
-              'subscriptionName': 'subscriptions/sub-1',
-              'expireTime': expireTime.toIso8601String(),
-              'createdAt': DateTime.now().toUtc().toIso8601String(),
-            },
-          ],
-        }),
-      );
+      writeSubscriptions([
+        {
+          'spaceId': 'SPACE_1',
+          'subscriptionName': 'subscriptions/sub-1',
+          'expireTime': expireTime.toIso8601String(),
+          'createdAt': DateTime.now().toUtc().toIso8601String(),
+        },
+      ]);
 
       final requests = <http.Request>[];
       final manager = makeManager(
@@ -788,25 +759,19 @@ void main() {
       await manager.reconcile();
 
       expect(manager.subscriptions.containsKey('SPACE_1'), isTrue);
-      // Verify GET was called
       expect(requests.any((r) => r.method == 'GET'), isTrue);
     });
 
     test('recreates expired subscriptions', () async {
       final expiredTime = DateTime.now().toUtc().subtract(const Duration(hours: 1));
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      file.writeAsStringSync(
-        jsonEncode({
-          'subscriptions': [
-            {
-              'spaceId': 'SPACE_1',
-              'subscriptionName': 'subscriptions/sub-expired',
-              'expireTime': expiredTime.toIso8601String(),
-              'createdAt': DateTime.now().toUtc().subtract(const Duration(hours: 5)).toIso8601String(),
-            },
-          ],
-        }),
-      );
+      writeSubscriptions([
+        {
+          'spaceId': 'SPACE_1',
+          'subscriptionName': 'subscriptions/sub-expired',
+          'expireTime': expiredTime.toIso8601String(),
+          'createdAt': DateTime.now().toUtc().subtract(const Duration(hours: 5)).toIso8601String(),
+        },
+      ]);
 
       final requests = <http.Request>[];
       final manager = makeManager(
@@ -817,66 +782,51 @@ void main() {
 
       await manager.reconcile();
 
-      // Verify DELETE + POST
       expect(requests.any((r) => r.method == 'DELETE'), isTrue);
       expect(requests.any((r) => r.method == 'POST'), isTrue);
-      // Subscription should be recreated
       expect(manager.subscriptions.containsKey('SPACE_1'), isTrue);
     });
 
     test('handles missing subscriptions (404 on GET)', () async {
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
       final expireTime = DateTime.now().toUtc().add(const Duration(hours: 2));
-      file.writeAsStringSync(
-        jsonEncode({
-          'subscriptions': [
-            {
-              'spaceId': 'SPACE_1',
-              'subscriptionName': 'subscriptions/sub-1',
-              'expireTime': expireTime.toIso8601String(),
-              'createdAt': DateTime.now().toUtc().toIso8601String(),
-            },
-          ],
-        }),
-      );
+      writeSubscriptions([
+        {
+          'spaceId': 'SPACE_1',
+          'subscriptionName': 'subscriptions/sub-1',
+          'expireTime': expireTime.toIso8601String(),
+          'createdAt': DateTime.now().toUtc().toIso8601String(),
+        },
+      ]);
 
       final manager = makeManager(mockClient: createMockClient(getStatus: 404), dataDir: tempDir);
       addTearDown(manager.dispose);
 
       await manager.reconcile();
 
-      // Should have created a new subscription
       expect(manager.subscriptions.containsKey('SPACE_1'), isTrue);
     });
 
     test('prunes records when recreation fails', () async {
       final expiredTime = DateTime.now().toUtc().subtract(const Duration(hours: 1));
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      file.writeAsStringSync(
-        jsonEncode({
-          'subscriptions': [
-            {
-              'spaceId': 'SPACE_1',
-              'subscriptionName': 'subscriptions/sub-expired',
-              'expireTime': expiredTime.toIso8601String(),
-              'createdAt': DateTime.now().toUtc().subtract(const Duration(hours: 5)).toIso8601String(),
-            },
-          ],
-        }),
-      );
+      writeSubscriptions([
+        {
+          'spaceId': 'SPACE_1',
+          'subscriptionName': 'subscriptions/sub-expired',
+          'expireTime': expiredTime.toIso8601String(),
+          'createdAt': DateTime.now().toUtc().subtract(const Duration(hours: 5)).toIso8601String(),
+        },
+      ]);
 
       final manager = makeManager(mockClient: createMockClient(createStatus: 500), dataDir: tempDir);
       addTearDown(manager.dispose);
 
       await manager.reconcile();
 
-      // Record pruned since recreation failed
       expect(manager.subscriptions.containsKey('SPACE_1'), isFalse);
     });
 
     test('handles empty persisted file', () async {
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      file.writeAsStringSync(jsonEncode({'subscriptions': []}));
+      writeSubscriptions([]);
 
       final requests = <http.Request>[];
       final manager = makeManager(
@@ -908,21 +858,15 @@ void main() {
     test('respects rate limit delay between API calls', () async {
       final delays = <Duration>[];
       final expireTime = DateTime.now().toUtc().add(const Duration(hours: 2));
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      // Write 3 records
-      file.writeAsStringSync(
-        jsonEncode({
-          'subscriptions': [
-            for (var i = 1; i <= 3; i++)
-              {
-                'spaceId': 'SPACE_$i',
-                'subscriptionName': 'subscriptions/sub-$i',
-                'expireTime': expireTime.toIso8601String(),
-                'createdAt': DateTime.now().toUtc().toIso8601String(),
-              },
-          ],
-        }),
-      );
+      writeSubscriptions([
+        for (var i = 1; i <= 3; i++)
+          {
+            'spaceId': 'SPACE_$i',
+            'subscriptionName': 'subscriptions/sub-$i',
+            'expireTime': expireTime.toIso8601String(),
+            'createdAt': DateTime.now().toUtc().toIso8601String(),
+          },
+      ]);
 
       final manager = WorkspaceEventsManager(
         authClient: createMockClient(),
@@ -934,7 +878,6 @@ void main() {
 
       await manager.reconcile();
 
-      // Should have at least 2 rate-limit delays (between 3 records)
       final rateLimitDelays = delays.where((d) => d.inMilliseconds == 200).toList();
       expect(rateLimitDelays.length, greaterThanOrEqualTo(2));
     });
@@ -964,11 +907,7 @@ void main() {
     test('skips spaces that are already subscribed', () async {
       final requests = <http.Request>[];
       final existing = sampleRecord(spaceId: 'SPACE_A');
-      File('${tempDir.path}/google-chat-subscriptions.json').writeAsStringSync(
-        jsonEncode({
-          'subscriptions': [existing.toJson()],
-        }),
-      );
+      writeSubscriptions([existing.toJson()]);
 
       final manager = makeManager(
         mockClient: createMockClient(onRequest: requests.add),
@@ -1034,9 +973,8 @@ void main() {
 
       await manager.subscribe('SPACE_1');
 
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      expect(file.existsSync(), isTrue);
-      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      expect(subscriptionsFile().existsSync(), isTrue);
+      final json = jsonDecode(subscriptionsFile().readAsStringSync()) as Map<String, dynamic>;
       expect(json['subscriptions'], hasLength(1));
       expect(json['subscriptions'][0]['spaceId'], 'SPACE_1');
     });
@@ -1048,14 +986,12 @@ void main() {
       await manager.subscribe('SPACE_1');
       await manager.unsubscribe('SPACE_1');
 
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      final json = jsonDecode(subscriptionsFile().readAsStringSync()) as Map<String, dynamic>;
       expect((json['subscriptions'] as List), isEmpty);
     });
 
     test('survives malformed JSON file on load', () async {
-      final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      file.writeAsStringSync('not json!');
+      subscriptionsFile().writeAsStringSync('not json!');
 
       final manager = makeManager(mockClient: createMockClient(), dataDir: tempDir);
       addTearDown(manager.dispose);

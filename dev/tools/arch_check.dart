@@ -14,8 +14,13 @@ import 'dart:io';
 // Bumped 12800 -> 13500 for the first-party ACP harness lifecycle. ACP needs
 // core-owned subprocess/JSON-RPC primitives so routing, pool release, and
 // harness errors share the same runtime boundary as Claude/Codex.
-const _coreLocCeiling = 13500;
-const _coreLocWarnThreshold = 13400;
+//
+// Bumped 13500 -> 14900 to match the as-shipped 0.18 ACP surface: the +700 the
+// previous bump budgeted under-counted the lifecycle (acp_* totals ~1827 lines:
+// client, harness, protocol adapter, reverse-call handlers, target validation,
+// errors), all ADR-037 core-owned runtime. 0.18 tagged over the prior ceiling.
+const _coreLocCeiling = 14900;
+const _coreLocWarnThreshold = 14800;
 const _barrelExportCeiling = 94; // S34: +ClaudeSettingsBuilder +normalizeDynamicMap +intValue +stringValue
 const _workspacePackageCeiling = 14;
 const _workspaceAppNames = {'dartclaw_cli'};

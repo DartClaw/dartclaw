@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import 'dc_native_skill_manifest.dart';
+
 /// Function shape for invoking a child process. Retained as a public test seam.
 typedef ProcessRunner =
     Future<ProcessResult> Function(
@@ -15,22 +17,6 @@ typedef ProcessRunner =
 
 /// Filesystem-recursive directory copy. Injectable for tests.
 typedef DirectoryCopier = Future<void> Function(Directory source, Directory destination);
-
-/// DartClaw-native skill names copied into provider-native skill roots.
-const dcNativeSkillNames = <String>[
-  'dartclaw-discover-andthen-spec',
-  'dartclaw-discover-andthen-plan',
-  'dartclaw-validate-workflow',
-  'dartclaw-merge-resolve',
-];
-
-/// Previously-shipped DC-native skill directories deleted on upgrade.
-///
-/// `ensureCacheCurrent` removes these from both provider skill roots so an
-/// operator upgrading past a rename cannot resolve the retired skill from a
-/// stale provisioner cache. Limited to historical DC-native names so
-/// user-authored sibling skills are never touched.
-const retiredDcNativeSkillNames = <String>['dartclaw-detect-spec-input', 'dartclaw-discover-plan-state'];
 
 /// Marker filename written under the DartClaw data dir after native skill copy.
 const skillProvisionerMarkerFile = '.dartclaw-native-skills';
@@ -80,11 +66,30 @@ class SkillProvisioner {
   }) : _copyDirectory = directoryCopier ?? _defaultDirectoryCopier;
 
   /// Ensures the DC-native skill payloads exist in both provider-native roots.
+  ///
+  /// The bundled manifest is the single source of truth: skills it lists are
+  /// copied in, any managed `dartclaw-*` skill it does not list is purged from
+  /// both roots, and the manifest names are persisted to the data-dir marker so
+  /// [WorkspaceSkillInventory] can bind workspace linking to the same inventory.
   Future<void> ensureCacheCurrent() async {
     final dest = _resolveDestination();
-    await _copyDcNativeSkills(dest);
-    await _writeMarker(dest);
+    final manifestNames = _readManifestNames();
+    await _copyDcNativeSkills(dest, manifestNames);
+    await _writeMarker(dest, manifestNames);
     _log.fine('DartClaw-native workflow skills copied into ${dest.label}');
+  }
+
+  List<String> _readManifestNames() {
+    if (!Directory(dcNativeSkillsSourceDir).existsSync()) {
+      throw SkillProvisionException(
+        'DC-native skills source missing at $dcNativeSkillsSourceDir – check the bundled assets layout.',
+      );
+    }
+    try {
+      return readDcNativeSkillManifest(dcNativeSkillsSourceDir);
+    } on FormatException catch (e) {
+      throw SkillProvisionException(e.message);
+    }
   }
 
   _InstallDestination _resolveDestination() {
@@ -96,16 +101,11 @@ class SkillProvisioner {
     );
   }
 
-  Future<void> _copyDcNativeSkills(_InstallDestination dest) async {
-    if (!Directory(dcNativeSkillsSourceDir).existsSync()) {
-      throw SkillProvisionException(
-        'DC-native skills source missing at $dcNativeSkillsSourceDir – check the bundled assets layout.',
-      );
-    }
+  Future<void> _copyDcNativeSkills(_InstallDestination dest, List<String> manifestNames) async {
     Directory(dest.codexSkillsDir).createSync(recursive: true);
     Directory(dest.claudeSkillsDir).createSync(recursive: true);
 
-    for (final name in dcNativeSkillNames) {
+    for (final name in manifestNames) {
       final source = Directory(p.join(dcNativeSkillsSourceDir, name));
       if (!source.existsSync()) {
         throw SkillProvisionException('DC-native skill "$name" missing at ${source.path}');
@@ -118,25 +118,40 @@ class SkillProvisioner {
       }
     }
 
-    _purgeRetiredDcNativeSkills(dest);
+    _purgeNonManifestDcNativeSkills(dest, manifestNames.toSet());
   }
 
-  void _purgeRetiredDcNativeSkills(_InstallDestination dest) {
-    for (final name in retiredDcNativeSkillNames) {
-      for (final root in [dest.codexSkillsDir, dest.claudeSkillsDir]) {
-        final stale = Directory(p.join(root, name));
-        if (!stale.existsSync()) continue;
-        stale.deleteSync(recursive: true);
-        _log.info('Removed retired DartClaw-native skill at ${stale.path}');
+  /// Deletes every managed `dartclaw-*` skill directory absent from the manifest.
+  ///
+  /// Keeps the on-disk cache an exact projection of the manifest so an operator
+  /// upgrading past a rename or removal cannot resolve – or link into a
+  /// workspace – a skill the shipped inventory no longer contains. Only
+  /// `dartclaw-*` directories are touched; the marker and user-authored siblings
+  /// are left alone.
+  void _purgeNonManifestDcNativeSkills(_InstallDestination dest, Set<String> manifestNames) {
+    for (final root in [dest.codexSkillsDir, dest.claudeSkillsDir]) {
+      final dir = Directory(root);
+      if (!dir.existsSync()) continue;
+      for (final entity in dir.listSync(followLinks: false)) {
+        if (entity is! Directory) continue;
+        final name = p.basename(entity.path);
+        if (!dcNativeSkillNamePattern.hasMatch(name) || manifestNames.contains(name)) continue;
+        entity.deleteSync(recursive: true);
+        _log.info('Removed non-manifest DartClaw-native skill at ${entity.path}');
       }
     }
   }
 
-  Future<void> _writeMarker(_InstallDestination dest) async {
+  /// Persists the manifest names to the data-dir marker (one name per line).
+  ///
+  /// [WorkspaceSkillInventory.fromDataDir] reads this back as the canonical
+  /// inventory; absence falls back to wildcard discovery.
+  Future<void> _writeMarker(_InstallDestination dest, List<String> manifestNames) async {
     final dir = Directory(dest.codexSkillsDir);
     if (!dir.existsSync()) dir.createSync(recursive: true);
+    final body = (manifestNames.toList()..sort()).join('\n');
     final tmp = File('${dest.markerPath}.tmp');
-    await tmp.writeAsString(DateTime.now().toUtc().toIso8601String(), flush: true);
+    await tmp.writeAsString('$body\n', flush: true);
     await tmp.rename(dest.markerPath);
   }
 }

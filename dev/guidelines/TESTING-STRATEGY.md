@@ -179,7 +179,7 @@ test('real harness completes a turn', () async {
 }, timeout: Timeout(Duration(seconds: 60)));
 ```
 
-The CLI E2E coverage now includes [`apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart`](../../../dartclaw-public/apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart), which boots the real `ServiceWiring`, uses `FakeAgentHarness` plus in-memory SQLite, and verifies that the assembled server serves `/` and `/health`.
+The CLI E2E coverage now includes [`apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart`](../../apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart), which boots the real `ServiceWiring`, uses `FakeAgentHarness` plus in-memory SQLite, and verifies that the assembled server serves `/` and `/health`.
 
 ```dart
 @Tags(['integration'])
@@ -264,7 +264,7 @@ DARTCLAW_TEST_EXECUTOR_MODEL=gpt-5.3-codex-spark \
 **Targets**: Page layout, navigation, real-time updates (SSE), responsive behavior, error states.
 
 **Characteristics**:
-- Defined in [`dev/testing/UI-SMOKE-TEST.md`](../../../dartclaw-public/dev/testing/UI-SMOKE-TEST.md) (18+ numbered test cases)
+- Defined in [`dev/testing/UI-SMOKE-TEST.md`](../testing/UI-SMOKE-TEST.md) (18+ numbered test cases)
 - Run against a testing profile (`plain` or `channels`)
 - Not part of the `dart test` suite — triggered manually or via visual validation workflow
 

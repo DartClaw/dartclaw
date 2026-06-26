@@ -5,6 +5,8 @@ final _recognizedClaudeModels = RegExp(
   r'^(default|haiku|sonnet|opus|opusplan)(\[[^\]]+\])?$|^(claude-[a-z0-9][a-z0-9.\-]*|anthropic\.claude-[a-z0-9.\-]+(@[a-z0-9.\-]+)?)$',
   caseSensitive: false,
 );
+final _mcpServersHeaderPattern = RegExp(r'''^(?:"mcp_servers"|'mcp_servers'|mcp_servers)\s*:\s*(.*)$''');
+final _yamlBlockScalarHeaderValuePattern = RegExp(r'^[|>](?:[+-]?\d*|\d+[+-]?)$');
 const _recognizedCodexModels = <String>{
   'gpt-5.4',
   'gpt-5.4-mini',
@@ -50,6 +52,7 @@ const _knownKeys = {
   'channels',
   'providers',
   'credentials',
+  'mcp_servers',
   'workspace',
   'onboarding',
   'workflow',
@@ -127,6 +130,7 @@ Map<String, dynamic> _loadYaml(
   }
 
   if (content == null) return {};
+  _rejectDuplicateMcpServerNamesInSource(content);
 
   Object? doc;
   try {
@@ -162,6 +166,212 @@ Map<String, dynamic> _loadYaml(
   }
 
   return result;
+}
+
+void _rejectDuplicateMcpServerNamesInSource(String content) {
+  final lines = content.split('\n');
+  var inMcpServers = false;
+  var mcpIndent = 0;
+  int? childIndent;
+  var sawMcpServersRoot = false;
+  var skipCurrentMcpServersBody = false;
+  final seen = <String>{};
+
+  for (final line in lines) {
+    final trimmed = line.trim();
+    if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+
+    final indent = line.length - line.trimLeft().length;
+    if (inMcpServers && indent <= mcpIndent) {
+      inMcpServers = false;
+      childIndent = null;
+      skipCurrentMcpServersBody = false;
+    }
+    if (!inMcpServers) {
+      final headerMatch = indent == 0 ? _mcpServersHeaderPattern.firstMatch(trimmed) : null;
+      if (headerMatch != null) {
+        if (sawMcpServersRoot) {
+          throw const FormatException('mcp_servers contains duplicate registry section.');
+        }
+        sawMcpServersRoot = true;
+        final headerValue = headerMatch.group(1)!;
+        if (_yamlBlockScalarHeaderValuePattern.hasMatch(headerValue.trim())) {
+          skipCurrentMcpServersBody = true;
+          inMcpServers = true;
+          mcpIndent = indent;
+          continue;
+        }
+        _rejectDuplicateMcpServerNamesInFlowMap(headerValue);
+        inMcpServers = true;
+        mcpIndent = indent;
+      }
+      continue;
+    }
+
+    if (skipCurrentMcpServersBody) continue;
+    if (trimmed.startsWith('-')) {
+      skipCurrentMcpServersBody = true;
+      continue;
+    }
+    childIndent ??= indent;
+    if (indent != childIndent) continue;
+
+    final name = _readYamlMapKey(trimmed);
+    if (name == null) continue;
+    if (!seen.add(name)) {
+      throw FormatException('mcp_servers contains duplicate server name "$name".');
+    }
+  }
+}
+
+void _rejectDuplicateMcpServerNamesInFlowMap(String rawValue) {
+  final value = rawValue.trim();
+  if (!value.startsWith('{')) return;
+
+  final seen = <String>{};
+  var depth = 0;
+  var tokenStart = 1;
+  var expectingKey = true;
+  String? quote;
+  for (var i = 0; i < value.length; i++) {
+    final char = value[i];
+    if (quote != null) {
+      if (quote == "'" && char == "'" && i + 1 < value.length && value[i + 1] == "'") {
+        i++;
+        continue;
+      }
+      if (quote == '"' && char == r'\') {
+        i++;
+        continue;
+      }
+      if (char == quote) quote = null;
+      continue;
+    }
+    if (char == '"' || char == "'") {
+      quote = char;
+      continue;
+    }
+    if (char == '{' || char == '[') {
+      depth++;
+      continue;
+    }
+    if (char == '}' || char == ']') {
+      depth--;
+      if (depth < 1) break;
+      continue;
+    }
+    if (char == ':' && depth == 1 && expectingKey) {
+      final name = _decodeYamlKeyToken(value.substring(tokenStart, i));
+      if (name.isNotEmpty && !seen.add(name)) {
+        throw FormatException('mcp_servers contains duplicate server name "$name".');
+      }
+      expectingKey = false;
+    } else if (char == ',' && depth == 1) {
+      tokenStart = i + 1;
+      expectingKey = true;
+    }
+  }
+}
+
+String? _readYamlMapKey(String line) {
+  final trimmed = line.trimLeft();
+  final quote = trimmed.isEmpty ? null : trimmed[0];
+  if (quote == "'") {
+    final buffer = StringBuffer();
+    for (var i = 1; i < trimmed.length; i++) {
+      final char = trimmed[i];
+      if (char == "'") {
+        if (i + 1 < trimmed.length && trimmed[i + 1] == "'") {
+          buffer.write("'");
+          i++;
+          continue;
+        }
+        final remainder = trimmed.substring(i + 1).trimLeft();
+        return remainder.startsWith(':') ? buffer.toString() : null;
+      }
+      buffer.write(char);
+    }
+    return null;
+  }
+  if (quote == '"') {
+    final buffer = StringBuffer();
+    var escaped = false;
+    for (var i = 1; i < trimmed.length; i++) {
+      final char = trimmed[i];
+      if (escaped) {
+        final decoded = _decodeYamlDoubleQuotedEscape(trimmed, i);
+        buffer.write(decoded.value);
+        i = decoded.nextIndex;
+        escaped = false;
+        continue;
+      }
+      if (char == r'\') {
+        escaped = true;
+        continue;
+      }
+      if (char == '"') {
+        final remainder = trimmed.substring(i + 1).trimLeft();
+        return remainder.startsWith(':') ? buffer.toString() : null;
+      }
+      buffer.write(char);
+    }
+    return null;
+  }
+
+  final colon = trimmed.indexOf(':');
+  if (colon <= 0) return null;
+  final key = trimmed.substring(0, colon).trim();
+  if (key.startsWith('#')) return null;
+  return key;
+}
+
+String _decodeYamlKeyToken(String token) => _readYamlMapKey('${token.trim()}:') ?? token.trim();
+
+({String value, int nextIndex}) _decodeYamlDoubleQuotedEscape(String source, int index) {
+  final char = source[index];
+  switch (char) {
+    case '0':
+      return (value: '\u0000', nextIndex: index);
+    case 'a':
+      return (value: '\u0007', nextIndex: index);
+    case 'b':
+      return (value: '\u0008', nextIndex: index);
+    case 't':
+    case '\t':
+      return (value: '\t', nextIndex: index);
+    case 'n':
+      return (value: '\n', nextIndex: index);
+    case 'v':
+      return (value: '\u000b', nextIndex: index);
+    case 'f':
+      return (value: '\u000c', nextIndex: index);
+    case 'r':
+      return (value: '\r', nextIndex: index);
+    case 'e':
+      return (value: '\u001b', nextIndex: index);
+    case '"':
+    case '/':
+    case r'\':
+      return (value: char, nextIndex: index);
+    case 'x':
+      return _decodeYamlHexEscape(source, index, 2);
+    case 'u':
+      return _decodeYamlHexEscape(source, index, 4);
+    case 'U':
+      return _decodeYamlHexEscape(source, index, 8);
+    default:
+      return (value: char, nextIndex: index);
+  }
+}
+
+({String value, int nextIndex}) _decodeYamlHexEscape(String source, int markerIndex, int digits) {
+  final start = markerIndex + 1;
+  final end = start + digits;
+  if (end > source.length) return (value: source[markerIndex], nextIndex: markerIndex);
+  final hex = source.substring(start, end);
+  final codePoint = int.tryParse(hex, radix: 16);
+  if (codePoint == null) return (value: source[markerIndex], nextIndex: markerIndex);
+  return (value: String.fromCharCode(codePoint), nextIndex: end - 1);
 }
 
 String _loadedConfigBaseDir(Map<String, String> env, {String? configPath}) {

@@ -121,7 +121,7 @@ When configured, session maintenance runs as a built-in scheduled job alongside 
 ```yaml
 sessions:
   maintenance:
-    mode: warn               # warn | enforce | disabled
+    mode: warn               # warn | enforce
     prune_after_days: 30     # archive inactive sessions (0 = disabled)
     max_sessions: 0          # cap active sessions (0 = unlimited)
     max_disk_mb: 0           # disk budget in MB (0 = unlimited)
@@ -146,7 +146,8 @@ Protected sessions (main, active channel, active cron) are never pruned.
 |------|----------|
 | `warn` | Log what would happen but don't modify sessions |
 | `enforce` | Apply archival and deletion |
-| `disabled` | Skip maintenance entirely |
+
+Set `schedule: ""` to disable automated maintenance entirely.
 
 ### CLI
 

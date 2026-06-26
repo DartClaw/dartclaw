@@ -13,7 +13,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, KvService, Mess
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowService;
+    show WorkflowApprovalPolicy, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowService;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
@@ -85,7 +85,9 @@ class FakeWorkflowService extends WorkflowService {
   final List<WorkflowRun> activeRuns = <WorkflowRun>[];
   int startCalls = 0;
   String? lastProjectId;
+  WorkflowApprovalPolicy? lastApprovals;
   bool lastAllowDirtyLocalPath = false;
+  bool lastInline = false;
   String? lastCancelFeedback;
 
   @override
@@ -95,6 +97,8 @@ class FakeWorkflowService extends WorkflowService {
     String? projectId,
     bool allowDirtyLocalPath = false,
     bool headless = false,
+    bool inline = false,
+    WorkflowApprovalPolicy? approvals,
   }) async {
     if (validateRequiredVars) {
       for (final entry in definition.variables.entries) {
@@ -106,7 +110,9 @@ class FakeWorkflowService extends WorkflowService {
     startCalls++;
     calls.add('start:${definition.name}');
     lastProjectId = projectId;
+    lastApprovals = approvals;
     lastAllowDirtyLocalPath = allowDirtyLocalPath;
+    lastInline = inline;
     if (startError != null) {
       throw startError!;
     }

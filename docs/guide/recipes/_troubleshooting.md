@@ -87,7 +87,7 @@ If/when announce routing is implemented:
 
 ### Google Chat bot not responding
 
-1. **Is the webhook URL correct?** The Google Chat app must be configured to send events to `https://<your-host>/google-chat/webhook` (or your custom `webhook_path`)
+1. **Is the webhook URL correct?** The Google Chat app must be configured to send events to `https://<your-host>/integrations/googlechat` (or your custom `channels.google_chat.webhook_path`)
 2. **Is JWT verification passing?** Check logs for authentication errors. The `service_account` must match the GCP project
 3. **Is the sender allowlisted?** Check `dm_access` and `dm_allowlist` settings
 

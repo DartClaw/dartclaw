@@ -36,10 +36,17 @@ class LocalProjectPathValidation {
 
 /// Validates a local project path and returns its normalized absolute form.
 ///
-/// Relative paths, any `..` traversal segments, and paths outside the optional
-/// [allowlist] are rejected. Existence and git-repository shape are reported as
+/// When [base] is supplied and [localPath] is relative, it is resolved against
+/// [base] (the config-file directory) before validation; without [base] a
+/// relative path is rejected (`errorCode: 'relative'`). Absolute paths
+/// containing `..` segments, and any resolved path outside the optional
+/// [allowlist], are rejected. Existence and git-repository shape are reported as
 /// metadata so callers can decide whether to warn or fail.
-LocalProjectPathValidation validateProjectLocalPath(String localPath, {List<String> allowlist = const []}) {
+LocalProjectPathValidation validateProjectLocalPath(
+  String localPath, {
+  List<String> allowlist = const [],
+  String? base,
+}) {
   final trimmed = localPath.trim();
   if (trimmed.isEmpty) {
     return const LocalProjectPathValidation(
@@ -50,7 +57,26 @@ LocalProjectPathValidation validateProjectLocalPath(String localPath, {List<Stri
       gitRepository: false,
     );
   }
-  if (!p.isAbsolute(trimmed)) {
+
+  final String normalizedPath;
+  if (p.isAbsolute(trimmed)) {
+    // An absolute path carrying `..` is suspicious; reject the literal.
+    if (p.split(trimmed).contains('..')) {
+      return LocalProjectPathValidation(
+        normalizedPath: p.normalize(trimmed),
+        errorCode: 'traversal',
+        errorMessage: 'localPath traversal is not allowed',
+        pathExists: false,
+        gitRepository: false,
+      );
+    }
+    normalizedPath = p.normalize(trimmed);
+  } else if (base != null) {
+    // A relative localPath resolves against the config-file directory and is
+    // validated as its resolved absolute form; legitimate `..` segments
+    // normalize away, and allowlist containment below guards any escape.
+    normalizedPath = p.normalize(p.absolute(p.join(base, trimmed)));
+  } else {
     return LocalProjectPathValidation(
       normalizedPath: p.normalize(trimmed),
       errorCode: 'relative',
@@ -59,17 +85,7 @@ LocalProjectPathValidation validateProjectLocalPath(String localPath, {List<Stri
       gitRepository: false,
     );
   }
-  if (p.split(trimmed).contains('..')) {
-    return LocalProjectPathValidation(
-      normalizedPath: p.normalize(trimmed),
-      errorCode: 'traversal',
-      errorMessage: 'localPath traversal is not allowed',
-      pathExists: false,
-      gitRepository: false,
-    );
-  }
 
-  final normalizedPath = p.normalize(trimmed);
   if (allowlist.isNotEmpty) {
     final allowed = allowlist.any((candidate) {
       final normalizedCandidate = p.normalize(candidate.trim());
@@ -217,7 +233,7 @@ class ProjectConfig {
 ///
 /// Returns [ProjectConfig.defaults] if the section is absent or null.
 /// Invalid entries are warned and skipped rather than throwing.
-ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String> warns) {
+ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String> warns, {String? base}) {
   if (projectsMap == null || projectsMap.isEmpty) return const ProjectConfig.defaults();
 
   final definitions = <String, ProjectDefinition>{};
@@ -258,6 +274,16 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
     warns.add('projects.localPathAllowlist: expected a list of absolute paths — using empty allowlist');
   }
 
+  // Fail closed: an empty allowlist makes API localPath creation unbounded, so
+  // the dangerous combination is downgraded rather than honored.
+  if (allowApiLocalPath && localPathAllowlist.isEmpty) {
+    warns.add(
+      'projects.allowApiLocalPath: requires a non-empty localPathAllowlist — '
+      'disabling (set to false); otherwise the API could register any host path',
+    );
+    allowApiLocalPath = false;
+  }
+
   for (final entry in projectsMap.entries) {
     final id = entry.key;
 
@@ -287,7 +313,7 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
 
     String? localPath;
     if (hasLocalPath) {
-      final validation = validateProjectLocalPath(localPathRaw, allowlist: localPathAllowlist);
+      final validation = validateProjectLocalPath(localPathRaw, allowlist: localPathAllowlist, base: base);
       if (!validation.isValid) {
         final reason = switch (validation.errorCode) {
           'traversal' => 'local-path traversal',

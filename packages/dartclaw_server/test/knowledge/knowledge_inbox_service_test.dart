@@ -92,6 +92,51 @@ void main() {
     expect(report.summary, contains('processed files: dart-roadmap.md'));
   });
 
+  test('read-only list applies result, scan, and preview bounds before reading file bodies', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'match.md')).writeAsStringSync('roadmap ${'x' * 100}');
+    File(p.join(workspace.path, 'inbox', 'later.md')).writeAsStringSync('roadmap second');
+    File(p.join(workspace.path, 'inbox', 'unscanned.md')).writeAsStringSync('roadmap third');
+
+    final items = await KnowledgeInboxReadService(
+      workspaceDir: workspace.path,
+      maxPreviewBytes: 12,
+      maxScannedFiles: 2,
+    ).list(query: 'roadmap', limit: 1);
+
+    expect(items, hasLength(1));
+    expect(items.single.snippet.length, lessThanOrEqualTo(12));
+  });
+
+  test('read-only list tolerates preview caps that split UTF-8 characters', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'utf8.md')).writeAsStringSync('€ roadmap');
+
+    final items = await KnowledgeInboxReadService(workspaceDir: workspace.path, maxPreviewBytes: 1).list(limit: 1);
+
+    expect(items, hasLength(1));
+    expect(items.single.label, 'utf8.md');
+  });
+
+  test('read-only list keeps pagination stable when file timestamps tie', () async {
+    for (final folder in KnowledgeInboxReadService.folders) {
+      Directory(p.join(workspace.path, folder)).createSync(recursive: true);
+    }
+    final sameModified = DateTime.utc(2026, 5, 1, 12);
+    final files = [
+      File(p.join(workspace.path, 'processed', 'b.md'))..writeAsStringSync('roadmap processed b'),
+      File(p.join(workspace.path, 'inbox', 'c.md'))..writeAsStringSync('roadmap inbox c'),
+      File(p.join(workspace.path, 'inbox', 'a.md'))..writeAsStringSync('roadmap inbox a'),
+    ];
+    for (final file in files) {
+      file.setLastModifiedSync(sameModified);
+    }
+
+    final items = await KnowledgeInboxReadService(workspaceDir: workspace.path).list(query: 'roadmap', limit: 3);
+
+    expect(items.map((item) => item.locator), ['inbox/a.md', 'inbox/c.md', 'processed/b.md']);
+  });
+
   test('each inbox file gets an isolated cron session key', () async {
     Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
     File(p.join(workspace.path, 'inbox', 'first.md')).writeAsStringSync('First source body.');

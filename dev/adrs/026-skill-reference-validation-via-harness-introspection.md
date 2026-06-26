@@ -4,7 +4,7 @@
 
 Accepted — 2026-05-30 (implemented in 0.17; recorded retroactively during the S11 milestone-documentation pass)
 
-**Amends:** [ADR-025](025-andthen-as-runtime-prerequisite.md) — refines *how* DartClaw validates references to AndThen/plugin skills. The runtime-provisioning decision of ADR-025 (depend on AndThen, install via `install-skills.sh --prefix dartclaw-`) is unchanged; this ADR replaces the load-time filesystem-mirroring validation mechanism.
+**Amends:** [ADR-025](025-andthen-as-runtime-prerequisite.md) — refines *how* DartClaw validates references to AndThen/plugin skills: this ADR replaces the load-time filesystem-mirroring validation mechanism with a run-preflight harness-introspection probe. (When this ADR was written, ADR-025's `install-skills.sh --prefix dartclaw-` provisioning was still in force; that provisioning was subsequently retired by [ADR-040](040-andthen-skills-via-canonical-name-resolution.md). The introspection-probe validation mechanism here is unchanged by ADR-040 and applies equally to the canonical `andthen:*` references it introduces.)
 
 ## Context
 

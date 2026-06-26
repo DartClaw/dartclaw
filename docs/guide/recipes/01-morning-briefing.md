@@ -2,15 +2,15 @@
 
 ## Overview
 
-A daily cron job delivers a morning briefing at a configured time. The agent summarizes weather, calendar items, news, or whatever your SOUL.md instructs -- delivered via WhatsApp or the web UI.
+A daily cron job delivers a morning briefing at a configured time. The agent summarizes weather, calendar items, news, or whatever your SOUL.md instructs – delivered via WhatsApp or the web UI.
 
 ## Features Used
 
-- [Cron scheduling](../scheduling.md) -- triggers the briefing at a set time
-- [MEMORY.md](../workspace.md) -- provides context persistence between briefings
-- [Delivery modes](../scheduling.md#delivery-modes) -- `announce` sends results to the active session or channel
-- [Search agent](../search.md) -- enables web lookups for news, weather, etc.
-- [Channels](../whatsapp.md) -- optional delivery via WhatsApp, Signal, or [Google Chat](../google-chat.md) (web UI works too)
+- [Cron scheduling](../scheduling.md) – triggers the briefing at a set time
+- [MEMORY.md](../workspace.md) – provides context persistence between briefings
+- [Delivery modes](../scheduling.md#delivery-modes) – `announce` sends results to the active session or channel
+- [Search agent](../search.md) – enables web lookups for news, weather, etc.
+- [Channels](../whatsapp.md) – optional delivery via WhatsApp, Signal, or [Google Chat](../google-chat.md) (web UI works too)
 
 ## Configuration
 
@@ -37,7 +37,7 @@ agent:
     search:
       tools: [WebSearch, WebFetch]
 
-# Channel delivery (optional -- web UI works without any of these)
+# Channel delivery (optional – web UI works without any of these)
 # Uncomment the channel(s) you use:
 # channels:
 #   whatsapp:
@@ -67,7 +67,7 @@ You are a personal assistant who prepares daily briefings.
 - Project deadlines and milestones
 
 ## Communication Style
-- Concise and scannable -- optimize for reading on a phone
+- Concise and scannable – optimize for reading on a phone
 - Use bullet points, not paragraphs
 - Lead with the most important items
 ```
@@ -95,9 +95,9 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 
 1. **Cron fires at 7:00 AM** (server-local time)
 2. **Isolated session created** for the cron job (visible in the web UI sidebar)
-3. **Agent reads behavior files** -- SOUL.md for personality/interests, USER.md for location, MEMORY.md for context
+3. **Agent reads behavior files** – SOUL.md for personality/interests, USER.md for location, MEMORY.md for context
 4. **Agent uses search agent** to look up weather, news, or other web sources
-5. **Agent composes briefing** -- concise, mobile-friendly format
+5. **Agent composes briefing** – concise, mobile-friendly format
 6. **Result delivered via `announce`** to the active channel (WhatsApp, Signal, or Google Chat) or web session
 
 ## Customization Tips
@@ -110,7 +110,7 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 
 ## Gotchas & Limitations
 
-- **`announce` delivery is not yet implemented**: `delivery: announce` currently logs the result but does not route it to channels or web sessions. Job results are accessible via cron session history in the web UI sidebar. Use `delivery: webhook` for active push delivery. Channel routing for announce is planned
+- **`announce` delivery needs an active channel session**: `delivery: announce` broadcasts the result to the web UI over SSE and routes it to active channel DM sessions (WhatsApp, Signal, Google Chat). If no channel DM session is active, the result is broadcast to the web UI only – job results are also visible via cron session history in the web UI sidebar. Use `delivery: webhook` to POST results to an external endpoint instead
 - **Timezone is server-local**: The cron expression uses the server's timezone, not the user's. If your server is in UTC but you want 7 AM Berlin time, adjust the expression accordingly
 - **Search agent results go through content-guard**: Web content is filtered before the agent sees it. Some sources may be partially truncated
 - **No state between briefings**: Each cron run is an isolated session. The agent relies on MEMORY.md for continuity, not previous briefing sessions

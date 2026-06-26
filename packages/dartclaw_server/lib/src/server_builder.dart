@@ -1,7 +1,8 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, HarnessPool;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner, TaskEventService, TurnTraceService;
+import 'package:dartclaw_storage/dartclaw_storage.dart'
+    show MemoryPruner, MemoryService, TaskEventService, TemporalKnowledgeGraphService, TurnTraceService;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
 
@@ -85,6 +86,8 @@ class DartclawServerBuilder {
   WorkspaceGitSync? gitSync;
   MemoryStatusService? memoryStatusService;
   MemoryPruner? memoryPruner;
+  MemoryService? memoryService;
+  TemporalKnowledgeGraphService? kgService;
   ConfigWriter? configWriter;
   DartclawConfig? config;
   ConfigNotifier? configNotifier;
@@ -248,6 +251,7 @@ class DartclawServerBuilder {
         memoryFile: memoryFile,
         memoryStatusService: memoryStatusService,
         memoryPruner: memoryPruner,
+        memoryService: memoryService,
         heartbeat: heartbeat,
         scheduleService: scheduleService,
         gitSync: gitSync,
@@ -256,6 +260,7 @@ class DartclawServerBuilder {
       web: ServerWebDeps(
         workflowService: workflowService,
         workflowDefinitionSource: workflowDefinitionSource,
+        kgService: kgService,
         contentGuardDisplay: contentGuardDisplay,
         heartbeatDisplay: heartbeatDisplay,
         schedulingDisplay: schedulingDisplay,

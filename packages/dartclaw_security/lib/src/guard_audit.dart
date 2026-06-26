@@ -39,6 +39,21 @@ class AuditEntry {
   /// Peer identifier associated with the event, if available.
   final String? peerId;
 
+  /// External MCP server name or inbound tool host, if available.
+  final String? server;
+
+  /// Tool name associated with the audited decision, if available.
+  final String? tool;
+
+  /// Egress decision label such as `allow` or `deny`, if available.
+  final String? decision;
+
+  /// Principal responsible for the audited action, if available.
+  final String? principal;
+
+  /// Credential reference name, never the resolved credential value.
+  final String? credentialRef;
+
   /// Creates a structured audit entry.
   const AuditEntry({
     required this.timestamp,
@@ -50,6 +65,11 @@ class AuditEntry {
     this.sessionId,
     this.channel,
     this.peerId,
+    this.server,
+    this.tool,
+    this.decision,
+    this.principal,
+    this.credentialRef,
   });
 
   /// Deserializes an [AuditEntry] from a JSON map (NDJSON line).
@@ -64,6 +84,11 @@ class AuditEntry {
       sessionId: json['sessionId'] as String?,
       channel: json['channel'] as String?,
       peerId: json['peerId'] as String?,
+      server: json['server'] as String?,
+      tool: json['tool'] as String?,
+      decision: json['decision'] as String?,
+      principal: json['principal'] as String?,
+      credentialRef: json['credentialRef'] as String?,
     );
   }
 
@@ -78,6 +103,11 @@ class AuditEntry {
     if (sessionId != null) 'sessionId': sessionId,
     if (channel != null) 'channel': channel,
     if (peerId != null) 'peerId': peerId,
+    if (server != null) 'server': server,
+    if (tool != null) 'tool': tool,
+    if (decision != null) 'decision': decision,
+    if (principal != null) 'principal': principal,
+    if (credentialRef != null) 'credentialRef': credentialRef,
   };
 }
 
@@ -129,6 +159,11 @@ class GuardAuditLogger {
     String? sessionId,
     String? channel,
     String? peerId,
+    String? server,
+    String? tool,
+    String? decision,
+    String? principal,
+    String? credentialRef,
   }) {
     // Existing stdout logging — always runs.
     final msg =
@@ -157,10 +192,35 @@ class GuardAuditLogger {
         sessionId: sessionId,
         channel: channel,
         peerId: peerId,
+        server: server,
+        tool: tool,
+        decision: decision,
+        principal: principal,
+        credentialRef: credentialRef,
       );
       _pendingWrite = _pendingWrite.then((_) => _appendEntry(entry));
       unawaited(_pendingWrite);
     }
+  }
+
+  /// Writes [entry] synchronously enough for callers that must fail closed.
+  Future<void> writeEntry(AuditEntry entry) async {
+    final msg =
+        '[${entry.guard}][${entry.hook}] verdict=${entry.verdict}'
+        '${entry.reason != null ? ' msg=${entry.reason}' : ''} at=${entry.timestamp.toIso8601String()}';
+    switch (entry.verdict) {
+      case 'pass':
+      case 'allow':
+        _log.info(msg);
+      case 'warn':
+        _log.warning(msg);
+      default:
+        _log.severe(msg);
+    }
+    if (dataDir == null) return;
+    final write = _pendingWrite.then((_) => _appendEntryStrict(entry));
+    _pendingWrite = write;
+    await write;
   }
 
   /// Logs a `PermissionDenied` event from Claude Code's own permission layer.
@@ -208,14 +268,18 @@ class GuardAuditLogger {
 
   Future<void> _appendEntry(AuditEntry entry) async {
     try {
-      await _ensureDataDirExists();
-      await _migrateLegacyAuditFileIfNeeded();
-
-      final line = jsonEncode(entry.toJson());
-      await File(_auditFilePathForDate(entry.timestamp)).writeAsString('$line\n', mode: FileMode.append);
+      await _appendEntryStrict(entry);
     } catch (e) {
       _log.warning('Failed to append audit entry: $e');
     }
+  }
+
+  Future<void> _appendEntryStrict(AuditEntry entry) async {
+    await _ensureDataDirExists();
+    await _migrateLegacyAuditFileIfNeeded();
+
+    final line = jsonEncode(entry.toJson());
+    await File(_auditFilePathForDate(entry.timestamp)).writeAsString('$line\n', mode: FileMode.append);
   }
 
   /// Deletes dated audit files older than [maxRetentionDays].

@@ -32,13 +32,27 @@ extension WorkflowExecutorSessionHelpers on WorkflowExecutor {
 
   String? _resolveWorkflowProjectTemplate(String? template, WorkflowContext context) {
     if (template == null) return null;
-    final resolved = _templateEngine.resolve(template, context).trim();
+    final String resolved;
+    try {
+      resolved = _templateEngine.resolve(template, context).trim();
+    } on ArgumentError {
+      // An optional, unset project variable (e.g. `{{PROJECT}}` in standalone/
+      // inline runs with no registered project) means "no bound project", not a
+      // run failure. Required variables are enforced at start; only optional
+      // ones reach here unresolved.
+      return null;
+    }
     return resolved.isEmpty ? null : resolved;
   }
 
   String? _resolveWorkflowProjectTemplateWithMap(String? template, WorkflowContext context, MapContext mapContext) {
     if (template == null) return null;
-    final resolved = _templateEngine.resolveWithMap(template, context, mapContext).trim();
+    final String resolved;
+    try {
+      resolved = _templateEngine.resolveWithMap(template, context, mapContext).trim();
+    } on ArgumentError {
+      return null;
+    }
     return resolved.isEmpty ? null : resolved;
   }
 

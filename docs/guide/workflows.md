@@ -2,7 +2,7 @@
 
 DartClaw workflows are multi-step agent pipelines defined in YAML. Each step runs one or more agent turns, optionally passes structured data to the next step, and can be gated on human review or conditional expressions.
 
-Every workflow step now runs as an `AgentExecution`, DartClaw's shared runtime record for provider, model, session, workspace, and token-budget state. The task and workflow surfaces still look the same to operators, but the architecture docs now describe that shared execution layer explicitly.
+Every workflow step runs as an `AgentExecution`, DartClaw's shared runtime record for provider, model, session, workspace, and token-budget state. The task and workflow surfaces look the same to operators.
 
 This guide walks through a progressive refinement process – from a single rough step to a production-ready pipeline. The built-in workflows (`spec-and-implement`, `plan-and-implement`, and `code-review`) are worked examples of the fully matured end state.
 
@@ -109,7 +109,7 @@ In practice:
 
 - Project-discovery and project-mutating steps inherit the workflow project automatically.
 - Review, planning, and other project-agnostic steps stay unbound unless the workflow declares a project at the top level.
-- Per-step `project:` is rejected at parse time (S74); workflow-level `project:` is the only declaration. The same applies to per-step `review:`, which was removed in S74 – model human checkpoints with dedicated review or `approval` steps and gate expressions instead.
+- Per-step `project:` is rejected at parse time; workflow-level `project:` is the only declaration. The same applies to per-step `review:`, which was removed – model human checkpoints with dedicated review or `approval` steps and gate expressions instead.
 
 ### Step 4: Add Structure
 
@@ -191,6 +191,8 @@ Agent steps also receive a semantic step-outcome contract unless the step or ref
 ```
 
 This is separate from `<workflow-context>`: the context block carries domain outputs, while `<step-outcome>` tells the engine what the step *meant*. `failed` can trigger `onFailure` handling (`fail`, `continue`, `retry`, `pause`). `needsInput` normally moves the run into an approval-style hold; `onFailure: continue` is the explicit opt-in for best-effort advisory steps that should record the hold reason and advance.
+
+Workflow runs also have an approval-resolution policy. `workflow.approvals: manual` is the default and preserves the hold behavior. `auto-on-stall` auto-resolves `needsInput` stalls but still pauses at explicit `type: approval` steps. `auto` auto-resolves both. Auto-resolved gates are recorded in private context under `_approval.auto_resolved.<stepId>` with the policy and reason. This policy is separate from `headless`: standalone runs set task review to auto-accept, but they do not skip approval gates unless `workflow.approvals` or `--approvals` says so.
 
 ### Reference Forms at a Glance
 
@@ -283,9 +285,9 @@ steps:
           gating_findings_count: gating_findings_count
 ```
 
-Each parallel source review step prefixes **all** of its output keys with its own step id — `<source-step-id>.review_findings`, `<source-step-id>.findings_count`, `<source-step-id>.gating_findings_count`. Prefixing is always collision-safe: the review skill emits the bare `review_findings` key and the host accepts it for the prefixed output via the filesystem-claim alias. Use the uniform prefixed form on every source step; do not fall back to a bare `review_findings` or a hand-named per-skill variant.
+Each parallel source review step prefixes **all** of its output keys with its own step id – `<source-step-id>.review_findings`, `<source-step-id>.findings_count`, `<source-step-id>.gating_findings_count`. Prefixing is always collision-safe: the review skill emits the bare `review_findings` key and the host accepts it for the prefixed output via the filesystem-claim alias. Use the uniform prefixed form on every source step; do not fall back to a bare `review_findings` or a hand-named per-skill variant.
 
-The aggregator's own `outputs:` keys must be exactly `review_findings`, `findings_count`, and `gating_findings_count` — the canonical post-aggregate keys the validator requires and the remediation loop reads. The aggregator sums each source's `<source-step-id>.findings_count` and `<source-step-id>.gating_findings_count`, then writes one merged markdown report at `{{workflow.runtime_artifacts_dir}}/reviews/aggregated-<aggregator-step-id>.md`. Each source report becomes a `# <source-step-id>` section; missing report paths produce a short placeholder section. The output preset names come from `schema_presets.dart`, so use the shorthand shown above instead of spelling out schemas manually.
+The aggregator's own `outputs:` keys must be exactly `review_findings`, `findings_count`, and `gating_findings_count` – the canonical post-aggregate keys the validator requires and the remediation loop reads. The aggregator sums each source's `<source-step-id>.findings_count` and `<source-step-id>.gating_findings_count`, then writes one merged markdown report at `{{workflow.runtime_artifacts_dir}}/reviews/aggregated-<aggregator-step-id>.md`. Each source report becomes a `# <source-step-id>` section; missing report paths produce a short placeholder section. The output preset names come from `schema_presets.dart`, so use the shorthand shown above instead of spelling out schemas manually.
 
 ### Workflow Run Statuses and Retry
 
@@ -675,7 +677,7 @@ gitStrategy:
 | `token_ceiling` | int | `100000` | `10000`–`500000` | Per-attempt token budget; enforced by the harness |
 | `escalation` | enum | `serialize-remaining` | `serialize-remaining`, `fail` | Action when `max_attempts` is exhausted |
 
-The previous `verification:` sub-block (`format` / `analyze` / `test`) was removed in 0.16.4 (S73); a stale YAML carrying it now fails validation as an unknown field under `gitStrategy.merge_resolve`. Verification is resolved by `dartclaw-merge-resolve` from project conventions (`CLAUDE.md`, `AGENTS.md`, contributor docs, `pubspec.yaml`, `pyproject.toml`, `package.json`, etc.) plus unconditional no-conflict-marker and `git diff --check` checks. When the project declares no verification commands, the skill records that limitation in its output surface and falls back to the marker / `git diff --check` checks alone.
+The previous `verification:` sub-block (`format` / `analyze` / `test`) was removed in 0.16.4; a stale YAML carrying it now fails validation as an unknown field under `gitStrategy.merge_resolve`. Verification is resolved by `dartclaw-merge-resolve` from project conventions (`CLAUDE.md`, `AGENTS.md`, contributor docs, `pubspec.yaml`, `pyproject.toml`, `package.json`, etc.) plus unconditional no-conflict-marker and `git diff --check` checks. When the project declares no verification commands, the skill records that limitation in its output surface and falls back to the marker / `git diff --check` checks alone.
 
 **Escalation modes**
 
@@ -877,20 +879,24 @@ Use this whenever a step behaves differently than the authored YAML suggests: th
 
 ## Workflow Triggers
 
-A workflow run is just an authored definition plus a set of variable values. DartClaw exposes three server-backed ways to start one: the web UI chat `/workflow` command, the web UI launch forms, and the GitHub pull-request webhook. All three converge on the same `WorkflowService.start(...)` entry point, so a definition that runs from chat behaves identically when triggered by a webhook. A fourth, server-free path — the [standalone CLI](#standalone-cli-zero-server) — runs the engine in-process for local and CI use.
+A workflow run is just an authored definition plus a set of variable values. DartClaw exposes three server-backed ways to start one: the web UI chat `/workflow` command, the web UI launch forms, and the GitHub pull-request webhook. All three converge on the same `WorkflowService.start(...)` entry point, so a definition that runs from chat behaves identically when triggered by a webhook. A fourth, server-free path – the [standalone CLI](#standalone-cli-zero-server) – runs the engine in-process for local and CI use.
 
 ### Standalone CLI (zero-server)
 
 You can run a workflow from the command line without standing up the full server. This is the lowest-friction path for trying workflows, local iteration, and CI.
 
 ```bash
-dartclaw init --workflow      # write a minimal standalone config (data dir: ./dartclaw)
-dartclaw workflow run --standalone --config ./dartclaw/dartclaw.yaml spec-and-implement --var FEATURE="Add search"
+dartclaw init --workflow      # write a minimal standalone config (data dir: ./.dartclaw)
+dartclaw workflow run --standalone spec-and-implement --var FEATURE="Add search"
 ```
 
-`dartclaw init --workflow` runs a short wizard (provider, auth method, model, config folder) and writes a minimal config tuned for workflow use — no HTTP port, channels, or container setup. Add `--non-interactive` with `--provider`, `--auth-claude`/`--auth-codex`, and `--model-claude`/`--model-codex` to script it. On completion it prints the exact `workflow run --standalone` command for your config location.
+`dartclaw init --workflow` runs a short wizard (provider, auth method, model, config folder) and writes a minimal config tuned for workflow use – no HTTP port, channels, or container setup. Add `--non-interactive` with `--provider`, `--auth-claude`/`--auth-codex`, and `--model-claude`/`--model-codex` to script it. On completion it prints the exact `workflow run --standalone` command for your config location.
 
-`--standalone` runs the workflow engine in the current process and bypasses any running server (it does not call `WorkflowService.start(...)`). Pass `--config <path>/dartclaw.yaml` or set `DARTCLAW_CONFIG` for repo-local workflow configs; standalone mode does not auto-load checked-in config files. Standalone discovery also picks up custom definitions in `<data_dir>/workflows/`, so you can drop a `*.workflow.yaml` there and run it by name. Built-in definitions referencing `andthen:*` skills still require AndThen installed for the selected provider; a missing skill is reported by the run preflight before any step dispatches.
+`--standalone` builds the workflow engine in the current process via the local `CliWorkflowWiring` and bypasses any running server, without starting the HTTP server. It still uses the same `WorkflowService.start(...)` lifecycle as connected runs, so the resolved approval policy is persisted on the run and honored after resume. Without `--config`, standalone workflow commands first look for `.dartclaw/dartclaw.yaml` in the current directory, which is the path written by `dartclaw init --workflow`; pass `--config <path>/dartclaw.yaml` or set `DARTCLAW_CONFIG` only for custom locations. Standalone discovery also picks up custom definitions in `<data_dir>/workflows/`, so you can drop a `*.workflow.yaml` there and run it by name. Built-in definitions referencing `andthen:*` skills still require AndThen installed for the selected provider; a missing skill is reported by the run preflight before any step dispatches.
+
+`resume`, `cancel`, `pause`, and `retry` accept the same `--standalone` (with `--force`), reaching the engine through the same `CliWorkflowWiring` seam and the same `WorkflowService` the server uses. This closes the zero-server loop: when a `workflow run --standalone` pauses at an `approval` step, `dartclaw workflow resume <run-id> --standalone` drives it forward to completion without ever starting `dartclaw serve`, and `dartclaw workflow cancel <run-id> --standalone --feedback "…"` records a rejection. Invalid-state attempts (resuming a `running` run, retrying a non-`failed` one) surface the engine guard as a clean message + non-zero exit; a stale `running` run left by a killed process is not auto-reconciled. See the [CLI reference](cli-reference.md#workflow-resume) for the full command surface.
+
+`--inline` runs any definition on the **current branch** with no workflow-owned integration branch, worktree, or merge-back – it overrides the definition's git strategy (`integrationBranch: false` + `worktree: inline`) at run time. It applies identically in standalone and connected mode through the single `WorkflowService.start(...)` seam, so you no longer need a duplicate `*-inline` definition just to flip git behavior. Multi-story inline runs (e.g. `plan-and-implement --inline`) execute stories one at a time in the shared checkout – concurrency is clamped to 1 automatically. `--inline` is orthogonal to `--allow-dirty-localpath`: it changes git strategy only and does not relax the dirty-tree guard. See [CLI operations](cli-operations.md#inline-runs---inline) for examples.
 
 ### Web chat `/workflow` command
 
@@ -901,13 +907,13 @@ The web UI chat input recognises a small `/workflow` command surface backed by `
 /workflow run <definition-name> KEY=value KEY=value ...
 ```
 
-`/workflow list` returns the names of every loaded definition and is available to all users. `/workflow run` launches the named definition with the given variable bindings and renders a card linking to `/workflows/<run-id>` for live progress — it is only advertised and usable when the request carries admin permission.
+`/workflow list` returns the names of every loaded definition and is available to all users. `/workflow run` launches the named definition with the given variable bindings and renders a card linking to `/workflows/<run-id>` for live progress – it is only advertised and usable when the request carries admin permission.
 
 Notes:
 
 - Variables are passed as repeated `KEY=value` tokens after the definition name. Unknown variables are rejected by the definition's own `variables:` block; missing required variables surface the same error you would see from the API.
-- The handler is idempotent over short windows — repeating an identical command immediately produces a "already handled recently" card rather than a duplicate run.
-- This surface is web-only. Channel slash commands (`/new`, `/stop`, `/pause`, `/resume`) do not launch workflows — they create tasks or invoke the emergency controls described under [Governance § Emergency Control Commands](governance.md#emergency-control-commands).
+- The handler is idempotent over short windows – repeating an identical command immediately produces a "already handled recently" card rather than a duplicate run.
+- This surface is web-only. Channel slash commands (`/new`, `/stop`, `/pause`, `/resume`) do not launch workflows – they create tasks or invoke the emergency controls described under [Governance § Emergency Control Commands](governance.md#emergency-control-commands).
 
 ### Web launch forms
 
@@ -922,7 +928,7 @@ Two server endpoints back the form:
 
 Both return `{"ok": true, "runId": "<id>"}` on success and render the same per-definition error chip on failure. The HTMX form targets a definition-scoped error region so a validation failure does not reload the page.
 
-If the workflow definition declares a `PROJECT` variable and the form does not supply one, the request is rejected at the validation stage — pick a project in the form, pass `project: <id>` in JSON, or set a default value in the definition's `variables:` block.
+If the workflow definition declares a `PROJECT` variable and the form does not supply one, the request is rejected at the validation stage – pick a project in the form, pass `project: <id>` in JSON, or set a default value in the definition's `variables:` block.
 
 ### GitHub pull-request webhook
 
@@ -938,7 +944,7 @@ github:
   triggers:
     - event: pull_request
       actions: [opened, synchronize]
-      labels: [needs-review]            # optional — empty list means no filter
+      labels: [needs-review]            # optional – empty list means no filter
       workflow: code-review
 ```
 
@@ -1230,6 +1236,7 @@ Key behaviors:
 - Resume records the decision as approved and continues with the next step.
 - Cancel records the decision as rejected and can include optional feedback.
 - `approval` is not valid in parallel groups. Inside loops it is allowed, but the validator warns because the workflow can pause once per iteration.
+- With run policy `auto`, approval steps are auto-accepted and audited under `_approval.auto_resolved.<stepId>`. With `manual` or `auto-on-stall`, they pause.
 
 ### `bash` Steps
 
@@ -1331,7 +1338,7 @@ Step failure handling is split across two fields. `onFailure` is the modern poli
 | `retry` | Re-attempts the workflow step up to `maxRetries` times before falling through to `fail` |
 | `pause` | Transitions the run to `awaitingApproval` (operator decides resume vs cancel) |
 
-`needsInput` outcomes (emitted via the `<step-outcome>` envelope) transition to `awaitingApproval` by default. Use `onFailure: continue` only for optional cleanup/advisory steps where a blocked recommendation should be visible in the run context but should not park the workflow.
+`needsInput` outcomes (emitted via the `<step-outcome>` envelope) transition to `awaitingApproval` by default. Use `onFailure: continue` only for optional cleanup/advisory steps where a blocked recommendation should be visible in the run context but should not park the workflow. For unattended runs, prefer `workflow.approvals: auto-on-stall` or `dartclaw workflow run --approvals=auto-on-stall`; these auto-resolve `needsInput` only and do not convert real `failed` outcomes into success.
 
 `onFailure: retry` uses a single workflow-owned retry budget. A step with `maxRetries: N` can execute at most `N + 1` workflow task attempts total, including single steps, `mapOver` items, and `foreach` child steps. The retry decision is outcome-aware: a failed task, a failed `<step-outcome>`, post-task validation failure, or missing declared artifact all consume the same workflow retry path. Repeated failures with the same normalized error class may stop early to avoid burning the full budget on deterministic failures.
 
@@ -1467,7 +1474,7 @@ Use these by name in `schema:` – the engine appends output format instructions
 | `file_list` | `{items[]}` where each item is `{path, reason?}` | Affected file discovery |
 | `checklist` | `{items[], all_pass}` where items have `{check, pass, detail?}` | Verification, acceptance testing |
 | `non_negative_integer` | Scalar `>= 0` integer | Generic count placeholder when no role-specific preset exists |
-| `gating_findings_count` | Scalar `>= 0` integer | MEDIUM-or-higher review findings that keep remediation loops running |
+| `gating_findings_count` | Scalar `>= 0` integer | Still-unresolved **Fix-routed** (auto-applicable) review findings that keep remediation loops running; **Note-routed** findings (surfaced for human review at any severity) are excluded so the loop converges instead of deadlocking |
 | `findings_count` | Scalar `>= 0` integer | Total issue count for a review-style step |
 | `spec_confidence` | Scalar `>= 0` integer | Self-rated 1-10 readiness of an FIS; `< 7` triggers a revise-spec step |
 | `review_report_path` | Path string | Review report artifact path (used by both `andthen:review` and `andthen:architecture --mode review`). Path form follows the skill contract: `andthen:review` under AUTO_MODE prints an absolute path inside `--output-dir`; `andthen:architecture` prints a project-root-relative path. Aggregate-reviews joins relative values under the workspace root |
@@ -1506,7 +1513,7 @@ Templates in `prompt` and `project` fields support:
 | `{{<alias>.index}}` / `{{<alias>.display_index}}` / `{{<alias>.length}}` | Named counterparts of the `map.*` metadata refs |
 | `{{context.key[<alias>.index]}}` | Indexed lookup using the named alias as the index source |
 
-The `{{context.key[map.index]}}` (or `[<alias>.index]`) pattern auto-extracts `.text` from structured result elements (supports S07 coding artifacts). Use `{{context.key[map.index].field}}` to explicitly access a named field instead.
+The `{{context.key[map.index]}}` (or `[<alias>.index]`) pattern auto-extracts `.text` from structured result elements (supports coding artifacts). Use `{{context.key[map.index].field}}` to explicitly access a named field instead.
 
 For a higher-level mental model of the three namespaces and the step-prefix rules, see [Reference Forms at a Glance](#reference-forms-at-a-glance).
 

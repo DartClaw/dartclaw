@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-import 'skill_provisioner.dart' show dcNativeSkillNames;
+import 'dc_native_skill_manifest.dart';
+import 'skill_provisioner.dart' show skillProvisionerMarkerFile;
 
 /// Creates a filesystem link from [linkPath] to [targetPath].
 typedef WorkspaceLinkFactory = void Function({required String targetPath, required String linkPath});
@@ -25,7 +26,7 @@ final class WorkspaceSkillInventory {
 
   factory WorkspaceSkillInventory.fromDataDir(String dataDir) {
     return WorkspaceSkillInventory(
-      skillNames: _discoverSkillNames(dataDir),
+      skillNames: _discoverSkillNames(dataDir, _readManifestSkillNames(dataDir)),
       agentMdNames: _discoverAgentNames(p.join(dataDir, '.claude', 'agents'), '.md'),
       agentTomlNames: _discoverAgentNames(p.join(dataDir, '.codex', 'agents'), '.toml'),
     );
@@ -37,10 +38,7 @@ final class WorkspaceSkillLinker {
   static final _log = Logger('WorkspaceSkillLinker');
 
   static const managedMarkerName = '.dartclaw-managed';
-  static final managedExcludePatterns = [
-    for (final name in dcNativeSkillNames) '/.claude/skills/$name',
-    for (final name in dcNativeSkillNames) '/.agents/skills/$name',
-  ];
+  static const managedExcludePatterns = ['/.claude/skills/dartclaw-*', '/.agents/skills/dartclaw-*'];
 
   final WorkspaceLinkFactory _linkFactory;
   final WorkspaceDirectoryCopier _directoryCopier;
@@ -269,14 +267,16 @@ Iterable<String> _dartclawNames(Iterable<String> names) {
   final normalized = <String>{};
   for (final raw in names) {
     final trimmed = raw.trim();
-    if (dcNativeSkillNames.contains(trimmed)) normalized.add(trimmed);
+    if (_isDartClawManagedName(trimmed)) normalized.add(trimmed);
   }
   return normalized.toList()..sort();
 }
 
+bool _isDartClawManagedName(String name) => RegExp(r'^dartclaw-[A-Za-z0-9._-]+$').hasMatch(name);
+
 String _withExtension(String name, String extension) => p.extension(name) == extension ? name : '$name$extension';
 
-List<String> _discoverSkillNames(String dataDir) {
+List<String> _discoverSkillNames(String dataDir, Set<String>? manifestNames) {
   final names = <String>{};
   for (final root in [p.join(dataDir, '.claude', 'skills'), p.join(dataDir, '.agents', 'skills')]) {
     final dir = Directory(root);
@@ -284,11 +284,29 @@ List<String> _discoverSkillNames(String dataDir) {
     for (final entry in dir.listSync(followLinks: false)) {
       if (entry is! Directory) continue;
       final name = p.basename(entry.path);
-      if (!dcNativeSkillNames.contains(name)) continue;
+      if (!_isDartClawManagedName(name)) continue;
+      // The manifest (when provisioned) is the canonical DC-native inventory;
+      // a discovered `dartclaw-*` skill it omits is stale and must not link.
+      if (manifestNames != null && !manifestNames.contains(name)) continue;
       if (File(p.join(entry.path, 'SKILL.md')).existsSync()) names.add(name);
     }
   }
   return names.toList()..sort();
+}
+
+/// Canonical DC-native skill names persisted by `SkillProvisioner` to the
+/// data-dir marker, or `null` when no marker exists (un-provisioned data dir →
+/// wildcard discovery, preserving cold-start behavior).
+Set<String>? _readManifestSkillNames(String dataDir) {
+  final marker = File(p.join(dataDir, skillProvisionerMarkerFile));
+  if (!marker.existsSync()) return null;
+  final names = <String>{};
+  for (final rawLine in marker.readAsLinesSync()) {
+    final line = rawLine.trim();
+    if (line.isEmpty || line.startsWith('#')) continue;
+    if (dcNativeSkillNamePattern.hasMatch(line)) names.add(line);
+  }
+  return names.isEmpty ? null : names;
 }
 
 List<String> _discoverAgentNames(String dirPath, String extension) {
@@ -299,7 +317,7 @@ List<String> _discoverAgentNames(String dirPath, String extension) {
     if (entry is! File) continue;
     if (p.extension(entry.path) != extension) continue;
     final name = p.basenameWithoutExtension(entry.path);
-    if (dcNativeSkillNames.contains(name)) names.add(name);
+    if (_isDartClawManagedName(name)) names.add(name);
   }
   names.sort();
   return names;

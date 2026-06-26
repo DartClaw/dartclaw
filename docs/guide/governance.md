@@ -49,7 +49,7 @@ governance:
       window: 1h
 ```
 
-Either limit set to `0` disables that side. Per-sender limits are evaluated first; admin senders bypass the per-sender check but still contribute to the global turn count. Window durations accept `m`, `h`, and `d` suffixes (see [configuration reference](configuration.md#full-config-reference)).
+Either limit set to `0` disables that side. Per-sender limits are evaluated first; admin senders bypass the per-sender check but still contribute to the global turn count. Window durations are minute-granular and accept `m` and `h` suffixes; a bare integer is read as minutes (see [configuration reference](configuration.md#full-config-reference)).
 
 When a sender exceeds the per-sender limit, the message is rejected before any agent work starts. When the global cap is reached, new turns are blocked until the window slides.
 

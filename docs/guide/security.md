@@ -28,7 +28,7 @@ Guards evaluate tool calls, messages, and agent responses. First block wins. Exc
 | **FileGuard** | filesystem | Access to `.ssh/`, `.aws/`, credentials files, symlink escape |
 | **NetworkGuard** | network | Connections to non-allowlisted hosts/ports |
 | **ContentGuard** | content | Prompt injection, harmful content at agent boundaries |
-| **ToolPolicyGuard** | policy | Tools not in agent's sandbox allowlist |
+| **TaskToolFilterGuard** | tool | Tools not in the task's allowlist; mutating tools while a task is read-only |
 
 ### Configuration
 
@@ -40,15 +40,15 @@ guards:
     extra_patterns:              # optional additional regex patterns (case-insensitive)
       - 'custom\s+injection'
   command:
-    enabled: true
-    blocked_commands: [rm, shutdown, reboot]
-    blocked_patterns: ['curl.*--upload']
-  filesystem:
-    enabled: true
-    blocked_paths: [.ssh, .aws, .gnupg]
+    extra_blocked_patterns:      # regex patterns added to defaults
+      - 'curl.*--upload'
+  file:
+    extra_rules:                 # added to default protections
+      - pattern: '*.secret'
+        level: no_access
   network:
-    enabled: true
-    allowed_hosts: [api.anthropic.com, github.com]
+    extra_allowed_domains:       # added to default allowlist
+      - api.example.com
   content:
     enabled: true
     model: haiku
@@ -67,7 +67,7 @@ Admins can manage guard extensions from the **Settings** page instead of hand-ed
 | Network | `extra_allowed_domains` |
 | Input sanitizer | `extra_patterns` |
 
-Built-in default rules are shown as read-only context — 0.17 manages extension surfaces only, not the built-in defaults.
+Built-in default rules are shown as read-only context — the editor manages extension surfaces only, not the built-in defaults.
 
 How it behaves:
 

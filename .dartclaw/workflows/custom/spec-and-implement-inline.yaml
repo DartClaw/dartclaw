@@ -216,8 +216,8 @@ steps:
   # run artifacts dir, and prints `pass`/`fail` that the fix loop branches on.
   #
   # Bash steps execute on the host with a sandboxed workdir (<dataDir>/workspace);
-  # verify-gate.sh is reached via the custom-workflows symlink at
-  # <dataDir>/workflows/custom and locates the repo itself.
+  # verify-gate.sh lives at <dataDir>/workflows/custom (committed under
+  # .dartclaw/workflows/custom/) and locates the repo itself.
   - id: verify-all
     name: Verify CI Gate
     type: bash

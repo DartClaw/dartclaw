@@ -128,6 +128,8 @@ class AlertFormatter {
     StepSkippedEvent() => event.runtimeType.toString(),
     AgentStateChangedEvent() => event.runtimeType.toString(),
     AgentExecutionStatusChangedEvent() => event.runtimeType.toString(),
+    OutboundMcpGovernanceEvent() => event.runtimeType.toString(),
+    ContextResearchMetricsEvent() => event.runtimeType.toString(),
   };
 
   Map<String, String>? _details(DartclawEvent event) => switch (event) {
@@ -180,6 +182,8 @@ class AlertFormatter {
     StepSkippedEvent() => null,
     AgentStateChangedEvent() => null,
     AgentExecutionStatusChangedEvent() => null,
+    OutboundMcpGovernanceEvent() => null,
+    ContextResearchMetricsEvent() => null,
   };
 
   static String _timeLabel(Duration cooldown) {

@@ -17,6 +17,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowApprovalRequestedEvent,
+        WorkflowApprovalResolvedEvent,
         WorkflowContext,
         WorkflowDefinition,
         WorkflowGitCleanupStrategy,
@@ -136,6 +137,102 @@ void main() {
       expect(approvalEvents, hasLength(1));
       expect(approvalEvents.first.stepId, equals('step1'));
     });
+
+    test('auto-on-stall advances needsInput outcomes with an audit record', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+        ],
+      );
+
+      final run = h.makeRun(definition).copyWith(contextJson: {'_workflow.approvals': 'auto-on-stall'});
+      await h.repository.insert(run);
+      final context = WorkflowContext(data: {'_workflow.approvals': 'auto-on-stall'});
+
+      final requestedEvents = <WorkflowApprovalRequestedEvent>[];
+      final resolvedEvents = <WorkflowApprovalResolvedEvent>[];
+      final requestSub = h.eventBus.on<WorkflowApprovalRequestedEvent>().listen(requestedEvents.add);
+      final resolvedSub = h.eventBus.on<WorkflowApprovalResolvedEvent>().listen(resolvedEvents.add);
+
+      final sessionService = SessionService(baseDir: h.sessionsDir);
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task == null) return;
+        final session = await sessionService.createSession(type: SessionType.task);
+        await h.taskService.updateFields(task.id, sessionId: session.id);
+        await h.messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content:
+              'Blocked pending human decision.\n'
+              '<step-outcome>{"outcome":"needsInput","reason":"all findings were notes"}</step-outcome>',
+        );
+        await h.completeTask(e.taskId);
+      });
+
+      await h.executor.execute(run, definition, context);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      await requestSub.cancel();
+      await resolvedSub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(finalRun?.contextJson['_approval.pending.stepId'], isNull);
+      final data = finalRun?.contextJson['data'] as Map<String, dynamic>;
+      final audit = data['_approval.auto_resolved.step1'] as Map<String, dynamic>;
+      expect(audit['policy'], 'auto-on-stall');
+      expect(audit['reason'], 'all findings were notes');
+      expect(audit['source'], 'needsInput');
+      expect(requestedEvents, isEmpty);
+      expect(resolvedEvents, hasLength(1));
+      expect(resolvedEvents.single.stepId, 'step1');
+    });
+
+    test('auto does not mask failed outcomes', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+        ],
+      );
+
+      final run = h.makeRun(definition).copyWith(contextJson: {'_workflow.approvals': 'auto'});
+      await h.repository.insert(run);
+      final context = WorkflowContext(data: {'_workflow.approvals': 'auto'});
+
+      final resolvedEvents = <WorkflowApprovalResolvedEvent>[];
+      final resolvedSub = h.eventBus.on<WorkflowApprovalResolvedEvent>().listen(resolvedEvents.add);
+      final sessionService = SessionService(baseDir: h.sessionsDir);
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await h.taskService.get(e.taskId);
+        if (task == null) return;
+        final session = await sessionService.createSession(type: SessionType.task);
+        await h.taskService.updateFields(task.id, sessionId: session.id);
+        await h.messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<step-outcome>{"outcome":"failed","reason":"tool crashed"}</step-outcome>',
+        );
+        await h.completeTask(e.taskId);
+      });
+
+      await h.executor.execute(run, definition, context);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      await resolvedSub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(finalRun?.errorMessage, contains('tool crashed'));
+      expect(resolvedEvents, isEmpty);
+      expect(finalRun?.contextJson['data']?['_approval.auto_resolved.step1'], isNull);
+    });
   });
 
   group('approval step execution', () {
@@ -176,6 +273,73 @@ void main() {
       expect(approvalEvents, hasLength(1));
       expect(approvalEvents.first.stepId, equals('gate'));
       expect(approvalEvents.first.message, equals('Please review'));
+    });
+
+    test('auto-on-stall still pauses explicit approval steps', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'gate',
+            name: 'Review Gate',
+            type: WorkflowTaskType.approval,
+            prompts: ['Please review'],
+          ),
+        ],
+      );
+
+      final run = h.makeRun(definition).copyWith(contextJson: {'_workflow.approvals': 'auto-on-stall'});
+      await h.repository.insert(run);
+      final context = WorkflowContext(data: {'_workflow.approvals': 'auto-on-stall'});
+
+      await h.executor.execute(run, definition, context);
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
+      expect(context['gate.approval.status'], equals('pending'));
+      expect(context['_approval.auto_resolved.gate'], isNull);
+    });
+
+    test('auto accepts explicit approval steps and records the resolution', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'gate',
+            name: 'Review Gate',
+            type: WorkflowTaskType.approval,
+            prompts: ['Please review'],
+          ),
+        ],
+      );
+
+      final run = h.makeRun(definition).copyWith(contextJson: {'_workflow.approvals': 'auto'});
+      await h.repository.insert(run);
+      final context = WorkflowContext(data: {'_workflow.approvals': 'auto'});
+
+      final approvalEvents = <WorkflowApprovalRequestedEvent>[];
+      final resolvedEvents = <WorkflowApprovalResolvedEvent>[];
+      final requestSub = h.eventBus.on<WorkflowApprovalRequestedEvent>().listen(approvalEvents.add);
+      final resolvedSub = h.eventBus.on<WorkflowApprovalResolvedEvent>().listen(resolvedEvents.add);
+
+      await h.executor.execute(run, definition, context);
+      await Future<void>.delayed(Duration.zero);
+      await requestSub.cancel();
+      await resolvedSub.cancel();
+
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(finalRun?.totalTokens, equals(0));
+      final allTasks = await h.taskService.list();
+      expect(allTasks.where((t) => t.workflowRunId == 'run-1'), isEmpty);
+
+      final data = finalRun?.contextJson['data'] as Map<String, dynamic>;
+      expect(data['gate.status'], equals('accepted'));
+      expect(data['gate.approval.status'], equals('approved'));
+      final audit = data['_approval.auto_resolved.gate'] as Map<String, dynamic>;
+      expect(audit['policy'], 'auto');
+      expect(audit['source'], 'approval');
+      expect(approvalEvents, hasLength(1));
+      expect(resolvedEvents, hasLength(1));
+      expect(resolvedEvents.single.stepId, 'gate');
     });
 
     test('approval step without timeoutSeconds waits indefinitely (no auto-cancel)', () async {

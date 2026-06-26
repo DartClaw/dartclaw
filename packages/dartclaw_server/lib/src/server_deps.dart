@@ -113,6 +113,7 @@ class ServerObservabilityDeps {
   final MemoryFileService? memoryFile;
   final MemoryStatusService? memoryStatusService;
   final MemoryPruner? memoryPruner;
+  final MemoryService? memoryService;
   final HeartbeatScheduler? heartbeat;
   final ScheduleService? scheduleService;
   final WorkspaceGitSync? gitSync;
@@ -125,6 +126,7 @@ class ServerObservabilityDeps {
     required this.memoryFile,
     required this.memoryStatusService,
     required this.memoryPruner,
+    required this.memoryService,
     required this.heartbeat,
     required this.scheduleService,
     required this.gitSync,
@@ -135,6 +137,7 @@ class ServerObservabilityDeps {
 class ServerWebDeps {
   final WorkflowService? workflowService;
   final WorkflowDefinitionSource? workflowDefinitionSource;
+  final TemporalKnowledgeGraphService? kgService;
   final ContentGuardDisplayParams contentGuardDisplay;
   final HeartbeatDisplayParams heartbeatDisplay;
   final SchedulingDisplayParams schedulingDisplay;
@@ -144,6 +147,7 @@ class ServerWebDeps {
   const ServerWebDeps({
     required this.workflowService,
     required this.workflowDefinitionSource,
+    required this.kgService,
     required this.contentGuardDisplay,
     required this.heartbeatDisplay,
     required this.schedulingDisplay,
@@ -211,6 +215,8 @@ void registerServerSystemPages(
     runtimeConfigGetter: () => server._core.runtimeConfig,
     configWriter: configWriter,
     memoryStatusServiceGetter: () => server._observability.memoryStatusService,
+    memoryServiceGetter: () => server._observability.memoryService,
+    kgServiceGetter: () => server._web.kgService,
     contentGuardDisplay: contentGuardDisplay,
     heartbeatDisplay: heartbeatDisplay,
     schedulingDisplay: schedulingDisplay,

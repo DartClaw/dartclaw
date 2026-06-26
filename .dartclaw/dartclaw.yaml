@@ -1,0 +1,79 @@
+# DartClaw — maintainer dogfood workflow config (committed).
+#
+# Runs the built-in + inline workflows against THIS checkout, server-less and
+# in-process:
+#   dartclaw workflow run --standalone <name> -v 'FEATURE=...'
+# or via the dev/tools/dartclaw-workflows/{run,spec,plan,review}.sh wrappers,
+# which AOT-compile this checkout by default so workflows exercise unpublished
+# host code. Set DARTCLAW_WORKFLOWS_HOST=system to run an installed dartclaw.
+#
+# Discovery: a bare `dartclaw workflow run --standalone <name>` run from the
+# repo root auto-discovers this file (cwd-local .dartclaw/dartclaw.yaml).
+# `data_dir: .` keeps the local DB and worktrees inside this .dartclaw/ dir;
+# .dartclaw/.gitignore commits the config + custom workflows and ignores
+# runtime state. Drop custom workflow YAMLs under .dartclaw/workflows/custom/.
+#
+# Maintainer-only, intentionally permissive (codex danger-full-access, no
+# approval gate). NOT a hardened operator profile — see
+# dev/tools/dartclaw-workflows/README.md § Safety Defaults. For a web-UI dev
+# server use `bash examples/run.sh` instead.
+
+data_dir: .
+dev_mode: true
+
+agent:
+  provider: codex
+  model: gpt-5.5
+
+guards:
+  enabled: true
+
+providers:
+  claude:
+    executable: claude
+    pool_size: 1
+  codex:
+    executable: codex
+    pool_size: 3
+    approval: never
+    sandbox: danger-full-access
+
+workflow:
+  defaults:
+    workflow:
+      model: codex/gpt-5.5
+      effort: medium
+    planner:
+      model: codex/gpt-5.5
+      effort: xhigh
+    executor:
+      model: codex/gpt-5.5
+      effort: medium
+    reviewer:
+      model: codex/gpt-5.5
+      effort: xhigh
+
+workspace:
+  git_sync:
+    enabled: false
+
+logging:
+  level: FINE
+
+governance:
+  budget:
+    daily_tokens: 10000000
+  loop_detection:
+    enabled: true
+  turn_progress:
+    stall_timeout: 10m
+    stall_action: cancel
+
+tasks:
+  budget:
+    default_max_tokens: 5000000
+  completion_action: accept
+
+features:
+  thread_binding:
+    enabled: true

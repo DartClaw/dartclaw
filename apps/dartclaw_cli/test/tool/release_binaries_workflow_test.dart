@@ -56,5 +56,8 @@ void main() {
     expect(workflow, contains('build/dartclaw-assets-v\${{ env.DARTCLAW_VERSION }}.tar.gz'));
     expect(workflow, contains('build/dartclaw-assets-v\${{ env.DARTCLAW_VERSION }}.tar.gz.sha256'));
     expect(workflow, contains('SHA256SUMS.txt'));
+    // The aggregate-checksums job has no checkout, so `gh release download`
+    // must get the repo from GH_REPO or it fails with "not a git repository".
+    expect(workflow, contains('GH_REPO: \${{ github.repository }}'));
   });
 }

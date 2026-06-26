@@ -115,6 +115,52 @@ void main() {
     );
   });
 
+  test('rejects flag-shaped relative path outputs that would inject into command args', () async {
+    // ADR-041 format:path trust boundary: a resolved single-value relative path
+    // output (e.g. spec_path) is interpolated straight into skill command args
+    // (`--auto {{context.spec_path}}`), so a flag-shaped segment must be
+    // rejected even though it resolves to a real, contained file. This restores
+    // the argument-safety axis the removed AndThen spec validator enforced.
+    final worktree = harness.createWorktree('worktree-flag-shaped-spec-path');
+    const flagShaped = 'docs/specs/demo/-rf.md';
+    harness.writeWorktreeFile(worktree, flagShaped, '# Spec\n');
+    final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, [flagShaped]));
+
+    final taskWithWorktree = await harness.buildTaskWithContext(
+      'task-flag-shaped-spec-path',
+      {'spec_path': flagShaped},
+      prefix: 'Spec discovered.',
+      suffix: '\n<step-outcome>{"status":"passed"}</step-outcome>',
+      worktreePath: worktree.path,
+    );
+    final step = harness.pathOutputStep('spec_path');
+
+    await expectLater(
+      localExtractor.extract(step, taskWithWorktree),
+      throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('flag-shaped path segments'))),
+    );
+  });
+
+  test('keeps argument-safe relative path outputs that resolve in the worktree', () async {
+    final worktree = harness.createWorktree('worktree-safe-spec-path');
+    const safePath = 'docs/specs/demo/s01-foo.md';
+    harness.writeWorktreeFile(worktree, safePath, '# Spec\n');
+    final localExtractor = harness.extractorWithGit(harness.gitWithUntracked(worktree, [safePath]));
+
+    final taskWithWorktree = await harness.buildTaskWithContext(
+      'task-safe-spec-path',
+      {'spec_path': safePath},
+      prefix: 'Spec discovered.',
+      suffix: '\n<step-outcome>{"status":"passed"}</step-outcome>',
+      worktreePath: worktree.path,
+    );
+    final step = harness.pathOutputStep('spec_path');
+
+    final outputs = await localExtractor.extract(step, taskWithWorktree);
+
+    expect(outputs['spec_path'], safePath);
+  });
+
   test('allows missing review report path when scoped review count is explicitly clean', () async {
     final taskWithSession = await harness.buildTaskWithContext('task-clean-review-missing-path', {
       'review_findings': '/tmp/dartclaw/runtime-artifacts/reviews/re-review-clean.md',

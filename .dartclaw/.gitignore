@@ -1,0 +1,8 @@
+*
+!.gitignore
+!dartclaw.yaml
+!workflows/
+!workflows/**
+workflows/**/.DS_Store
+workflows/built-in/
+workflows/runs/

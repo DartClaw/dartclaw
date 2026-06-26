@@ -12,7 +12,7 @@ Practical workflow recipes for common DartClaw automation patterns. Each recipe 
 
 **Want a ready-to-go personal AI assistant?** Start here:
 
---> [**Personal Assistant & Knowledge Base**](00-personal-assistant.md) -- a complete, turnkey setup combining daily briefings, knowledge curation, journaling, and self-improvement into one config. Includes a "Day in the Life" walkthrough, combined behavior files, and step-by-step setup.
+--> [**Personal Assistant & Knowledge Base**](00-personal-assistant.md) – a complete, turnkey setup combining daily briefings, knowledge curation, journaling, and self-improvement into one config. Includes a "Day in the Life" walkthrough, combined behavior files, and step-by-step setup.
 
 ## Decision Tree
 
@@ -66,4 +66,4 @@ See [Troubleshooting](_troubleshooting.md) for common issues: jobs not firing, a
 
 ## Further Reading
 
-- **Personal AI & PKM Landscape Research** -- DartClaw's design draws on research into systems like Letta, Khoj, Mem0, Zep, Alfred, and PAI. Topics include memory tier analysis, identity systems, behavioral learning, and proactive AI patterns. See the [Personal Assistant composite guide](00-personal-assistant.md#going-deeper) for an overview of how these patterns inform DartClaw's architecture
+- **Personal AI & PKM Landscape Research** – DartClaw's design draws on research into systems like Letta, Khoj, Mem0, Zep, Alfred, and PAI. Topics include memory tier analysis, identity systems, behavioral learning, and proactive AI patterns. See the [Personal Assistant composite guide](00-personal-assistant.md#going-deeper) for an overview of how these patterns inform DartClaw's architecture

@@ -48,7 +48,7 @@ workspace:
     push_enabled: true
 ```
 
-This configuration is modeled after the [`examples/personal-assistant.yaml`](../../../examples/personal-assistant.yaml) pattern, which includes a similar daily-journal and weekly-review setup.
+This configuration is modeled after [`examples/personal-assistant.yaml`](../../../examples/personal-assistant.yaml), which pairs the same daily-journal job with a weekly-review job.
 
 ## Behavior Files
 

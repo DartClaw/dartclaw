@@ -2,7 +2,7 @@
 
 How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
 
-**Current through**: 0.17
+**Current through**: 0.18.0
 
 ---
 
@@ -80,7 +80,7 @@ The session subsystem spans four packages:
 
 ### Session Entity
 
-Defined in `../dartclaw-public/packages/dartclaw_models/lib/src/models.dart`:
+Defined in `packages/dartclaw_models/lib/src/models.dart`:
 
 ```
 Session
@@ -109,7 +109,7 @@ the normal deletion API -- they are system-managed.
 
 ### SessionKey
 
-Defined in `../dartclaw-public/packages/dartclaw_models/lib/src/session_key.dart`.
+Defined in `packages/dartclaw_models/lib/src/session_key.dart`.
 Provides deterministic, collision-free routing from external contexts to
 internal UUID-based sessions.
 
@@ -169,7 +169,7 @@ Message
 ## 3. Session Scoping Model
 
 Controls how inbound channel messages are mapped to sessions.
-Defined in `../dartclaw-public/packages/dartclaw_models/lib/src/session_scope_config.dart`.
+Defined in `packages/dartclaw_models/lib/src/session_scope_config.dart`.
 
 ### Scope Enums
 
@@ -209,14 +209,14 @@ config for a channel type, merging per-channel overrides with global defaults.
 
 ### LiveScopeConfig
 
-Mutable wrapper in `../dartclaw-public/packages/dartclaw_core/lib/src/scoping/live_scope_config.dart`
+Mutable wrapper in `packages/dartclaw_core/lib/src/scoping/live_scope_config.dart`
 that holds the current `SessionScopeConfig`. Updated at runtime when config
 changes are detected, allowing the session routing layer to pick up new scoping
 rules without restart.
 
 ### Config Integration
 
-`SessionConfig` in `../dartclaw-public/packages/dartclaw_config/lib/src/session_config.dart`
+`SessionConfig` in `packages/dartclaw_config/lib/src/session_config.dart`
 bundles session-related configuration:
 
 ```
@@ -239,7 +239,7 @@ How an inbound message is routed to a session:
        v
   +-----------------------------+
   | 1. Governance check         |  rate limit -> budget -> loop detection
-  |    (GovernanceEnforcer)      |  May reject before routing.
+  |    (TurnGovernanceEnforcer)  |  May reject before routing.
   +-----------------------------+
        |
        v
@@ -293,7 +293,7 @@ How an inbound message is routed to a session:
 
 ## 5. Session Services
 
-All session services live in `../dartclaw-public/packages/dartclaw_core/lib/src/storage/`.
+All session services live in `packages/dartclaw_core/lib/src/storage/`.
 
 ### SessionService
 
@@ -355,7 +355,7 @@ markers). The cache is invalidated on write failure.
 
 ## 6. Session Locking
 
-Defined in `../dartclaw-public/packages/dartclaw_server/lib/src/concurrency/session_lock_manager.dart`.
+Defined in `packages/dartclaw_server/lib/src/concurrency/session_lock_manager.dart`.
 
 `SessionLockManager` provides per-session write serialization with a global
 concurrency cap:
@@ -387,7 +387,7 @@ This simplifies consistency guarantees and avoids read-write contention.
 
 ## 7. Event Bus Architecture
 
-Defined in `../dartclaw-public/packages/dartclaw_core/lib/src/events/`.
+Defined in `packages/dartclaw_core/lib/src/events/`.
 
 ### EventBus
 
@@ -493,7 +493,7 @@ See ADR-011 for the event bus design decision. Key motivations:
 
 ### GroupSessionInitializer
 
-Defined in `../dartclaw-public/packages/dartclaw_server/lib/src/session/group_session_initializer.dart`.
+Defined in `packages/dartclaw_server/lib/src/session/group_session_initializer.dart`.
 
 Pre-creates sessions for allowlisted groups so they appear in the UI immediately,
 without waiting for the first inbound message.
@@ -526,7 +526,7 @@ ChannelGroupConfig
 
 ### DmAccessController
 
-Defined in `../dartclaw-public/packages/dartclaw_core/lib/src/channel/dm_access.dart`.
+Defined in `packages/dartclaw_core/lib/src/channel/dm_access.dart`.
 Controls which senders are allowed to DM the bot.
 
 | Mode        | Behavior                                          |
@@ -545,7 +545,7 @@ adds the sender to the allowlist; `rejectPairing(code)` discards it.
 
 ### SessionMaintenanceService
 
-Defined in `../dartclaw-public/packages/dartclaw_server/lib/src/maintenance/session_maintenance_service.dart`.
+Defined in `packages/dartclaw_server/lib/src/maintenance/session_maintenance_service.dart`.
 
 Executes a five-stage pipeline:
 
@@ -586,7 +586,7 @@ SessionMaintenanceConfig
 
 ### SessionResetService
 
-Defined in `../dartclaw-public/packages/dartclaw_server/lib/src/session/session_reset_service.dart`.
+Defined in `packages/dartclaw_server/lib/src/session/session_reset_service.dart`.
 Manages daily and idle-timeout session resets.
 
 **Daily reset** (configurable hour, default 4 AM):
@@ -609,7 +609,7 @@ updates to `resetHour` and `idleTimeoutMinutes`.
 ## 10. Thread Binding
 
 Crowd coding feature. Defined in
-`../dartclaw-public/packages/dartclaw_core/lib/src/channel/thread_binding.dart`.
+`packages/dartclaw_core/lib/src/channel/thread_binding.dart`.
 Related classes (`ThreadBindingRouter`, `ThreadBindingLifecycleManager`) live
 alongside it in the same directory.
 
@@ -663,7 +663,7 @@ all associated bindings.
 
 ### GovernanceConfig
 
-Top-level governance configuration in `../dartclaw-public/packages/dartclaw_config/lib/src/governance_config.dart`:
+Top-level governance configuration in `packages/dartclaw_config/lib/src/governance_config.dart`:
 
 ```
 GovernanceConfig
@@ -698,7 +698,7 @@ is empty, all senders are treated as admins (suitable for single-user deployment
 
 ### TurnGovernanceEnforcer
 
-Defined in `../dartclaw-public/packages/dartclaw_server/lib/src/turn_governance_enforcer.dart`.
+Defined in `packages/dartclaw_server/lib/src/turn_governance_enforcer.dart`.
 Orchestrates pre-turn and in-turn governance checks:
 
 **Pre-turn checks** (called before `SessionLockManager.acquire()`):
@@ -713,7 +713,7 @@ Orchestrates pre-turn and in-turn governance checks:
 ### SlidingWindowRateLimiter
 
 In-memory sliding window rate limiter in
-`../dartclaw-public/packages/dartclaw_core/lib/src/governance/sliding_window_rate_limiter.dart`.
+`packages/dartclaw_config/lib/src/sliding_window_rate_limiter.dart` (re-exported from the `dartclaw_core` barrel).
 
 - Tracks events per key within a configurable time window
 - `check(key)`: returns `true` if under limit (and records event), `false` if at limit
@@ -724,7 +724,7 @@ In-memory sliding window rate limiter in
 ### LoopDetector
 
 Three independent detection mechanisms in
-`../dartclaw-public/packages/dartclaw_core/lib/src/governance/loop_detector.dart`:
+`packages/dartclaw_config/lib/src/loop_detector.dart` (re-exported from the `dartclaw_core` barrel):
 
 ```
 Mechanism 1: Turn Chain Depth
@@ -749,7 +749,7 @@ callers decide the action (`LoopAction.abort` throws `LoopDetectedException`,
 
 ### BudgetEnforcer
 
-Defined in `../dartclaw-public/packages/dartclaw_server/lib/src/governance/budget_enforcer.dart`.
+Defined in `packages/dartclaw_server/lib/src/governance/budget_enforcer.dart`.
 Checks daily token consumption against the configured budget:
 
 ```
@@ -766,7 +766,7 @@ Warning state is in-memory (resets on restart). Reads actual consumption from
 ### Emergency Controls
 
 **`/stop`** -- `EmergencyStopHandler` in
-`../dartclaw-public/packages/dartclaw_server/lib/src/emergency/emergency_stop_handler.dart`:
+`packages/dartclaw_server/lib/src/emergency/emergency_stop_handler.dart`:
 
 1. Cancel all active turns across all runners in the harness pool
 2. Transition all `running` and `queued` tasks to `cancelled`
@@ -777,7 +777,7 @@ Best-effort: individual failures are logged but do not halt the stop sequence.
 Admin-only command.
 
 **`/pause`** and **`/resume`** -- `PauseController` in
-`../dartclaw-public/packages/dartclaw_server/lib/src/governance/pause_controller.dart`:
+`packages/dartclaw_server/lib/src/governance/pause_controller.dart`:
 
 **Pause state**:
 - `pause(adminName)`: set paused flag, record who/when
@@ -867,7 +867,7 @@ the cursor. On crash:
 
 ### TurnStateStore
 
-SQLite-backed store in `../dartclaw-public/packages/dartclaw_storage/lib/src/storage/turn_state_store.dart`
+SQLite-backed store in `packages/dartclaw_storage/lib/src/storage/turn_state_store.dart`
 that tracks active turns:
 
 ```sql

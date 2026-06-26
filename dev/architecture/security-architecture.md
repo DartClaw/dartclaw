@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.18
+**Current through**: 0.19
 
 ---
 
@@ -143,9 +143,49 @@ Guards evaluate canonical tool names, not provider-native strings. Provider adap
 | **CommandGuard** | `beforeToolCall` (Bash) | All Bash tool calls | Destructive command, force operation, fork bomb, interpreter escape, pipe target blocking |
 | **FileGuard** | `beforeToolCall` (Bash, write_file, edit_file) | File operations | Glob-based path protection with 3 access levels, symlink resolution |
 | **NetworkGuard** | `beforeToolCall` (Bash, web_fetch) | Network operations | Domain allowlist, IP blocking, exfiltration pattern detection |
+| **EgressGuard** | `outboundMcpToolsCall` | Outbound MCP `tools/call` dispatch | Default-deny per-server/per-tool allowlist for external MCP calls |
 | **ContentGuard** | `beforeAgentSend` | Agent boundary handoff | LLM-based content classification (prompt injection, harmful content, exfiltration) |
 | **ToolPolicyGuard** | `beforeToolCall` | Sub-agent tool calls | 3-layer policy cascade: global deny, agent deny, sandbox allow |
 | **TaskToolFilterGuard** | `beforeToolCall` | Per-task tool allowlist | Restricts tool use to the current task's allowlist; optional read-only mode blocks mutating file/shell calls |
+
+### Outbound MCP Egress Boundary
+
+The outbound MCP client is a separate trust boundary from the in-process MCP server. It consumes configured external
+MCP servers and dispatches `tools/call` over stdio or HTTP, so every call is mediated before the external server sees
+the request. Design rationale: [ADR-039](../adrs/039-outbound-mcp-trust-boundary-and-transport.md).
+
+Dispatch is default-deny:
+
+1. `OutboundMcpPool.callTool()` builds an `OutboundMcpGuardRequest` with the configured server name, tool name,
+   arguments, and caller identity.
+2. `EgressGuard` evaluates `hookPoint: outboundMcpToolsCall` against the per-server `allow_tools` list. Missing server,
+   missing tool, unknown server, or non-allowlisted tool returns a block verdict. `surface_tools` controls only
+   harness-facing tool-list visibility and is not used as the egress allowlist.
+3. Per-server governance checks apply after the guard: `rate_limit.calls` / `rate_limit.window_seconds` and
+   `token_budget.tokens` / `token_budget.window_seconds`.
+4. The pool writes a guard audit entry before successful external dispatch, and also audits guard/governance denials.
+   If the guard or audit path throws, the call fails closed with an `Egress denied: guard/audit failure` result.
+
+Outbound audit records extend the normal guard audit shape with the external MCP fields needed for incident review:
+`server`, `tool`, `decision`, `principal`, `sessionId`, and the configured `credentialRef`. The `principal` falls back
+to the caller session when no explicit principal is available.
+
+Known limitation: outbound tools reached through the live `/mcp` adapter currently use system-level caller attribution
+(`sessionId: system`, `principal: system`). Per-turn/session-precise attribution requires future `/mcp` caller plumbing;
+until then, incident review should treat these adapter-originated audit rows as runtime-owned outbound activity, not a
+precise end-user session trace.
+
+HTTP outbound MCP dispatch requires HTTPS by default. For `network_class: public`, the transport applies the same
+blocked-range/DNS policy used by `web_fetch` to the initial configured target before sending a request body, and refuses
+redirects rather than following them. Stdio servers are still external code: they are started only from configured
+`mcp_servers` entries, and their tool calls stay behind the same egress guard and audit boundary. Credentialed stdio
+servers receive their resolved secret through the sanctioned `SafeProcess`/`EnvPolicy` env path — injected into the
+child environment under the variable name(s) the referenced credential declares, never in argv, the inherited parent
+environment, logs, or the audit record (which retains only the credential reference). A credentialed stdio server whose
+credential declares no env var name fails closed rather than guessing one.
+
+The temporal-KG MCP mutating tools (`kg_add`, `kg_invalidate`) now invoke the guard chain before mutation and write audit
+evidence through the same guard-audit policy family; the old TD-110 gap where they bypassed guard/audit policy is closed.
 
 ### Guard Hot-Reload
 
@@ -477,7 +517,7 @@ This keeps the container/proxy model intact for Claude while allowing Codex to u
 
 **Source**: `packages/dartclaw_config/lib/src/credential_registry.dart`, `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_server/lib/src/container/credential_proxy.dart`
 
-**Diagram**: [Credential Proxy (Excalidraw)](../diagrams/credential-proxy.excalidraw)
+**Diagram**: Credential Proxy (Excalidraw) — source in private repo: `docs/diagrams/credential-proxy.excalidraw`
 
 ### Git Credential Integration
 
@@ -798,7 +838,7 @@ Sliding window rate limit on turn reservations across all sessions and senders c
 
 `SlidingWindowRateLimiter` uses lazy eviction — expired entries are removed on `check()` calls, not on a background timer. `check()` both verifies and records the event atomically: a passing check records; a failing check does not inflate the counter. This makes it safe to use in deferral retry loops without self-inflating. All rate limit state is in-memory — resets on server restart.
 
-**Source**: `packages/dartclaw_core/lib/src/governance/sliding_window_rate_limiter.dart`
+**Source**: `packages/dartclaw_config/lib/src/sliding_window_rate_limiter.dart` (re-exported from the `dartclaw_core` barrel)
 
 ### Daily Token Budget Enforcement
 
@@ -839,7 +879,7 @@ Detects runaway agent behavior using three independent mechanisms. Injected into
 | `abort` | Throws `LoopDetectedException`, cancels the turn. `TaskExecutor` catches and transitions the task to `failed`. |
 | `warn` | Fires `LoopDetectedEvent` on the EventBus for logging and observability. Turn continues. |
 
-**Source**: `packages/dartclaw_core/lib/src/governance/loop_detector.dart`, `packages/dartclaw_core/lib/src/governance/loop_detection.dart`
+**Source**: `packages/dartclaw_config/lib/src/loop_detector.dart`, `packages/dartclaw_config/lib/src/loop_detection.dart` (re-exported from the `dartclaw_core` barrel)
 
 ### Emergency Controls
 
@@ -1017,7 +1057,7 @@ gateway:
 |----------|----------|
 | Data Model | `dev/architecture/data-model.md` — `audit.ndjson`, `usage.jsonl` rotation and lifecycle |
 | Feature Comparison | `docs/specs/feature-comparison.md` — OpenClaw vs NanoClaw vs DartClaw security models |
-| Public Security Guide | `../dartclaw-public/docs/guide/security.md` — user-facing summary |
+| Public Security Guide | `docs/guide/security.md` — user-facing summary |
 | Security Hardening PRD | `docs/specs/0.5/prd.md` — InputSanitizer, MessageRedactor, ContentClassifier |
 | 0.12 PRD | `docs/specs/0.12/prd.md` — Runtime governance, emergency controls, thread binding, sender attribution |
 | System Architecture | `dev/architecture/system-architecture.md` — Inbound Message Pipeline, Runtime Governance, and Emergency Controls |
@@ -1056,9 +1096,9 @@ gateway:
 | `container/container_health_monitor.dart` | `dartclaw_server` | Periodic container health checks |
 | `harness/tool_policy.dart` | `dartclaw_core` | Control protocol tool approval/hook responses |
 | `governance_config.dart` | `dartclaw_config` | GovernanceConfig, RateLimitsConfig, BudgetConfig, LoopDetectionConfig |
-| `governance/sliding_window_rate_limiter.dart` | `dartclaw_core` | In-memory sliding window rate limiter |
-| `governance/loop_detector.dart` | `dartclaw_core` | 3-mechanism loop detection (turn chain, velocity, fingerprint) |
-| `governance/loop_detection.dart` | `dartclaw_core` | LoopDetection result, LoopMechanism enum, LoopDetectedException |
+| `sliding_window_rate_limiter.dart` | `dartclaw_config` | In-memory sliding window rate limiter |
+| `loop_detector.dart` | `dartclaw_config` | 3-mechanism loop detection (turn chain, velocity, fingerprint) |
+| `loop_detection.dart` | `dartclaw_config` | LoopDetection result, LoopMechanism enum, LoopDetectedException |
 | `channel/thread_binding.dart` | `dartclaw_core` | ThreadBinding model, ThreadBindingStore persistence |
 | `governance/budget_enforcer.dart` | `dartclaw_server` | Daily token budget enforcement, timezone-aware |
 | `governance/pause_controller.dart` | `dartclaw_server` | In-memory pause/resume with per-sender message collapsing |

@@ -1,0 +1,71 @@
+<div tl:fragment="kgTimeline" class="shell">
+  <div tl:utext="${sidebar}"><!-- sidebar --></div>
+  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+    <div class="page-inner kg-timeline-page">
+      <div class="pagehead">
+        <div>
+          <h1 class="page-title">KG Timeline</h1>
+          <p class="page-subtitle">Temporal facts grouped by category and validity window.</p>
+        </div>
+      </div>
+
+      <div class="knowledge-tabs" aria-label="Knowledge views">
+        <a class="tab-btn" href="/knowledge/research">Research</a>
+        <a class="tab-btn active" href="/knowledge/timeline">Timeline</a>
+      </div>
+
+      <form class="kg-timeline-controls" method="get" action="/knowledge/timeline">
+        <label class="field">
+          <span class="field-label">Category</span>
+          <input class="input" name="category" tl:attr="value=${selectedCategory}" placeholder="architecture decisions">
+        </label>
+        <label class="field">
+          <span class="field-label">As of</span>
+          <input class="input" name="as_of" tl:attr="value=${asOf}" placeholder="2026-01-15T00:00:00Z">
+        </label>
+        <div class="kg-timeline-actions">
+          <button class="btn btn-primary" type="submit">Apply</button>
+          <a class="btn btn-ghost" href="/knowledge/timeline">↺ now</a>
+        </div>
+      </form>
+
+      <div tl:if="${hasError}" class="research-notice research-notice--degraded kg-timeline-error" role="alert">
+        <span class="card-badge badge-error" tl:text="${statusCode}">400</span>
+        <span tl:text="${errorMessage}">invalid as-of timestamp</span>
+      </div>
+
+      <div tl:unless="${hasError}">
+        <div tl:unless="${hasCategories}" class="card kg-timeline-empty">
+          <p class="card-detail card-detail-muted" tl:text="${emptyMessage}">No facts recorded in this category yet.</p>
+        </div>
+
+        <section tl:each="category : ${categories}" class="kg-category-group">
+          <div class="kg-category-heading">
+            <h2 class="section-label" tl:text="${category.name}">architecture decisions</h2>
+            <span class="card-badge" tl:text="${category.count}">2</span>
+          </div>
+
+          <div class="kg-fact-list">
+            <article tl:each="fact : ${category.facts}"
+                     class="card kg-fact-card"
+                     tl:classappend="${fact.stateClass}"
+                     tl:attr="id=${fact.id}">
+              <div class="kg-fact-head">
+                <span class="card-badge kg-state-badge" tl:text="${fact.stateLabel}">active</span>
+                <span tl:if="${fact.isConflict}" class="card-badge badge-error">conflict cluster</span>
+              </div>
+              <p class="kg-fact-statement" tl:text="${fact.statement}">predicate = value</p>
+              <div class="kg-validity-window">
+                <span class="kg-window-pill">valid_from <strong tl:text="${fact.validFrom}">2026-01-01</strong></span>
+                <span class="kg-window-pill">valid_to <strong tl:text="${fact.validTo}">ongoing</strong></span>
+              </div>
+              <tl:block tl:utext="${fact.attributionHtml}"><!-- attribution --></tl:block>
+            </article>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>

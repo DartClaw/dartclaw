@@ -2,7 +2,7 @@
 
 ## Overview
 
-An interactive research workflow powered by the search agent and memory system. Ask research questions via the web UI, and the agent searches the web, synthesizes findings, and saves them to memory for future reference. Persistent memory means previous research informs future queries.
+An interactive research workflow powered by the search agent and memory system. Ask research questions via the web UI, and the agent searches the web, synthesizes findings, and saves them to memory so previous research informs future queries.
 
 ## Features Used
 
@@ -90,7 +90,7 @@ When asked a research question:
 
 ## Cron Prompts
 
-This recipe is interactive (driven by user questions in the web UI), not cron-driven. However, you can add a scheduled research job for recurring topics:
+This recipe is interactive (driven by user questions in the web UI), not cron-driven. You can still add a scheduled research job for recurring topics:
 
 ```yaml
 scheduling:

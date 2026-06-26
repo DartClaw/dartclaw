@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService, Task;
 import 'workflow_definition.dart'
-    show OutputFormat, WorkflowDefinition, WorkflowGitArtifactsStrategy, WorkflowNode, WorkflowStep;
+    show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowGitArtifactsStrategy, WorkflowNode, WorkflowStep;
 import 'workflow_run.dart' show WorkflowRun;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -19,15 +19,6 @@ final _log = Logger('WorkflowArtifactCommitter');
 
 const _artifactCommitAuthorName = 'DartClaw Workflow';
 const _artifactCommitAuthorEmail = 'workflow@dartclaw.local';
-
-const _artifactProducingSkills = <String>{
-  'andthen:prd',
-  'andthen:plan',
-  'andthen:spec',
-  'andthen:review',
-  'andthen:architecture',
-  'andthen:remediate-findings',
-};
 
 /// Policy inputs needed to commit path artifacts after a successful step.
 final class ArtifactCommitPolicy {
@@ -293,15 +284,16 @@ bool artifactCommitFailureIsFatal(ArtifactCommitPolicy policy) {
 /// True when a workflow contains at least one artifact-producing step.
 bool workflowHasArtifactProducer(WorkflowDefinition definition) {
   for (final step in definition.steps) {
-    if (step.skill != null && _artifactProducingSkills.contains(step.skill)) return true;
     final outputs = step.outputs;
     if (outputs == null) continue;
     for (final cfg in outputs.values) {
-      if (cfg.format == OutputFormat.path) return true;
+      if (_outputProducesArtifacts(cfg)) return true;
     }
   }
   return false;
 }
+
+bool _outputProducesArtifacts(OutputConfig cfg) => cfg.format == OutputFormat.path || cfg.presetName == 'story_specs';
 
 /// Resolves the project working tree used for artifact commits.
 Future<ResolvedArtifactProject?> resolveArtifactCommitProject({
@@ -334,7 +326,14 @@ String? _resolveArtifactProjectTemplate(
   WorkflowTemplateEngine templateEngine,
 ) {
   if (template == null) return null;
-  final resolved = templateEngine.resolve(template, context).trim();
+  final String resolved;
+  try {
+    resolved = templateEngine.resolve(template, context).trim();
+  } on ArgumentError {
+    // An unset optional project variable (standalone/inline) means "no commit
+    // target", not a failure — matches the project/session-binding resolver.
+    return null;
+  }
   return resolved.isEmpty ? null : resolved;
 }
 

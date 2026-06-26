@@ -15,9 +15,11 @@ DartclawServerBuilder _buildServerBuilderPreServer(
     ..traceService = storage.traceService
     ..taskEventService = storage.taskEventService
     ..worker = harness.harness
-    ..staticDir = ctx.resolvedAssets?.staticDir ?? config.server.staticDir
+    ..staticDir = ctx.resolvedAssets.staticDir
     ..behavior = harness.behavior
     ..memoryFile = storage.memoryFile
+    ..memoryService = storage.memory
+    ..kgService = storage.kg
     ..guardChain = security.guardChain
     ..kv = storage.kvService
     ..healthService = harness.healthService

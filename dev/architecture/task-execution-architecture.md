@@ -2,7 +2,7 @@
 
 How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through harness pool dispatch, turn execution, artifact collection, and review lifecycle.
 
-**Current through**: 0.16.4
+**Current through**: 0.18.0
 
 ---
 
@@ -87,7 +87,7 @@ Enum in `dartclaw_models/lib/src/task_type.dart`:
 
 Task type influences artifact collection strategy, prompt composition, review mode resolution, and security profile selection.
 
-For workflow-owned tasks specifically, authored workflow step types collapse onto the coding-task path. The authored YAML type is preserved as `_workflowStepType` metadata for observability and review-mode compatibility, while write intent is expressed through `configJson.readOnly`.
+For workflow-owned tasks specifically, authored workflow step types collapse onto the coding-task path. The authored YAML type is preserved on the hydrated `WorkflowStepExecution` side-table row (`stepType`) for observability and review-mode compatibility, while write intent is expressed through `configJson.readOnly` (set when `step_config_policy.stepIsReadOnly()` holds).
 
 For structured workflow outputs, task execution is conditional rather than always-two-turns: the one-shot branch first checks whether the final assistant message already contains a valid inline `<workflow-context>` payload for the declared structured output, and only falls back to the extra provider-native extraction turn when that inline parse fails.
 
@@ -518,11 +518,11 @@ Returns sealed `PushResult`: `PushSuccess`, `PushAuthFailure`, `PushRejected`, `
 
 Creates GitHub pull requests at `dartclaw_server/lib/src/task/pr_creator.dart`.
 
-Uses the **outpost pattern**: invokes `gh pr create` as a subprocess. Gracefully degrades when `gh` is not available on PATH, returning `PrGhNotFound` with manual instructions.
+Calls the GitHub REST API directly via `HttpClient` (`POST /repos/{owner}/{repo}/pulls`), authenticated with the project's resolved `github-token` credential — no `gh` CLI dependency. Returns a sealed `PrCreationResult`: `PrCreated` (with URL), `PrCreationFailed` (incompatible credential, non-GitHub remote, or API error), or `PrGhNotFound` (manual follow-up required).
 
 PR metadata: title from task title, body from task description + acceptance criteria.
 
-Supports: `--draft`, `--label`, configurable `--base` branch.
+Base branch is `project.defaultBranch`; `draft` and `labels` come from `project.pr` (`PrConfig`). Labels are applied via a follow-up `POST /repos/{owner}/{repo}/issues/{number}/labels` call.
 
 ### 6.7 ArtifactCollector
 
@@ -792,13 +792,13 @@ Introduced in 0.14.
 
 ### 10.1 Project Model
 
-Defined in `dartclaw_models` (see [ADR-017](../adrs/017-multi-project-architecture.md)):
+Defined in `dartclaw_config` (see [ADR-017](../adrs/017-multi-project-architecture.md)):
 
 | Field | Type | Purpose |
 |-------|------|---------|
 | `id` | `String` | Unique project identifier |
 | `name` | `String` | Display name |
-| `gitUrl` | `String` | Remote repository URL |
+| `remoteUrl` | `String` | Remote repository URL |
 | `localPath` | `String` | Clone directory: `<dataDir>/projects/<projectId>/` |
 | `defaultBranch` | `String` | Base branch for worktrees |
 | `credentialsRef` | `String?` | Reference to credentials config entry |

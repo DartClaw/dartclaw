@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.16.4
+**Current through**: 0.18.0
 
 ---
 
@@ -35,7 +35,7 @@ Three principles govern channel design:
 All channel types are defined in `dartclaw_models`:
 
 ```
-// ../dartclaw-public/packages/dartclaw_models/lib/src/channel_type.dart
+// packages/dartclaw_models/lib/src/channel_type.dart
 enum ChannelType { web, whatsapp, signal, googlechat }
 ```
 
@@ -44,7 +44,7 @@ enum ChannelType { web, whatsapp, signal, googlechat }
 Every channel adapter produces a `ChannelMessage` -- the single inbound message type consumed by all downstream stages.
 
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/channel.dart
+// packages/dartclaw_core/lib/src/channel/channel.dart
 class ChannelMessage {
   final String id;               // UUID assigned by adapter
   final ChannelType channelType; // Transport origin
@@ -67,7 +67,7 @@ The `senderDisplayName` getter checks metadata keys in priority order: `senderDi
 ### 2.3 ChannelResponse (Outbound)
 
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/channel.dart
+// packages/dartclaw_core/lib/src/channel/channel.dart
 class ChannelResponse {
   final String text;
   final List<String> mediaAttachments;
@@ -82,7 +82,7 @@ Channels that support structured rendering (Google Chat Cards v2) prefer `struct
 ### 2.4 Abstract Channel
 
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/channel.dart
+// packages/dartclaw_core/lib/src/channel/channel.dart
 abstract class Channel {
   String get name;
   ChannelType get type;
@@ -104,7 +104,7 @@ abstract class Channel {
 The `ChannelManager` is the routing hub. It holds a list of registered `Channel` instances, a `MessageQueue`, and an optional `ChannelTaskBridge`.
 
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/channel_manager.dart
+// packages/dartclaw_core/lib/src/channel/channel_manager.dart
 class ChannelManager {
   final MessageQueue queue;
   final ChannelConfig config;
@@ -241,7 +241,7 @@ Introduced in 0.12 (Crowd Coding), thread binding enables channel threads (e.g.,
 ### 4.1 Data Model
 
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/thread_binding.dart
+// packages/dartclaw_core/lib/src/channel/thread_binding.dart
 class ThreadBinding {
   final String channelType;    // e.g., 'googlechat'
   final String threadId;       // e.g., 'spaces/AAAA/threads/CCCC'
@@ -325,7 +325,7 @@ Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes 
 `resolveRecipientId()` determines where to send the response:
 
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/recipient_resolver.dart
+// packages/dartclaw_core/lib/src/channel/recipient_resolver.dart
 String resolveRecipientId(ChannelMessage message) {
   // Priority:
   // 1. metadata['spaceName'] -- Google Chat Space name
@@ -339,7 +339,7 @@ String resolveRecipientId(ChannelMessage message) {
 Large responses are split at smart break points:
 
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/text_chunking.dart
+// packages/dartclaw_core/lib/src/channel/text_chunking.dart
 List<String> chunkText(String text, {int maxSize = 4000})
 // Break priority: paragraph > line > sentence > word
 // Multi-part chunks get "(n/total)" prefix
@@ -361,7 +361,7 @@ List<String> chunkText(String text, {int maxSize = 4000})
 The `ChannelTaskBridge` is the integration point between the channel messaging pipeline and the task management subsystem. It lives in `dartclaw_core` to avoid circular dependencies.
 
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/channel_task_bridge.dart
+// packages/dartclaw_core/lib/src/channel/channel_task_bridge.dart
 class ChannelTaskBridge {
   Future<bool> tryHandle(ChannelMessage, Channel, {sessionKey, enqueue, ...});
   bool isReservedCommand(String text);
@@ -408,7 +408,7 @@ If no step consumes the message, `tryHandle()` returns `false` and the message f
 
 `TaskTriggerConfig` per channel:
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/task_trigger_config.dart
+// packages/dartclaw_core/lib/src/channel/task_trigger_config.dart
 class TaskTriggerConfig {
   final bool enabled;
   final String prefix;       // default: "task:"
@@ -420,7 +420,7 @@ class TaskTriggerConfig {
 ### 6.3 Review Commands
 
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/review_command_parser.dart
+// packages/dartclaw_core/lib/src/channel/review_command_parser.dart
 class ReviewCommandParser {
   ReviewCommand? parse(String message);
   // Recognized:
@@ -441,7 +441,7 @@ class ReviewCommandParser {
 When a task is created from a channel message, a `TaskOrigin` record captures the originating context:
 
 ```
-// ../dartclaw-public/packages/dartclaw_core/lib/src/channel/task_origin.dart
+// packages/dartclaw_core/lib/src/channel/task_origin.dart
 class TaskOrigin {
   final String channelType;
   final String sessionKey;
@@ -498,7 +498,7 @@ Two auth paths:
 ### 7.3 Workspace Events Manager
 
 ```
-// ../dartclaw-public/packages/dartclaw_google_chat/lib/src/workspace_events_manager.dart
+// packages/dartclaw_google_chat/lib/src/workspace_events_manager.dart
 class WorkspaceEventsManager {
   Future<SubscriptionRecord?> subscribe(String spaceId);
   Future<bool> unsubscribe(String spaceId);
@@ -516,7 +516,7 @@ Key behaviors:
 ### 7.4 Pub/Sub Client
 
 ```
-// ../dartclaw-public/packages/dartclaw_google_chat/lib/src/pubsub_client.dart
+// packages/dartclaw_google_chat/lib/src/pubsub_client.dart
 class PubSubClient {
   void start();           // Begin pull loop (async)
   Future<void> stop();    // Graceful shutdown
@@ -557,7 +557,7 @@ class PubSubClient {
 WhatsApp integration uses GOWA (Go WhatsApp), a Go binary managed as a subprocess:
 
 ```
-// ../dartclaw-public/packages/dartclaw_whatsapp/lib/src/gowa_manager.dart
+// packages/dartclaw_whatsapp/lib/src/gowa_manager.dart
 class GowaManager {
   Future<void> start();         // Spawn + health check
   Future<void> stop();          // SIGTERM + SIGKILL fallback
@@ -579,7 +579,7 @@ Key behaviors:
 ### 8.2 WhatsApp Channel
 
 ```
-// ../dartclaw-public/packages/dartclaw_whatsapp/lib/src/whatsapp_channel.dart
+// packages/dartclaw_whatsapp/lib/src/whatsapp_channel.dart
 class WhatsAppChannel extends Channel {
   void handleWebhook(Map<String, dynamic> payload);
 }
@@ -609,7 +609,7 @@ Webhook payload parsing (GOWA v8 format):
 Signal uses signal-cli, a Java application running in HTTP daemon mode:
 
 ```
-// ../dartclaw-public/packages/dartclaw_signal/lib/src/signal_cli_manager.dart
+// packages/dartclaw_signal/lib/src/signal_cli_manager.dart
 class SignalCliManager {
   Future<void> start();    // Spawn + health check + SSE connect
   Future<void> stop();
@@ -630,7 +630,7 @@ Key behaviors:
 ### 9.2 Signal Channel
 
 ```
-// ../dartclaw-public/packages/dartclaw_signal/lib/src/signal_channel.dart
+// packages/dartclaw_signal/lib/src/signal_channel.dart
 class SignalChannel extends Channel {
   // Listens to SignalCliManager.events, parses envelopes, routes to ChannelManager
 }
@@ -644,7 +644,7 @@ Envelope parsing:
 ### 9.3 Sender Map
 
 ```
-// ../dartclaw-public/packages/dartclaw_signal/lib/src/signal_sender_map.dart
+// packages/dartclaw_signal/lib/src/signal_sender_map.dart
 class SignalSenderMap {
   String resolve({String? sourceNumber, String? sourceUuid});
 }
@@ -655,7 +655,7 @@ Signal's sealed-sender protocol means unknown senders appear as UUID only. The s
 ### 9.4 DM Access
 
 ```
-// ../dartclaw-public/packages/dartclaw_signal/lib/src/signal_dm_access.dart
+// packages/dartclaw_signal/lib/src/signal_dm_access.dart
 class SignalMentionGating {
   bool shouldProcess(ChannelMessage message);
 }
@@ -728,7 +728,7 @@ Session keys determine which agent conversation receives a message. The `Session
 ### 11.2 Per-Channel Overrides
 
 ```
-// ../dartclaw-public/packages/dartclaw_models/lib/src/session_scope_config.dart
+// packages/dartclaw_models/lib/src/session_scope_config.dart
 class SessionScopeConfig {
   final DmScope dmScope;           // Global default
   final GroupScope groupScope;     // Global default
@@ -846,7 +846,7 @@ Dependency direction is strictly downward: platform packages depend on core, nev
 ### 15.1 Webhook Routes
 
 ```
-// ../dartclaw-public/packages/dartclaw_server/lib/src/api/webhook_routes.dart
+// packages/dartclaw_server/lib/src/api/webhook_routes.dart
 Router webhookRoutes({
   WhatsAppChannel? whatsApp,
   String? webhookSecret,

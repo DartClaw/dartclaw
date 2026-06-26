@@ -69,6 +69,8 @@ AlertClassification? classifyAlert(DartclawEvent event) {
     StepSkippedEvent() => null,
     AgentStateChangedEvent() => null,
     AgentExecutionStatusChangedEvent() => null,
+    OutboundMcpGovernanceEvent() => null,
+    ContextResearchMetricsEvent() => null,
   };
 }
 

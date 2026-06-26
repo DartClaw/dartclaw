@@ -6,7 +6,14 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ProcessRunner, SkillIntrospector, WorkflowDefinition, WorkflowStep, WorkflowTaskType, WorkflowVariable;
+    show
+        ProcessRunner,
+        ProviderAuthPreflight,
+        SkillIntrospector,
+        WorkflowDefinition,
+        WorkflowStep,
+        WorkflowTaskType,
+        WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -24,9 +31,34 @@ HarnessFactory capturingHarnessFactory(
   final factory = HarnessFactory();
   for (final providerId in providerIds) {
     factory.register(providerId, (config) {
-      capturedByProvider.putIfAbsent(providerId, () => <HarnessFactoryConfig>[]).add(config);
+      // Ignore capability-probe constructions (cwd:'/', no spawn) — e.g.
+      // `probeContinuityProviders` during pre-harness registry wiring — so
+      // captures reflect only real runner spawns.
+      if (config.cwd != '/') {
+        capturedByProvider.putIfAbsent(providerId, () => <HarnessFactoryConfig>[]).add(config);
+      }
       return FakeAgentHarness();
     });
+  }
+  return factory;
+}
+
+/// A [FakeAgentHarness] whose [start] throws — stands in for a provider whose
+/// real harness would throw from `_verifyAuth`. Used to prove the pre-harness
+/// phase never reaches `harness.start()`.
+class ThrowOnStartHarness extends FakeAgentHarness {
+  @override
+  Future<void> start() async {
+    await super.start();
+    throw StateError('harness start blew up (logged-out provider)');
+  }
+}
+
+/// A factory registering [ThrowOnStartHarness] for every id in [providerIds].
+HarnessFactory throwOnStartHarnessFactory(Iterable<String> providerIds) {
+  final factory = HarnessFactory();
+  for (final providerId in providerIds) {
+    factory.register(providerId, (_) => ThrowOnStartHarness());
   }
   return factory;
 }
@@ -79,6 +111,7 @@ final class CliWorkflowWiringFixture {
     DartclawConfig config, {
     HarnessFactory? harnessFactory,
     SkillIntrospector? skillIntrospector,
+    ProviderAuthPreflight? providerAuthPreflight,
     String? runtimeCwd,
     bool runAndthenSkillsBootstrap = false,
     bool autoDispose = true,
@@ -95,6 +128,9 @@ final class CliWorkflowWiringFixture {
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
       skillIntrospector: skillIntrospector,
+      // Default to an authenticated auth preflight so wiring tests never spawn a
+      // real provider CLI; tests that exercise the gate inject their own.
+      providerAuthPreflight: providerAuthPreflight ?? FakeProviderAuthPreflight(),
       skillProvisionerProcessRunner: skillProvisionerProcessRunner,
     );
     if (autoDispose) {
@@ -181,16 +217,18 @@ List<String> unexpectedDataDirSkillEntries(String dataDir) {
 
 Directory seedDcNativeSkillsSource(String sourceDir) {
   final dir = Directory(sourceDir)..createSync(recursive: true);
-  for (final name in const [
+  const skillNames = [
     'dartclaw-discover-andthen-spec',
     'dartclaw-discover-andthen-plan',
     'dartclaw-validate-workflow',
     'dartclaw-merge-resolve',
-  ]) {
+  ];
+  for (final name in skillNames) {
     File(p.join(dir.path, name, 'SKILL.md'))
       ..createSync(recursive: true)
       ..writeAsStringSync('---\nname: $name\n---\n\n# $name\n');
   }
+  File(p.join(dir.path, 'dartclaw-native-skills.txt')).writeAsStringSync('${skillNames.join('\n')}\n');
   return dir;
 }
 

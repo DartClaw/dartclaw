@@ -12,14 +12,22 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
         OutputConfig,
+        SessionService,
+        SessionType,
         TaskStatus,
+        TaskStatusChangedEvent,
         TaskType,
+        WorkflowApprovalPolicy,
         WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
         WorkflowExecutionCursor,
         WorkflowGitCleanupStrategy,
+        WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
+        WorkflowGitWorktreeMode,
+        WorkflowGitWorktreeStrategy,
         WorkflowLoop,
+        MergeResolveConfig,
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
@@ -28,6 +36,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowVariable,
         WorkflowGitContext,
         WorkflowStartResolution,
+        WorkflowServiceOptions,
         WorkflowTurnAdapter;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskCancellationSubscriber, TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
@@ -68,8 +77,12 @@ void main() {
     return harness.makeDefinition(steps: steps, variables: variables, gitStrategy: gitStrategy);
   }
 
-  WorkflowService lifecycleOnlyService({WorkflowTurnAdapter? turnAdapter, WorkflowGitContext? gitContext}) {
-    return harness.lifecycleOnlyService(turnAdapter: turnAdapter, gitContext: gitContext);
+  WorkflowService lifecycleOnlyService({
+    WorkflowTurnAdapter? turnAdapter,
+    WorkflowGitContext? gitContext,
+    WorkflowServiceOptions options = const WorkflowServiceOptions(),
+  }) {
+    return harness.lifecycleOnlyService(turnAdapter: turnAdapter, gitContext: gitContext, options: options);
   }
 
   void autoCompleteNewTasks([List<String>? titles]) {
@@ -133,6 +146,76 @@ void main() {
 
     final contextFile = File(p.join(tempDir.path, 'workflows', 'runs', run.id, 'context.json'));
     expect(contextFile.existsSync(), isTrue);
+  });
+
+  test('start() persists explicit approvals policy on the run context', () async {
+    final definition = makeDefinition();
+    autoCompleteNewTasks();
+
+    final run = await workflowService.start(definition, {}, approvals: WorkflowApprovalPolicy.autoOnStall);
+
+    expect(run.contextJson['_workflow.approvals'], 'auto-on-stall');
+    final contextFile = File(p.join(tempDir.path, 'workflows', 'runs', run.id, 'context.json'));
+    final persisted = jsonDecode(contextFile.readAsStringSync()) as Map<String, dynamic>;
+    expect((persisted['data'] as Map<String, dynamic>)['_workflow.approvals'], 'auto-on-stall');
+  });
+
+  test('start(inline: true) overrides the git strategy to inline and discards integration-only settings', () async {
+    // S01/S02 [OC01][OC02]: the single inline seam in start() yields
+    // integrationBranch:false + worktree inline and drops promotion/publish/
+    // cleanup/merge_resolve, which are no-ops without an integration branch.
+    final definition = makeDefinition(
+      gitStrategy: const WorkflowGitStrategy(
+        integrationBranch: true,
+        worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.shared),
+        promotion: 'merge',
+        publish: WorkflowGitPublishStrategy(enabled: true),
+        cleanup: WorkflowGitCleanupStrategy(enabled: true),
+        mergeResolve: MergeResolveConfig(enabled: true),
+      ),
+    );
+    autoCompleteNewTasks();
+
+    final run = await workflowService.start(definition, {}, inline: true);
+
+    final effective = WorkflowDefinition.fromJson(run.definitionJson).gitStrategy!;
+    expect(effective.integrationBranch, isFalse);
+    expect(effective.worktreeMode, equals('inline'));
+    expect(effective.promotion, isNull);
+    expect(effective.publish, isNull);
+    expect(effective.cleanup, isNull);
+    expect(effective.toJson().containsKey('merge_resolve'), isFalse);
+  });
+
+  test('start() without inline leaves the authored git strategy untouched', () async {
+    // S04 [OC01]: non-inline runs keep integrationBranch + worktree as authored.
+    final definition = makeDefinition(
+      gitStrategy: const WorkflowGitStrategy(
+        integrationBranch: true,
+        worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.shared),
+        promotion: 'merge',
+      ),
+    );
+    autoCompleteNewTasks();
+
+    final run = await workflowService.start(definition, {});
+
+    final effective = WorkflowDefinition.fromJson(run.definitionJson).gitStrategy!;
+    expect(effective.integrationBranch, isTrue);
+    expect(effective.worktreeMode, equals('shared'));
+    expect(effective.promotion, equals('merge'));
+  });
+
+  test('start() uses service approval default when no invocation override is supplied', () async {
+    final service = lifecycleOnlyService(
+      options: const WorkflowServiceOptions(approvalPolicyDefault: WorkflowApprovalPolicy.auto),
+    );
+    addTearDown(service.dispose);
+    final definition = makeDefinition(steps: []);
+
+    final run = await service.start(definition, {});
+
+    expect(run.contextJson['_workflow.approvals'], 'auto');
   });
 
   test('start() applies required variable values', () async {
@@ -749,6 +832,7 @@ void main() {
       DateTime? timeoutDeadline,
       Map<String, String> variables = const {},
       WorkflowGitStrategy? gitStrategy,
+      WorkflowApprovalPolicy? approvals,
     }) async {
       final definition = makeDefinition(
         gitStrategy: gitStrategy,
@@ -771,6 +855,7 @@ void main() {
             '$stepId.approval.message': 'Approve?',
             '$stepId.approval.requested_at': now.toIso8601String(),
             '$stepId.tokenCount': 0,
+            if (approvals != null) '_workflow.approvals': approvals.yamlValue,
             if (timeoutDeadline != null) '$stepId.approval.timeout_deadline': timeoutDeadline.toIso8601String(),
           },
           'variables': Map<String, dynamic>.from(variables),
@@ -780,6 +865,7 @@ void main() {
           '$stepId.approval.requested_at': now.toIso8601String(),
           '$stepId.tokenCount': 0,
           if (timeoutDeadline != null) '$stepId.approval.timeout_deadline': timeoutDeadline.toIso8601String(),
+          if (approvals != null) '_workflow.approvals': approvals.yamlValue,
           '_approval.pending.stepId': stepId,
           '_approval.pending.stepIndex': nextStepIndex - 1,
         },
@@ -807,6 +893,54 @@ void main() {
       final data = updated?.contextJson['data'] as Map<String, dynamic>?;
       expect(data?['gate.status'], equals('accepted'));
       expect(data?['gate.approval.status'], equals('approved'));
+    });
+
+    test('resume() preserves approvals policy for later needsInput auto-resolution', () async {
+      await insertApprovalPausedRun(approvals: WorkflowApprovalPolicy.autoOnStall);
+
+      final resolvedEvents = <WorkflowApprovalResolvedEvent>[];
+      eventBus.on<WorkflowApprovalResolvedEvent>().listen(resolvedEvents.add);
+
+      final sessionService = SessionService(baseDir: p.join(tempDir.path, 'sessions'));
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        final session = await sessionService.createSession(type: SessionType.task);
+        await taskService.updateFields(task.id, sessionId: session.id);
+        await harness.messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content:
+              'Blocked pending human decision.\n'
+              '<step-outcome>{"outcome":"needsInput","reason":"later stall"}</step-outcome>',
+        );
+        await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+        await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
+        await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
+      });
+      addTearDown(sub.cancel);
+
+      await workflowService.resume('run-approval');
+      await harness.waitForRunStatus('run-approval', WorkflowRunStatus.completed);
+
+      final updated = await workflowService.get('run-approval');
+      final data = updated?.contextJson['data'] as Map<String, dynamic>;
+      final audit = data['_approval.auto_resolved.step2'] as Map<String, dynamic>;
+      expect(updated?.contextJson['_workflow.approvals'], 'auto-on-stall');
+      expect(audit['policy'], 'auto-on-stall');
+      expect(audit['reason'], 'later stall');
+      expect(audit['source'], 'needsInput');
+
+      // OC05: the dispatcher needsInput auto-resolution must also fire the
+      // approval/status event (not just write the audit record), so SSE/UI
+      // observers see the auto-resolved gate.
+      final step2Event = resolvedEvents.where((e) => e.stepId == 'step2');
+      expect(step2Event, hasLength(1), reason: 'needsInput auto-resolve must fire WorkflowApprovalResolvedEvent');
+      expect(step2Event.first.approved, isTrue);
+      expect(step2Event.first.feedback, 'later stall');
     });
 
     test('resume() clears _approval.pending.* tracking keys from contextJson', () async {

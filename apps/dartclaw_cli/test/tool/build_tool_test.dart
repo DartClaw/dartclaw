@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/asset_downloader.dart';
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver, dartclawVersion;
+import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolutionRequest, AssetResolver, dartclawVersion;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -145,6 +145,9 @@ void main() {
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-discover-andthen-spec/SKILL.md'));
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-discover-andthen-plan/SKILL.md'));
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-validate-workflow/SKILL.md'));
+    // The DC-native skill manifest is load-bearing: SkillProvisioner reads it at
+    // runtime to enumerate the skills to copy. It must ship in the archive.
+    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-native-skills.txt'));
     expect(platformEntries, contains('share/dartclaw/workflows/spec-and-implement.yaml'));
     expect(platformEntries, contains('share/dartclaw/workflows/plan-and-implement.yaml'));
     expect(platformEntries, contains('share/dartclaw/workflows/code-review.yaml'));
@@ -157,6 +160,7 @@ void main() {
     expect(assetEntries, contains('skills/dartclaw-discover-andthen-spec/SKILL.md'));
     expect(assetEntries, contains('skills/dartclaw-discover-andthen-plan/SKILL.md'));
     expect(assetEntries, contains('skills/dartclaw-validate-workflow/SKILL.md'));
+    expect(assetEntries, contains('skills/dartclaw-native-skills.txt'));
     expect(assetEntries, contains('workflows/spec-and-implement.yaml'));
     expect(assetEntries, contains('workflows/plan-and-implement.yaml'));
     expect(assetEntries, contains('workflows/code-review.yaml'));
@@ -227,7 +231,7 @@ void main() {
     final resolved = AssetResolver(
       resolvedExecutable: p.join(tempHome.path, 'bin', 'dartclaw'),
       homeDir: tempHome.path,
-    ).resolve();
+    ).resolveAssets(const AssetResolutionRequest.noConfiguredAssets());
     expect(resolved, isNotNull);
     expect(resolved!.root, installPath);
   }, timeout: const Timeout(Duration(minutes: 15)));

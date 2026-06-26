@@ -40,8 +40,20 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     }
 
     if (step.taskType == WorkflowTaskType.approval) {
-      await _executeApprovalStep(run, step, context, stepIndex: stepIndex);
-      return null;
+      final paused = await _executeApprovalStep(run, step, context, stepIndex: stepIndex);
+      if (paused) return null;
+      return StepOutcome(
+        step: step,
+        outputs: {
+          '${step.id}.status': 'accepted',
+          '${step.id}.approval.status': 'approved',
+          '${step.id}.tokenCount': 0,
+        },
+        tokenCount: 0,
+        success: true,
+        outcome: 'succeeded',
+        outcomeReason: 'approval auto-resolved: ${step.id}',
+      );
     }
 
     if (step.taskType == WorkflowTaskType.aggregateReviews) {
@@ -345,15 +357,9 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           );
         }
         final outputWorkspaceRoot = _outputValidationWorkspaceRoot(wj, activeWorkspaceRoot);
-        final detectSpecInputFailure = _validateDiscoverAndthenSpecOutputs(step, outputs, context, outputWorkspaceRoot);
-        final discoverPlanStateFailure = _validateDiscoverAndthenPlanOutputs(step, outputs, outputWorkspaceRoot);
         final normalizedOutputs = _validateStorySpecOutputs(run, step, outputs, outputWorkspaceRoot);
         outputs = normalizedOutputs.outputs;
-        final validationFailure =
-            detectSpecInputFailure ??
-            discoverPlanStateFailure ??
-            normalizedOutputs.validationFailure ??
-            extractionFailure;
+        final validationFailure = normalizedOutputs.validationFailure ?? extractionFailure;
         final providerSessionId = _workflowStepExecutionRepository == null
             ? null
             : await WorkflowTaskConfig.readProviderSessionId(finalTask, _workflowStepExecutionRepository);
@@ -382,6 +388,41 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         }
 
         if (effectiveOutcome == 'needsInput') {
+          final approvals = workflowApprovalPolicyFromRun(run);
+          if (approvals == WorkflowApprovalPolicy.autoOnStall || approvals == WorkflowApprovalPolicy.auto) {
+            final autoResolvedKey = '$approvalAutoResolvedPrefix${step.id}';
+            final autoResolvedValue = approvalAutoResolvedValue(
+              policy: approvals,
+              reason: effectiveReason,
+              source: 'needsInput',
+            );
+            context[autoResolvedKey] = autoResolvedValue;
+            outputs[autoResolvedKey] = autoResolvedValue;
+            WorkflowExecutor._log.info(
+              "Workflow '${run.id}': auto-resolved needsInput for step '${step.id}' "
+              'with approval policy ${approvals.yamlValue}: $effectiveReason',
+            );
+            _eventBus.fire(
+              WorkflowApprovalResolvedEvent(
+                runId: run.id,
+                stepId: step.id,
+                approved: true,
+                feedback: effectiveReason,
+                timestamp: DateTime.now(),
+              ),
+            );
+            return StepOutcome(
+              step: step,
+              task: finalTask,
+              outputs: outputs,
+              tokenCount: accumulatedTokenCount,
+              success: true,
+              error: effectiveReason,
+              outcome: effectiveOutcome,
+              outcomeReason: effectiveReason,
+              validationFailure: validationFailure,
+            );
+          }
           if (step.onFailure == OnFailurePolicy.continueWorkflow) {
             return StepOutcome(
               step: step,
@@ -506,7 +547,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         extraStripPatterns: _bashStepExtraStripPatterns,
       );
 
-  Future<void> _executeApprovalStep(
+  Future<bool> _executeApprovalStep(
     WorkflowRun run,
     WorkflowStep step,
     WorkflowContext context, {

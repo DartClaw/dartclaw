@@ -1,0 +1,4 @@
+dartclaw-discover-andthen-spec
+dartclaw-discover-andthen-plan
+dartclaw-validate-workflow
+dartclaw-merge-resolve

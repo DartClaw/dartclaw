@@ -13,9 +13,20 @@ import '../connected_command_support.dart' hide truncate;
 /// Shows workflow run status from the server by default, with a standalone fallback.
 class WorkflowStatusCommand extends ConnectedCommand {
   final TaskDbFactory _taskDbFactory;
+  final String? _currentDirectory;
+  final Map<String, String>? _environment;
 
-  WorkflowStatusCommand({super.config, TaskDbFactory? taskDbFactory, super.apiClient, super.writeLine, super.exitFn})
-    : _taskDbFactory = taskDbFactory ?? openTaskDb {
+  WorkflowStatusCommand({
+    super.config,
+    TaskDbFactory? taskDbFactory,
+    String? currentDirectory,
+    Map<String, String>? environment,
+    super.apiClient,
+    super.writeLine,
+    super.exitFn,
+  }) : _taskDbFactory = taskDbFactory ?? openTaskDb,
+       _currentDirectory = currentDirectory,
+       _environment = environment {
     argParser
       ..addFlag('json', negatable: false, help: 'Output as JSON')
       ..addFlag('standalone', negatable: false, help: 'Read workflow status directly from the local tasks database');
@@ -54,7 +65,12 @@ class WorkflowStatusCommand extends ConnectedCommand {
   }
 
   Future<void> _runStandalone(String runId) async {
-    final config = injectedConfig ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
+    final configPath = resolveStandaloneWorkflowConfigPath(
+      configPath: globalOptionString(globalResults, 'config'),
+      currentDirectory: _currentDirectory,
+      env: _environment,
+    );
+    final config = injectedConfig ?? loadCliConfig(configPath: configPath, env: _environment);
     final dataDir = config.server.dataDir;
     if (!Directory(dataDir).existsSync()) {
       writeLine('No data directory found at $dataDir');
@@ -152,10 +168,10 @@ class WorkflowStatusCommand extends ConnectedCommand {
       if (approvalMessage != null) {
         writeLine('  Request:     $approvalMessage');
       }
-      writeLine('  Actions:     Start `dartclaw serve`, then run `dartclaw workflow resume ${run.id}` to approve');
-      writeLine('               Start `dartclaw serve`, then run `dartclaw workflow cancel ${run.id}` to reject');
+      writeLine('  Actions:     Run `dartclaw workflow resume ${run.id} --standalone` to approve');
+      writeLine('               Run `dartclaw workflow cancel ${run.id} --standalone` to reject');
     } else if (run.status == WorkflowRunStatus.failed) {
-      writeLine('  Actions:     Start `dartclaw serve`, then run `dartclaw workflow retry ${run.id}` to retry');
+      writeLine('  Actions:     Run `dartclaw workflow retry ${run.id} --standalone` to retry');
     }
     if (run.errorMessage != null) {
       writeLine('  Error:       ${run.errorMessage}');

@@ -379,7 +379,7 @@ const storyResultPreset = SchemaPreset(
 );
 
 const _gatingFindingsCountDescription =
-    'Count of MEDIUM-or-higher severity findings (per the unified severity scale in references/review-verdict.md). 0 means only LOW-severity findings remain – the remediation loop reads this field to decide whether to iterate.';
+    'Count of still-unresolved findings routed to Fix (mechanically/automatically remediable), per the Fix/Note routing + Loop Convergence Signals model in references/review-verdict.md. 0 means nothing remains for automated remediation – the remediation loop reads this field to decide whether to iterate. Do NOT count Note-routed findings (design-judgment, decision, or reconciliation gaps surfaced for human review at any severity); those are never auto-applied, so counting them would deadlock the loop. Non-negative integer.';
 
 const gatingFindingsCountPreset = SchemaPreset(
   name: 'gating_findings_count',
@@ -404,7 +404,7 @@ const reviewReportPathPreset = SchemaPreset(
   format: OutputFormat.path,
   schema: {'type': 'string'},
   description:
-      'Path to the review report file written by the invoking review skill. The form is dictated by the skill contract: absolute when the skill writes via --output-dir outside the project root (e.g. andthen:review under AUTO_MODE); project-root-relative when the skill follows review-report-location.md (e.g. andthen:architecture). Aggregate-reviews joins relative values under the active workspace root.',
+      'Path to the review report file written by the invoking review skill. The form is dictated by the skill contract: absolute when the skill writes via --output-dir outside the project root; project-root-relative when the skill follows review-report-location.md. Aggregate-reviews joins relative values under the active workspace root.',
 );
 
 const prdPathPreset = SchemaPreset(
@@ -442,7 +442,8 @@ const specSourcePreset = SchemaPreset(
   format: OutputFormat.text,
   defaultResolver: NarrativeOutput(schemaKey: 'spec_source'),
   schema: {'type': 'string'},
-  description: "'existing' when input resolves to a reusable FIS, 'synthesized' when andthen:spec authored a new one.",
+  description:
+      "'existing' when input resolves to a reusable FIS, 'synthesized' when the spec skill authored a new one.",
 );
 
 const specConfidencePreset = SchemaPreset(
@@ -451,6 +452,6 @@ const specConfidencePreset = SchemaPreset(
   defaultResolver: NarrativeOutput(schemaKey: 'spec_confidence'),
   schema: {'type': 'integer', 'minimum': 0},
   description:
-      'Self-rated 1-10 readiness of a synthesized FIS authored by andthen:spec (per the Confidence Check in fis-authoring-guidelines.md). Emit 0 in every other case: at the detection step (no FIS authored yet, regardless of spec_source) and when an existing FIS is reused without synthesis. A value <7 triggers the revise-spec step.',
+      'Self-rated 1-10 readiness of a synthesized FIS authored by the spec skill (per the Confidence Check in fis-authoring-guidelines.md). Emit 0 in every other case: at the detection step (no FIS authored yet, regardless of spec_source) and when an existing FIS is reused without synthesis. A value <7 triggers the revise-spec step.',
   promptFragment: 'Produce a non-negative integer (0 or greater). Output the number directly.',
 );

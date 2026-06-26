@@ -1,47 +1,52 @@
 #!/usr/bin/env bash
-# Run DartClaw's built-in implementation workflows against this checkout.
+# Run DartClaw's built-in + inline workflows against this checkout.
 #
-# Server mode:
-#   bash dev/tools/dartclaw-workflows/run.sh
-#   bash dev/tools/dartclaw-workflows/run.sh --port 4000
+# Server-less: workflows run in-process via the standalone CLI path, reading the
+# committed config at <repo>/.dartclaw/dartclaw.yaml (data dir, local DB, and
+# worktrees all live under .dartclaw/). For a web-UI dev server, use
+# `bash examples/run.sh` instead.
 #
-# CLI workflow mode:
 #   bash dev/tools/dartclaw-workflows/run.sh workflow list
 #   bash dev/tools/dartclaw-workflows/run.sh workflow run spec-and-implement -v 'FEATURE=...'
 #   bash dev/tools/dartclaw-workflows/run.sh workflow run plan-and-implement -v 'FEATURE=...'
 #
-# By default the host is AOT-compiled to a content-addressed file under
-# ${DATA_DIR}/bin/dartclaw-<key> and exec'd. Concurrent invocations cannot
-# clobber a binary that a running process holds open. The cache key combines
-# HEAD sha, pubspec.lock hash, the diff hash of apps/+packages/+pubspec.* ,
-# the contents of any untracked files in the same scope, and the local dart
-# SDK version. Restricted scope avoids needless rebuilds from doc-only edits.
+# The spec.sh / plan.sh / review.sh wrappers run the inline variants
+# (--standalone --allow-dirty-localpath) against the current branch.
 #
-# Escape hatches:
-#   DARTCLAW_WORKFLOWS_JIT=1       run via `dart run` (live source, no isolation)
+# By default the host is AOT-compiled to a content-addressed file under
+# .cache/bin/dartclaw-<key> and exec'd. Concurrent invocations cannot clobber a
+# binary that a running process holds open. The cache key combines HEAD sha,
+# pubspec.lock hash, the diff hash of apps/+packages/+pubspec.* , the contents
+# of any untracked files in the same scope, and the local dart SDK version.
+# Restricted scope avoids needless rebuilds from doc-only edits.
+#
+# Host selection:
+#   DARTCLAW_WORKFLOWS_HOST=auto    build/use the local content-addressed AOT binary (default)
+#   DARTCLAW_WORKFLOWS_HOST=jit     run via `dart run` (live source, no isolation)
+#   DARTCLAW_WORKFLOWS_HOST=cached  use the local AOT cache; fail if the current key is missing
+#   DARTCLAW_WORKFLOWS_HOST=system  use `dartclaw` from PATH (e.g. Homebrew)
+#   DARTCLAW_WORKFLOWS_BINARY=/path/to/dartclaw
+#                                  use an explicit binary path
+#
+# Compatibility escape hatches:
+#   DARTCLAW_WORKFLOWS_JIT=1       alias for DARTCLAW_WORKFLOWS_HOST=jit
 #   DARTCLAW_WORKFLOWS_REBUILD=1   force AOT rebuild even if the cache key matches
 #   DARTCLAW_WORKFLOWS_PREFER_SOURCE=0
 #                                  fall back to default asset-resolver order
 #                                  (asset cache wins over source tree). The
-#                                  maintainer profile sets this to 1 by default
-#                                  so live edits to skills/workflow YAMLs apply.
-#                                  Currently consulted only by `workflow run
-#                                  --standalone`; this script invokes only
-#                                  standalone, so the gap is latent.
+#                                  local-source host modes set this to 1 by
+#                                  default so live edits to skills/workflow
+#                                  YAMLs apply.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-DATA_DIR="${DARTCLAW_WORKFLOWS_DATA_DIR:-${SCRIPT_DIR}/.data}"
-CACHE_DIR="${DARTCLAW_WORKFLOWS_CACHE_DIR:-${SCRIPT_DIR}/.cache}"
-TEMPLATE_CONFIG="${SCRIPT_DIR}/dartclaw.yaml"
-RUNTIME_CONFIG="${DATA_DIR}/dartclaw.runtime.yaml"
+CONFIG="${REPO_ROOT}/.dartclaw/dartclaw.yaml"
 ENTRY="${REPO_ROOT}/apps/dartclaw_cli/bin/dartclaw.dart"
-BIN_DIR="${DATA_DIR}/bin"
+BIN_DIR="${SCRIPT_DIR}/.cache/bin"
 BIN_TO_EXEC=""
-CUSTOM_WORKFLOWS_SRC="${SCRIPT_DIR}/custom-workflows"
-CUSTOM_WORKFLOWS_LINK="${DATA_DIR}/workflows/custom"
+HOST_MODE="${DARTCLAW_WORKFLOWS_HOST:-auto}"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -58,55 +63,40 @@ require_git_repo() {
   fi
 }
 
-escape_sed() {
-  local val="$1"
-  val=${val//\\/\\\\}
-  val=${val//&/\\&}
-  val=${val//|/\\|}
-  printf '%s\n' "$val"
+require_build_commands() {
+  require_command dart
+  require_command git
+  require_command shasum
+  require_command awk
+  require_git_repo
 }
 
-# Expose `dev/tools/dartclaw-workflows/custom-workflows/` to the registry as
-# the instance-scoped custom workflow directory. The host scans
-# `<dataDir>/workflows/custom/`, so we symlink it at that path. The data dir
-# is gitignored, so no symlink ever lands at the repo root.
-prepare_custom_workflows() {
-  [ -d "$CUSTOM_WORKFLOWS_SRC" ] || return 0
-
-  mkdir -p "$(dirname "$CUSTOM_WORKFLOWS_LINK")"
-
-  local legacy_definitions="${DATA_DIR}/workflows/definitions"
-  if [ -d "$legacy_definitions" ]; then
-    echo "[dartclaw-workflows] legacy directory $legacy_definitions is no longer used; built-ins now materialize into ${DATA_DIR}/workflows/built-in/. Safe to: rm -rf \"$legacy_definitions\"" >&2
-  fi
-
-  if [ -L "$CUSTOM_WORKFLOWS_LINK" ]; then
-    local existing
-    existing="$(readlink "$CUSTOM_WORKFLOWS_LINK" || true)"
-    if [ "$existing" = "$CUSTOM_WORKFLOWS_SRC" ]; then
-      return 0
+resolve_host_mode() {
+  if [ -n "${DARTCLAW_WORKFLOWS_BINARY:-}" ]; then
+    if [ -n "${DARTCLAW_WORKFLOWS_HOST:-}" ] && [ "$DARTCLAW_WORKFLOWS_HOST" != "path" ]; then
+      echo "[dartclaw-workflows] DARTCLAW_WORKFLOWS_BINARY conflicts with DARTCLAW_WORKFLOWS_HOST=$DARTCLAW_WORKFLOWS_HOST" >&2
+      echo "[dartclaw-workflows] Use DARTCLAW_WORKFLOWS_HOST=path or unset DARTCLAW_WORKFLOWS_HOST." >&2
+      exit 64
     fi
-    echo "[dartclaw-workflows] refreshing custom workflow symlink at $CUSTOM_WORKFLOWS_LINK" >&2
-    rm -f "$CUSTOM_WORKFLOWS_LINK"
-  elif [ -e "$CUSTOM_WORKFLOWS_LINK" ]; then
-    echo "[dartclaw-workflows] $CUSTOM_WORKFLOWS_LINK exists and is not a symlink; skipping inline-workflow link setup" >&2
-    return 0
+    HOST_MODE="path"
   fi
 
-  ln -s "$CUSTOM_WORKFLOWS_SRC" "$CUSTOM_WORKFLOWS_LINK"
-}
+  if [ -n "${DARTCLAW_WORKFLOWS_JIT:-}" ]; then
+    if [ -n "${DARTCLAW_WORKFLOWS_HOST:-}" ] && [ "$DARTCLAW_WORKFLOWS_HOST" != "jit" ]; then
+      echo "[dartclaw-workflows] DARTCLAW_WORKFLOWS_JIT=1 conflicts with DARTCLAW_WORKFLOWS_HOST=$DARTCLAW_WORKFLOWS_HOST" >&2
+      exit 64
+    fi
+    HOST_MODE="jit"
+  fi
 
-prepare_runtime_config() {
-  local data_dir_abs cache_dir_abs
-  mkdir -p "$DATA_DIR"
-  mkdir -p "$CACHE_DIR"
-  data_dir_abs="$(cd "$DATA_DIR" && pwd)"
-  cache_dir_abs="$(cd "$CACHE_DIR" && pwd)"
-
-  sed -e "s|__DATA_DIR__|$(escape_sed "$data_dir_abs")|g" \
-      -e "s|__CACHE_DIR__|$(escape_sed "$cache_dir_abs")|g" \
-      -e "s|__REPO_ROOT__|$(escape_sed "$REPO_ROOT")|g" \
-      "$TEMPLATE_CONFIG" > "$RUNTIME_CONFIG"
+  case "$HOST_MODE" in
+    auto|jit|cached|system|path) ;;
+    *)
+      echo "[dartclaw-workflows] unsupported DARTCLAW_WORKFLOWS_HOST=$HOST_MODE" >&2
+      echo "[dartclaw-workflows] supported modes: auto, jit, cached, system, path" >&2
+      exit 64
+      ;;
+  esac
 }
 
 # Hash *contents* of untracked files in a path-scope. Path-only hashing would
@@ -145,6 +135,7 @@ compute_build_key() {
 }
 
 ensure_binary() {
+  require_build_commands
   mkdir -p "$BIN_DIR"
 
   local key versioned
@@ -188,6 +179,48 @@ ensure_binary() {
   BIN_TO_EXEC="$versioned"
 }
 
+select_cached_binary() {
+  require_build_commands
+
+  local key versioned
+  key="$(compute_build_key)"
+  versioned="${BIN_DIR}/dartclaw-${key}"
+
+  if [ ! -x "$versioned" ]; then
+    echo "[dartclaw-workflows] no cached host binary for current key (${key:0:12})" >&2
+    echo "[dartclaw-workflows] Run with DARTCLAW_WORKFLOWS_HOST=auto to build it." >&2
+    exit 1
+  fi
+
+  echo "[dartclaw-workflows] using cached host binary: $versioned" >&2
+  BIN_TO_EXEC="$versioned"
+}
+
+select_explicit_binary() {
+  if [ -z "${DARTCLAW_WORKFLOWS_BINARY:-}" ]; then
+    echo "[dartclaw-workflows] DARTCLAW_WORKFLOWS_HOST=path requires DARTCLAW_WORKFLOWS_BINARY=/path/to/dartclaw" >&2
+    exit 64
+  fi
+  if [ ! -x "$DARTCLAW_WORKFLOWS_BINARY" ]; then
+    echo "[dartclaw-workflows] explicit host binary is not executable: $DARTCLAW_WORKFLOWS_BINARY" >&2
+    exit 1
+  fi
+
+  echo "[dartclaw-workflows] using explicit host binary: $DARTCLAW_WORKFLOWS_BINARY" >&2
+  BIN_TO_EXEC="$DARTCLAW_WORKFLOWS_BINARY"
+}
+
+select_system_binary() {
+  BIN_TO_EXEC="$(command -v dartclaw || true)"
+  if [ -z "$BIN_TO_EXEC" ]; then
+    echo "[dartclaw-workflows] DARTCLAW_WORKFLOWS_HOST=system requires dartclaw on PATH" >&2
+    exit 1
+  fi
+
+  echo "[dartclaw-workflows] using system host binary: $BIN_TO_EXEC" >&2
+  "$BIN_TO_EXEC" --version >&2 || echo "[dartclaw-workflows] warning: unable to read system dartclaw version" >&2
+}
+
 # Per-arg match avoids false positives on user-supplied -v values containing
 # the literal string "--json".
 has_json_flag() {
@@ -201,55 +234,77 @@ has_json_flag() {
 }
 
 run_host() {
-  if [ -n "${DARTCLAW_WORKFLOWS_JIT:-}" ]; then
-    if has_json_flag "$@"; then
-      dart run dartclaw_cli:dartclaw "$@" | awk '
-        BEGIN { started = 0 }
-        {
-          if (!started) {
-            gsub(/Running build hooks\.\.\./, "")
-            if (length($0) == 0) {
-              next
+  case "$HOST_MODE" in
+    jit)
+      require_command dart
+      require_command awk
+
+      if has_json_flag "$@"; then
+        dart run dartclaw_cli:dartclaw "$@" | awk '
+          BEGIN { started = 0 }
+          {
+            if (!started) {
+              gsub(/Running build hooks\.\.\./, "")
+              if (length($0) == 0) {
+                next
+              }
+              started = 1
             }
-            started = 1
+            print
+            fflush()
           }
-          print
-          fflush()
-        }
-      '
-    else
-      exec dart run dartclaw_cli:dartclaw "$@"
-    fi
-  else
-    ensure_binary
-    exec "$BIN_TO_EXEC" "$@"
-  fi
+        '
+      else
+        exec dart run dartclaw_cli:dartclaw "$@"
+      fi
+      ;;
+    auto)
+      ensure_binary
+      exec "$BIN_TO_EXEC" "$@"
+      ;;
+    cached)
+      select_cached_binary
+      exec "$BIN_TO_EXEC" "$@"
+      ;;
+    system)
+      select_system_binary
+      exec "$BIN_TO_EXEC" "$@"
+      ;;
+    path)
+      select_explicit_binary
+      exec "$BIN_TO_EXEC" "$@"
+      ;;
+  esac
 }
 
-require_command dart
-require_command git
-require_command shasum
-require_command awk
-require_git_repo
+resolve_host_mode
 
-# Maintainer profile always runs against the live source tree. Tell the
-# standalone CLI to prefer the checked-out skills/workflow-YAMLs over any
+# Local-source host modes run against this checkout. Tell the standalone CLI to
+# prefer the checked-out skills/workflow-YAMLs over any
 # `~/.dartclaw/assets/v<version>/` install — otherwise a stale asset cache
 # (e.g. left over from a `dartclaw init` for an earlier dev cycle) wins and
-# materializes outdated workflow definitions, silently excluding them at
-# load time when their skill refs no longer resolve.
+# materializes outdated workflow definitions, silently excluding them at load
+# time when their skill refs no longer resolve.
 # Use `${X-1}` (no colon): only substitutes when the var is unset. An explicit
 # empty-string override (e.g. `DARTCLAW_WORKFLOWS_PREFER_SOURCE=`) passes
 # through and the Dart side reads it as "off" — `:-1` would silently turn that
 # back into "on".
-export DARTCLAW_WORKFLOWS_PREFER_SOURCE="${DARTCLAW_WORKFLOWS_PREFER_SOURCE-1}"
+case "$HOST_MODE" in
+  system|path) default_prefer_source=0 ;;
+  *) default_prefer_source=1 ;;
+esac
+export DARTCLAW_WORKFLOWS_PREFER_SOURCE="${DARTCLAW_WORKFLOWS_PREFER_SOURCE-$default_prefer_source}"
 
-prepare_runtime_config
-prepare_custom_workflows
+if [ $# -eq 0 ]; then
+  echo "Usage: $(basename "$0") workflow <list|run ...> [args]" >&2
+  echo "       (server-less; for a web-UI dev server use: bash examples/run.sh)" >&2
+  exit 64
+fi
 
-# For built-in implementation workflows, always target the seeded project. If
-# the caller does not pass BRANCH explicitly, use the checkout's current branch
-# so workflow branches fork from the operator's active line of work.
+# For workflow runs, inject BRANCH from the checkout's current branch (unless
+# the caller passed their own) so workflow branches fork from the operator's
+# active line of work. The project is the cwd repo — standalone mode needs no
+# named project.
 if [ $# -ge 2 ] && [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
   user_set_branch=0
   for arg in "$@"; do
@@ -258,13 +313,11 @@ if [ $# -ge 2 ] && [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
     esac
   done
 
-  workflow_cmd="$1"
-  workflow_sub="$2"
-  shift 2
-  set -- "$workflow_cmd" "$workflow_sub" "$@" -v "PROJECT=dartclaw-public"
-
   if [ "$user_set_branch" -eq 0 ]; then
-    current_branch="$(git -C "$REPO_ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    current_branch=""
+    if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+      current_branch="$(git -C "$REPO_ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    fi
     if [ -n "$current_branch" ]; then
       echo "[dartclaw-workflows] injecting BRANCH=$current_branch (from current checkout)" >&2
       set -- "$@" -v "BRANCH=$current_branch"
@@ -275,17 +328,4 @@ if [ $# -ge 2 ] && [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
 fi
 
 cd "$REPO_ROOT"
-
-if [ $# -eq 0 ]; then
-  run_host --config "$RUNTIME_CONFIG" serve --dev --data-dir "$DATA_DIR"
-  exit 0
-fi
-
-case "${1:-}" in
-  -*)
-    run_host --config "$RUNTIME_CONFIG" serve --dev --data-dir "$DATA_DIR" "$@"
-    ;;
-  *)
-    run_host --config "$RUNTIME_CONFIG" "$@"
-    ;;
-esac
+run_host --config "$CONFIG" "$@"

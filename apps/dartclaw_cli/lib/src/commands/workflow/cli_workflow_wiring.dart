@@ -12,13 +12,12 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         KvService,
         MessageService,
         SessionService,
-        Task,
-        claudeHardeningEnvVars;
-import 'package:dartclaw_security/dartclaw_security.dart'
-    show SafeProcess, defaultSensitivePatterns, normalizeGitRefOperand;
+        Task;
+import 'package:dartclaw_security/dartclaw_security.dart' show SafeProcess, normalizeGitRefOperand;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
         AssetResolver,
+        AssetResolutionRequest,
         ArtifactCollector,
         BehaviorFileService,
         DiffGenerator,
@@ -43,8 +42,10 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        CliProviderAuthPreflight,
         CliSkillIntrospector,
         ProcessRunner,
+        ProviderAuthPreflight,
         WorkspaceSkillInventory,
         WorkspaceSkillLinker,
         SkillIntrospector,
@@ -60,7 +61,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitIntegrationBranchResult,
         WorkflowPersistencePorts,
         WorkflowGitPublishResult,
+        WorkflowPreflightException,
         WorkflowPublishStatus,
+        WorkflowRun,
         WorkflowServiceOptions,
         WorkflowSkillPreflightConfig,
         WorkflowStartResolution,
@@ -89,6 +92,7 @@ import 'credential_preflight.dart';
 import 'project_definition_paths.dart';
 import 'workflow_git_support.dart';
 import 'workflow_local_path_preflight.dart';
+import 'workflow_provider_environment.dart';
 import 'workflow_skill_preflight_config.dart';
 
 part 'cli_workflow_wiring_adapter.dart';
@@ -145,6 +149,7 @@ class CliWorkflowWiring {
   final bool runAndthenSkillsBootstrap;
   final ProcessRunner? skillProvisionerProcessRunner;
   final SkillIntrospector? skillIntrospector;
+  final ProviderAuthPreflight? providerAuthPreflight;
   final RemotePushService? remotePushServiceOverride;
 
   /// When true, the live source tree wins over the installed asset cache for
@@ -178,6 +183,19 @@ class CliWorkflowWiring {
 
   late final CredentialRegistry _credentialRegistry;
   late final HarnessConfig _harnessConfig;
+  late final SqliteWorkflowRunRepository _workflowRunRepository;
+
+  // Two-phase wiring state. Registry/materialization completes in the
+  // pre-harness phase ([wirePreHarness]); provider harnesses start only in the
+  // deferred phase ([startHarnesses]) keyed by an explicit provider set, so a
+  // standalone run can preflight referenced-provider auth before any
+  // `harness.start()`. These carry the prelude context and task-layer handles
+  // between the two phases.
+  _CliWorkflowWiringCtx? _preludeCtx;
+  _TaskHandles? _taskHandles;
+  bool _preHarnessWired = false;
+  bool _harnessStarted = false;
+  bool _workflowServiceWired = false;
 
   CliWorkflowWiring({
     required this.config,
@@ -192,6 +210,7 @@ class CliWorkflowWiring {
     this.runAndthenSkillsBootstrap = true,
     this.skillProvisionerProcessRunner,
     this.skillIntrospector,
+    this.providerAuthPreflight,
     this.remotePushServiceOverride,
     this.prCreator,
     this.preferSourceTreeAssets = false,
@@ -213,17 +232,79 @@ class CliWorkflowWiring {
     );
   }
 
-  /// Constructs all services needed for headless workflow execution.
+  /// Constructs all services needed for headless workflow execution, starting
+  /// harnesses for the configured default provider.
   ///
   /// Does not start an HTTP server, initialize templates, connect channels,
   /// or wire scheduling. Call [dispose] when done.
+  ///
+  /// Convenience facade over the two-phase API ([wirePreHarness] +
+  /// [startHarnesses]) for callers that do not need to gate provider auth
+  /// before harness startup. Standalone run/resume paths call the two phases
+  /// directly so they can run [preflightProviderAuth] in between.
   Future<void> wire() async {
+    await wirePreHarness();
+    await startHarnesses({config.agent.provider});
+  }
+
+  /// Completes registry/materialization and every service that does not require
+  /// a started provider harness — prelude, storage, the task layer, and the
+  /// workflow registry — without starting any harness.
+  ///
+  /// [registry] is usable after this returns; [startHarnesses] must run before
+  /// [workflowService]/[pool]/[taskExecutor] are touched. Idempotent guard:
+  /// safe to follow with [dispose] even if [startHarnesses] never runs.
+  Future<void> wirePreHarness() async {
     final ctx = await _wirePrelude();
     await _wireStorage();
     final taskHandles = await _wireTaskLayer(ctx);
-    final wiredCtx = await _wireHarness(ctx, taskHandles);
+    await _wireWorkflowRegistry();
+    _preludeCtx = ctx;
+    _taskHandles = taskHandles;
+    _preHarnessWired = true;
+  }
+
+  /// Starts provider harnesses for [providers] and builds the turn/task/workflow
+  /// services that depend on them.
+  ///
+  /// The pool primary is drawn from [providers] (preferring the configured
+  /// default when it is referenced), not an unconditional `config.agent.provider`
+  /// start — so a logged-out default provider a run never references is never
+  /// started. Task runners are provisioned for every entry in [providers].
+  /// Requires [wirePreHarness] to have run.
+  Future<void> startHarnesses(Set<String> providers) async {
+    final ctx = _preludeCtx;
+    final taskHandles = _taskHandles;
+    if (ctx == null || taskHandles == null) {
+      throw StateError('startHarnesses called before wirePreHarness');
+    }
+    final wiredCtx = await _wireHarness(ctx, taskHandles, providers);
     await _wireWorkflowService(wiredCtx, taskHandles);
-    await _wireWorkflowRegistry(wiredCtx);
+    _workflowServiceWired = true;
+    _harnessStarted = true;
+    await ensureTaskRunnersForProviders(providers);
+  }
+
+  Future<void> wireLifecycleOnly() async {
+    final ctx = _preludeCtx;
+    final taskHandles = _taskHandles;
+    if (ctx == null || taskHandles == null) {
+      throw StateError('wireLifecycleOnly called before wirePreHarness');
+    }
+    final workflowRoleDefaults = _buildWorkflowRoleDefaults();
+    workflowService = WorkflowService.lifecycleOnly(
+      repository: taskHandles.workflowRunRepository,
+      taskService: taskService,
+      messageService: messageService,
+      eventBus: eventBus,
+      kvService: kvService,
+      dataDir: dataDir,
+      options: WorkflowServiceOptions(
+        roleDefaults: workflowRoleDefaults,
+        approvalPolicyDefault: config.workflow.approvals,
+      ),
+    );
+    _workflowServiceWired = true;
   }
 
   Future<_CliWorkflowWiringCtx> _wirePrelude() async {
@@ -237,8 +318,8 @@ class CliWorkflowWiring {
     }
     eventBus = EventBus();
     final workspaceSkillLinker = WorkspaceSkillLinker();
-    final resolvedAssets = assetResolver.resolve();
-    final assetSkillsDir = resolvedAssets?.skillsDir;
+    final resolvedAssets = assetResolver.resolveAssets(const AssetResolutionRequest.noConfiguredAssets());
+    final assetSkillsDir = resolvedAssets?.rootSkillsDir;
     final sourceSkillsDir = WorkflowAssetSourceResolver.resolveBuiltInSkillsSourceDir();
     final builtInSkillsSourceDir = preferSourceTreeAssets
         ? (sourceSkillsDir ?? assetSkillsDir)
@@ -286,6 +367,7 @@ class CliWorkflowWiring {
     final executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(taskDb);
     final taskRepository = SqliteTaskRepository(taskDb);
     final workflowRunRepository = SqliteWorkflowRunRepository(taskDb);
+    _workflowRunRepository = workflowRunRepository;
     final taskEventRecorder = TaskEventRecorder(eventService: TaskEventService(taskDb), eventBus: eventBus);
     taskService = TaskService(
       taskRepository,
@@ -298,7 +380,10 @@ class CliWorkflowWiring {
       dataDir: dataDir,
       baseRef: config.tasks.worktreeBaseRef,
       staleTimeoutHours: config.tasks.worktreeStaleTimeoutHours,
-      worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
+      // Relative to the invocation cwd (the git repo being operated on), not
+      // dataDir: worktrees are checkouts of the cwd repo, so they must live
+      // beside it even when --config points the data dir elsewhere.
+      worktreesDir: p.join(runtimeCwd, '.dartclaw', 'worktrees'),
       taskLookup: taskService.get,
       projectLookup: projectService.get,
       skillMaterializer: (worktreePath) =>
@@ -315,22 +400,26 @@ class CliWorkflowWiring {
     );
   }
 
-  Future<_CliWorkflowWiringCtx> _wireHarness(_CliWorkflowWiringCtx ctx, _TaskHandles taskHandles) async {
+  Future<_CliWorkflowWiringCtx> _wireHarness(
+    _CliWorkflowWiringCtx ctx,
+    _TaskHandles taskHandles,
+    Set<String> providers,
+  ) async {
     final wiringLog = Logger('CliWorkflowWiring');
-    final defaultProviderId = config.agent.provider;
-    final providerEntry = config.providers[defaultProviderId];
+    final primaryProviderId = _selectPrimaryProvider(providers);
+    final providerEntry = config.providers[primaryProviderId];
     wiringLog.info(
-      'Provider "$defaultProviderId": entry=${providerEntry != null ? providerEntry.toString() : "null"}, '
+      'Primary provider "$primaryProviderId": entry=${providerEntry != null ? providerEntry.toString() : "null"}, '
       'options=${providerEntry?.options}',
     );
     final harness = _harnessFactory.create(
-      defaultProviderId,
+      primaryProviderId,
       HarnessFactoryConfig(
         cwd: runtimeCwd,
-        executable: _resolveProviderExecutable(config, defaultProviderId),
+        executable: _resolveProviderExecutable(config, primaryProviderId),
         harnessConfig: _harnessConfig,
-        providerOptions: _providerOptions(config, defaultProviderId),
-        environment: _providerEnvironment(defaultProviderId, _credentialRegistry),
+        providerOptions: _providerOptions(config, primaryProviderId),
+        environment: _providerEnvironment(config, primaryProviderId, _credentialRegistry),
       ),
     );
     await harness.start();
@@ -349,31 +438,15 @@ class CliWorkflowWiring {
       sessions: sessionService,
       kv: kvService,
       eventBus: eventBus,
-      providerId: defaultProviderId,
+      providerId: primaryProviderId,
     );
     final maxConcurrentTasks = _standaloneTaskRunnerCapacity(config);
-    // Spawn up to the default provider's configured `pool_size` task runners
-    // at wire time (bounded by the pool's overall task capacity). Previously
-    // only a single task runner was spawned eagerly — subsequent slots were
-    // reserved on the pool but never filled, so `HarnessPool.availableCount`
-    // was capped at 1. That silently serialised workflows that declared
-    // `max_parallel > 1` (e.g. `plan-and-implement` foreach), because the
-    // executor's `effectiveConcurrency(poolAvailable)` path saw `poolAvailable`
-    // drop to 0 whenever the single live runner was busy.
-    final desiredDefaultRunners = providerEntry?.effectivePoolSize ?? 1;
-    final defaultRunnersToSpawn = desiredDefaultRunners > maxConcurrentTasks
-        ? maxConcurrentTasks
-        : desiredDefaultRunners;
-    final taskRunners = <TurnRunner>[];
-    for (var i = 0; i < defaultRunnersToSpawn; i++) {
-      taskRunners.add(await _buildTaskRunner(defaultProviderId));
-    }
-    wiringLog.info(
-      'Spawned $defaultRunnersToSpawn task runner(s) for default provider "$defaultProviderId" '
-      '(pool_size=${providerEntry?.poolSize ?? "(unset, default 1)"}, '
-      'maxConcurrentTasks=$maxConcurrentTasks)',
-    );
-    pool = HarnessPool(runners: [primaryRunner, ...taskRunners], maxConcurrentTasks: maxConcurrentTasks);
+    // Pool starts with only the primary runner; per-provider task runners
+    // (including the primary's configured `pool_size`) are filled by
+    // [startHarnesses] via [ensureTaskRunnersForProviders] over the explicit
+    // provider set, so harness startup is scoped to the run's referenced
+    // providers rather than eagerly spawning the configured default's pool.
+    pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: maxConcurrentTasks);
     final turns = TurnManager.fromPool(pool: pool, sessions: sessionService);
     taskCancellationSubscriber = TaskCancellationSubscriber(tasks: taskService, turns: turns);
     taskCancellationSubscriber.subscribe(eventBus);
@@ -391,7 +464,7 @@ class CliWorkflowWiring {
         for (final providerId in <String>{config.agent.provider, ...config.providers.entries.keys})
           providerId: WorkflowCliProviderConfig(
             executable: _resolveProviderExecutable(config, providerId),
-            environment: _providerEnvironment(providerId, _credentialRegistry),
+            environment: _providerEnvironment(config, providerId, _credentialRegistry),
             options: _providerOptions(config, providerId),
           ),
       },
@@ -473,17 +546,25 @@ class CliWorkflowWiring {
       gitContext: WorkflowGitContext(
         gitPort: WorkflowGitPortProcess(worktreeManager: worktreeManager),
         projectService: projectService,
+        defaultWorkspaceRoot: runtimeCwd,
         hydrateBinding: taskExecutor.hydrateWorkflowSharedWorktreeBinding,
       ),
       options: WorkflowServiceOptions(
         bashStepEnvAllowlist: config.security.bashStep.envAllowlist,
         bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
         roleDefaults: workflowRoleDefaults,
+        approvalPolicyDefault: config.workflow.approvals,
         structuredOutputFallbackRecorder: taskHandles.taskEventRecorder.recordStructuredOutputFallbackUsed,
         skillIntrospector:
             skillIntrospector ??
             CliSkillIntrospector(
-              environmentForProvider: (providerId) => _providerEnvironment(providerId, _credentialRegistry),
+              environmentForProvider: (providerId) => _providerEnvironment(config, providerId, _credentialRegistry),
+            ),
+        providerAuthPreflight:
+            providerAuthPreflight ??
+            CliProviderAuthPreflight(
+              credentials: _credentialRegistry,
+              environmentForProvider: (providerId) => _providerEnvironment(config, providerId, _credentialRegistry),
             ),
         skillPreflightConfig: _buildSkillPreflightConfig(),
         outputTransformer: workflowStepOutputTransformer,
@@ -495,12 +576,12 @@ class CliWorkflowWiring {
     );
   }
 
-  Future<void> _wireWorkflowRegistry(_CliWorkflowWiringCtx ctx) async {
+  Future<void> _wireWorkflowRegistry() async {
     final workflowRoleDefaults = _buildWorkflowRoleDefaults();
-    final continuityProviders = pool.runners
-        .where((r) => r.harness.supportsSessionContinuity)
-        .map((r) => r.providerId)
-        .toSet();
+    // Source continuity capability from unstarted harness probes (cwd:'/', no
+    // spawn) rather than `pool.runners`, so the registry loads in the
+    // pre-harness phase before any provider harness starts.
+    final continuityProviders = _harnessFactory.probeContinuityProviders();
     registry = WorkflowRegistry(
       parser: WorkflowDefinitionParser(),
       validator: WorkflowDefinitionValidator(roleDefaults: workflowRoleDefaults),
@@ -520,19 +601,79 @@ class CliWorkflowWiring {
   }
 
   /// Tears down all services in reverse construction order.
+  ///
+  /// Resilient to a pre-harness-only run: when [startHarnesses] never ran (e.g.
+  /// an auth preflight aborted the run), the harness-phase teardown is skipped
+  /// and only the storage/task layer is closed. A no-op when nothing wired.
   Future<void> dispose() async {
-    await workflowCliRunner.cancelInflight();
-    await workflowService.dispose();
-    await taskExecutor.stop();
-    await _cleanupTrackedWorkflowGit(this);
-    await taskCancellationSubscriber.dispose();
+    if (_workflowServiceWired) {
+      await workflowService.dispose();
+    }
+    if (_harnessStarted) {
+      await workflowCliRunner.cancelInflight();
+      await taskExecutor.stop();
+      await _cleanupTrackedWorkflowGit(this);
+      await taskCancellationSubscriber.dispose();
+    }
+    if (!_preHarnessWired) return;
     await taskService.dispose();
-    await pool.dispose();
+    if (_harnessStarted) await pool.dispose();
     await kvService.dispose();
     remotePushService.dispose();
     await projectService.dispose();
     searchDb.close();
     taskDb.close();
+  }
+
+  /// Runs the injected [ProviderAuthPreflight] over [providers], raising a
+  /// [WorkflowPreflightException] with the provider-named remediation message on
+  /// the first unauthenticated provider.
+  ///
+  /// Mirrors the executor-level `_preflightProviderAuth`, but at the CLI wiring
+  /// boundary so a standalone run can gate referenced-provider auth *before*
+  /// [startHarnesses] reaches any `harness.start()`. Defaults to the same
+  /// [CliProviderAuthPreflight] the workflow service would build. Requires
+  /// [wirePreHarness] to have run (uses the credential registry).
+  Future<void> preflightProviderAuth(Set<String> providers) async {
+    final preflight =
+        providerAuthPreflight ??
+        CliProviderAuthPreflight(
+          credentials: _credentialRegistry,
+          environmentForProvider: (providerId) => _providerEnvironment(config, providerId, _credentialRegistry),
+        );
+    for (final provider in providers) {
+      final result = await preflight.evaluate(
+        provider: provider,
+        executable: _resolveProviderExecutable(config, provider),
+        providerOptions: _providerOptions(config, provider),
+      );
+      if (!result.authenticated) {
+        throw WorkflowPreflightException(
+          result.remediationMessage ?? 'Workflow provider "$provider" is not authenticated.',
+        );
+      }
+    }
+  }
+
+  /// Loads a persisted workflow run by id from the run repository.
+  ///
+  /// Available after [wirePreHarness] (the repository is part of the task
+  /// layer), so resume/retry lifecycle paths can derive a run's referenced
+  /// providers and preflight auth before [startHarnesses].
+  Future<WorkflowRun?> loadRun(String runId) => _workflowRunRepository.getById(runId);
+
+  /// Picks the pool primary from [providers]: the configured default when it is
+  /// referenced, otherwise the lowest-sorted referenced provider (deterministic).
+  ///
+  /// Falls back to `config.agent.provider` only when [providers] is empty. In
+  /// headless workflow mode the primary serves no chat/cron/channel traffic, so
+  /// drawing it from the referenced set (rather than an unconditional default
+  /// start) keeps a logged-out default provider out of an unrelated run.
+  String _selectPrimaryProvider(Set<String> providers) {
+    if (providers.isEmpty) return config.agent.provider;
+    if (providers.contains(config.agent.provider)) return config.agent.provider;
+    final sorted = providers.toList()..sort();
+    return sorted.first;
   }
 
   /// Ensures the pool contains task runners for every [providerIds] entry.
@@ -570,7 +711,7 @@ class CliWorkflowWiring {
         providerId,
         () => WorkflowCliProviderConfig(
           executable: _resolveProviderExecutable(config, providerId),
-          environment: _providerEnvironment(providerId, _credentialRegistry),
+          environment: _providerEnvironment(config, providerId, _credentialRegistry),
           options: _providerOptions(config, providerId),
         ),
       );
@@ -596,7 +737,7 @@ class CliWorkflowWiring {
         executable: _resolveProviderExecutable(config, providerId),
         harnessConfig: _harnessConfig,
         providerOptions: _providerOptions(config, providerId),
-        environment: _providerEnvironment(providerId, _credentialRegistry),
+        environment: _providerEnvironment(config, providerId, _credentialRegistry),
       ),
     );
     await harness.start();

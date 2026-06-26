@@ -11,6 +11,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:dartclaw_workflow/src/workflow/step_config_policy.dart';
 import 'package:dartclaw_workflow/src/workflow/step_config_resolver.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_context.dart';
+import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -37,6 +38,44 @@ void main() {
           roleDefaults: roleDefaults,
         ),
         equals('per-map-item'),
+      );
+    });
+
+    test('resolveWorktreeMode treats a null strategy as auto (parallel map → per-map-item, not shared inline)', () {
+      // Regression: a definition with no gitStrategy block must still isolate
+      // parallel map/foreach iterations. Collapsing null to a literal `inline`
+      // left concurrent iterations sharing — and clobbering — the live checkout.
+      expect(resolveWorktreeMode(null, maxParallel: 2, isMap: true), equals('per-map-item'));
+      expect(resolveWorktreeMode(null, maxParallel: null, isMap: true), equals('per-map-item'));
+      // Serial and non-map null-strategy scopes stay inline (unchanged).
+      expect(resolveWorktreeMode(null, maxParallel: 1, isMap: true), equals('inline'));
+      expect(resolveWorktreeMode(null, maxParallel: null, isMap: false), equals('inline'));
+      // Identical to an explicit `{ worktree: auto }` strategy.
+      const auto = WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.auto));
+      expect(
+        resolveWorktreeMode(auto, maxParallel: 2, isMap: true),
+        equals(resolveWorktreeMode(null, maxParallel: 2, isMap: true)),
+      );
+    });
+
+    test('requiresPerMapItemGitIsolation is true for a strategy-less parallel map', () {
+      // The bootstrap must provision per-item worktrees for the strategy-less
+      // parallel map that now resolves to per-map-item, or the isolated
+      // worktrees the dispatcher creates would be ungit-initialized.
+      final definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'test',
+        steps: const [
+          WorkflowStep(id: 'map', name: 'Map', prompts: ['p'], mapOver: 'items', maxParallel: 2),
+        ],
+      );
+      expect(
+        requiresPerMapItemGitIsolation(
+          definition,
+          WorkflowContext(data: {'items': []}),
+          templateEngine: WorkflowTemplateEngine(),
+        ),
+        isTrue,
       );
     });
 

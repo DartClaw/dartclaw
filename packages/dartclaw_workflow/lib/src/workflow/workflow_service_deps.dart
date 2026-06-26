@@ -1,5 +1,6 @@
 import 'dart:async' show FutureOr;
 
+import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowApprovalPolicy;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         AgentExecutionRepository,
@@ -9,6 +10,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowStepExecutionRepository;
 import 'package:uuid/uuid.dart';
 
+import '../skills/provider_auth_preflight.dart';
 import 'skill_introspector.dart';
 import 'step_config_resolver.dart';
 import 'workflow_git_port.dart';
@@ -35,17 +37,25 @@ final class WorkflowPersistencePorts {
 final class WorkflowGitContext {
   final WorkflowGitPort gitPort;
   final ProjectService? projectService;
+  final String? defaultWorkspaceRoot;
   final FutureOr<void> Function(WorkflowWorktreeBinding binding)? hydrateBinding;
 
-  const WorkflowGitContext({required this.gitPort, this.projectService, this.hydrateBinding});
+  const WorkflowGitContext({
+    required this.gitPort,
+    this.projectService,
+    this.defaultWorkspaceRoot,
+    this.hydrateBinding,
+  });
 }
 
 /// Optional runtime customizations for workflow lifecycle management.
 final class WorkflowServiceOptions {
   final WorkflowRoleDefaults roleDefaults;
+  final WorkflowApprovalPolicy approvalPolicyDefault;
   final WorkflowStepOutputTransformer? outputTransformer;
   final StructuredOutputFallbackRecorder? structuredOutputFallbackRecorder;
   final SkillIntrospector? skillIntrospector;
+  final ProviderAuthPreflight? providerAuthPreflight;
   final WorkflowSkillPreflightConfig skillPreflightConfig;
   final Map<String, String>? hostEnvironment;
   final List<String>? bashStepEnvAllowlist;
@@ -54,9 +64,11 @@ final class WorkflowServiceOptions {
 
   const WorkflowServiceOptions({
     this.roleDefaults = const WorkflowRoleDefaults(),
+    this.approvalPolicyDefault = WorkflowApprovalPolicy.manual,
     this.outputTransformer,
     this.structuredOutputFallbackRecorder,
     this.skillIntrospector,
+    this.providerAuthPreflight,
     this.skillPreflightConfig = const WorkflowSkillPreflightConfig(),
     this.hostEnvironment,
     this.bashStepEnvAllowlist,

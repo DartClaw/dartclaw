@@ -96,5 +96,52 @@ void main() {
 
       expect(registry.getApiKey('claude'), isNull);
     });
+
+    group('family-aware resolution (provider aliases)', () {
+      test('null/matching family degrades to plain getApiKey/envVarsFor', () {
+        final registry = CredentialRegistry(
+          credentials: const CredentialsConfig.defaults(),
+          env: const {'ANTHROPIC_API_KEY': 'from-env'},
+        );
+
+        expect(registry.getApiKeyForFamily('claude', null), 'from-env');
+        expect(registry.getApiKeyForFamily('claude', 'claude'), 'from-env');
+        expect(CredentialRegistry.envVarsForFamily('codex', null), ['CODEX_API_KEY', 'OPENAI_API_KEY']);
+        expect(CredentialRegistry.envVarsForFamily('codex', 'codex'), ['CODEX_API_KEY', 'OPENAI_API_KEY']);
+      });
+
+      test('resolved family wins and a foreign provider key never leaks through', () {
+        final registry = CredentialRegistry(
+          credentials: const CredentialsConfig.defaults(),
+          env: const {'OPENAI_API_KEY': 'from-openai'},
+        );
+
+        // provider `codex` overridden to the claude family: the codex env key
+        // must not satisfy a claude-family probe short-circuit.
+        expect(registry.getApiKeyForFamily('codex', 'claude'), isNull);
+        expect(CredentialRegistry.envVarsForFamily('codex', 'claude'), ['ANTHROPIC_API_KEY']);
+      });
+
+      test('family API key is honored for a non-canonical provider alias', () {
+        final registry = CredentialRegistry(
+          credentials: const CredentialsConfig.defaults(),
+          env: const {'OPENAI_API_KEY': 'from-openai'},
+        );
+
+        expect(registry.getApiKeyForFamily('my_agent', 'codex'), 'from-openai');
+        expect(CredentialRegistry.envVarsForFamily('my_agent', 'codex'), ['CODEX_API_KEY', 'OPENAI_API_KEY']);
+      });
+
+      test('falls back to the provider-id key when the resolved family has no known credentials', () {
+        final registry = CredentialRegistry(
+          credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        );
+
+        // `unknown` family has no env-var fallbacks, so the claude provider-id
+        // key is used rather than being suppressed.
+        expect(registry.getApiKeyForFamily('claude', 'unknown'), 'anthropic-key');
+        expect(CredentialRegistry.envVarsForFamily('claude', 'unknown'), ['ANTHROPIC_API_KEY']);
+      });
+    });
   });
 }

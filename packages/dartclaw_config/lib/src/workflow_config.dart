@@ -1,18 +1,46 @@
 import 'path_utils.dart';
 import 'provider_identity.dart';
 
+/// Run-scoped policy for resolving workflow approval gates.
+enum WorkflowApprovalPolicy {
+  /// Pause on `needsInput` outcomes and explicit approval steps.
+  manual('manual'),
+
+  /// Auto-resolve `needsInput` outcomes while preserving explicit approvals.
+  autoOnStall('auto-on-stall'),
+
+  /// Auto-resolve both `needsInput` outcomes and explicit approval steps.
+  auto('auto');
+
+  const WorkflowApprovalPolicy(this.yamlValue);
+
+  /// Serialized config and run-context value.
+  final String yamlValue;
+
+  /// Returns the policy represented by [value], or `null` when unsupported.
+  static WorkflowApprovalPolicy? fromYaml(String value) {
+    final normalized = value.trim();
+    for (final policy in values) {
+      if (policy.yamlValue == normalized) return policy;
+    }
+    return null;
+  }
+}
+
+const _workflowApprovalPolicyValues = ['manual', 'auto-on-stall', 'auto'];
+
 /// Provider/model selection for a workflow execution role.
 class WorkflowRoleModelConfig {
-  /// provider.
+  /// Provider override for this workflow role.
   final String? provider;
 
-  /// model.
+  /// Model override for this workflow role.
   final String? model;
 
-  /// effort.
+  /// Reasoning effort override for this workflow role.
   final String? effort;
 
-  /// const WorkflowRoleModelConfig({this.provider, this.model, th.
+  /// Creates a [WorkflowRoleModelConfig] value.
   const WorkflowRoleModelConfig({this.provider, this.model, this.effort});
 
   @override
@@ -32,16 +60,16 @@ class WorkflowRoleModelConfig {
 /// `workflow` is the general fallback. The other roles inherit missing values
 /// from it at runtime.
 class WorkflowRoleDefaultsConfig {
-  /// workflow.
+  /// General fallback role defaults.
   final WorkflowRoleModelConfig workflow;
 
-  /// planner.
+  /// Planner role defaults.
   final WorkflowRoleModelConfig planner;
 
-  /// executor.
+  /// Executor role defaults.
   final WorkflowRoleModelConfig executor;
 
-  /// reviewer.
+  /// Reviewer role defaults.
   final WorkflowRoleModelConfig reviewer;
 
   /// Creates a [WorkflowRoleDefaultsConfig] value.
@@ -79,10 +107,10 @@ class WorkflowRoleDefaultsConfig {
 
 /// Cleanup behavior for workflow-owned git resources.
 class WorkflowCleanupConfig {
-  /// deleteRemoteBranchOnFailure.
+  /// Whether failed workflow runs delete their remote branch during cleanup.
   final bool deleteRemoteBranchOnFailure;
 
-  /// const WorkflowCleanupConfig({this.deleteRemoteBranchOnFailur.
+  /// Creates a [WorkflowCleanupConfig] value.
   const WorkflowCleanupConfig({this.deleteRemoteBranchOnFailure = false});
 
   /// Creates a [WorkflowCleanupConfig.defaults] value.
@@ -114,11 +142,15 @@ class WorkflowConfig {
   /// Workflow-owned git cleanup settings.
   final WorkflowCleanupConfig cleanup;
 
+  /// Default approval-resolution policy for newly-started workflow runs.
+  final WorkflowApprovalPolicy approvals;
+
   /// Creates a [WorkflowConfig] value.
   const WorkflowConfig({
     this.workspaceDir,
     this.defaults = const WorkflowRoleDefaultsConfig.defaults(),
     this.cleanup = const WorkflowCleanupConfig.defaults(),
+    this.approvals = WorkflowApprovalPolicy.manual,
   });
 
   /// Default configuration with no custom workflow workspace override.
@@ -130,13 +162,15 @@ class WorkflowConfig {
       other is WorkflowConfig &&
           workspaceDir == other.workspaceDir &&
           defaults == other.defaults &&
-          cleanup == other.cleanup;
+          cleanup == other.cleanup &&
+          approvals == other.approvals;
 
   @override
-  int get hashCode => Object.hash(workspaceDir, defaults, cleanup);
+  int get hashCode => Object.hash(workspaceDir, defaults, cleanup, approvals);
 
   @override
-  String toString() => 'WorkflowConfig(workspaceDir: $workspaceDir, defaults: $defaults, cleanup: $cleanup)';
+  String toString() =>
+      'WorkflowConfig(workspaceDir: $workspaceDir, defaults: $defaults, cleanup: $cleanup, approvals: $approvals)';
 }
 
 /// Parses the `workflow:` YAML section into a [WorkflowConfig].
@@ -163,7 +197,23 @@ WorkflowConfig parseWorkflowConfig(Map<String, dynamic>? workflowMap, List<Strin
     workspaceDir: workspaceDir,
     defaults: _parseWorkflowRoleDefaults(workflowMap['defaults'], warns),
     cleanup: _parseWorkflowCleanup(workflowMap['cleanup'], warns),
+    approvals: _parseWorkflowApprovals(workflowMap['approvals'], warns),
   );
+}
+
+WorkflowApprovalPolicy _parseWorkflowApprovals(Object? raw, List<String> warns) {
+  if (raw == null) return WorkflowApprovalPolicy.manual;
+  if (raw is! String) {
+    warns.add('Invalid type for workflow.approvals: "${raw.runtimeType}" – using default manual');
+    return WorkflowApprovalPolicy.manual;
+  }
+  final policy = WorkflowApprovalPolicy.fromYaml(raw);
+  if (policy != null) return policy;
+  warns.add(
+    'Invalid value for workflow.approvals: "$raw" '
+    '(allowed: ${_workflowApprovalPolicyValues.join(', ')}) – using default manual',
+  );
+  return WorkflowApprovalPolicy.manual;
 }
 
 WorkflowCleanupConfig _parseWorkflowCleanup(Object? raw, List<String> warns) {

@@ -5,8 +5,10 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, Harnes
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/turn_wait_status.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../signal_test_support.dart';
@@ -83,6 +85,65 @@ void main() {
       final res = await handler(Request('GET', Uri.parse('http://localhost/')));
       final body = await res.readAsString();
       expect(body, contains('No chats yet'));
+    });
+  });
+
+  group('GET /knowledge/wiki/<source>', () {
+    test('serves an emitted wiki source link read-only', () async {
+      final wikiFile = File('${tempDir.path}/wiki/onboarding.md')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('Merge source material.');
+      final memoryDb = sqlite3.openInMemory();
+      final taskDb = sqlite3.openInMemory();
+      addTearDown(() {
+        memoryDb.close();
+        taskDb.close();
+      });
+      handler = webRoutes(
+        sessions,
+        messages,
+        kvService: kvService,
+        memoryService: MemoryService(memoryDb),
+        kgService: TemporalKnowledgeGraphService(taskDb),
+        workspaceDisplay: WorkspaceDisplayParams(path: tempDir.path),
+      ).call;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/knowledge/wiki/wiki/onboarding.md')));
+
+      expect(wikiFile.existsSync(), isTrue);
+      expect(res.statusCode, 200);
+      expect(res.headers['content-type'], contains('text/plain'));
+      expect(await res.readAsString(), contains('Merge source material.'));
+    });
+
+    test('rejects path traversal outside the workspace', () async {
+      File('${tempDir.path}/secret.md').writeAsStringSync('outside wiki');
+      handler = webRoutes(
+        sessions,
+        messages,
+        kvService: kvService,
+        workspaceDisplay: WorkspaceDisplayParams(path: tempDir.path),
+      ).call;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/knowledge/wiki/wiki/%2E%2E/secret.md')));
+
+      expect(res.statusCode, 404);
+    });
+
+    test('rejects wiki symlinks that resolve outside the wiki root', () async {
+      File('${tempDir.path}/secret.md').writeAsStringSync('outside wiki');
+      final link = Link('${tempDir.path}/wiki/linked.md')..parent.createSync(recursive: true);
+      link.createSync('../secret.md');
+      handler = webRoutes(
+        sessions,
+        messages,
+        kvService: kvService,
+        workspaceDisplay: WorkspaceDisplayParams(path: tempDir.path),
+      ).call;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/knowledge/wiki/wiki/linked.md')));
+
+      expect(res.statusCode, 404);
     });
   });
 

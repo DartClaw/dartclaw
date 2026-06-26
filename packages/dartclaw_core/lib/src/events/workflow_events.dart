@@ -327,7 +327,7 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
       'iter: $iterationIndex/$totalIterations, task: $taskId, success: $success)';
 }
 
-/// Fired when a workflow approval step is reached and the run is paused awaiting human action.
+/// Fired when a workflow approval step requests a decision.
 // NOT_ALERTABLE: workflow approval telemetry — surfaced via SSE only
 final class WorkflowApprovalRequestedEvent extends WorkflowLifecycleEvent {
   @override

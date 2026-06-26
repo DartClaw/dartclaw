@@ -16,6 +16,7 @@ void main() {
       expect(config.defaults.workflow.provider, 'claude');
       expect(config.defaults.reviewer.model, 'claude-opus-4');
       expect(config.cleanup.deleteRemoteBranchOnFailure, isFalse);
+      expect(config.approvals, WorkflowApprovalPolicy.manual);
     });
 
     test('equality includes workspaceDir and role defaults', () {
@@ -40,6 +41,10 @@ void main() {
       expect(
         const WorkflowConfig(),
         isNot(equals(const WorkflowConfig(cleanup: WorkflowCleanupConfig(deleteRemoteBranchOnFailure: true)))),
+      );
+      expect(
+        const WorkflowConfig(),
+        isNot(equals(const WorkflowConfig(approvals: WorkflowApprovalPolicy.autoOnStall))),
       );
     });
   });
@@ -115,6 +120,27 @@ workflow:
 
       expect(config.workflow.cleanup.deleteRemoteBranchOnFailure, isTrue);
       expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.approvals parses the approval policy enum', () {
+      final config = _load('''
+workflow:
+  approvals: auto-on-stall
+''');
+
+      expect(config.workflow.approvals, WorkflowApprovalPolicy.autoOnStall);
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.approvals rejects unknown values and falls back to manual', () {
+      final config = _load('''
+workflow:
+  approvals: bogus
+''');
+
+      expect(config.workflow.approvals, WorkflowApprovalPolicy.manual);
+      expect(config.warnings, anyElement(contains('Invalid value for workflow.approvals')));
+      expect(config.warnings.single, contains('manual, auto-on-stall, auto'));
     });
   });
 }

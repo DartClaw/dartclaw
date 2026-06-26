@@ -6,6 +6,7 @@ import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        BashStepPolicy,
         ContextExtractor,
         EventBus,
         GateEvaluator,
@@ -19,6 +20,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskType,
         WorkflowContext,
         WorkflowDefinition,
+        WorkflowRoleDefaults,
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowStep;
@@ -28,6 +30,7 @@ import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+import 'package:uuid/uuid.dart';
 
 void main() {
   group('workflow_task_factory', () {
@@ -78,6 +81,39 @@ void main() {
     tearDown(() async {
       db.close();
       await tempDir.delete(recursive: true);
+    });
+
+    test('preserves default workspace root through configured and scoped contexts', () {
+      final context = StepExecutionContext(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: KvService(filePath: p.join(tempDir.path, 'kv-copy.json')),
+        repository: SqliteWorkflowRunRepository(db),
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: executionContext.contextExtractor,
+        defaultWorkspaceRoot: '/repo',
+      );
+      const definition = WorkflowDefinition(name: 'copy-context', description: 'copy context', steps: []);
+      final run = WorkflowRun(
+        id: 'run-copy-context',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.parse('2026-03-24T10:00:00Z'),
+        updatedAt: DateTime.parse('2026-03-24T10:00:00Z'),
+        definitionJson: definition.toJson(),
+      );
+
+      final configured = context.configured(
+        dataDir: tempDir.path,
+        promptConfiguration: StepPromptConfiguration(),
+        roleDefaults: const WorkflowRoleDefaults(),
+        bashStepPolicy: const BashStepPolicy(),
+        uuid: const Uuid(),
+      );
+      final scoped = configured.scoped(run: run, definition: definition, workflowContext: WorkflowContext());
+
+      expect(configured.defaultWorkspaceRoot, '/repo');
+      expect(scoped.defaultWorkspaceRoot, '/repo');
     });
 
     test('creates task triple atomically and fires queued event', () async {

@@ -2,7 +2,7 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-06-11 07:32 CEST
+Last Updated: 2026-06-26 10:31 CEST
 
 ### Implemented Features (through 0.18)
 
@@ -24,15 +24,17 @@ Last Updated: 2026-06-11 07:32 CEST
 
 ## Current Phase
 
-**0.18 Universal Agent Harness — release-ready, awaiting tag.**
+**0.19 — Context Engine. Status: Release-ready — awaiting tag.**
 
-**Status**: All stories S01-S09 implemented on `feat/0.18`; release-prep version pins, changelog, state, roadmap, Homebrew template, and bundle cleanup applied. Automated release gate (`bash dev/tools/release_check.sh`) passed on 2026-06-11. Not yet tagged or merged to `main`.
+**Status**: Plan bundle created from `dev/bundle/docs/specs/0.19/prd.md` on 2026-06-12 (12 stories, 4 phases). Scope = committed-P0 **FR1–FR8** (outbound MCP client + governance + audit, `context_research` synthesis, knowledge UI); **FR9–FR11** (validation, dogfooding, steward) carved to a separate 0.19.x plan per the PRD sizing flag. Operator decisions (2026-06-12): Afterglow treated as ready (live-CSS synced upstream of UI in S07); TD-110 closed inside FR3 (S04). See `dev/state/ROADMAP.md` for milestone scope.
 
-**Before release/merge**: run/confirm manual gates in `dev/guidelines/RELEASE_PREPARATION.md`; tag + squash-merge.
+Plan progress: **S01/S02/S03/S04/S05/S06/S07/S08/S09/S10/S11/S12 done**; 0.19 FR1–FR8 implementation bundle complete.
 
-**Previous**: 0.17 — Personal AI & Developer Experience (tagged `v0.17.0` on 2026-06-04).
+**Release prep (2026-06-26)**: version pins bumped to **0.19.0** (lockstep green); CHANGELOG `[Unreleased]` cut to `[0.19.0]`; CI-equivalent gate green (format/analyze/test_workspace 5103 passed/arch_check 7-7/fitness). **Remaining before tag**: exported-bundle cleanup (`dev/bundle/` → empty) + the manual release-prep gates (live integration, UI smoke, release-asset/Homebrew audits) per `RELEASE_PREPARATION.md`, then squash-merge to `main` + annotated `v0.19.0` tag.
 
-**Next**: TBD. See `dev/state/ROADMAP.md`.
+**Interludes complete (outside `plan.json`)**: the **framework-agnostic workflow engine decoupling** (ADR-041, 4 stories) and the **standalone/workflow CLI DX hardening** stream are done — both recorded in `0.19/prd.md` § *Adjacent & interlude work* (now mirrored to the private canonical PRD ahead of bundle cleanup). The transient FIS bundles (`workflow-andthen-decoupling/` + the loose `dev/bundle/docs/specs/*.md`) stay on `feat/0.19` and are removed before merge per SPEC-LIFECYCLE. All standalone FIS landed on this branch — including `project-localpath-relative-resolution.md` (relative `localPath` + `allowApiLocalPath` empty-allowlist fail-closed) and `asset-resolution-precedence.md` (surfaced during release visual-validation). The unfinished `docs-website` PRD was moved to the private repo under `docs/specs/0.next/`.
+
+**Previous**: 0.18 — Universal Agent Harness (squash-merged to `main` and tagged `v0.18.0` on 2026-06-11). 0.17 — Personal AI & Developer Experience (tagged `v0.17.0` on 2026-06-04).
 
 ## Active Stories
 
@@ -58,3 +60,11 @@ None.
 - 0.18 completed and committed (`85674e6`) on 2026-06-08 after the workflow run stopped at the remediation cap. Post-cap fixes (outside the per-story scope): claude one-shot streaming for stall-monitor liveness (`--output-format stream-json`) + `usage.*` token mapping; workflow review-report output resolution (bare-key alias, runtime-artifacts root precedence, reviews-dir backstop); standalone provisioning of workflow-requested built-in providers + growable `HarnessPool` capacity; `config_parser`/`session_routes` decomposition under fitness ceilings; 3 MEDIUM review findings (turn-monitor docs, chat-Stop affordance, terminal `global_timeout_at`).
 - Workflow review output-key prefixing standardized (2026-06-08, post-0.18): every parallel review source step now uses `<stepId>.review_findings` (replacing the prior bare `review_findings` / distinct `architecture_review_findings` / step-prefixed-council split); the aggregate's own outputs stay bare. Convention documented in `docs/guide/workflows.md` + `packages/dartclaw_workflow/CLAUDE.md` and contract-locked in `built_in_workflow_contracts_test.dart`. Closes the prior follow-up and the path-key half of TD-077.
 - Homebrew tap publication automated (2026-06-09, post-0.18, fulfills FR14): the `Release Binaries` workflow's new `homebrew` job renders the canonical formula template (`package/homebrew/dartclaw.rb`, via `dev/tools/render_homebrew_formula.dart`) with the verified per-platform digests and pushes `Formula/dartclaw.rb` to the `DartClaw/homebrew-dartclaw` tap on every `v*` tag. Formula is in-repo canonical / tap is generated mirror; rationale in ADR-038. Also fixed the formula license (Apache-2.0 → MIT). **Prerequisite:** the `HOMEBREW_TAP_TOKEN` repo secret (fine-grained PAT, `contents:write` on the tap) must be created before the next tag, else the job skips.
+- Standalone/workflow CLI DX hardening completed (2026-06, during the 0.19 cycle, outside `plan.json`): config consolidation under `.dartclaw/`, lifecycle-control CLI (`resume`/`cancel`/`pause`/`retry --standalone`), inline git-strategy override (`--inline`), non-interactive approval policy (`workflow.approvals` + `--approvals`), provider auth preflight (gated before harness start), and active-workspace-root cwd fallback. All shipped; `project-localpath-relative-resolution.md` deferred post-0.19. Full record in `0.19/prd.md` § *Adjacent & interlude work*.
+- Framework-agnostic workflow engine decoupling completed (2026-06-22, ADR-041; commits `22b942dc` ADR + `2e23dd0c` refactor): `dartclaw_workflow` engine `.dart` is now free of AndThen coupling — output validation is `schema:` + generic `format: path` only, all framework semantics moved into the bundled discovery skills + workflow-YAML gates, and `dev/tools/fitness/check_no_framework_coupling.sh` ratchets it (wired into `run_all.sh`). The bundled `definitions/*.yaml` + `skills/` payloads are the only remaining AndThen-specific assets. Verified: gate green, zero `andthen` literals in `lib/src/`, no built-in-workflow behavior change.
+- 0.19 S05 implemented outbound MCP per-server governance and selective tool surfacing on 2026-06-24: config now carries rate-limit/token-budget/surface lists with non-negative validation; outbound dispatch enforces in-memory per-server call/token windows after egress allowlist and before transport; governance denials reuse the S04 audit-deny path; surfaced tool lists are filtered while explicit dispatch remains governed by S04; governance counter events are emitted.
+- 0.19 S06 implemented `context_research` synthesis and the shared citation packet/resolver contract on 2026-06-24: tool fans out across memory/KG/wiki, dispatches synthesis per call with no packet cache, preserves resolvable citations, flags unresolved statements, reports degraded layers/no sources, enforces query/budget guards, emits metrics, registers on the MCP surface, and records ADR-042.
+- 0.19 S08 implemented cross-layer source attribution UI on 2026-06-24: shared Trellis attribution fragment consumes S06 citation types/resolver, flags unresolvable citations, renders packet/source-list/degraded/no-source states, registers `/knowledge/research`, adds Afterglow styling and `dc-attribution` popovers, and proves reuse for packet/hub/timeline fixtures.
+- 0.19 S10 implemented the temporal KG timeline UI on 2026-06-24: additive cross-entity KG fact enumeration, read-only `/knowledge/timeline`, as-of/category/error handling, superseded/conflict/future state rendering, FR8 attribution reuse, and visual validation.
+- 0.19 S09 implemented the read-only knowledge hub UI on 2026-06-24: cross-layer `/knowledge` hub, wiki/KG/memory/inbox fan-out, layer filters, source links, FR8 attribution reuse, empty/partial-failure/pagination states, and visual validation.
+- 0.19 S12 implemented outbound MCP runtime composition on 2026-06-24: service wiring now builds a single outbound pool from the enabled registry, validates/ registers surfaced namespaced tools on the live `/mcp` handler, keeps un-surfaced allowed tools dispatchable through explicit `allow_tools` policy, and closes the pool on shutdown.

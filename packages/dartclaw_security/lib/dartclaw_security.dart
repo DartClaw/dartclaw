@@ -16,6 +16,7 @@ export 'src/content_guard.dart' show ContentGuard;
 export 'src/anthropic_api_classifier.dart' show AnthropicApiClassifier;
 export 'src/claude_binary_classifier.dart' show ClaudeBinaryClassifier;
 export 'src/env_substitute.dart' show envReferences, envSubstitute;
+export 'src/egress_guard.dart' show EgressGuard;
 export 'src/process/inline_process_environment_plan.dart'
     show EmptyProcessEnvironmentPlan, InlineProcessEnvironmentPlan;
 export 'src/safe_process.dart'

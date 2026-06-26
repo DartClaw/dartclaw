@@ -46,6 +46,26 @@ class WikiSearchSource {
     return results.take(limit).toList();
   }
 
+  /// Lists wiki markdown pages without requiring a search term.
+  Future<List<MemorySearchResult>> list({int limit = 10}) async {
+    final wikiDir = Directory(p.join(workspaceDir, 'wiki'));
+    if (!wikiDir.existsSync()) return const [];
+
+    final results = <MemorySearchResult>[];
+    await for (final entity in wikiDir.list(recursive: true, followLinks: false)) {
+      if (entity is! File || !entity.path.endsWith('.md')) continue;
+      final raw = await entity.readAsString();
+      final body = _stripFrontmatter(raw);
+      final source = p.relative(entity.path, from: workspaceDir);
+      results.add(
+        MemorySearchResult(text: _snippet(body, const []), source: source, category: 'synthesized knowledge', score: 0),
+      );
+    }
+
+    results.sort((a, b) => a.source.compareTo(b.source));
+    return results.take(limit).toList();
+  }
+
   static List<String> _queryTerms(String query) => query
       .replaceAll('"', ' ')
       .split(RegExp(r'\s+'))

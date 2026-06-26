@@ -53,6 +53,71 @@ void main() {
       expect(transport.requests.last.uri.path, '/api/workflows/runs/run-1/events');
     });
 
+    test('connected run sends approvals override in the start request', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [_jsonResponse(201, _startedRunJson())],
+        streamResponses: [
+          ApiResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'text/event-stream'},
+            body: Stream.value(
+              utf8.encode(
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"completed"}\n\n',
+              ),
+            ),
+          ),
+        ],
+      );
+      final command = WorkflowRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        stdoutLine: (_) {},
+        exitFn: fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'demo-workflow', '--approvals=auto-on-stall']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      final body = jsonDecode(transport.requests.first.body!) as Map<String, dynamic>;
+      expect(body['approvals'], 'auto-on-stall');
+    });
+
+    test('connected run forwards --inline without implying allow-dirty-localpath', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [_jsonResponse(201, _startedRunJson())],
+        streamResponses: [
+          ApiResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'text/event-stream'},
+            body: Stream.value(
+              utf8.encode(
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"completed"}\n\n',
+              ),
+            ),
+          ),
+        ],
+      );
+      final command = WorkflowRunCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        stdoutLine: (_) {},
+        exitFn: fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'demo-workflow', '--inline']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      final body = jsonDecode(transport.requests.first.body!) as Map<String, dynamic>;
+      expect(body['inline'], isTrue);
+      // S05 [OC01]: --inline only changes git strategy; it must not imply
+      // --allow-dirty-localpath.
+      expect(body.containsKey('allowDirtyLocalPath'), isFalse);
+    });
+
     test('connected text mode includes display scope from SSE events', () async {
       final transport = FakeApiTransport(
         sendResponses: [_jsonResponse(201, _startedRunJson())],

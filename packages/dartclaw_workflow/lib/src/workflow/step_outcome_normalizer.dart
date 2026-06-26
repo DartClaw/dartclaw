@@ -1,8 +1,6 @@
 import 'story_spec_output_validator.dart';
 import 'workflow_runner_types.dart';
 
-export 'discover_andthen_spec_validator.dart' show validateDiscoverAndthenSpecOutputs;
-export 'discover_andthen_plan_validator.dart' show validateDiscoverAndthenPlanOutputs;
 export 'story_spec_output_validator.dart' show validateStorySpecOutputs;
 
 /// Context needed by pure step-output normalization.

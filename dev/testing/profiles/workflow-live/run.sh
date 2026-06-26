@@ -19,8 +19,17 @@ usage() {
   cat <<'EOF'
 Usage:
   bash dev/testing/profiles/workflow-live/run.sh --canary <name> [-- <dart test args...>]
-  bash dev/testing/profiles/workflow-live/run.sh --full [-- <dart test args...>]
+  bash dev/testing/profiles/workflow-live/run.sh --full [--skip-e2e] [-- <dart test args...>]
+  bash dev/testing/profiles/workflow-live/run.sh --e2e [-- <dart test args...>]
   bash dev/testing/profiles/workflow-live/run.sh --list
+
+Modes:
+  --full               Full live sweep. Add --skip-e2e to exclude the heavy
+                       multi-minute real-provider agent e2e (tag: live-e2e),
+                       keeping the fast integration tests as a quick gate.
+  --e2e                Run only the heavy real-provider agent e2e
+                       (spec-and-implement + plan-and-implement, tag: live-e2e).
+  --canary <name>      Single targeted canary (see below).
 
 Canaries:
   core                 Real core bridge protocol smoke.
@@ -52,12 +61,21 @@ FULL_FILES=(
 FILES=()
 NAME_FILTER=""
 MODE=""
+SKIP_E2E=0
 EXTRA_ARGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --full)
       MODE="full"
+      shift
+      ;;
+    --e2e)
+      MODE="e2e"
+      shift
+      ;;
+    --skip-e2e)
+      SKIP_E2E=1
       shift
       ;;
     --canary)
@@ -92,8 +110,13 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "${MODE}" ]; then
-  echo "Error: choose --canary <name> or --full" >&2
+  echo "Error: choose --canary <name>, --full, or --e2e" >&2
   usage >&2
+  exit 2
+fi
+
+if [ "${SKIP_E2E}" -eq 1 ] && [ "${MODE}" = "e2e" ]; then
+  echo "Error: --skip-e2e cannot be combined with --e2e (it would exclude every selected test)" >&2
   exit 2
 fi
 
@@ -101,6 +124,10 @@ case "${MODE}:${CANARY:-}" in
   full:)
     FILES=("${FULL_FILES[@]}")
     LOG_LABEL="full"
+    ;;
+  e2e:)
+    FILES=("packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart")
+    LOG_LABEL="e2e"
     ;;
   canary:core)
     FILES=("packages/dartclaw_core/test/integration/direct_bridge_test.dart")
@@ -152,7 +179,15 @@ LOG_FILE="${LOG_DIR}/workflow-live-${LOG_LABEL}-$(date '+%Y%m%d-%H%M%S').log"
 
 cd "${REPO_ROOT}"
 
-CMD=(dart test --run-skipped -j 1 --reporter=expanded -t integration)
+CMD=(dart test --run-skipped -j 1 --reporter=expanded)
+if [ "${MODE}" = "e2e" ]; then
+  CMD+=(-t live-e2e)
+else
+  CMD+=(-t integration)
+fi
+if [ "${SKIP_E2E}" -eq 1 ]; then
+  CMD+=(-x live-e2e)
+fi
 CMD+=("${FILES[@]}")
 if [ -n "${NAME_FILTER}" ]; then
   CMD+=(--name "${NAME_FILTER}")

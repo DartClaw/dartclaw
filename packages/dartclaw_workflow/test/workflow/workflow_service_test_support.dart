@@ -19,6 +19,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowService,
+        WorkflowServiceOptions,
         WorkflowStep,
         WorkflowTurnAdapter,
         WorkflowVariable,
@@ -103,7 +104,11 @@ final class WorkflowServiceTestHarness {
     );
   }
 
-  WorkflowService lifecycleOnlyService({WorkflowTurnAdapter? turnAdapter, WorkflowGitContext? gitContext}) {
+  WorkflowService lifecycleOnlyService({
+    WorkflowTurnAdapter? turnAdapter,
+    WorkflowGitContext? gitContext,
+    WorkflowServiceOptions options = const WorkflowServiceOptions(),
+  }) {
     return WorkflowService.lifecycleOnly(
       repository: repository,
       taskService: taskService,
@@ -113,6 +118,7 @@ final class WorkflowServiceTestHarness {
       dataDir: tempDir.path,
       turnAdapter: turnAdapter,
       gitContext: gitContext,
+      options: options,
     );
   }
 

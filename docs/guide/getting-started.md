@@ -37,7 +37,7 @@ Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROP
 
 ## Install DartClaw
 
-Homebrew is the only package manager for DartClaw releases. It installs the `dartclaw` binary and companion assets for supported macOS and Linux hosts:
+Homebrew is the only package manager for DartClaw releases. It installs the `dartclaw` binary and companion assets:
 
 ```bash
 brew tap DartClaw/dartclaw
@@ -79,7 +79,7 @@ dartclaw serve
 # 3. Open http://127.0.0.1:3333
 ```
 
-`dartclaw init` is the primary setup command. It runs a Quick-track wizard in a terminal (or accepts all inputs via flags with `--non-interactive`). All preflight checks (provider binary, port, directory writability) run before any file is written, so an interrupted setup leaves nothing on disk. Re-running `dartclaw init` against an existing instance shows current values as defaults.
+`dartclaw init` is the primary setup command. It runs a Quick-track wizard in a terminal, or accepts all inputs via flags with `--non-interactive`. All preflight checks (provider binary, port, directory writability) run before any file is written, so an interrupted setup leaves nothing on disk. Re-running it against an existing instance shows current values as defaults.
 
 ```bash
 # Non-interactive setup (e.g. for scripts or CI)

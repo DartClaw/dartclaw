@@ -2,7 +2,7 @@
 
 **SDK Guide** | [Concepts](concepts.md) | [Architecture](architecture.md) | [Security](security.md) | [User Guide](../guide/getting-started.md) | [API Reference](https://pub.dev/documentation/dartclaw/latest/) | [Examples](../../examples/sdk/)
 
-> **Status**: DartClaw is name-squatted on pub.dev as `0.0.1-dev.1`; the real publish is deferred until the public repo opens. Until then, use a git-pinned dependency or `dependency_overrides` against a local checkout. See ADR-008 (private repo: `docs/adrs/008-sdk-publishing-strategy.md`).
+> **Status**: DartClaw is not yet published to pub.dev. Until it is, depend on it via a git-pinned dependency or `dependency_overrides` against a local checkout. See [ADR-008](../../dev/adrs/008-sdk-publishing-strategy.md) for the publishing strategy.
 
 DartClaw is a Dart SDK for building agent runtimes around native agent harnesses such as Claude Code and Codex. The reference server in this repo is one consumer of that SDK, but the same packages also let you build a one-file CLI, embed an agent in an existing Dart service, or compose your own storage, guards, and channels.
 
@@ -14,7 +14,7 @@ DartClaw is a Dart SDK for building agent runtimes around native agent harnesses
 
 ## Install
 
-Once the SDK packages are actually published to pub.dev (see ADR-008 for the milestone), the workspace overrides become unnecessary and you can install directly:
+Once the SDK packages are published to pub.dev (see ADR-008), install directly:
 
 ```bash
 dart pub add dartclaw

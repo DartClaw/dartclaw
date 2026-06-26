@@ -78,7 +78,10 @@ void main() {
     );
 
     expect(await introspector.listAvailable(provider: 'claude', executable: '/bin/claude'), {'andthen:review'});
-    expect(capturedArguments, containsAll(['--permission-mode', 'plan', '-p', skillIntrospectionPrompt]));
+    expect(capturedArguments, containsAll(['--allowedTools', '', '-p', skillIntrospectionPrompt]));
+    expect(capturedArguments, isNot(contains('--permission-mode')));
+    expect(capturedArguments.indexOf('--allowedTools'), lessThan(capturedArguments.indexOf('-p')));
+    expect(capturedArguments[capturedArguments.indexOf('--allowedTools') + 1], isEmpty);
     expect(capturedArguments, isNot(contains('--setting-sources')));
   });
 
@@ -100,6 +103,9 @@ void main() {
       {'andthen:review'},
     );
     expect(capturedArguments, containsAll(['--setting-sources', 'project']));
+    expect(capturedArguments, containsAll(['--allowedTools', '']));
+    expect(capturedArguments, isNot(contains('--permission-mode')));
+    expect(capturedArguments.indexOf('--allowedTools'), lessThan(capturedArguments.indexOf('-p')));
     expect(capturedArguments.indexOf('--setting-sources'), lessThan(capturedArguments.indexOf('-p')));
   });
 
@@ -182,5 +188,64 @@ void main() {
       'andthen-review',
     });
     expect(capturedArguments, containsAll(['exec', '--skip-git-repo-check']));
+  });
+
+  test('surfaces the stdout failure cause, not just the benign env-scrub stderr warning', () async {
+    final introspector = CliSkillIntrospector(
+      runner: (executable, arguments, {environment}) async {
+        // Real cause lives on stdout; stderr carries only the benign
+        // CLAUDE_CODE_SUBPROCESS_ENV_SCRUB hardening notice, which must not mask it.
+        return ProcessResult(
+          1,
+          1,
+          'Failed to authenticate. API Error: 401 Invalid authentication credentials',
+          '⚠ Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set '
+              '(allowed_non_write_users hardening).',
+        );
+      },
+    );
+
+    Object? caught;
+    try {
+      await introspector.listAvailable(provider: 'claude', executable: '/bin/claude');
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught, isA<StateError>());
+    final message = (caught as StateError).message;
+    expect(message, contains('exit code 1'));
+    expect(message, contains('401 Invalid authentication credentials'));
+    // The real stdout cause must precede the benign stderr warning — a
+    // stderr-first ordering would reintroduce the masking this fix removes.
+    expect(message, contains('stderr:'));
+    expect(message.indexOf('401 Invalid authentication credentials'), lessThan(message.indexOf('stderr:')));
+  });
+
+  test('falls back to raw stdout when the JSON envelope unwraps to an empty result', () async {
+    final introspector = CliSkillIntrospector(
+      runner: (executable, arguments, {environment}) async {
+        // JSON error envelope whose `result` is empty: _extractPlainText would
+        // blank it, dropping the real cause that lives elsewhere in stdout.
+        return ProcessResult(
+          1,
+          1,
+          '{"result":"","error":"boom-cause"}',
+          '⚠ Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set.',
+        );
+      },
+    );
+
+    Object? caught;
+    try {
+      await introspector.listAvailable(provider: 'claude', executable: '/bin/claude');
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught, isA<StateError>());
+    final message = (caught as StateError).message;
+    expect(message, contains('exit code 1'));
+    expect(message, contains('boom-cause'));
   });
 }

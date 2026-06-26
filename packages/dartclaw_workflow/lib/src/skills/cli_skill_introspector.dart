@@ -53,8 +53,19 @@ final class CliSkillIntrospector implements SkillIntrospector {
       inheritUserSettings: inheritUserSettings,
     );
     _cache[key] = probe;
+    // Drop the cache entry once the probe settles. Use statement bodies so the
+    // callbacks return void — an arrow body would hand back the cached future
+    // itself, and on a probe rejection that re-adopts the error into the
+    // unawaited continuation as an unhandled async error.
     unawaited(
-      probe.then<void>((_) => _cache.remove(key), onError: (Object error, StackTrace stackTrace) => _cache.remove(key)),
+      probe.then<void>(
+        (_) {
+          _cache.remove(key);
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          _cache.remove(key);
+        },
+      ),
     );
     return probe;
   }
@@ -67,8 +78,9 @@ final class CliSkillIntrospector implements SkillIntrospector {
   }) async {
     final args = switch (provider) {
       'claude' => <String>[
-        '--permission-mode',
-        'plan',
+        // Env-scrub hardening requires an explicit allowlist; this probe uses no tools.
+        '--allowedTools',
+        '',
         if (!inheritUserSettings) ...['--setting-sources', 'project'],
         '-p',
         skillIntrospectionPrompt,
@@ -88,10 +100,21 @@ final class CliSkillIntrospector implements SkillIntrospector {
     final environment = _environmentForProvider?.call(providerId) ?? _environment;
     final result = await _runner(executable, args, environment: environment.isEmpty ? null : environment);
     if (result.exitCode != 0) {
+      // The real failure (e.g. an auth error) is reported on stdout; stderr
+      // often carries only the benign CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
+      // hardening notice. Surface stdout first so a harmless warning never
+      // masks the actual cause.
+      final raw = (result.stdout ?? '').toString().trim();
+      final stdoutText = _extractPlainText(raw).trim();
+      // _extractPlainText can blank a JSON envelope whose `result` is empty;
+      // never let a non-empty stdout cause vanish behind the benign env-scrub
+      // stderr warning.
+      final cause = stdoutText.isNotEmpty ? stdoutText : raw;
       final stderr = (result.stderr ?? '').toString().trim();
+      final detail = <String>[if (cause.isNotEmpty) cause, if (stderr.isNotEmpty) 'stderr: $stderr'].join('; ');
       throw StateError(
         'Skill introspection failed for provider "$provider" with exit code ${result.exitCode}'
-        '${stderr.isEmpty ? '' : ': $stderr'}',
+        '${detail.isEmpty ? '' : ': $detail'}',
       );
     }
     return _parseSkillNames((result.stdout ?? '').toString());

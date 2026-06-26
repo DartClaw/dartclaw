@@ -1,6 +1,6 @@
 # Example Configs
 
-Quick start: `bash examples/run.sh` (uses `dev.yaml` by default, stores data in `.dartclaw-dev/`).
+Quick start: `bash examples/run.sh` (uses `dev.yaml` by default, stores data in `.dartclaw-example/`).
 
 Specify a config: `bash examples/run.sh production --port 8080`
 

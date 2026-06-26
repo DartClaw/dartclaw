@@ -106,6 +106,10 @@ Searched in order (first found wins):
 3. `DARTCLAW_HOME` env var → `<DARTCLAW_HOME>/dartclaw.yaml`
 4. `~/.dartclaw/dartclaw.yaml` (default instance directory)
 
+Standalone workflow commands add one scoped discovery step before the default instance path: when no `--config`,
+`DARTCLAW_CONFIG`, or `DARTCLAW_HOME` is set, `dartclaw workflow ... --standalone` looks for the cwd-local
+`.dartclaw/dartclaw.yaml` written by `dartclaw init --workflow`.
+
 > **Note on CWD discovery:** Prior to 0.16.2, `./dartclaw.yaml` in the current directory was also searched. That file is now ignored by default and only emits a deprecation warning. Use `--config ./dartclaw.yaml` for explicit project-level configs.
 
 Values support `${ENV_VAR}` substitution. CLI flags override config file values.
@@ -381,6 +385,7 @@ agent:
 # --- Workflow Defaults ---
 workflow:
   workspace_dir: ~/.dartclaw/workflow-workspace
+  approvals: manual              # manual | auto-on-stall | auto
   defaults:
     workflow:
       model: claude/sonnet       # shorthand sets both provider + model
@@ -448,6 +453,23 @@ credentials:
   #   type: github-token
   #   token: ${GITHUB_TOKEN}
   #   repository: org/app        # optional repo-scope guard
+
+# --- External MCP servers (0.19) ---
+mcp_servers:
+  filesystem:
+    command: /usr/local/bin/filesystem-mcp    # stdio transport; exactly one of command or url
+    # url: https://mcp.example.com/mcp        # HTTP transport alternative
+    network_class: local                      # local | private | public
+    enabled: true
+    credential: filesystem-mcp                # reference to credentials.<name>; do not inline secrets here
+    allow_tools: [read_file, stat]            # egress allowlist; empty denies all outbound tools
+    surface_tools: [read_file]                # tools exposed to harness tools/list; empty exposes none
+    rate_limit:
+      calls: 60
+      window_seconds: 60
+    token_budget:
+      tokens: 20000
+      window_seconds: 3600
 
 # --- Delegation (0.18) ---
 delegation:
@@ -543,6 +565,8 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 `knowledge.inbox` and `knowledge.wiki_lint` are disabled by default. Enable them explicitly to schedule filesystem inbox processing or wiki lint reports.
 
+`workflow.approvals` controls workflow approval gates, not task review. `manual` pauses on `needsInput` and explicit approval steps; `auto-on-stall` advances past `needsInput` stalls only; `auto` also auto-accepts explicit approval steps. `headless` remains separate and only changes task completion review.
+
 **Note on `scheduling.jobs` prompt content:** The `prompt` field of each scheduled job is passed directly to the agent at runtime. It is not validated by ConfigMeta — invalid or empty prompts are only caught when the job runs.
 
 **Note on `agent.model` scope:** The global `agent.model` applies to main chat, cron jobs, and heartbeat turns. Subagents under `agent.agents` can override the model individually. Task runners also use `agent.model` by default but support per-task overrides via `configJson.model` at creation time. See [Agents](agents.md) for the full model hierarchy.
@@ -567,6 +591,24 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 - Approval bypass modes such as `approval: never`, and `sandbox: danger-full-access`, fail before spawn.
 - `max_budget_tokens` can enforce strict budgets for streaming or provider-reported usage. Non-reporting, non-streaming agents must set `post_run_accounting_only: true` on that allowlist entry.
 - Use `delegation.rate_limit.max_per_minute` to cap tool invocations.
+
+**Note on `mcp_servers`:** Each entry configures one external MCP server for hosts that instantiate the outbound MCP
+client. Use `command` for stdio servers or `url` for HTTP servers; exactly one transport is required. The default
+runtime requires HTTPS for HTTP transport dispatch, even though config parsing accepts absolute `http` URLs for custom
+transport paths. `credential` references a named `credentials:` entry, and unresolved or missing credentials disable the
+server. The default runtime sends HTTP credentials as `Authorization: Bearer <secret>`. For stdio servers the resolved
+secret is injected into the subprocess environment via the sanctioned `SafeProcess`/`EnvPolicy` path — under the
+environment variable name(s) the referenced credential declares (e.g. a credential sourced from `${ACME_API_KEY}`
+injects `ACME_API_KEY`); the secret never appears in argv, the inherited parent environment, logs, or the audit record.
+A credentialed stdio server whose credential declares no env var name fails closed rather than guessing one. `network_class` is
+required classification metadata and must be `local`, `private`, or `public`; the default HTTP transport applies the
+blocked-range/DNS egress policy to `public` servers before sending request bodies. `allow_tools` is the outbound egress
+allowlist: an empty list denies all calls for that server. `surface_tools` controls only harness-facing tool-list
+visibility: an empty list exposes no external tools through that pool's filter, and each listed tool must exist in the
+server's `tools/list` response. A tool can be allowed without being surfaced, preserving explicit-policy dispatch
+without adding it to every harness context. `rate_limit.calls` / `rate_limit.window_seconds` and `token_budget.tokens` /
+`token_budget.window_seconds` apply per server before outbound `tools/call` dispatch when the outbound pool is wired
+with guard and audit hooks.
 
 **Note on `governance.budget.timezone`:** Two forms are accepted. Fixed UTC offsets — `UTC`, `GMT`, `UTC+N`, `UTC-N` (e.g., `UTC+1`, `UTC-5`) — and IANA timezone names like `Europe/Stockholm` or `America/New_York`. IANA names are DST-aware: the offset is resolved for each reset instant, so budget reset time follows daylight-saving transitions automatically. Only the fixed `UTC±N` forms do not adjust for DST — with those, a DST-observing region needs the offset updated seasonally or accepts the one-hour drift across transitions. An unrecognized value falls back to UTC with a warning.
 
@@ -593,7 +635,7 @@ projects:
 
 Rules and behavior:
 
-- `localPath` must be an absolute path. Relative paths and any `..` traversal segments are rejected at config-load time.
+- `localPath` may be absolute, or relative to the config file's directory — a relative value (e.g. `..` from `.dartclaw/dartclaw.yaml`) resolves against that directory at load (mirroring `data_dir`) and is then validated as its resolved absolute path, so a committed `dartclaw.yaml` can register its surrounding repo with no machine-specific path. An **absolute** path containing `..` traversal segments is still rejected; a relative `..` is legitimate (it normalizes away) and the allowlist still guards any escape.
 - `branch` is optional for `localPath` projects. When omitted, DartClaw resolves the effective workflow branch from the checkout's current symbolic `HEAD`.
 - `projects.localPathAllowlist` lets you restrict which host paths are valid for `localPath` projects.
 - Non-existent paths and directories that are not yet git repositories are accepted with a warning so operators can pre-seed or mount them later.
@@ -611,7 +653,8 @@ projects:
 ```
 
 - `projects.allowApiLocalPath` defaults to `false`.
-- `projects.localPathAllowlist` defaults to empty, which means "no allowlist".
+- `projects.localPathAllowlist` defaults to empty, which means "no allowlist" for committed (trusted) `projects:` entries.
+- `allowApiLocalPath: true` **requires** a non-empty `localPathAllowlist`. The combination of `allowApiLocalPath: true` with an empty allowlist fails closed: it is forced back to `false` at config-load (with a warning), because an unbounded allowlist would let the API register any host path the server can read.
 - Even with the API flag enabled, the same absolute-path, traversal, and allowlist checks apply to `POST /api/projects`.
 
 ## Environment Variables
@@ -638,15 +681,15 @@ projects:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port` | `3333` | HTTP server port |
-| `--host` | `127.0.0.1` | Bind address |
+| `--host` | `localhost` | Bind address |
 | `--data-dir` | `~/.dartclaw` | Data directory path |
 | `--source-dir` | -- | Source tree root for clone-based / development runs |
 | `--templates-dir` | `packages/dartclaw_server/lib/src/templates` | HTML templates directory (source-tree / dev override) |
 | `--static-dir` | `packages/dartclaw_server/lib/src/static` | Static assets directory (source-tree / dev override) |
-| `--log-format` | `text` | Log format (`text` or `json`) |
+| `--log-format` | `human` | Log format (`human` or `json`) |
 | `--log-file` | -- | Log file path |
 | `--log-level` | `INFO` | Log level (`FINE`, `INFO`, `WARNING`, `SEVERE`) |
-| `--dev` | -- | Enable development mode (verbose logging, relaxed guards) |
+| `--dev` | -- | Enable dev mode (template hot-reload) |
 
 **Note on template resolution**: Standalone binaries embed templates, static assets, and built-in skills, so the
 `--templates-dir` and `--static-dir` overrides are only needed for clone-based or development runs. When running
@@ -657,7 +700,6 @@ relative to cwd unless you override them explicitly. See [Deployment § Running 
 
 | Subcommand | Description |
 |-----------|-------------|
-| `setup` | Validate prerequisites, create directories |
 | `config` | Generate dartclaw.yaml + plist/systemd unit |
 | `secrets` | Inject secrets, start service, verify health |
 

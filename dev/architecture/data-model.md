@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.16.5 (map/foreach `maxItems` is opt-in; omitted means uncapped)
+**Current through**: 0.18.0 (map/foreach `maxItems` is opt-in; omitted means uncapped)
 
 ---
 
@@ -17,7 +17,7 @@ Canonical reference for DartClaw's persistence landscape. Covers all storage mec
 
 Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.md)
 
-**Diagram**: [Data Model (Excalidraw)](../diagrams/data-model.excalidraw) — entity relationships, storage zones, cross-store references | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
+**Diagram**: Data Model (Excalidraw) — entity relationships, storage zones, cross-store references (source in private repo: `docs/diagrams/data-model.excalidraw`) | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
 
 ---
 
@@ -35,7 +35,8 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 ├── projects.json                     # [JSON]   Project registry (atomic writes)
 ├── audit-YYYY-MM-DD.ndjson           # [NDJSON] Guard audit log partitions with retention cleanup
 ├── usage.jsonl                       # [JSONL]  Token/cost tracking (append + rotate)
-├── signal-sender-map.json            # [JSON]   Signal UUID↔phone mapping
+├── channels/signal/
+│   └── signal-sender-map.json        # [JSON]   Signal UUID↔phone mapping
 ├── google-chat-user-oauth.json       # [JSON]   Shared Google Chat user OAuth refresh token + client metadata (space events + reactions)
 ├── thread-bindings.json              # [JSON]   Channel thread/task bindings
 ├── sessions/
@@ -161,7 +162,7 @@ Task
 ```
 
 **Storage**: `tasks.db` → `tasks` table (WAL mode, indexed on status+type)
-**Package**: `dartclaw_models` (model), `dartclaw_storage` (repository), `dartclaw_server` (service)
+**Package**: `dartclaw_core` (model), `dartclaw_storage` (repository), `dartclaw_server` (service)
 
 Task JSON and API surfaces now expose nested `agentExecution` and `workflowStepExecution` objects when hydrated. The task row itself keeps only task-owned lifecycle and artifact fields; runtime provider/session/model state lives on `AgentExecution`, and workflow-only metadata lives on `WorkflowStepExecution`.
 
@@ -203,7 +204,7 @@ WorkflowStepExecution
 ├── structuredSchemaJson: String?
 ├── structuredOutputJson: String?
 ├── followUpPromptsJson: String?
-├── externalArtifactMountJson: String?
+├── externalArtifactMount: String?
 ├── mapIterationIndex: int?
 ├── mapIterationTotal: int?
 └── stepTokenBreakdownJson: String?
@@ -263,12 +264,13 @@ Tasks carry sender identity for audit provenance:
                     └──────────────────────────────────┘
 ```
 
-Valid transitions:
+Valid transitions (`TaskStatus.validTransitions`):
 - `draft` → `queued`, `cancelled`
-- `queued` → `running`, `cancelled`
-- `running` → `review`, `failed`, `cancelled`, `interrupted`
+- `queued` → `running`, `cancelled`, `failed`
+- `running` → `review`, `accepted`, `interrupted`, `failed`, `cancelled`
 - `interrupted` → `queued`, `cancelled`
-- `review` → `accepted`, `rejected`, `queued` (push-back), `cancelled`
+- `review` → `accepted`, `rejected`, `queued` (push-back), `running`, `failed`
+- `failed` → `queued` (retry: re-queue after failure)
 
 ### Task Artifact
 
@@ -499,7 +501,7 @@ Project
 **Storage**: `<dataDir>/projects.json` — JSON array of project objects, atomic writes (temp file + rename).
 **Clones**: `<dataDir>/projects/<projectId>/` — full or shallow git repositories.
 **Implicit `_local` project**: Synthesized from `Directory.current.path` at startup; not persisted in `projects.json`.
-**Package**: `dartclaw_models` (model), `dartclaw_core` (service interface), `dartclaw_server` (implementation)
+**Package**: `dartclaw_config` (model), `dartclaw_core` (service interface), `dartclaw_server` (implementation)
 
 ### Turn Trace
 
@@ -526,7 +528,7 @@ TurnTrace (turns table)
 
 **Storage**: `tasks.db` → `turns` table (WAL mode; indexed on `session_id`, `task_id`, `started_at`)
 **Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Zero latency impact on the turn lifecycle. Traces survive entity deletion (no foreign keys).
-**Package**: `dartclaw_models` (`ToolCallRecord`), `dartclaw_storage` (`TurnTraceService`)
+**Package**: `dartclaw_core` (`ToolCallRecord`), `dartclaw_storage` (`TurnTraceService`)
 
 **Multi-service co-location note**: `tasks.db` contains eight tables (`tasks`, `agent_executions`, `workflow_step_executions`, `task_artifacts`, `turns`, `task_events`, `goals`, and `kg_facts` plus its `kg_facts_lookup` index) managed by cooperating services (`SqliteTaskRepository`, `SqliteAgentExecutionRepository`, `SqliteWorkflowStepExecutionRepository`, `TurnTraceService`, `TaskEventService`, `SqliteGoalRepository`, `TemporalKnowledgeGraphService`). Each service uses idempotent bootstrap DDL; destructive migrations require explicit coordination across those services because task-owned runtime columns can move into the shared execution tables.
 
@@ -557,7 +559,7 @@ TaskEvent (task_events table)
 **Storage**: `tasks.db` → `task_events` table (WAL mode; indexed on `task_id`, `(task_id, kind)`, `timestamp`)
 **Write pattern**: Synchronous — no event loss on crash. Opposite design choice from turn traces (fire-and-forget) because task events are operational data, not analytical.
 **Retention**: No retention policy — unbounded growth; cleanup deferred to a later milestone.
-**Package**: `dartclaw_models` (`TaskEvent`, `TaskEventKind`), `dartclaw_storage` (`TaskEventService`), `dartclaw_server` (`TaskEventRecorder`)
+**Package**: `dartclaw_core` (`TaskEvent`, `TaskEventKind`), `dartclaw_storage` (`TaskEventService`), `dartclaw_server` (`TaskEventRecorder`)
 
 ### Workflow Models
 
@@ -653,7 +655,7 @@ WorkflowSummary                              # discovery projection, not persist
 
 **Worktree bridge**: `OutputConfig.source` lets downstream workflow steps read persisted coding-task metadata directly (`worktree.branch`, `worktree.path`) instead of requiring the agent to restate those values in context text. This is the durable seam that connects workflow execution to task/worktree persistence.
 
-**Package**: `dartclaw_models` (`WorkflowDefinition`, `WorkflowStep`, `WorkflowLoop`, `WorkflowVariable`, `OutputConfig`, `OutputFormat`, `StepConfigDefault`), `dartclaw_core` (`MapContext`, `WorkflowContext`, parser, validator, template engine, schema presets)
+**Package**: `dartclaw_workflow` (`WorkflowDefinition`, `WorkflowStep`, `WorkflowLoop`, `WorkflowVariable`, `OutputConfig`, `OutputFormat`, `StepConfigDefault`, `MapContext`, `WorkflowContext`, parser, validator, template engine, schema presets), `dartclaw_core` (`WorkflowLifecycleEvent` family)
 
 ---
 
@@ -727,16 +729,15 @@ WorkflowSummary                              # discovery projection, not persist
 
 ```
 dartclaw_models     (zero deps)         Session, Message, MemoryChunk, SessionKey,
-                                        Task*, Goal*, Project,
-                                        ToolCallRecord, TaskEvent, TaskEventKind
+                                        TaskType, channel/agent/container config models
      ▲
      │
 dartclaw_core       (no sqlite3)        SessionService, MessageService, KvService,
      ▲                                  MemoryFileService, parsed config models,
-     │                                  EventBus, GovernanceConfig, LoopDetector,
-     │                                  SlidingWindowRateLimiter, ThreadBindingStore,
-     │                                  ProjectService (interface),
-     │                                  AgentExecution, WorkflowStepExecution,
+     │                                  Task*, Goal*, TaskEvent, TaskEventKind,
+     │                                  ToolCallRecord, EventBus, GovernanceConfig,
+     │                                  LoopDetector, SlidingWindowRateLimiter,
+     │                                  ThreadBindingStore, ProjectService (interface),
      │                                  HarnessFactory, harness interfaces
      │
 dartclaw_storage    (sqlite3)           SqliteTaskRepository, SqliteGoalRepository,
@@ -750,12 +751,12 @@ dartclaw_storage    (sqlite3)           SqliteTaskRepository, SqliteGoalReposito
 dartclaw_security   (security)          GuardAuditLogger, GuardChain, MessageRedactor
      ▲
      │
-dartclaw_config     (yaml_edit)         ConfigWriter, ConfigValidator, ConfigMeta
-     ▲
+dartclaw_config     (yaml_edit)         ConfigWriter, ConfigValidator, ConfigMeta,
+     ▲                                  Project, AgentExecution, WorkflowStepExecution
      │
-dartclaw_workflow   (core + storage)    WorkflowRegistry, workflow parser/validator,
-     ▲                                  workflow execution engine, skill registry,
-     │                                  schema presets, built-in skills
+dartclaw_workflow   (core + storage)    WorkflowRegistry, WorkflowDefinition/Step/Loop,
+     ▲                                  workflow parser/validator/engine, MapContext,
+     │                                  WorkflowContext, schema presets, built-in skills
      │
 dartclaw_server     (shelf, http)       TaskService (wraps repository),
      ▲                                  TaskExecutor, WorktreeManager, DiffGenerator,
@@ -770,7 +771,7 @@ dartclaw_cli        (args)              CLI runner, loopback API client, connect
                                         commands
 ```
 
-*Task and Goal models may live in `dartclaw_models` or `dartclaw_core` depending on current package structure.
+*`Task` and `Goal` models currently live in `dartclaw_core` (`lib/src/task/`).
 
 Design rationale: [ADR-008 (SDK Publishing)](../adrs/008-sdk-publishing-strategy.md), [ADR-010 (Models Split)](../adrs/010-package-split-models.md), [ADR-014 (SDK Decomposition)](../adrs/014-sdk-package-decomposition.md)
 
@@ -854,5 +855,5 @@ sqlite3 ~/.dartclaw/tasks.db "PRAGMA wal_checkpoint(TRUNCATE);"
 | `state.db` corrupted/deleted | Loss of active-turn crash recovery only. In-flight sessions may miss a recovery banner, but durable message/task data remains intact. |
 | Session directory deleted | Session metadata and messages lost. If referenced by a task, task has dangling `sessionId`. |
 | `dartclaw.yaml` corrupted | Restore from `dartclaw.yaml.bak` (created on every config write) |
-| `kv.json` corrupted | Loss of daily usage aggregates and Signal sender map. Recoverable from `usage.jsonl` re-aggregation. |
+| `kv.json` corrupted | Loss of daily usage aggregates. Recoverable from `usage.jsonl` re-aggregation. |
 | `MEMORY.md` deleted | Long-term memory lost. Daily logs (`memory/`) may partially reconstruct. |

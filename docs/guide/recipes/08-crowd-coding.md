@@ -83,7 +83,7 @@ governance:
   budget:
     daily_tokens: 500000                # 500K tokens for a ~2-hour workshop
     action: block                       # block new turns when budget exhausted
-    timezone: "UTC-5"                    # UTC-offset only; IANA names not supported        # budget resets at midnight in this timezone
+    timezone: "UTC-5"                    # UTC, UTC±N, or IANA name (e.g. America/New_York); budget resets at midnight here
   loop_detection:
     enabled: true
     max_consecutive_turns: 5
@@ -153,7 +153,7 @@ projects:
     branch: main
     credentials: github-main              # github-token credential reference
     clone:
-      depth: 1                            # shallow clone — faster initial setup
+      depth: 1                            # shallow clone – faster initial setup
     pr:
       strategy: github-pr                 # accepted tasks create GitHub PRs
       draft: true                         # PRs start as drafts for facilitator review
@@ -192,15 +192,15 @@ governance:
       window: 1h
   budget:
     daily_tokens: 500000
-    action: warn                        # warn instead of block — don't interrupt ideation flow
-    timezone: "UTC-5"                    # UTC-offset only; IANA names not supported
+    action: warn                        # warn instead of block – don't interrupt ideation flow
+    timezone: "UTC-5"                    # UTC, UTC±N, or IANA name (e.g. America/New_York)
   loop_detection:
     enabled: true
-    max_consecutive_turns: 8            # higher threshold — ideation turns can be longer
+    max_consecutive_turns: 8            # higher threshold – ideation turns can be longer
     max_tokens_per_minute: 15000
     velocity_window_minutes: 2
     max_consecutive_identical_tool_calls: 5
-    action: warn                        # warn only — no tasks to fail
+    action: warn                        # warn only – no tasks to fail
 
 channels:
   google_chat:
@@ -209,7 +209,7 @@ channels:
     group_access: open
     require_mention: false              # all messages reach the agent
     task_trigger:
-      enabled: false                    # no task creation — just conversation
+      enabled: false                    # no task creation – just conversation
     space_events:
       enabled: true
 
@@ -236,18 +236,18 @@ guards:
 ```
 
 **How Scenario C works:**
-- Every message from the Space goes to the shared session — no `task:` prefix needed
+- Every message from the Space goes to the shared session – no `task:` prefix needed
 - The agent edits files directly on `main` (no worktree, no branch)
 - Every 5 minutes, the heartbeat triggers `WorkspaceGitSync` which runs `git add . && git commit && git push`
 - Commit message format: `"DartClaw auto-commit: <ISO8601-timestamp>"`
 - `/stop`, `/pause`, `/resume` still work for session control
-- There is no accept/reject flow — everything the agent writes goes straight to `main`
+- There is no accept/reject flow – everything the agent writes goes straight to `main`
 
 **Trade-offs vs. Scenario A/B:**
-- Lower friction — no task creation ceremony, no review cycle
-- No per-contribution isolation — you can't reject one person's idea without losing others made in the same heartbeat window
-- Context accumulates in one session — run `/reset` every 60--90 minutes to prevent degradation
-- Commits batch on the heartbeat interval (default 5 min) — at most 5 minutes of work is at risk if the server crashes
+- Lower friction – no task creation ceremony, no review cycle
+- No per-contribution isolation – you can't reject one person's idea without losing others made in the same heartbeat window
+- Context accumulates in one session – run `/reset` every 60--90 minutes to prevent degradation
+- Commits batch on the heartbeat interval (default 5 min) – at most 5 minutes of work is at risk if the server crashes
 
 ## Behavior Files
 
@@ -298,17 +298,17 @@ You are a collaborative ideation agent working with a group of people in a share
 
 ## Your Role
 - Receive ideas, feedback, and direction from multiple participants in a Google Chat Space
-- Work directly on files in the workspace — drafting docs, specs, notes, or code as the group directs
+- Work directly on files in the workspace – drafting docs, specs, notes, or code as the group directs
 - Synthesize input from multiple people into coherent output
-- Build on previous discussion — reference earlier points by participant name when possible
+- Build on previous discussion – reference earlier points by participant name when possible
 
 ## How This Session Works
-Everyone talks to you in the same shared conversation. There are no tasks — you work on files directly.
+Everyone talks to you in the same shared conversation. There are no tasks – you work on files directly.
 Your changes are auto-committed and pushed to the remote on a regular interval (every few minutes).
-There is no accept/reject flow — what you write goes straight to main.
+There is no accept/reject flow – what you write goes straight to main.
 
 ## Communication Rules
-- Be concise — participants are reading in a chat interface
+- Be concise – participants are reading in a chat interface
 - Acknowledge each participant's contribution
 - When directions conflict, call out the conflict and ask the group to decide
 - When the group converges on an idea, draft structured output immediately
@@ -325,7 +325,7 @@ There is no accept/reject flow — what you write goes straight to main.
 - Prefer creating new files over modifying existing ones during ideation (easier to discard)
 - Use clear file names that reflect the content: ideas-auth-flow.md, spec-user-model.md
 - Mark assumptions explicitly: "[Assumption: ...]"
-- Keep drafts rough — polish comes later
+- Keep drafts rough – polish comes later
 ```
 
 ### TOOLS.md (all scenarios)
@@ -593,8 +593,8 @@ providers:
   codex:
     executable: codex
     pool_size: 2
-    approval: never              # REQUIRED — prevents approval deadlock on tool-use turns
-    sandbox: danger-full-access  # REQUIRED — prevents sandbox-related stalls
+    approval: never              # REQUIRED – prevents approval deadlock on tool-use turns
+    sandbox: danger-full-access  # REQUIRED – prevents sandbox-related stalls
 
 credentials:
   openai:
@@ -626,9 +626,9 @@ The default 600s timeout means a single stuck turn blocks the shared session for
 - **Auto-fetch cooldown is 5 minutes**: `WorktreeManager` fetches the latest from the remote before creating each worktree, but with a 5-minute cooldown. If someone pushes directly to the remote, it may take up to 5 minutes for DartClaw to see the change
 - **GitHub automation uses explicit project credentials**: `github-pr` uses the configured `github-token` credential for clone/fetch/push/PR creation. It does not depend on `gh auth login`, `ssh-agent`, or an unlocked SSH key
 - **Credentials are reference-based**: The `credentials:` field in `projects:` is a key name, not the credential itself. GitHub token credentials are injected at clone/push time through a non-interactive `GIT_ASKPASS` flow
-- **Scenario C: no per-contribution rollback**: In freeform ideation mode, all agent edits go directly to `main`. You can `git revert` after the fact, but there's no accept/reject flow. This is by design — the low friction is the point
+- **Scenario C: no per-contribution rollback**: In freeform ideation mode, all agent edits go directly to `main`. You can `git revert` after the fact, but there's no accept/reject flow. This is by design – the low friction is the point
 - **Workspace git sync ≠ project git sync**: `WorkspaceGitSync` only auto-commits files in `<data_dir>/workspace/` (behavioral files like SOUL.md, MEMORY.md). If your project directory is separate from the workspace, agent edits to project files are **not** auto-committed. Add "Git Discipline" instructions to SOUL.md (see Behavior Files above) to ensure the agent commits after making changes. For worktree-based tasks (Scenarios A & B), the task completion flow handles commit + push automatically
-- **Scenario C: heartbeat = commit interval**: Workspace auto-commits happen every `scheduling.heartbeat.interval_minutes` (default 5 min), not after each turn. This only applies to the workspace directory — project files must be committed explicitly unless the workspace IS the project directory
+- **Scenario C: heartbeat = commit interval**: Workspace auto-commits happen every `scheduling.heartbeat.interval_minutes` (default 5 min), not after each turn. This only applies to the workspace directory – project files must be committed explicitly unless the workspace IS the project directory
 - **Scenario C: push requires remote**: `workspace.git_sync.push_enabled` only pushes if an `origin` remote exists (`git remote get-url origin`). If the workspace has no remote configured, commits are local-only
 - **Codex provider: `approval: never` is required**: Without it, Codex silently hangs on tool-use turns (file creation, shell commands) due to an upstream approval deadlock bug. See [Provider Configuration for Codex](#provider-configuration-for-codex) above
 - **Codex stderr is not logged**: Codex error messages (invalid model, API failures) are currently discarded. If Codex turns fail silently, check the Codex process directly or review the OpenAI API dashboard for errors

@@ -10,7 +10,7 @@ This guide combines patterns from four individual recipes:
 - [Knowledge Inbox](04-knowledge-inbox.md) -- automated web monitoring and curation
 - [Nightly Reflection](07-nightly-reflection.md) -- self-improvement via error and learning analysis
 
-Each is documented in detail in its own guide. This guide shows how they work together.
+Each is documented in detail in its own guide; this one shows how they work together.
 
 ## What You Get
 
@@ -330,7 +330,7 @@ With `task_trigger` enabled on a channel, send messages like `task: Research Dar
 
 ### Use a cheaper model for scheduled jobs
 
-Cron jobs use the global `agent.model` setting. If you want cheaper scheduled jobs, set `agent.model: haiku` and use a more capable model only for interactive chat via per-task `configJson.model` overrides. See [Agents](../agents.md) for the full model hierarchy.
+Each job accepts per-job `model:` and `effort:` overrides that take precedence over the global `agent.model`. Set `model: haiku` on a job to run it cheaply while interactive chat keeps the more capable global model. See [Agents](../agents.md) for the full model hierarchy.
 
 ### Add a contact/CRM tracker
 
@@ -372,10 +372,10 @@ For detailed monitoring guidance, see [Monitoring Your Assistant](_common-patter
 
 ## Gotchas & Limitations
 
-- **`announce` delivery is not yet implemented**: `delivery: announce` currently logs the result but does not route it to channels or web sessions. Job results are accessible via cron session history in the web UI sidebar. Use `delivery: webhook` for active push delivery to an external endpoint. Channel routing for announce is planned
+- **`announce` delivery targets active channel DMs**: `delivery: announce` broadcasts the result to web UI clients (SSE) and pushes it to active DM sessions on registered channels (WhatsApp/Signal/Google Chat). It does not reach contacts that have no active session, and group sessions are skipped. Use `delivery: webhook` for active push to an external endpoint
 - **Timezone is server-local**: All cron expressions use the server's timezone. Adjust expressions if your server timezone differs from yours
 - **Jobs run in isolated sessions**: Scheduled jobs do not share state directly -- they communicate through MEMORY.md. The daily journal cannot read your main session's chat history; it reviews context via behavior files and memory
 - **Memory consolidation runs during heartbeat only**: Consolidation only triggers when MEMORY.md exceeds `memory.max_bytes` and a heartbeat cycle runs. High-frequency journaling may temporarily exceed the cap
 - **Content-guard may truncate web content**: Large pages fetched by the search agent are filtered by content-guard. The knowledge inbox agent should note when a source was truncated
 - **Git sync requires a remote**: Run `git remote add origin <url>` in your workspace directory before enabling `push_enabled`
-- **Model override scope**: Cron jobs use the global `agent.model` -- there is no per-job model override. All cron jobs, heartbeat, and interactive chat share the same model. To reduce cron costs, lower `agent.model` globally or reduce cron frequency
+- **Model override scope**: Jobs default to the global `agent.model` but accept per-job `model:` and `effort:` overrides. Built-in heartbeat callbacks run without an agent turn, so they have no model. To reduce cron costs, set `model:` on individual jobs or lower `agent.model` globally

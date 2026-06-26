@@ -1,10 +1,14 @@
+import 'dart:io';
+
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart' show TaskEventService, TurnTraceService;
+import 'package:dartclaw_storage/dartclaw_storage.dart'
+    show MemoryService, TaskEventService, TemporalKnowledgeGraphService, TurnTraceService;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
+import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
@@ -67,6 +71,8 @@ Router webRoutes(
   TurnManager? turns,
   RuntimeConfig? runtimeConfig,
   MemoryStatusService? memoryStatusService,
+  MemoryService? memoryService,
+  TemporalKnowledgeGraphService? kgService,
   ContentGuardDisplayParams contentGuardDisplay = const ContentGuardDisplayParams(),
   HeartbeatDisplayParams heartbeatDisplay = const HeartbeatDisplayParams(),
   SchedulingDisplayParams schedulingDisplay = const SchedulingDisplayParams(),
@@ -113,6 +119,8 @@ Router webRoutes(
       guardChain: guardChain,
       runtimeConfigGetter: () => runtimeConfig,
       memoryStatusServiceGetter: () => memoryStatusService,
+      memoryServiceGetter: () => memoryService,
+      kgServiceGetter: () => kgService,
       contentGuardDisplay: contentGuardDisplay,
       heartbeatDisplay: heartbeatDisplay,
       schedulingDisplay: schedulingDisplay,
@@ -521,6 +529,33 @@ Router webRoutes(
     } catch (e) {
       return _htmlError('Failed to refresh memory data: $e');
     }
+  });
+
+  router.get('/knowledge/wiki/<sourcePath|.*>', (Request request, String sourcePath) {
+    final workspaceDir = workspaceDisplay.path;
+    if (workspaceDir == null) return _htmlNotFound('Wiki source not found');
+    final decoded = sourcePath.split('/').map(Uri.decodeComponent).join('/');
+    if (!decoded.startsWith('wiki/') || !decoded.endsWith('.md')) {
+      return _htmlNotFound('Wiki source not found');
+    }
+    final wikiRoot = p.normalize(p.absolute(p.join(workspaceDir, 'wiki')));
+    final relativePath = decoded.substring('wiki/'.length);
+    final filePath = p.normalize(p.absolute(p.join(wikiRoot, relativePath)));
+    if (!p.isWithin(wikiRoot, filePath)) {
+      return _htmlNotFound('Wiki source not found');
+    }
+    final file = File(filePath);
+    if (!file.existsSync()) return _htmlNotFound('Wiki source not found');
+    try {
+      final canonicalWikiRoot = p.normalize(Directory(wikiRoot).resolveSymbolicLinksSync());
+      final canonicalFilePath = p.normalize(file.resolveSymbolicLinksSync());
+      if (!p.isWithin(canonicalWikiRoot, canonicalFilePath)) {
+        return _htmlNotFound('Wiki source not found');
+      }
+    } on FileSystemException {
+      return _htmlNotFound('Wiki source not found');
+    }
+    return Response.ok(file.readAsStringSync(), headers: {...htmlHeaders, 'content-type': 'text/plain; charset=utf-8'});
   });
 
   for (final page in registry.pages) {

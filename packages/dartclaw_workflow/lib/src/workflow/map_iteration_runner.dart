@@ -156,7 +156,11 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     // 5. Validate dependencies (detect cycles before any dispatch).
     final depGraph = DependencyGraph(collection);
     final strategy = definition.gitStrategy;
-    final resolvedWorktreeMode = strategy?.effectiveWorktreeMode(maxParallel: maxParallel, isMap: true) ?? 'inline';
+    final resolvedWorktreeMode = step_config_policy.resolveWorktreeMode(
+      strategy,
+      maxParallel: maxParallel,
+      isMap: true,
+    );
     final promotionStrategy = _effectivePromotion(strategy, resolvedWorktreeMode: resolvedWorktreeMode);
     final promotionAware = _isPromotionAwareScope(
       strategy,
@@ -179,7 +183,15 @@ extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
     }
 
     // 6. Create MapStepContext.
-    final mapCtx = MapStepContext(collection: collection, maxParallel: maxParallel, maxItems: maxItems);
+    //    An inline worktree shares the operator's live checkout, so iterations
+    //    must run one at a time regardless of maxParallel — concurrent items
+    //    would clobber the shared tree. Keyed on the resolved mode (which now
+    //    treats a null strategy as `auto`, so a parallel map resolves to
+    //    `per-map-item` and keeps its fan-out on isolated worktrees); only a
+    //    genuine inline scope (authored `worktree: inline` or `--inline`)
+    //    serializes here, matching the dispatcher's worktree-provisioning gate.
+    final effectiveMaxParallel = resolvedWorktreeMode == 'inline' ? 1 : maxParallel;
+    final mapCtx = MapStepContext(collection: collection, maxParallel: effectiveMaxParallel, maxItems: maxItems);
     final completedIds = <String>{};
     _restoreMapProgress(mapCtx, completedIds, resumeCursor, collectionLength: collection.length);
 

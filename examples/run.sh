@@ -8,7 +8,7 @@
 #   bash examples/run.sh dev --port 4000  # dev with custom port
 #
 # Available configs: dev, production, personal-assistant
-# Data is stored in the data_dir specified in the config (default: .dartclaw-dev/).
+# Data is stored in the data_dir specified in the config (default: .dartclaw-example/).
 
 set -euo pipefail
 

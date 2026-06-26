@@ -9,6 +9,7 @@ part 'auth_events.dart';
 part 'compaction_events.dart';
 part 'container_events.dart';
 part 'governance_events.dart';
+part 'knowledge_events.dart';
 part 'project_events.dart';
 part 'scheduling_events.dart';
 part 'session_events.dart';

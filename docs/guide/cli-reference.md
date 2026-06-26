@@ -14,6 +14,7 @@ dartclaw --server localhost:4000 workflow runs
 Top-level command families:
 
 - `agents`
+- `assets`
 - `config`
 - `deploy`
 - `google-auth`
@@ -294,6 +295,18 @@ dartclaw workflow list
 dartclaw workflow list --json
 ```
 
+### `workflow show`
+
+Print a workflow definition, either raw or fully resolved.
+
+```bash
+dartclaw workflow show <name>
+dartclaw workflow show <name> --resolved            # merge stepDefaults + substitute workflow variables
+dartclaw workflow show <name> --resolved --step <id>  # emit a single resolved step
+dartclaw workflow show <name> --json                # {"yaml": "..."} envelope for scripting
+dartclaw workflow show <name> --standalone          # load from the local registry, bypass the server
+```
+
 ### `workflow run`
 
 ```bash
@@ -301,7 +314,10 @@ dartclaw workflow run spec-and-implement --var FEATURE="Add search"
 dartclaw workflow run spec-and-implement --json
 dartclaw workflow run spec-and-implement --standalone --force --var FEATURE="Local run"
 dartclaw workflow run spec-and-implement --standalone --json --var FEATURE="CI run"
+dartclaw workflow run code-review --approvals=auto-on-stall --var TARGET=HEAD
 ```
+
+`--approvals` overrides `workflow.approvals` for one run. Values: `manual` (pause on `needsInput` and `approval`), `auto-on-stall` (auto-resolve `needsInput`, still pause at explicit approvals), `auto` (auto-resolve both).
 
 ### `workflow runs`
 
@@ -315,6 +331,7 @@ dartclaw workflow runs --status running --definition code-review --json
 ```bash
 dartclaw workflow pause <run-id>
 dartclaw workflow pause <run-id> --json
+dartclaw workflow pause <run-id> --standalone
 ```
 
 ### `workflow resume`
@@ -322,6 +339,14 @@ dartclaw workflow pause <run-id> --json
 ```bash
 dartclaw workflow resume <run-id>
 dartclaw workflow resume <run-id> --json
+dartclaw workflow resume <run-id> --standalone
+```
+
+### `workflow retry`
+
+```bash
+dartclaw workflow retry <run-id>
+dartclaw workflow retry <run-id> --standalone
 ```
 
 ### `workflow cancel`
@@ -330,7 +355,10 @@ dartclaw workflow resume <run-id> --json
 dartclaw workflow cancel <run-id>
 dartclaw workflow cancel <run-id> --feedback "Reject current review"
 dartclaw workflow cancel <run-id> --feedback "Reject current review" --json
+dartclaw workflow cancel <run-id> --standalone --feedback "Reject current review"
 ```
+
+`resume`, `cancel`, `pause`, and `retry` accept `--standalone` (with `--force`), driving the run's lifecycle in-process against the local task DB instead of a server – so an approval-paused `workflow run --standalone` can be taken to completion without ever starting `dartclaw serve`. The engine's state-transition guards still apply: a guard violation (e.g. resuming a `running` run, or retrying a non-`failed` one) prints a one-line reason and exits non-zero, never a stack trace. Like `workflow run --standalone`, these abort if a server is reachable on the resolved loopback port unless `--force` is added. A stale `running` run (left by an abruptly killed standalone process) is **not** auto-reconciled – the guard surfaces it cleanly and you re-run once the run is in a resumable state.
 
 ### `workflow status`
 
@@ -346,11 +374,20 @@ dartclaw workflow status <run-id> --standalone
 dartclaw workflow validate path/to/workflow.yaml
 ```
 
+### `workflow cleanup-skills`
+
+Remove DartClaw-managed workflow skill links from project workspaces.
+
+```bash
+dartclaw workflow cleanup-skills
+dartclaw workflow cleanup-skills --include-cwd      # also clean the current working directory
+```
+
 ## Deployment and Services
 
 ### `deploy setup` (removed)
 
-The `deploy setup` prerequisite check has been **removed**. Its preflight checks are now part of `dartclaw init` — run [`dartclaw init`](#init) instead.
+The `deploy setup` prerequisite check has been **removed**. Its preflight checks are now part of `dartclaw init` – run [`dartclaw init`](#init) instead.
 
 ### `deploy config`
 
@@ -379,7 +416,7 @@ Key flags:
 
 | Flag | Effect |
 |------|--------|
-| `--workflow` | Write a minimal standalone workflow config (default data dir `./dartclaw`); skips HTTP/channel/container setup. Prints the matching explicit-config `workflow run --standalone` command on completion. See [Workflows § Standalone CLI](workflows.md#standalone-cli-zero-server). |
+| `--workflow` | Write a minimal standalone workflow config under `./.dartclaw`; skips HTTP/channel/container setup. Prints the bare `workflow run --standalone` command when using the default cwd-local config. See [Workflows § Standalone CLI](workflows.md#standalone-cli-zero-server). |
 | `--personalize` | Re-seed first-run personalization without rerunning full setup. Reruns write `USER.md.draft` and `SOUL.md.draft` so curated behavior files are not overwritten; review them in web chat. |
 | `--apply-drafts` | Apply reviewed `USER.md.draft` / `SOUL.md.draft` from onboarding. Prompts before replacing `SOUL.md` in an interactive terminal. |
 | `--non-interactive` (`-n`) | Run without prompts; required inputs must come from flags or existing config. |

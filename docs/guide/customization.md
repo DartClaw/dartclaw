@@ -42,9 +42,12 @@ Edit `dartclaw.yaml` to tune runtime behavior without touching source code.
 ```yaml
 guards:
   command:
-    blocked_commands: [rm, shutdown, curl]
-  filesystem:
-    blocked_paths: [.ssh, .aws, /etc]
+    extra_blocked_patterns:
+      - 'curl.*--upload'
+  file:
+    extra_rules:
+      - pattern: '*.secret'
+        level: no_access
 
 channels:
   whatsapp:
@@ -58,7 +61,7 @@ scheduling:
 
 ## L3: Skills (No Code)
 
-Create reusable prompt templates in `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for other agents. Skills are prompt fragments the agent can invoke.
+Create reusable prompt templates the agent can invoke, in `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for other agents.
 
 **Example**: `~/.claude/skills/code-review.md`
 ```markdown

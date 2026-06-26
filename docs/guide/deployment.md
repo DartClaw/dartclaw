@@ -51,15 +51,15 @@ dartclaw init --launch=service   # Set up and install + start the service
 - `verified`: local checks passed and the selected provider already has usable credentials or CLI login.
 - `configured but unverified`: local checks passed, but provider verification was skipped (`--skip-verify`) or still needs login/API-key setup.
 
-Launch handoff options are `--launch foreground`, `--launch background`, `--launch service`, and `--launch skip` (default).
+Launch handoff options are `--launch=foreground`, `--launch=background`, `--launch=service`, and `--launch=skip` (default).
 
 ### Old deploy workflow (deprecated)
 
-The old three-step `dartclaw deploy setup / config / secrets` workflow used root-scoped system daemons. Use `dartclaw init` + `dartclaw service` instead. `dartclaw deploy setup` now emits a deprecation notice and redirects to `dartclaw init`.
+The old `dartclaw deploy` workflow generated root-scoped system daemons (macOS LaunchDaemon, systemd `multi-user.target`). The `deploy setup` step has been removed — its prerequisite checks now live in `dartclaw init`. Use `dartclaw init` + `dartclaw service` instead. The remaining `deploy config` / `deploy secrets` subcommands still exist but are superseded.
 
 ## Standalone Binary
 
-Homebrew is the only package manager for DartClaw releases. It installs the versioned platform archive for your host and verifies the runtime version with `dartclaw --version`:
+Homebrew is the only package manager for DartClaw releases. It installs the versioned platform archive for your host:
 
 ```bash
 brew tap DartClaw/dartclaw
@@ -228,7 +228,7 @@ launchctl kill TERM gui/$(id -u)/com.dartclaw.agent.3f1c9a4b          # macOS
 systemctl --user restart dartclaw-3f1c9a4b                            # Linux
 
 # 3. Verify
-curl -s http://localhost:3333/health | jq .worker
+curl -s http://localhost:3333/health | jq .worker_state
 ```
 
 On restart, DartClaw runs a version probe (`claude --version`) and logs the detected version. Check the startup log to confirm the expected version.

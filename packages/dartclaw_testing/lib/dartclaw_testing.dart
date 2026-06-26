@@ -66,6 +66,7 @@ export 'src/fake_guard.dart' show FakeGuard;
 export 'src/fake_git_gateway.dart' show FakeGitGateway;
 export 'src/fake_project_service.dart' show FakeProjectService;
 export 'src/fake_process.dart' show CapturingFakeProcess, FakeProcess;
+export 'src/fake_provider_auth_preflight.dart' show FakeProviderAuthPreflight;
 export 'src/fake_skill_introspector.dart' show FakeSkillIntrospector;
 export 'src/fake_turn_manager.dart' show FakeTurnManager;
 export 'src/flush_async.dart' show flushAsync;

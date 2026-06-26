@@ -2,7 +2,7 @@ import 'dart:async' show Completer, StreamSubscription, TimeoutException, Timer,
 import 'dart:collection' show Queue;
 import 'dart:convert';
 import 'dart:io';
-import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity, WorkflowRunStatus;
+import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity, WorkflowApprovalPolicy, WorkflowRunStatus;
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'workflow_definition.dart';
 import 'workflow_run.dart';
@@ -20,6 +20,7 @@ import 'map_context.dart';
 import 'map_step_context.dart';
 import 'missing_artifact_failure.dart';
 import 'skill_prompt_builder.dart';
+import '../skills/provider_auth_preflight.dart';
 import 'skill_introspector.dart';
 import 'step_config_policy.dart' as step_config_policy;
 import 'step_config_resolver.dart';
@@ -27,6 +28,7 @@ import 'step_retry_policy.dart';
 import 'step_outcome_normalizer.dart' as step_outcome_normalizer;
 import 'built_in_workflow_workspace.dart';
 import 'workflow_context.dart';
+import 'workflow_approval_policy.dart';
 import 'workflow_artifact_committer.dart' as workflow_artifact_committer;
 import 'workflow_budget_monitor.dart' as workflow_budget_monitor;
 import 'workflow_git_lifecycle.dart' as workflow_git_lifecycle;
@@ -72,6 +74,7 @@ class WorkflowExecutor {
   final WorkflowTurnAdapter? _turnAdapter;
   final WorkflowStepOutputTransformer? _outputTransformer;
   final SkillIntrospector? _skillIntrospector;
+  final ProviderAuthPreflight? _providerAuthPreflight;
   final WorkflowSkillPreflightConfig _skillPreflightConfig;
   final TaskRepository? _taskRepository;
   final AgentExecutionRepository? _agentExecutionRepository;
@@ -85,6 +88,7 @@ class WorkflowExecutor {
   final List<String> _bashStepEnvAllowlist;
   final List<String> _bashStepExtraStripPatterns;
   final ProjectService? _projectService;
+  final String? _defaultWorkspaceRoot;
   String? _workflowWorkspaceDirCache;
   final _approvalTimers = <String, Timer>{};
   final _inputConfigCache = Expando<Map<String, Map<String, OutputConfig>>>('workflowInputConfigCache');
@@ -122,6 +126,7 @@ class WorkflowExecutor {
        _turnAdapter = executionContext.turnAdapter,
        _outputTransformer = executionContext.outputTransformer,
        _skillIntrospector = executionContext.skillIntrospector,
+       _providerAuthPreflight = executionContext.providerAuthPreflight,
        _skillPreflightConfig = executionContext.skillPreflightConfig,
        _taskRepository = executionContext.taskRepository,
        _agentExecutionRepository = executionContext.agentExecutionRepository,
@@ -133,6 +138,7 @@ class WorkflowExecutor {
        _bashStepEnvAllowlist = List.unmodifiable(bashStepPolicy.envAllowlist),
        _bashStepExtraStripPatterns = List.unmodifiable(bashStepPolicy.extraStripPatterns),
        _projectService = executionContext.projectService,
+       _defaultWorkspaceRoot = executionContext.defaultWorkspaceRoot,
        _uuid = uuid ?? const Uuid();
 
   void _logRun(WorkflowRun run, String msg, {Level level = Level.FINE}) {
@@ -182,20 +188,20 @@ class WorkflowExecutor {
         skillPreflightConfig: _skillPreflightConfig,
         roleDefaults: _roleDefaults,
         context: context,
+        providerAuthPreflight: _providerAuthPreflight,
       );
     } on WorkflowPreflightException catch (e) {
       final failure = _failRun(run, e.message);
       await failure;
       return;
     }
-    final requiresActiveWorkspaceRoot = _requiresActiveWorkspaceRoot(definition);
-    final activeWorkspaceRoot = requiresActiveWorkspaceRoot
+    // Resolve the active workspace root when the workflow emits story_specs so
+    // path validation can enforce existence when a root is available. A missing
+    // root no longer fails the run: the generic validator falls back to
+    // containment-only and skips existence (S02 OC05 / ADR-041 §Open edge case).
+    final activeWorkspaceRoot = _emitsStorySpecs(definition)
         ? await _resolveActiveWorkspaceRoot(run, definition, context)
         : null;
-    if (requiresActiveWorkspaceRoot && (activeWorkspaceRoot == null || activeWorkspaceRoot.isEmpty)) {
-      await _failRun(run, 'Workflow requires an active workspace root for output validation.');
-      return;
-    }
     var activeCursor = resumeCursor;
     var nodeIndex = resumeCursor != null
         ? _nodeIndexForCursor(nodes, stepIndexById, resumeCursor)

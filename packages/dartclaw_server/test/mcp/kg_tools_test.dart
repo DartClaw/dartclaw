@@ -105,13 +105,16 @@ void main() {
       final lines = auditFile.readAsLinesSync().where((l) => l.trim().isNotEmpty).toList();
       expect(lines, isNotEmpty, reason: 'at least one audit entry expected');
       final entry = jsonDecode(lines.first) as Map<String, dynamic>;
-      expect(entry['guard'], 'KgAdd');
+      expect(entry['guard'], 'KgWriteGuard');
       expect(entry['hook'], 'mcp_tool_call');
       expect(entry['verdict'], 'pass');
       expect(entry['rawProviderToolName'], 'kg_add');
+      expect(entry['server'], 'kg');
+      expect(entry['tool'], 'kg_add');
+      expect(entry['decision'], 'allow');
     });
 
-    test('kg_add does not emit audit record on contradiction', () async {
+    test('S06 kg_add emits denied audit record on contradiction', () async {
       kg.addFact(
         entity: 'Conflict Entity',
         predicate: 'status',
@@ -133,11 +136,13 @@ void main() {
       await auditLogger.cleanOldFiles(0);
 
       final auditFile = File(auditLogger.auditFilePath);
-      // No write should have occurred — contradiction is not an add.
-      if (auditFile.existsSync()) {
-        final lines = auditFile.readAsLinesSync().where((l) => l.trim().isNotEmpty).toList();
-        expect(lines, isEmpty, reason: 'no audit entry expected for a contradiction rejection');
-      }
+      expect(auditFile.existsSync(), isTrue);
+      final lines = auditFile.readAsLinesSync().where((l) => l.trim().isNotEmpty).toList();
+      expect(lines, hasLength(1));
+      final entry = jsonDecode(lines.single) as Map<String, dynamic>;
+      expect(entry['tool'], 'kg_add');
+      expect(entry['decision'], 'deny');
+      expect(entry['reason'], 'contradiction');
     });
 
     test('kg_invalidate emits audit record on successful invalidation', () async {
@@ -160,10 +165,154 @@ void main() {
       final lines = auditFile.readAsLinesSync().where((l) => l.trim().isNotEmpty).toList();
       expect(lines, isNotEmpty);
       final entry = jsonDecode(lines.first) as Map<String, dynamic>;
-      expect(entry['guard'], 'KgInvalidate');
+      expect(entry['guard'], 'KgWriteGuard');
       expect(entry['hook'], 'mcp_tool_call');
       expect(entry['verdict'], 'pass');
       expect(entry['rawProviderToolName'], 'kg_invalidate');
+      expect(entry['server'], 'kg');
+      expect(entry['tool'], 'kg_invalidate');
+      expect(entry['decision'], 'allow');
+    });
+
+    test('S06 kg_invalidate emits denied audit record on not-found', () async {
+      final invalidate = KgInvalidateTool(kg: kg, auditLogger: auditLogger);
+
+      final result = await invalidate.call({'id': 404, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'missing'});
+      expect(jsonDecode((result as dynamic).content as String), containsPair('status', 'not_found'));
+
+      await auditLogger.cleanOldFiles(0);
+
+      final entry = jsonDecode(File(auditLogger.auditFilePath).readAsLinesSync().single) as Map<String, dynamic>;
+      expect(entry['tool'], 'kg_invalidate');
+      expect(entry['decision'], 'deny');
+      expect(entry['reason'], 'not_found');
+    });
+
+    test('S05 audit failure denies KG write before mutation', () async {
+      final parent = Directory.systemTemp.createTempSync('kg_audit_fail_');
+      final occupied = File('${parent.path}/not_a_directory')..writeAsStringSync('occupied');
+      addTearDown(() {
+        if (parent.existsSync()) parent.deleteSync(recursive: true);
+      });
+      final add = KgAddTool(
+        kg: kg,
+        auditLogger: GuardAuditLogger(dataDir: occupied.path),
+      );
+
+      final result = await add.call({
+        'entity': 'Audit Failure',
+        'predicate': 'status',
+        'value': 'active',
+        'valid_from': '2026-01-01T00:00:00Z',
+        'source': 'test',
+      });
+
+      final json = jsonDecode((result as dynamic).content as String) as Map<String, dynamic>;
+      expect(json['status'], 'denied');
+      expect(json['decision'], 'deny');
+      expect(kg.query(entity: 'Audit Failure', includeInvalidated: true), isEmpty);
+    });
+
+    test('S06 kg_add guard denial is audited and prevents mutation', () async {
+      final add = KgAddTool(
+        kg: kg,
+        auditLogger: auditLogger,
+        guardEvaluator: (_, _, _) async => GuardVerdict.block('kg writes disabled'),
+      );
+
+      final result = await add.call({
+        'entity': 'Guarded Add',
+        'predicate': 'status',
+        'value': 'active',
+        'valid_from': '2026-01-01T00:00:00Z',
+        'source': 'test',
+      });
+
+      final json = jsonDecode((result as dynamic).content as String) as Map<String, dynamic>;
+      expect(json['status'], 'denied');
+      expect(json['reason'], 'kg writes disabled');
+      expect(kg.query(entity: 'Guarded Add', includeInvalidated: true), isEmpty);
+
+      final entry = jsonDecode(File(auditLogger.auditFilePath).readAsLinesSync().single) as Map<String, dynamic>;
+      expect(entry['tool'], 'kg_add');
+      expect(entry['decision'], 'deny');
+      expect(entry['reason'], 'kg writes disabled');
+    });
+
+    test('S06 kg_invalidate guard denial is audited and prevents mutation', () async {
+      final id = kg.addFact(
+        entity: 'Guarded Invalidate',
+        predicate: 'status',
+        value: 'active',
+        validFrom: '2026-01-01T00:00:00Z',
+        source: 'test',
+      );
+      final invalidate = KgInvalidateTool(
+        kg: kg,
+        auditLogger: auditLogger,
+        guardEvaluator: (_, _, _) async => GuardVerdict.block('kg writes disabled'),
+      );
+
+      final result = await invalidate.call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'stale'});
+
+      final json = jsonDecode((result as dynamic).content as String) as Map<String, dynamic>;
+      expect(json['status'], 'denied');
+      expect(json['reason'], 'kg writes disabled');
+      expect(kg.query(entity: 'Guarded Invalidate', includeInvalidated: true).single.invalidatedAt, isNull);
+
+      final entry = jsonDecode(File(auditLogger.auditFilePath).readAsLinesSync().single) as Map<String, dynamic>;
+      expect(entry['tool'], 'kg_invalidate');
+      expect(entry['decision'], 'deny');
+      expect(entry['reason'], 'kg writes disabled');
+    });
+
+    test('C-03 kg_add guard exception attempts a deny audit before returning denied result', () async {
+      final add = KgAddTool(
+        kg: kg,
+        auditLogger: auditLogger,
+        guardEvaluator: (_, _, _) async => throw StateError('guard offline'),
+      );
+
+      final result = await add.call({
+        'entity': 'Throwing Guard',
+        'predicate': 'status',
+        'value': 'active',
+        'valid_from': '2026-01-01T00:00:00Z',
+        'source': 'test',
+      });
+
+      final json = jsonDecode((result as dynamic).content as String) as Map<String, dynamic>;
+      expect(json['status'], 'denied');
+      expect(json['reason'], contains('guard failure'));
+      expect(kg.query(entity: 'Throwing Guard', includeInvalidated: true), isEmpty);
+
+      final entry = jsonDecode(File(auditLogger.auditFilePath).readAsLinesSync().single) as Map<String, dynamic>;
+      expect(entry['tool'], 'kg_add');
+      expect(entry['decision'], 'deny');
+      expect(entry['reason'], contains('guard failure'));
+    });
+
+    test('S06 kg_invalidate does not write caller reason text into audit reason', () async {
+      final id = kg.addFact(
+        entity: 'Redaction Test',
+        predicate: 'status',
+        value: 'active',
+        validFrom: '2026-01-01T00:00:00Z',
+        source: 'test',
+      );
+      final invalidate = KgInvalidateTool(kg: kg, auditLogger: auditLogger);
+
+      final result = await invalidate.call({
+        'id': id,
+        'invalidated_at': '2026-06-01T00:00:00Z',
+        'reason': 'token=secret-value',
+      });
+      expect(jsonDecode((result as dynamic).content as String), containsPair('status', 'invalidated'));
+
+      final entry = jsonDecode(File(auditLogger.auditFilePath).readAsLinesSync().single) as Map<String, dynamic>;
+      expect(entry['decision'], 'allow');
+      expect(entry['reason'], 'fact_invalidated');
+      expect(jsonEncode(entry), isNot(contains('secret-value')));
     });
   });
 
@@ -197,6 +346,84 @@ void main() {
         'reason': 'superseded',
       });
       expect(jsonDecode((result as dynamic).content as String), containsPair('status', 'invalidated'));
+    });
+
+    test('S06/S08 kg_add records owner and kg_invalidate enforces ownership', () async {
+      final add = KgAddTool(kg: kg, principalProvider: () => 'alice');
+      final addResult = await add.call({
+        'entity': 'Owned Fact',
+        'predicate': 'status',
+        'value': 'active',
+        'valid_from': '2026-01-01T00:00:00Z',
+        'source': 'test',
+      });
+      final id = (jsonDecode((addResult as dynamic).content as String) as Map<String, dynamic>)['id'] as int;
+      expect(kg.ownerForFact(id), 'alice');
+
+      final denied = await KgInvalidateTool(
+        kg: kg,
+        principalProvider: () => 'bob',
+      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not mine'});
+      expect(jsonDecode((denied as dynamic).content as String), containsPair('status', 'denied'));
+      expect(kg.query(entity: 'Owned Fact', includeInvalidated: true).single.invalidatedAt, isNull);
+
+      final allowed = await KgInvalidateTool(
+        kg: kg,
+        principalProvider: () => 'alice',
+      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'mine'});
+      expect(jsonDecode((allowed as dynamic).content as String), containsPair('status', 'invalidated'));
+    });
+
+    test('S06/S08 legacy null-owner facts require steward principal', () async {
+      db.execute(
+        '''
+        INSERT INTO kg_facts(entity, predicate, value, valid_from, source)
+        VALUES (?, ?, ?, ?, ?)
+        ''',
+        ['legacy', 'status', 'active', '2026-01-01T00:00:00.000Z', 'legacy'],
+      );
+      final id = db.lastInsertRowId;
+
+      final denied = await KgInvalidateTool(
+        kg: kg,
+        principalProvider: () => 'alice',
+      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not steward'});
+      expect(jsonDecode((denied as dynamic).content as String), containsPair('status', 'denied'));
+
+      final allowed = await KgInvalidateTool(
+        kg: kg,
+        principalProvider: () => systemKgPrincipal,
+      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'steward'});
+      expect(jsonDecode((allowed as dynamic).content as String), containsPair('status', 'invalidated'));
+    });
+
+    test('S04 production default (no principalProvider) attributes KG writes to the steward principal', () async {
+      // Production wiring registers KG write tools without a principalProvider —
+      // the deliberate S04 steward-only fallback for the single-token inbound /mcp
+      // gateway (no per-caller identity). Pin it so the trust model cannot silently
+      // change: writes run as the steward principal, a non-steward caller is denied,
+      // and the steward default may invalidate.
+      final add = KgAddTool(kg: kg);
+      final addResult = await add.call({
+        'entity': 'Steward Default Fact',
+        'predicate': 'status',
+        'value': 'active',
+        'valid_from': '2026-01-01T00:00:00Z',
+        'source': 'test',
+      });
+      final id = (jsonDecode((addResult as dynamic).content as String) as Map<String, dynamic>)['id'] as int;
+      expect(kg.ownerForFact(id), systemKgPrincipal);
+
+      final denied = await KgInvalidateTool(
+        kg: kg,
+        principalProvider: () => 'mallory',
+      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not steward'});
+      expect(jsonDecode((denied as dynamic).content as String), containsPair('status', 'denied'));
+
+      final allowed = await KgInvalidateTool(
+        kg: kg,
+      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'steward default'});
+      expect(jsonDecode((allowed as dynamic).content as String), containsPair('status', 'invalidated'));
     });
   });
 }

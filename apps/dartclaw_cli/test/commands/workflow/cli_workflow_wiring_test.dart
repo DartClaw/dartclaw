@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
@@ -9,7 +10,8 @@ import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart'
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, HarnessPool, TurnManager, TurnRunner;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep, WorkflowVariable;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowStep, WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -85,6 +87,31 @@ void main() {
 
     final cloneDir = Directory(p.join(tempDir.path, 'projects', 'alpha'));
     expect(cloneDir.existsSync(), isFalse);
+  });
+
+  test('TI01 pre-harness phase completes registry without starting any harness', () async {
+    // Every registered provider's start() throws; the pre-harness phase must
+    // load the registry without reaching any harness.start().
+    final workflowsDir = Directory(p.join(tempDir.path, 'workflows', 'custom'))..createSync(recursive: true);
+    File(p.join(workflowsDir.path, 'ci-demo.yaml')).writeAsStringSync('''
+name: ci-demo
+description: Demo standalone workflow
+steps:
+  - id: shell-check
+    name: Shell Check
+    type: bash
+    prompt: |
+      printf 'ok\\n'
+''');
+
+    final wired = fixture.wiring(
+      fixture.config(),
+      harnessFactory: throwOnStartHarnessFactory(const ['claude', 'codex']),
+    );
+
+    await wired.wirePreHarness();
+
+    expect(wired.registry.getByName('ci-demo'), isNotNull);
   });
 
   test('loads custom workflows with missing skills and fails at runtime preflight', () async {
@@ -374,7 +401,7 @@ steps:
     final captured = <HarnessFactoryConfig>[];
     final factory = HarnessFactory()
       ..register('claude', (config) {
-        captured.add(config);
+        if (config.cwd != '/') captured.add(config);
         return FakeAgentHarness();
       });
 
@@ -442,8 +469,10 @@ steps:
   test('standalone unknown provider fails without default-provider fallback', () async {
     final capturedByProvider = <String, int>{};
     final factory = HarnessFactory()
-      ..register('claude', (_) {
-        capturedByProvider.update('claude', (count) => count + 1, ifAbsent: () => 1);
+      ..register('claude', (config) {
+        if (config.cwd != '/') {
+          capturedByProvider.update('claude', (count) => count + 1, ifAbsent: () => 1);
+        }
         return FakeAgentHarness();
       });
 
@@ -470,7 +499,7 @@ steps:
     final captured = <HarnessFactoryConfig>[];
     final factory = HarnessFactory()
       ..register('claude', (config) {
-        captured.add(config);
+        if (config.cwd != '/') captured.add(config);
         return FakeAgentHarness();
       });
 
@@ -487,11 +516,11 @@ steps:
     final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
     final factory = HarnessFactory()
       ..register('codex', (config) {
-        capturedByProvider.putIfAbsent('codex', () => <HarnessFactoryConfig>[]).add(config);
+        if (config.cwd != '/') capturedByProvider.putIfAbsent('codex', () => <HarnessFactoryConfig>[]).add(config);
         return FakeAgentHarness();
       })
       ..register('claude', (config) {
-        capturedByProvider.putIfAbsent('claude', () => <HarnessFactoryConfig>[]).add(config);
+        if (config.cwd != '/') capturedByProvider.putIfAbsent('claude', () => <HarnessFactoryConfig>[]).add(config);
         return FakeAgentHarness();
       });
 
@@ -559,7 +588,11 @@ steps:
     final worktreePath = p.join(workspaceDir.path, '.dartclaw', 'worktrees', 'task-1');
     runGit(repoDir.path, ['worktree', 'add', worktreePath, '-b', 'dartclaw/task-task-1', 'main']);
 
-    final config = fixture.config();
+    final config = fixture.config(
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
+      ),
+    );
 
     await fixture.withWiredCurrentDirectory(
       repoDir,
@@ -706,6 +739,108 @@ steps:
         expect(run.variablesJson['BRANCH'], 'runtime-feature');
       },
     );
+  });
+
+  test('standalone workflow output validation uses runtime cwd as default workspace root', () async {
+    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
+    final runtimeCwd = fixture.seedGitRepo('runtime-output-root', readme: 'runtime\n');
+    File(p.join(runtimeCwd.path, 'docs/specs/demo/prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# PRD\n');
+    File(p.join(runtimeCwd.path, 'docs/specs/demo/plan.json'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        jsonEncode({
+          'stories': [
+            {'id': 'S01', 'status': 'spec-ready', 'fis': 'docs/specs/demo/fis/s01.md'},
+          ],
+        }),
+      );
+    File(p.join(runtimeCwd.path, 'docs/specs/demo/fis/s01.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# FIS\n');
+
+    final config = fixture.config();
+
+    final savedCwd = Directory.current;
+    Directory.current = launchDir;
+    final wiring = fixture.wiring(
+      config,
+      runtimeCwd: runtimeCwd.path,
+      skillIntrospector: FakeSkillIntrospector({
+        'claude': {'dartclaw-discover-andthen-plan'},
+      }),
+      autoDispose: false,
+    );
+    try {
+      await wiring.wire();
+
+      final definition = WorkflowDefinition(
+        name: 'runtime-output-root',
+        description: 'Validates output paths against runtime cwd',
+        steps: const [
+          WorkflowStep(
+            id: 'discover-plan-state',
+            name: 'Discover Plan State',
+            skill: 'dartclaw-discover-andthen-plan',
+            prompts: ['discover'],
+            outputs: {
+              'prd': OutputConfig(),
+              'plan': OutputConfig(),
+              'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
+            },
+          ),
+        ],
+      );
+      final completion = Completer<void>();
+      String? runId;
+      final statusSub = wiring.eventBus
+          .on<WorkflowRunStatusChangedEvent>()
+          .where((event) => runId != null && event.runId == runId && event.newStatus == WorkflowRunStatus.completed)
+          .listen((_) {
+            if (!completion.isCompleted) {
+              completion.complete();
+            }
+          });
+      addTearDown(statusSub.cancel);
+      final sub = wiring.eventBus
+          .on<TaskStatusChangedEvent>()
+          .where((event) => event.newStatus == TaskStatus.queued)
+          .listen((event) async {
+            final session = await wiring.sessionService.createSession(type: SessionType.task);
+            await wiring.taskService.updateFields(event.taskId, sessionId: session.id);
+            await wiring.messageService.insertMessage(
+              sessionId: session.id,
+              role: 'assistant',
+              content:
+                  '<workflow-context>${jsonEncode({
+                    'prd': 'docs/specs/demo/prd.md',
+                    'plan': 'docs/specs/demo/plan.json',
+                    'story_specs': {
+                      'items': [
+                        {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': 'fis/s01.md'},
+                      ],
+                    },
+                  })}</workflow-context>',
+            );
+            await wiring.taskService.transition(event.taskId, TaskStatus.running);
+            await wiring.taskService.transition(event.taskId, TaskStatus.accepted);
+          });
+      addTearDown(sub.cancel);
+      final run = await wiring.workflowService.start(definition, const {}, headless: true);
+      runId = run.id;
+      final current = await wiring.workflowService.get(run.id);
+      if (current?.status == WorkflowRunStatus.completed && !completion.isCompleted) {
+        completion.complete();
+      }
+
+      await completion.future.timeout(const Duration(seconds: 5));
+      final completed = await wiring.workflowService.get(run.id);
+      expect(completed?.status, WorkflowRunStatus.completed);
+    } finally {
+      await wiring.dispose();
+      Directory.current = savedCwd;
+    }
   });
 
   test('tracked workflow git cleanup for named projects runs in the project checkout', () async {
@@ -904,6 +1039,7 @@ steps:
 
         final worktreeDir = updatedTask?.worktreeJson?['path'] as String?;
         expect(worktreeDir, isNotNull, reason: 'coding task should create a git worktree for the configured project');
+        expect(worktreeDir, startsWith(p.join(localRepoDir.resolveSymbolicLinksSync(), '.dartclaw', 'worktrees')));
         expect(File(p.join(worktreeDir!, 'README.md')).readAsStringSync(), '# alpha\n');
 
         await waitFor(() => harnesses.any((h) => h.turnCallCount > 0), timeout: const Duration(seconds: 10));

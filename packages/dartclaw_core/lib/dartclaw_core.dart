@@ -233,6 +233,8 @@ export 'src/events/dartclaw_event.dart'
         AdvisorMentionEvent,
         LoopDetectedEvent,
         EmergencyStopEvent,
+        OutboundMcpGovernanceEvent,
+        ContextResearchMetricsEvent,
         ProjectLifecycleEvent,
         ProjectStatusChangedEvent,
         TurnWaitStateChangedEvent,

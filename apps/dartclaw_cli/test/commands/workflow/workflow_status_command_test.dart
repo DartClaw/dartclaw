@@ -9,6 +9,7 @@ import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository, openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun;
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../helpers/fake_exit.dart';
@@ -54,6 +55,29 @@ void main() {
         () => runner.run(['status', '--standalone', 'nonexistent-run-id']),
         throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
+    });
+
+    test('standalone mode discovers cwd-local .dartclaw config', () async {
+      final workspace = Directory.systemTemp.createTempSync('workflow_status_dot_config_test_');
+      final dataDir = Directory(p.join(workspace.path, '.dartclaw'))..createSync();
+      addTearDown(() {
+        if (workspace.existsSync()) workspace.deleteSync(recursive: true);
+      });
+      File(p.join(dataDir.path, 'dartclaw.yaml')).writeAsStringSync('''
+data_dir: .
+agent:
+  provider: claude
+''');
+      final output = <String>[];
+      final command = WorkflowStatusCommand(currentDirectory: workspace.path, writeLine: output.add, exitFn: fakeExit);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['status', '--standalone', 'missing-run']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+
+      expect(output, contains('Workflow run not found: missing-run'));
     });
 
     group('S03 (0.16.1): approval pause context in status output', () {

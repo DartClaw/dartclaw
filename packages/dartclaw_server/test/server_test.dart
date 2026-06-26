@@ -187,9 +187,7 @@ void main() {
 
       final handler = server.handler;
 
-      // Fire POST /api/sessions/<id>/send to start a turn. Don't await — the
-      // handler blocks until the turn completes, but we need to call shutdown
-      // while it's still running.
+      // Start a turn and keep it active while shutdown runs.
       unawaited(
         Future(() async {
           await handler(
@@ -224,24 +222,23 @@ void main() {
 
       final handler = server.handler;
 
-      // Start a turn and let it complete before shutdown.
-      unawaited(
-        Future(() async {
-          await handler(
-            Request(
-              'POST',
-              Uri.parse('http://localhost/api/sessions/$sessionId/send'),
-              body: '{"message": "hi"}',
-              headers: {'content-type': 'application/json'},
-            ),
-          );
-        }),
+      final sendFuture = handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/sessions/$sessionId/send'),
+          body: '{"message": "hi"}',
+          headers: {'content-type': 'application/json'},
+        ),
       );
       await worker.turnStarted;
       worker.completeSuccess();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await server.turns.waitForCompletion(sessionId);
+      await sendFuture;
+      // Drain trailing teardown microtasks so the active-turn set is fully
+      // released before shutdown inspects it; otherwise shutdown can observe a
+      // not-yet-released turn and cancel it (a timing flake seen on CI).
+      await pumpEventQueue();
 
-      // Turn completed — no active sessions now.
       await server.shutdown();
 
       expect(worker.cancelCalled, isFalse, reason: 'no active turn to cancel after completion');

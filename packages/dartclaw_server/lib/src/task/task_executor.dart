@@ -470,15 +470,21 @@ class TaskExecutor {
 
       final requiredInputPath = TaskConfigView(task, log: _log).requiredInputPath;
       if (requiredInputPath != null) {
+        // Resolve against the directory the agent will actually run in, using the
+        // same precedence as the agent invocation below and workflow_one_shot_runner:
+        // worktree → bound project → the live checkout (standalone/inline cwd).
+        // Standalone runs have no worktree and no bound project, so the artifact
+        // lives in the current working directory, not a "missing" worktree.
         final effectiveWorktreePath = worktreeInfo?.path;
         final fallbackProjectPath = (project != null && project.id != '_local') ? project.localPath : null;
-        final rootPath = (effectiveWorktreePath?.isNotEmpty ?? false) ? effectiveWorktreePath : fallbackProjectPath;
-        final exists = rootPath != null && File(p.join(rootPath, requiredInputPath)).existsSync();
+        final rootPath = (effectiveWorktreePath?.isNotEmpty ?? false)
+            ? effectiveWorktreePath!
+            : (fallbackProjectPath ?? Directory.current.path);
+        final exists = File(p.join(rootPath, requiredInputPath)).existsSync();
         if (!exists) {
-          final rootLabel = rootPath == null || rootPath.isEmpty ? 'task worktree' : rootPath;
           await _failureHandler.markFailedOrRetry(
             task,
-            errorSummary: 'artifact-propagation: required input path "$requiredInputPath" is missing in "$rootLabel"',
+            errorSummary: 'artifact-propagation: required input path "$requiredInputPath" is missing in "$rootPath"',
             retryable: false,
           );
           return;

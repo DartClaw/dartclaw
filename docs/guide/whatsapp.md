@@ -10,7 +10,7 @@ DartClaw connects to WhatsApp via GOWA (Go WhatsApp), a sidecar binary that wrap
 
 ## Installing GOWA
 
-The installer script downloads the correct pre-built binary for your platform and adds it to PATH:
+The installer script downloads the pre-built binary for your platform and adds it to PATH:
 
 ```bash
 bash scripts/install-gowa.sh
@@ -207,8 +207,12 @@ These tests verify the full WhatsApp integration. Tests requiring a phone are ma
 
 ### T11: Webhook Security
 
+Secret validation applies to all webhook routes (including `/webhook/whatsapp`) and runs **only when a webhook secret is configured** via `github.webhook_secret` in `dartclaw.yaml`. With a secret set:
+
 1. Send a POST to `/webhook/whatsapp` without a `secret` query parameter
 2. Verify: 403 Forbidden response
 3. Send with incorrect secret — Verify: 403
 4. Send with correct secret — Verify: 200
 5. Send an oversized payload (>1MB) — Verify: 413
+
+If no webhook secret is configured, secret validation is skipped and requests are accepted (the >1MB size limit still applies).

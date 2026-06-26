@@ -18,7 +18,7 @@ Built-in guards cover command, file, network, tool-policy, input-sanitizer, and 
 
 ## Writing Custom Guards
 
-A custom guard implements `Guard`, provides stable `name` and `category` strings, and returns `GuardVerdict.pass()`, `GuardVerdict.warn(...)`, or `GuardVerdict.block(...)`.
+A custom guard extends `Guard`, provides stable `name` and `category` strings, and returns `GuardVerdict.pass()`, `GuardVerdict.warn(...)`, or `GuardVerdict.block(...)`.
 
 Use stable names because they appear in audit logs and operator output. Do not throw from `evaluate`; catch failures inside the guard and return a block verdict with a useful reason. `GuardChain` also has a timeout and fail-closed backstop for unexpected failures.
 

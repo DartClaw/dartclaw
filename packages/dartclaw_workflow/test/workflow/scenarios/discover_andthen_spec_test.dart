@@ -8,7 +8,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         ContextExtractor,
         OutputConfig,
         OutputFormat,
-        StepHandoffValidationFailed,
+        StepHandoffSuccess,
         TaskStatus,
         TaskStatusChangedEvent,
         TaskType,
@@ -76,13 +76,26 @@ void main() {
       expect(outputs['spec_confidence'], 0);
     });
 
-    test('dispatch fails closed when local project root metadata is missing', () async {
+    test('dispatch validates spec_path through generic format: path (no bespoke skill gate)', () async {
+      // ADR-041: discovery output now validates through declared schema +
+      // generic format: path, not the (un-wired) dartclaw-discover-andthen-spec
+      // bespoke validator. With an active workspace root, format: path enforces
+      // containment + existence on spec_path; the step succeeds and the
+      // schema-validated spec_source flows downstream unchanged.
+      //
+      // With no active workspace root, format: path does containment-only and
+      // skips existence (ADR-041) — a spec_path step does not fail closed. The
+      // same containment-only behavior applies to story_specs outputs, covered
+      // by executor_sequential_test.dart ("story_specs with no active workspace
+      // root accepts a safe relative missing path" / "rejects an escaping path").
       final harness = await ScenarioTaskHarness.create();
       addTearDown(harness.dispose);
+      final projectRoot = harness.createTempProjectRoot('detect-dispatch-project');
+      harness.writeProjectFile(projectRoot, 'dev/specs/demo/fis/s01-story.md', '# Story\n\n## Scope\n');
 
       final definition = const WorkflowDefinition(
-        name: 'detect-root-required',
-        description: 'Detect root validation',
+        name: 'detect-generic-path',
+        description: 'Detect via generic format: path',
         project: '_local',
         variables: {'FEATURE': WorkflowVariable(required: true)},
         steps: [
@@ -101,7 +114,7 @@ void main() {
       );
       final now = DateTime.now();
       final run = WorkflowRun(
-        id: 'run-detect-root-required',
+        id: 'run-detect-generic-path',
         definitionName: definition.name,
         status: WorkflowRunStatus.running,
         startedAt: now,
@@ -117,7 +130,7 @@ void main() {
           .where((event) => event.newStatus == TaskStatus.queued)
           .listen((event) async {
             final session = await harness.sessions.getOrCreateMainSession();
-            await harness.tasks.updateFields(event.taskId, sessionId: session.id);
+            await harness.tasks.updateFields(event.taskId, sessionId: session.id, worktreeJson: {'path': projectRoot});
             await harness.messages.insertMessage(
               sessionId: session.id,
               role: 'assistant',
@@ -143,8 +156,10 @@ void main() {
         harness.buildExecutionContext(run: run, definition: definition, workflowContext: context),
       );
 
-      expect(handoff, isA<StepHandoffValidationFailed>());
-      expect(handoff.validationFailure?.reason, contains('active workspace root'));
+      expect(handoff, isA<StepHandoffSuccess>());
+      expect(handoff.validationFailure, isNull);
+      expect(handoff.outputs['spec_path'], 'dev/specs/demo/fis/s01-story.md');
+      expect(handoff.outputs['spec_source'], 'existing');
     });
   });
 }

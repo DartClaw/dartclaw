@@ -175,47 +175,13 @@ class ServeCommand extends Command<void> {
       _exitFn(1);
     }
 
-    // Load and validate HTML templates.
-    final resolvedAssets = _assetResolver.resolve();
-    final sourceTreeTemplatesDir = _sourceTreeTemplatesDir(config);
-
-    try {
-      if (resolvedAssets != null) {
-        initTemplates(resolvedAssets.templatesDir, devMode: config.server.devMode);
-      } else if (sourceTreeTemplatesDir != null) {
-        initTemplates(sourceTreeTemplatesDir, devMode: config.server.devMode);
-      } else {
-        if (argResults!['offline'] == true) {
-          _stderrLine(
-            'Assets for ${_assetDownloader.version} not found. Run \'dartclaw assets download\' or install without --offline.',
-          );
-          _exitFn(1);
-        }
-
-        final downloadedRoot = await _assetDownloader.download();
-        initTemplates(ResolvedAssetPaths(root: downloadedRoot).templatesDir, devMode: config.server.devMode);
-      }
-    } on StateError catch (e) {
-      _stderrLine('ERROR: ${e.message}');
-      _exitFn(1);
-    } on AssetDownloadException catch (error) {
-      _stderrLine(error.message);
-      _exitFn(1);
-    }
-
-    // Workspace scaffold (before any service init)
-    final workspace = WorkspaceService(dataDir: dataDir);
-    await workspace.scaffold();
-
-    // Ensure logs directory exists and generate sample rotation configs
+    // Configure structured logging before asset resolution so startup provenance is visible.
     final logsDir = Directory(config.logsDir);
     if (!logsDir.existsSync()) {
       logsDir.createSync(recursive: true);
     }
     ServiceWiring.writeLogRotationSamples(logsDir.path);
 
-    // Configure structured logging
-    // CLI flags override config values only when config was not injected.
     T cliOr<T>(String flag, T configValue) =>
         _config == null && argResults!.wasParsed(flag) ? argResults![flag] as T : configValue;
 
@@ -232,6 +198,59 @@ class ServeCommand extends Command<void> {
       redactor: logRedactor,
     );
     logService.install();
+
+    // Load and validate HTML templates.
+    final explicitlyConfiguredAssets =
+        (argResults?.wasParsed('source-dir') ?? false) ||
+        (argResults?.wasParsed('templates-dir') ?? false) ||
+        (argResults?.wasParsed('static-dir') ?? false) ||
+        (_config == null && _assetDirsDifferFromDefaults(config));
+    if (explicitlyConfiguredAssets) {
+      final missingAssetDirs = [
+        if (!Directory(config.server.templatesDir).existsSync()) 'templates: ${config.server.templatesDir}',
+        if (!Directory(config.server.staticDir).existsSync()) 'static: ${config.server.staticDir}',
+      ];
+      if (missingAssetDirs.isNotEmpty) {
+        _stderrLine(
+          'ERROR: Explicit asset directories are incomplete (${missingAssetDirs.join(', ')}). '
+          'Pass --source-dir <repo> or set both --templates-dir and --static-dir to existing directories.',
+        );
+        _exitFn(1);
+      }
+    }
+    final assetRequest = AssetResolutionRequest(
+      configuredTemplatesDir: config.server.templatesDir,
+      configuredStaticDir: config.server.staticDir,
+      explicitlyConfigured: explicitlyConfiguredAssets,
+      devMode: config.server.devMode,
+    );
+    ResolvedAssets? resolvedAssets = _assetResolver.resolveAssets(assetRequest);
+
+    try {
+      if (resolvedAssets == null) {
+        if (argResults!['offline'] == true) {
+          _stderrLine(
+            'Assets for ${_assetDownloader.version} not found. Run \'dartclaw assets download\' or install without --offline.',
+          );
+          _exitFn(1);
+        }
+
+        final downloadedRoot = await _assetDownloader.download();
+        resolvedAssets = ResolvedAssets.fromRoot(downloadedRoot, AssetSource.downloadedCache);
+      }
+      _log.info('Assets: ${resolvedAssets.describe()}');
+      initTemplates(resolvedAssets.templatesDir, devMode: config.server.devMode);
+    } on StateError catch (e) {
+      _stderrLine('ERROR: ${_assetStartupError(e, resolvedAssets)}');
+      _exitFn(1);
+    } on AssetDownloadException catch (error) {
+      _stderrLine(error.message);
+      _exitFn(1);
+    }
+
+    // Workspace scaffold (before any service init)
+    final workspace = WorkspaceService(dataDir: dataDir);
+    await workspace.scaffold();
 
     StreamSubscription<ProcessSignal>? sigintSub;
     StreamSubscription<ProcessSignal>? sigtermSub;
@@ -261,7 +280,6 @@ class ServeCommand extends Command<void> {
         config: config,
         dataDir: dataDir,
         port: port,
-        assetResolver: _assetResolver,
         harnessFactory: _harnessFactory,
         serverFactory: _serverFactory,
         searchDbFactory: _searchDbFactory,
@@ -269,6 +287,7 @@ class ServeCommand extends Command<void> {
         stderrLine: _stderrLine,
         exitFn: _exitFn,
         resolvedConfigPath: resolvedConfigPath,
+        resolvedAssets: resolvedAssets,
         logService: logService,
         messageRedactor: messageRedactor,
         runAndthenSkillsBootstrap: _runAndthenSkillsBootstrap,
@@ -390,13 +409,19 @@ class ServeCommand extends Command<void> {
   }
 }
 
-String? _sourceTreeTemplatesDir(DartclawConfig config) {
-  final templatesDir = Directory(config.server.templatesDir);
-  final staticDir = Directory(config.server.staticDir);
-  if (templatesDir.existsSync() && staticDir.existsSync()) {
-    return config.server.templatesDir;
+String _assetStartupError(StateError error, ResolvedAssets? resolvedAssets) {
+  if (resolvedAssets == null) {
+    return error.message;
   }
-  return null;
+  return '${error.message}\n'
+      'Resolved assets: ${resolvedAssets.source.name} at ${resolvedAssets.sourcePath}\n'
+      'Remedy: run with --source-dir <repo> or remove ~/.dartclaw/assets/v$dartclawVersion';
+}
+
+bool _assetDirsDifferFromDefaults(DartclawConfig config) {
+  const defaults = ServerConfig.defaults();
+  return !p.equals(p.normalize(config.server.templatesDir), p.normalize(defaults.templatesDir)) ||
+      !p.equals(p.normalize(config.server.staticDir), p.normalize(defaults.staticDir));
 }
 
 /// Returns built-in tool names to suppress when the MCP server is active.

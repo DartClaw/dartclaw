@@ -41,7 +41,7 @@ The SDK does not force you to deploy the reference server. A small CLI can const
 - `events` for streamed `BridgeEvent` values.
 - Capability flags and metadata for provider differences.
 
-Keep provider-specific assumptions at this boundary. Application code should consume `BridgeEvent` and `GuardVerdict` rather than parsing provider wire data itself.
+Application code should consume `BridgeEvent` and `GuardVerdict` rather than parsing provider wire data itself.
 
 ## Storage Seam
 

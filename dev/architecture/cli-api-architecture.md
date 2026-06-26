@@ -2,7 +2,7 @@
 
 Reference for DartClaw's operational command-line surface and the server APIs that back it: CLI runner, connected-vs-standalone execution, the shared API client, workflow control, and how command groups map onto server routes.
 
-**Current through**: 0.16.4
+**Current through**: 0.18.0
 
 ---
 
@@ -70,7 +70,7 @@ The key package boundary is:
 
 The CLI entry point lives in:
 
-- `../dartclaw-public/apps/dartclaw_cli/bin/dartclaw.dart`
+- `apps/dartclaw_cli/bin/dartclaw.dart`
 
 `DartclawRunner` registers the top-level command families. The operational set is:
 
@@ -110,6 +110,7 @@ Connected mode is the default for:
 - `workflow pause`
 - `workflow resume`
 - `workflow cancel`
+- `workflow retry`
 - all `tasks`, `config`, `projects`, `sessions`, `agents`, `traces`, and `jobs` commands
 
 In connected mode:
@@ -128,18 +129,19 @@ The connected path is the preferred operational surface because it preserves:
 
 ### Standalone Mode
 
-Standalone mode remains only for workflow commands that have meaningful local semantics:
+Standalone mode is available for workflow commands with meaningful local semantics:
 
 - `workflow run --standalone`
 - `workflow status --standalone`
+- `workflow pause/resume/cancel/retry --standalone`
 
-The standalone path uses `CliWorkflowWiring` and `dartclaw_workflow` directly, without starting the HTTP server. `workflow run --standalone` probes `/health` first and aborts unless `--force` is set when a server is already running, preventing accidental state-split or concurrent SQLite use.
+The standalone path uses `CliWorkflowWiring` and `dartclaw_workflow` directly, without starting the HTTP server. The write commands (`run`, `pause`, `resume`, `cancel`, `retry`) probe `/health` first and abort unless `--force` is set when a server is already running, preventing accidental state-split or concurrent SQLite use; `status --standalone` is a read against the local tasks database with no probe.
 
 ## 5. Shared API Client
 
 The connected command path uses:
 
-- `../dartclaw-public/apps/dartclaw_cli/lib/src/dartclaw_api_client.dart`
+- `apps/dartclaw_cli/lib/src/dartclaw_api_client.dart`
 
 `DartclawApiClient` is a CLI-only transport layer built on `dart:io`:
 
@@ -158,7 +160,7 @@ The transport is intentionally simple:
 | Errors | Maps connection/auth/version failures to CLI-friendly messages |
 | SSE | Used for `workflow run` progress and reconnect-aware lifecycle tracking |
 
-The client is not a general SDK surface. It exists to support the CLI application layer.
+The client is not a general SDK surface; it exists to support the CLI application layer.
 
 ## 6. Server API Surface
 
@@ -213,8 +215,9 @@ Server-backed control commands:
 - `workflow pause <id>`
 - `workflow resume <id>`
 - `workflow cancel <id>`
+- `workflow retry <id>`
 
-These are intentionally connected-only commands. They do not silently fall back to local DB state.
+These default to connected mode. `workflow runs` is connected-only. `pause`, `resume`, `cancel`, and `retry` accept an explicit `--standalone` opt-in (guarded by the same `/health` probe + `--force` safety check); they never silently fall back to local DB state.
 
 ### Standalone Workflow Run
 
@@ -258,10 +261,10 @@ This split is important because it keeps low-level maintenance available even wh
 Primary implementation files:
 
 ```
-../dartclaw-public/apps/dartclaw_cli/bin/dartclaw.dart
-../dartclaw-public/apps/dartclaw_cli/lib/src/runner.dart
-../dartclaw-public/apps/dartclaw_cli/lib/src/dartclaw_api_client.dart
-../dartclaw-public/apps/dartclaw_cli/lib/src/commands/
+apps/dartclaw_cli/bin/dartclaw.dart
+apps/dartclaw_cli/lib/src/runner.dart
+apps/dartclaw_cli/lib/src/dartclaw_api_client.dart
+apps/dartclaw_cli/lib/src/commands/
   workflow/
   tasks/
   config/
@@ -271,7 +274,7 @@ Primary implementation files:
   traces/
   jobs/
 
-../dartclaw-public/packages/dartclaw_server/lib/src/api/
+packages/dartclaw_server/lib/src/api/
   workflow_routes.dart
   task_routes.dart
   config_api_routes.dart

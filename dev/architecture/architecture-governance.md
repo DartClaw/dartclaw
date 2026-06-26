@@ -3,7 +3,7 @@
 Canonical reference for how DartClaw keeps package boundaries and structural
 constraints from drifting after a milestone ships.
 
-**Current through**: 0.17
+**Current through**: 0.18.0
 
 ---
 
@@ -17,7 +17,7 @@ DartClaw uses two kinds of architectural documentation:
 
 The executable part is the architecture fitness-function script:
 
-- Public repo source of truth: [`../dartclaw-public/dev/tools/arch_check.dart`](../../../dartclaw-public/dev/tools/arch_check.dart)
+- Public repo source of truth: [`dev/tools/arch_check.dart`](../tools/arch_check.dart)
 
 This document explains what that script is for, what it currently enforces,
 what it does not enforce, and how to evolve it.
@@ -52,12 +52,12 @@ Architecture governance is intentionally layered:
 3. Architecture docs and ADRs
    Explain why the boundary exists and when it is acceptable to change it.
 
-The key rule is simple: `arch_check.dart` is not a replacement for analyzer or
-tests. It is a boundary-governance layer that complements them.
+`arch_check.dart` is not a replacement for the analyzer or tests; it is a
+boundary-governance layer that complements them.
 
 ## Current Fitness Functions
 
-[`arch_check.dart`](../../../dartclaw-public/dev/tools/arch_check.dart) enforces seven
+[`arch_check.dart`](../../dev/tools/arch_check.dart) enforces seven
 checks:
 
 ### L1: Fast Structural Boundaries
@@ -99,7 +99,7 @@ intent should remain documented here:
 
 | Constraint | Current value | Why it exists |
 |---|---:|---|
-| `dartclaw_core` LOC ceiling | `<= 12500` | Preserve a lightweight runtime core |
+| `dartclaw_core` LOC ceiling | `<= 14900` | Preserve a lightweight runtime core (bumped 12500 → 14900 through 0.18 for the first-party ACP harness; see the rationale comments in `dev/tools/arch_check.dart`) |
 | Barrel export ceiling | `<= 94` | Keep public package surfaces reviewable |
 | Workspace package count | `<= 14` | Avoid package proliferation without real need |
 
@@ -157,7 +157,7 @@ details.
 When changing architecture governance:
 
 1. Change the code
-   Update [`dev/tools/arch_check.dart`](../../../dartclaw-public/dev/tools/arch_check.dart).
+   Update [`dev/tools/arch_check.dart`](../../dev/tools/arch_check.dart).
 
 2. Change the explanation
    Update this document and any affected ADR or architecture doc.

@@ -32,6 +32,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatusChangedEvent,
         WorkflowStep,
         WorkflowStepCompletedEvent,
+        WorkflowWorktreeBinding,
         WorkflowVariable;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeProjectService;
 import 'package:path/path.dart' as p;
@@ -50,6 +51,69 @@ void main() {
     return h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
       await Future<void>.delayed(Duration.zero);
       await beforeComplete?.call(e);
+      await h.completeTask(e.taskId);
+    });
+  }
+
+  WorkflowDefinition discoverPlanDefinition({String? project}) {
+    return WorkflowDefinition(
+      name: 'discover-plan-active-root',
+      description: 'Discover plan active root workflow',
+      project: project,
+      variables: const {'PROJECT': WorkflowVariable(required: false)},
+      steps: const [
+        WorkflowStep(
+          id: 'discover-plan-state',
+          name: 'Discover Plan State',
+          skill: 'dartclaw-discover-andthen-plan',
+          prompts: ['discover'],
+          allowedTools: ['file_read'],
+          outputs: {
+            'prd': OutputConfig(),
+            'plan': OutputConfig(),
+            'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs'),
+          },
+        ),
+      ],
+    );
+  }
+
+  Map<String, dynamic> seedDiscoverPlanOutputs(Directory root) {
+    File(p.join(root.path, 'docs/specs/demo/prd.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# PRD\n');
+    File(p.join(root.path, 'docs/specs/demo/plan.json'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        jsonEncode({
+          'stories': [
+            {'id': 'S01', 'status': 'spec-ready', 'fis': 'docs/specs/demo/fis/s01.md'},
+          ],
+        }),
+      );
+    File(p.join(root.path, 'docs/specs/demo/fis/s01.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# FIS\n');
+    return {
+      'prd': 'docs/specs/demo/prd.md',
+      'plan': 'docs/specs/demo/plan.json',
+      'story_specs': {
+        'items': [
+          {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': 'fis/s01.md'},
+        ],
+      },
+    };
+  }
+
+  StreamSubscription<TaskStatusChangedEvent> completeDiscoverPlanWith(Map<String, dynamic> outputs) {
+    return h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      final session = await h.sessionService.createSession(type: SessionType.task);
+      await h.taskService.updateFields(e.taskId, sessionId: session.id);
+      await h.messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: '<workflow-context>${jsonEncode(outputs)}</workflow-context>',
+      );
       await h.completeTask(e.taskId);
     });
   }
@@ -856,10 +920,122 @@ void main() {
     await sub.cancel();
 
     final finalRun = await h.repository.getById(run.id);
-    expect(finalRun?.status, WorkflowRunStatus.completed);
+    expect(finalRun?.status, WorkflowRunStatus.completed, reason: finalRun?.errorMessage);
     expect(context['spec_path'], 'dev/specs/demo/fis/s01-story.md');
   });
 
+  test('discovery validation falls back to the normalized default workspace root', () async {
+    final repoDir = Directory(p.join(h.tempDir.path, 'default-root-repo'))..createSync(recursive: true);
+    final outputs = seedDiscoverPlanOutputs(repoDir);
+    final executor = h.makeExecutor(defaultWorkspaceRoot: p.join(repoDir.path, '.'));
+    final definition = discoverPlanDefinition();
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    final context = WorkflowContext();
+    final sub = completeDiscoverPlanWith(outputs);
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById(run.id);
+    expect(finalRun?.status, WorkflowRunStatus.completed, reason: finalRun?.errorMessage);
+    expect(context['prd'], 'docs/specs/demo/prd.md');
+    final storySpecs = context['story_specs'] as Map<String, dynamic>;
+    final items = storySpecs['items'] as List;
+    expect(items.single, containsPair('spec_path', 'docs/specs/demo/fis/s01.md'));
+  });
+
+  test('project template with an unset optional PROJECT binds no project instead of failing', () async {
+    // Standalone/inline shape: `project: {{PROJECT}}` but PROJECT is optional and
+    // never supplied. A path-emitting discovery step triggers project binding;
+    // the template must resolve to "no project" rather than throwing
+    // "Template references undefined variable: {{PROJECT}}" (the step-1 abort).
+    final repoDir = Directory(p.join(h.tempDir.path, 'unset-project-repo'))..createSync(recursive: true);
+    final outputs = seedDiscoverPlanOutputs(repoDir);
+    final executor = h.makeExecutor(defaultWorkspaceRoot: repoDir.path);
+    final definition = discoverPlanDefinition(project: '{{PROJECT}}');
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    final context = WorkflowContext();
+    final sub = completeDiscoverPlanWith(outputs);
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById(run.id);
+    expect(finalRun?.status, WorkflowRunStatus.completed, reason: finalRun?.errorMessage);
+    expect(context['prd'], 'docs/specs/demo/prd.md');
+  });
+
+  test('explicit workflow project localPath wins over the default workspace root', () async {
+    final defaultRoot = Directory(p.join(h.tempDir.path, 'default-root-unused'))..createSync(recursive: true);
+    final projectDir = Directory(p.join(h.tempDir.path, 'active-root-project-plan'))..createSync(recursive: true);
+    final outputs = seedDiscoverPlanOutputs(projectDir);
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-project',
+          name: 'My Project',
+          remoteUrl: '',
+          localPath: projectDir.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
+        ),
+      ],
+    );
+    final executor = h.makeExecutor(projectService: projectService, defaultWorkspaceRoot: defaultRoot.path);
+    final definition = discoverPlanDefinition(project: '{{PROJECT}}');
+    final run = h.makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'my-project'});
+    await h.repository.insert(run);
+    final context = WorkflowContext(variables: const {'PROJECT': 'my-project'});
+    final sub = completeDiscoverPlanWith(outputs);
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById(run.id);
+    expect(finalRun?.status, WorkflowRunStatus.completed, reason: finalRun?.errorMessage);
+    expect(context['prd'], 'docs/specs/demo/prd.md');
+    // Two lookups: active-root resolution at startup + the artifact committer at
+    // completion (story_specs is an artifact producer). Both must resolve the
+    // explicit project, never the defaultWorkspaceRoot. Pinning the exact pair
+    // proves the startup resolution ran — the committer lookup alone would not.
+    expect(projectService.getCalls, ['my-project', 'my-project']);
+  });
+
+  test('workflow worktree root wins over the default workspace root', () async {
+    final defaultRoot = Directory(p.join(h.tempDir.path, 'default-root-unused-worktree'))..createSync(recursive: true);
+    final worktreeDir = Directory(p.join(h.tempDir.path, 'active-root-worktree'))..createSync(recursive: true);
+    final outputs = seedDiscoverPlanOutputs(worktreeDir);
+    final executor = h.makeExecutor(defaultWorkspaceRoot: defaultRoot.path);
+    final definition = discoverPlanDefinition();
+    final run = h
+        .makeRun(definition)
+        .copyWith(
+          workflowWorktree: WorkflowWorktreeBinding(
+            key: 'shared',
+            path: worktreeDir.path,
+            branch: 'dartclaw/workflow/run-1/integration',
+            workflowRunId: 'run-1',
+          ),
+        );
+    await h.repository.insert(run);
+    final context = WorkflowContext();
+    final sub = completeDiscoverPlanWith(outputs);
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById(run.id);
+    expect(finalRun?.status, WorkflowRunStatus.completed);
+    expect(context['prd'], 'docs/specs/demo/prd.md');
+  });
+
+  // The active workspace root is resolved for any step emitting `story_specs`
+  // (`_emitsStorySpecs`); it is resolved once at startup and stays stable even
+  // if the project's localPath changes mid-run. Skill name no longer gates this
+  // (ADR-041).
   test('active workspace root is stable after workflow startup', () async {
     final initialProjectDir = Directory(p.join(h.tempDir.path, 'active-root-initial'))..createSync(recursive: true);
     final changedProjectDir = Directory(p.join(h.tempDir.path, 'active-root-changed'))..createSync(recursive: true);
@@ -884,20 +1060,18 @@ void main() {
       variables: const {'PROJECT': WorkflowVariable(required: false)},
       steps: const [
         WorkflowStep(
-          id: 'detect-spec-input',
-          name: 'Detect Spec Input',
-          skill: 'dartclaw-discover-andthen-spec',
-          prompts: ['detect'],
+          id: 'discover-plan-state',
+          name: 'Discover Plan State',
+          skill: 'discovery-skill',
+          prompts: ['discover'],
           allowedTools: ['file_read'],
-          outputs: {'spec_source': OutputConfig(), 'spec_path': OutputConfig()},
+          outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs')},
         ),
       ],
     );
     final run = h.makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'my-project'});
     await h.repository.insert(run);
-    final context = WorkflowContext(
-      variables: const {'PROJECT': 'my-project', 'FEATURE': 'dev/specs/demo/fis/s01-story.md'},
-    );
+    final context = WorkflowContext(variables: const {'PROJECT': 'my-project'});
     final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
       e,
     ) async {
@@ -908,7 +1082,13 @@ void main() {
         sessionId: session.id,
         role: 'assistant',
         content:
-            '<workflow-context>${jsonEncode({'spec_source': 'existing', 'spec_path': 'dev/specs/demo/fis/s01-story.md'})}</workflow-context>',
+            '<workflow-context>${jsonEncode({
+              'story_specs': {
+                'items': [
+                  {'id': 'S01', 'title': 'One', 'spec_path': 'dev/specs/demo/fis/s01-story.md', 'dependencies': <String>[]},
+                ],
+              },
+            })}</workflow-context>',
       );
       await h.completeTask(e.taskId);
     });
@@ -918,48 +1098,80 @@ void main() {
 
     final finalRun = await h.repository.getById(run.id);
     expect(finalRun?.status, WorkflowRunStatus.completed);
-    expect(projectService.getCalls, ['my-project']);
-    expect(context['spec_path'], 'dev/specs/demo/fis/s01-story.md');
+    // The active root resolved at startup stays stable: validation accepts the
+    // spec_path that exists only under the initial localPath even though the
+    // project's localPath was changed mid-run. Both project lookups (startup
+    // active-root + completion artifact committer) still target the same id;
+    // pinning the exact pair proves the startup resolution ran.
+    expect(projectService.getCalls, ['my-project', 'my-project']);
   });
 
-  test('detect-spec-input validation fails closed without an active workspace root', () async {
-    final definition = WorkflowDefinition(
-      name: 'missing-active-root',
-      description: 'Missing active root workflow',
-      steps: const [
-        WorkflowStep(
-          id: 'detect-spec-input',
-          name: 'Detect Spec Input',
-          skill: 'dartclaw-discover-andthen-spec',
-          prompts: ['detect'],
-          allowedTools: ['file_read'],
-          outputs: {'spec_source': OutputConfig(), 'spec_path': OutputConfig()},
-        ),
-      ],
-    );
-    final run = h.makeRun(definition).copyWith(variablesJson: const {'FEATURE': 'dev/specs/demo/fis/s01-story.md'});
-    await h.repository.insert(run);
-    final context = WorkflowContext(variables: const {'FEATURE': 'dev/specs/demo/fis/s01-story.md'});
-    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-      e,
-    ) async {
+  // S02-C / OC05 (ADR-041): with no active workspace root the generic validator
+  // does containment-only and skips existence — a safe relative spec_path that is
+  // missing on disk no longer fails the run, while an escaping path is still
+  // rejected on containment. No run-level fail-closed guard fires.
+  WorkflowDefinition noRootStorySpecsDefinition() => const WorkflowDefinition(
+    name: 'missing-active-root',
+    description: 'Missing active root workflow',
+    steps: [
+      WorkflowStep(
+        id: 'discover-plan-state',
+        name: 'Discover Plan State',
+        skill: 'discovery-skill',
+        prompts: ['discover'],
+        allowedTools: ['file_read'],
+        outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs')},
+      ),
+    ],
+  );
+
+  StreamSubscription<TaskStatusChangedEvent> completeStorySpecsWith(String specPath) {
+    return h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
       final session = await h.sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
       await h.messageService.insertMessage(
         sessionId: session.id,
         role: 'assistant',
         content:
-            '<workflow-context>${jsonEncode({'spec_source': 'existing', 'spec_path': 'dev/specs/demo/fis/s01-story.md'})}</workflow-context>',
+            '<workflow-context>${jsonEncode({
+              'story_specs': {
+                'items': [
+                  {'id': 'S01', 'title': 'One', 'spec_path': specPath, 'dependencies': <String>[]},
+                ],
+              },
+            })}</workflow-context>',
       );
       await h.completeTask(e.taskId);
     });
+  }
+
+  test('story_specs with no active workspace root accepts a safe relative missing path', () async {
+    final definition = noRootStorySpecsDefinition();
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    final context = WorkflowContext();
+    final sub = completeStorySpecsWith('dev/specs/demo/fis/s01-story.md');
+
+    await h.executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById(run.id);
+    expect(finalRun?.status, WorkflowRunStatus.completed);
+  });
+
+  test('story_specs with no active workspace root rejects an escaping path', () async {
+    final definition = noRootStorySpecsDefinition();
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    final context = WorkflowContext();
+    final sub = completeStorySpecsWith('../escape/s01-story.md');
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();
 
     final finalRun = await h.repository.getById(run.id);
     expect(finalRun?.status, WorkflowRunStatus.failed);
-    expect(finalRun?.errorMessage, contains('active workspace root'));
+    expect(finalRun?.errorMessage, contains('parent traversal'));
   });
 
   test('step failure pauses workflow', () async {

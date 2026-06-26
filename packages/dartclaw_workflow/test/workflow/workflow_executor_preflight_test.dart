@@ -195,6 +195,40 @@ steps:
     expect(capturedTask?.description, isNot(startsWith(r'$andthen:review')));
   });
 
+  test('uses Codex-visible namespace alias for non-AndThen skill refs', () async {
+    final definition = const WorkflowDefinition(
+      name: 'preflight-codex-generic-alias',
+      description: 'preflight codex generic alias test',
+      steps: [WorkflowStep(id: 'plan', name: 'Plan', provider: 'codex', skill: 'otherframework:plan')],
+    );
+    final introspector = FakeSkillIntrospector({
+      'codex': {'otherframework-plan'},
+    });
+    final executor = h.makeExecutor(
+      skillIntrospector: introspector,
+      skillPreflightConfig: const WorkflowSkillPreflightConfig(providerExecutables: {'codex': '/bin/codex'}),
+    );
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+
+    Task? capturedTask;
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((event) => event.newStatus == TaskStatus.queued).listen((
+      event,
+    ) async {
+      capturedTask = await h.taskService.get(event.taskId);
+      await h.completeTask(event.taskId);
+    });
+    addTearDown(sub.cancel);
+
+    await executor.execute(run, definition, WorkflowContext());
+
+    final finishedRun = await h.repository.getById(run.id);
+    expect(finishedRun?.status, isNot(WorkflowRunStatus.failed));
+    expect(introspector.calls, [(provider: 'codex', executable: '/bin/codex')]);
+    expect(capturedTask?.description, startsWith(r'$otherframework-plan'));
+    expect(capturedTask?.description, isNot(startsWith(r'$otherframework:plan')));
+  });
+
   test('reports Codex-visible AndThen skill alias when a preflight skill is missing', () async {
     final definition = const WorkflowDefinition(
       name: 'preflight-codex-missing-alias',

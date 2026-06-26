@@ -80,7 +80,11 @@ Router projectRoutes(
 
       String? normalizedLocalPath;
       if (hasLocalPath) {
-        final validation = validateProjectLocalPath(localPath, allowlist: projectConfig.localPathAllowlist);
+        // Shape validation only (absolute, no traversal). Allowlist containment
+        // is enforced below via symlink-aware canonicalization; passing the
+        // allowlist here too would add a weaker, lexical-only second check that
+        // can drift from the canonicalizing one.
+        final validation = validateProjectLocalPath(localPath);
         if (!validation.isValid) {
           return errorResponse(400, 'INVALID_LOCAL_PATH', validation.errorMessage ?? 'Invalid localPath', {
             'field': 'localPath',

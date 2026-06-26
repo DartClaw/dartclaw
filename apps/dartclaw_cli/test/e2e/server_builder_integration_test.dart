@@ -64,6 +64,12 @@ void _stageProviderAndThenSkillStubs(String searchRoot) {
   }
 }
 
+ResolvedAssets _resolvedAssetsForConfig(DartclawConfig config) => ResolvedAssets.fromSourceTree(
+  templatesDir: config.server.templatesDir,
+  staticDir: config.server.staticDir,
+  source: AssetSource.sourceTreeDefault,
+);
+
 Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during server builder integration test');
 }
@@ -92,9 +98,102 @@ class _RecordingChannel extends Channel {
   }
 }
 
-Future<void> _disposeWiringResult(WiringResult result, LogService logService) async {
+final class _FakeOutboundTransport implements OutboundMcpTransport {
+  final List<Map<String, dynamic>> tools;
+  final List<({String toolName, Map<String, dynamic> arguments})> calls = [];
+  final int failedToolsListResponses;
+  final bool rejectDuplicateInitialize;
+  final bool throwOnClose;
+  var closed = false;
+  var closeCount = 0;
+  var initializeRequests = 0;
+  var toolsListRequests = 0;
+
+  _FakeOutboundTransport({
+    required this.tools,
+    this.failedToolsListResponses = 0,
+    this.rejectDuplicateInitialize = false,
+    this.throwOnClose = false,
+  });
+
+  @override
+  Future<Map<String, dynamic>> sendRequest(
+    String method,
+    Map<String, dynamic> params, {
+    required Duration timeout,
+    required int maxResponseBytes,
+  }) async {
+    if (closed) {
+      throw StateError('Unexpected MCP request after transport close: $method');
+    }
+    if (method == 'initialize') {
+      initializeRequests++;
+      if (rejectDuplicateInitialize && initializeRequests > 1) {
+        throw StateError('Duplicate initialize on the same transport');
+      }
+      return const {};
+    }
+    if (method == 'tools/list') {
+      toolsListRequests++;
+      if (toolsListRequests <= failedToolsListResponses) {
+        throw const OutboundMcpException('startup_list_failed', 'startup list failed');
+      }
+      return {'tools': tools};
+    }
+    if (method == 'tools/call') {
+      calls.add((toolName: params['name'] as String, arguments: Map<String, dynamic>.from(params['arguments'] as Map)));
+      final args = params['arguments'] as Map;
+      return {
+        'content': [
+          {'type': 'text', 'text': '${params['name']}:${args['id'] ?? 'ok'}'},
+        ],
+      };
+    }
+    throw StateError('Unexpected MCP method: $method');
+  }
+
+  @override
+  Future<void> sendNotification(
+    String method,
+    Map<String, dynamic> params, {
+    required Duration timeout,
+    required int maxResponseBytes,
+  }) async {}
+
+  @override
+  Future<bool> ping({required Duration timeout, required int maxResponseBytes}) async => true;
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    closeCount++;
+    if (throwOnClose) {
+      throw StateError('transport close failed');
+    }
+  }
+}
+
+final class _NamedTool implements McpTool {
+  @override
+  final String name;
+
+  _NamedTool(this.name);
+
+  @override
+  String get description => 'test duplicate';
+
+  @override
+  Map<String, dynamic> get inputSchema => const {'type': 'object'};
+
+  @override
+  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text('ok');
+}
+
+Future<void> _disposeWiringResult(WiringResult result, LogService logService, {bool disposeExtras = true}) async {
   await result.server.shutdown();
-  await result.shutdownExtras();
+  if (disposeExtras) {
+    await result.shutdownExtras();
+  }
   result.heartbeat?.stop();
   result.scheduleService?.stop();
   result.resetService.dispose();
@@ -105,6 +204,40 @@ Future<void> _disposeWiringResult(WiringResult result, LogService logService) as
   await result.qmdManager?.stop();
   result.searchDb.close();
   await logService.dispose();
+}
+
+String _mcpRequest(String method, {Object? id, Map<String, dynamic>? params}) {
+  return jsonEncode({
+    'jsonrpc': '2.0',
+    'method': method,
+    if (id != null) 'id': id, // ignore: use_null_aware_elements
+    if (params != null) 'params': params, // ignore: use_null_aware_elements
+  });
+}
+
+Future<Set<String>> _mcpToolNames(DartclawServer server) async {
+  final raw = await server.mcpHandler.handleRequest(_mcpRequest('tools/list', id: 1));
+  final body = jsonDecode(raw!) as Map<String, dynamic>;
+  final result = body['result'] as Map<String, dynamic>;
+  return ((result['tools'] as List).cast<Map<String, dynamic>>()).map((tool) => tool['name'] as String).toSet();
+}
+
+DartclawConfig _baseConfig(Directory tempDir, {McpServersConfig mcpServers = const McpServersConfig.defaults()}) {
+  return DartclawConfig(
+    agent: const AgentConfig(provider: 'claude'),
+    credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+    providers: ProvidersConfig(
+      entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+    ),
+    gateway: const GatewayConfig(authMode: 'none'),
+    mcpServers: mcpServers,
+    server: ServerConfig(
+      dataDir: tempDir.path,
+      staticDir: _staticDir(),
+      templatesDir: _templatesDir(),
+      claudeExecutable: Platform.resolvedExecutable,
+    ),
+  );
 }
 
 void main() {
@@ -164,6 +297,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
       runAndthenSkillsBootstrap: false,
     );
 
@@ -191,14 +325,634 @@ void main() {
     final healthBody = jsonDecode(await healthResponse.readAsString()) as Map<String, dynamic>;
     expect(healthBody['status'], equals('healthy'));
 
-    final mcpResponse = await result.server.mcpHandler.handleRequest(
-      jsonEncode({'jsonrpc': '2.0', 'method': 'tools/list', 'id': 1}),
-    );
-    final mcpBody = jsonDecode(mcpResponse!) as Map<String, dynamic>;
-    final mcpResult = mcpBody['result'] as Map<String, dynamic>;
-    final toolNames = ((mcpResult['tools'] as List).cast<Map<String, dynamic>>()).map((tool) => tool['name']).toSet();
+    final toolNames = await _mcpToolNames(result.server);
     expect(toolNames, contains('sessions_send'));
+    expect(toolNames, contains('context_research'));
     expect(toolNames, isNot(contains('sessions_spawn')));
+  });
+
+  test('ServiceWiring registers surfaced outbound MCP tools on the live MCP handler', () async {
+    final transport = _FakeOutboundTransport(
+      tools: const [
+        {
+          'name': 'lookup',
+          'description': 'Lookup records',
+          'inputSchema': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string'},
+            },
+          },
+        },
+        {'name': 'delete_all'},
+      ],
+    );
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      mcpServers: const McpServersConfig(
+        entries: {
+          'acme': McpServerEntry(
+            command: 'fake-acme',
+            networkClass: McpNetworkClass.local,
+            allowTools: ['lookup', 'delete_all'],
+            surfaceTools: ['lookup'],
+          ),
+        },
+      ),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDir(),
+        templatesDir: _templatesDir(),
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      outboundMcpTransportFactory: (server, options) async {
+        expect(server.name, 'acme');
+        return transport;
+      },
+      runAndthenSkillsBootstrap: false,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService, disposeExtras: false));
+
+    final toolNames = await _mcpToolNames(result.server);
+    expect(toolNames, contains('mcp__acme__lookup'));
+    expect(toolNames, isNot(contains('mcp__acme__delete_all')));
+
+    final response = await result.server.mcpHandler.handleRequest(
+      _mcpRequest(
+        'tools/call',
+        id: 2,
+        params: {
+          'name': 'mcp__acme__lookup',
+          'arguments': {'id': '42'},
+        },
+      ),
+    );
+    final body = jsonDecode(response!) as Map<String, dynamic>;
+    final callResult = body['result'] as Map<String, dynamic>;
+    final content = callResult['content'] as List;
+    expect(content.single['text'], 'lookup:42');
+    expect(transport.calls.single.toolName, 'lookup');
+    expect(transport.calls.single.arguments, {'id': '42'});
+
+    final direct = await result.outboundMcpPool!.callTool(
+      serverName: 'acme',
+      toolName: 'delete_all',
+      arguments: const {},
+      caller: const OutboundMcpCaller(sessionId: 'session-1', principal: 'operator'),
+    );
+    expect(direct.isSuccess, isTrue);
+    expect(direct.content.single['text'], 'delete_all:ok');
+
+    await result.shutdownExtras();
+    expect(transport.closed, isTrue);
+  });
+
+  test('ServiceWiring preserves outbound MCP startup errors when cleanup close fails', () async {
+    final transport = _FakeOutboundTransport(
+      tools: const [
+        {'name': 'delete_all'},
+      ],
+      throwOnClose: true,
+    );
+    final config = _baseConfig(
+      tempDir,
+      mcpServers: const McpServersConfig(
+        entries: {
+          'acme': McpServerEntry(
+            command: 'fake-acme',
+            networkClass: McpNetworkClass.local,
+            allowTools: ['lookup'],
+            surfaceTools: ['lookup'],
+          ),
+        },
+      ),
+    );
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      outboundMcpTransportFactory: (server, options) async => transport,
+      runAndthenSkillsBootstrap: false,
+    );
+
+    await expectLater(
+      wiring.wire(),
+      throwsA(
+        isA<StateError>()
+            .having((error) => error.message, 'message', contains('acme'))
+            .having((error) => error.message, 'message', contains('lookup'))
+            .having((error) => error.message, 'message', isNot(contains('transport close failed'))),
+      ),
+    );
+    expect(transport.closed, isTrue);
+  });
+
+  test('ServiceWiring keeps direct outbound policy when startup listing fails', () async {
+    final transports = <_FakeOutboundTransport>[];
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      mcpServers: const McpServersConfig(
+        entries: {
+          'acme': McpServerEntry(
+            command: 'fake-acme',
+            networkClass: McpNetworkClass.local,
+            allowTools: ['delete_all'],
+            surfaceTools: ['lookup'],
+          ),
+        },
+      ),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDir(),
+        templatesDir: _templatesDir(),
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      outboundMcpTransportFactory: (server, options) async {
+        final transport = _FakeOutboundTransport(
+          tools: const [
+            {'name': 'delete_all'},
+          ],
+          failedToolsListResponses: transports.isEmpty ? 1 : 0,
+          rejectDuplicateInitialize: true,
+        );
+        transports.add(transport);
+        return transport;
+      },
+      runAndthenSkillsBootstrap: false,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService, disposeExtras: false));
+
+    expect(await _mcpToolNames(result.server), isNot(contains('mcp__acme__lookup')));
+
+    final direct = await result.outboundMcpPool!.callTool(
+      serverName: 'acme',
+      toolName: 'delete_all',
+      arguments: const {},
+      caller: const OutboundMcpCaller(sessionId: 'session-1', principal: 'operator'),
+    );
+    expect(direct.isSuccess, isTrue);
+    expect(transports, hasLength(2));
+    expect(transports.first.closed, isTrue);
+    expect(transports.last.calls.single.toolName, 'delete_all');
+
+    await result.shutdownExtras();
+  });
+
+  test('ServiceWiring does not connect direct-only outbound MCP servers during startup', () async {
+    var factoryCalls = 0;
+    final transport = _FakeOutboundTransport(
+      tools: const [
+        {'name': 'delete_all'},
+      ],
+    );
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      mcpServers: const McpServersConfig(
+        entries: {
+          'acme': McpServerEntry(
+            command: 'fake-acme',
+            networkClass: McpNetworkClass.local,
+            allowTools: ['delete_all'],
+            surfaceTools: [],
+          ),
+        },
+      ),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDir(),
+        templatesDir: _templatesDir(),
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      outboundMcpTransportFactory: (server, options) async {
+        factoryCalls++;
+        expect(server.name, 'acme');
+        return transport;
+      },
+      runAndthenSkillsBootstrap: false,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService, disposeExtras: false));
+
+    expect(factoryCalls, 0);
+    expect(await _mcpToolNames(result.server), isNot(contains('mcp__acme__delete_all')));
+
+    final direct = await result.outboundMcpPool!.callTool(
+      serverName: 'acme',
+      toolName: 'delete_all',
+      arguments: const {},
+      caller: const OutboundMcpCaller(sessionId: 'session-1', principal: 'operator'),
+    );
+    expect(direct.isSuccess, isTrue);
+    expect(factoryCalls, 1);
+    expect(transport.calls.single.toolName, 'delete_all');
+
+    await result.shutdownExtras();
+  });
+
+  test('ServiceWiring fails when surfaced outbound MCP tool is not exposed', () async {
+    final transport = _FakeOutboundTransport(
+      tools: const [
+        {'name': 'delete_all'},
+      ],
+    );
+    final config = _baseConfig(
+      tempDir,
+      mcpServers: const McpServersConfig(
+        entries: {
+          'acme': McpServerEntry(
+            command: 'fake-acme',
+            networkClass: McpNetworkClass.local,
+            allowTools: ['lookup'],
+            surfaceTools: ['lookup'],
+          ),
+        },
+      ),
+    );
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      outboundMcpTransportFactory: (server, options) async => transport,
+      runAndthenSkillsBootstrap: false,
+    );
+
+    await expectLater(
+      wiring.wire(),
+      throwsA(
+        isA<StateError>()
+            .having((error) => error.message, 'message', contains('acme'))
+            .having((error) => error.message, 'message', contains('lookup')),
+      ),
+    );
+    expect(transport.closed, isTrue);
+  });
+
+  test('ServiceWiring closes the outbound MCP pool when later startup fails', () async {
+    final transport = _FakeOutboundTransport(
+      tools: const [
+        {'name': 'lookup'},
+      ],
+      throwOnClose: true,
+    );
+    final config = _baseConfig(
+      tempDir,
+      mcpServers: const McpServersConfig(
+        entries: {
+          'acme': McpServerEntry(
+            command: 'fake-acme',
+            networkClass: McpNetworkClass.local,
+            allowTools: ['lookup'],
+            surfaceTools: ['lookup'],
+          ),
+        },
+      ),
+    );
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      outboundMcpTransportFactory: (server, options) async => transport,
+      postMcpStartupHook: (_) async => throw StateError('post-registration startup failed'),
+      runAndthenSkillsBootstrap: false,
+    );
+
+    await expectLater(
+      wiring.wire(),
+      throwsA(
+        isA<StateError>()
+            .having((error) => error.message, 'message', contains('post-registration'))
+            .having((error) => error.message, 'message', isNot(contains('transport close failed'))),
+      ),
+    );
+    expect(transport.closeCount, 1);
+  });
+
+  test('ServiceWiring returns handled errors for live denied outbound MCP calls', () async {
+    final transport = _FakeOutboundTransport(
+      tools: const [
+        {'name': 'lookup'},
+        {'name': 'allowed'},
+      ],
+    );
+    final config = _baseConfig(
+      tempDir,
+      mcpServers: const McpServersConfig(
+        entries: {
+          'acme': McpServerEntry(
+            command: 'fake-acme',
+            networkClass: McpNetworkClass.local,
+            allowTools: ['allowed'],
+            surfaceTools: ['lookup', 'allowed'],
+          ),
+        },
+      ),
+    );
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      outboundMcpTransportFactory: (server, options) async => transport,
+      runAndthenSkillsBootstrap: false,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService, disposeExtras: false));
+
+    final deniedResponse = await result.server.mcpHandler.handleRequest(
+      _mcpRequest(
+        'tools/call',
+        id: 2,
+        params: {
+          'name': 'mcp__acme__lookup',
+          'arguments': {'id': '42'},
+        },
+      ),
+    );
+    final deniedBody = jsonDecode(deniedResponse!) as Map<String, dynamic>;
+    final deniedResult = deniedBody['result'] as Map<String, dynamic>;
+    expect(deniedResult['isError'], isTrue);
+    expect((deniedResult['content'] as List).single['text'], contains('not allowlisted'));
+    expect(transport.calls, isEmpty);
+
+    final allowedResponse = await result.server.mcpHandler.handleRequest(
+      _mcpRequest(
+        'tools/call',
+        id: 3,
+        params: {
+          'name': 'mcp__acme__allowed',
+          'arguments': {'id': 'ok'},
+        },
+      ),
+    );
+    final allowedBody = jsonDecode(allowedResponse!) as Map<String, dynamic>;
+    final allowedResult = allowedBody['result'] as Map<String, dynamic>;
+    expect((allowedResult['content'] as List).single['text'], 'allowed:ok');
+    expect(transport.calls.single.toolName, 'allowed');
+
+    await result.shutdownExtras();
+    expect(transport.closed, isTrue);
+  });
+
+  test('ServiceWiring fails when an outbound MCP adapter name collides', () async {
+    final transport = _FakeOutboundTransport(
+      tools: const [
+        {'name': 'lookup'},
+      ],
+    );
+    final config = _baseConfig(
+      tempDir,
+      mcpServers: const McpServersConfig(
+        entries: {
+          'acme': McpServerEntry(
+            command: 'fake-acme',
+            networkClass: McpNetworkClass.local,
+            allowTools: ['lookup'],
+            surfaceTools: ['lookup'],
+          ),
+        },
+      ),
+    );
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) {
+        final server = builder.build();
+        server.registerTool(_NamedTool('mcp__acme__lookup'));
+        return server;
+      },
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      outboundMcpTransportFactory: (server, options) async => transport,
+      runAndthenSkillsBootstrap: false,
+    );
+
+    await expectLater(
+      wiring.wire(),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('mcp__acme__lookup'))),
+    );
+    expect(transport.closed, isTrue);
+  });
+
+  test('ServiceWiring does not connect disabled or uncredentialed outbound MCP servers', () async {
+    const yaml = '''
+mcp_servers:
+  disabled:
+    command: fake-disabled
+    enabled: false
+    network_class: local
+    surface_tools: [lookup]
+  uncredentialed:
+    command: fake-uncredentialed
+    credential: missing
+    network_class: local
+    surface_tools: [lookup]
+''';
+    final parsed = DartclawConfig.load(
+      configPath: configFile.path,
+      env: {'HOME': tempDir.path},
+      fileReader: (path) => path == configFile.path ? yaml : null,
+    );
+    final config = parsed.copyWith(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDir(),
+        templatesDir: _templatesDir(),
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+    var factoryCalls = 0;
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      outboundMcpTransportFactory: (server, options) async {
+        factoryCalls++;
+        return _FakeOutboundTransport(tools: const []);
+      },
+      runAndthenSkillsBootstrap: false,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService, disposeExtras: false));
+
+    expect(result.outboundMcpPool, isNull);
+    expect(await _mcpToolNames(result.server), isNot(contains('mcp__disabled__lookup')));
+    expect(await _mcpToolNames(result.server), isNot(contains('mcp__uncredentialed__lookup')));
+    expect(factoryCalls, 0);
+  });
+
+  test('ServiceWiring closes the outbound MCP pool during shutdown extras', () async {
+    final transport = _FakeOutboundTransport(
+      tools: const [
+        {'name': 'lookup'},
+      ],
+    );
+    final config = _baseConfig(
+      tempDir,
+      mcpServers: const McpServersConfig(
+        entries: {
+          'acme': McpServerEntry(
+            command: 'fake-acme',
+            networkClass: McpNetworkClass.local,
+            allowTools: ['lookup'],
+            surfaceTools: ['lookup'],
+          ),
+        },
+      ),
+    );
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      outboundMcpTransportFactory: (server, options) async => transport,
+      runAndthenSkillsBootstrap: false,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService, disposeExtras: false));
+
+    await result.shutdownExtras();
+
+    expect(transport.closeCount, 1);
   });
 
   test('ServiceWiring wires AlertRouter into the production EventBus', () async {
@@ -239,6 +993,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
       runAndthenSkillsBootstrap: false,
     );
 
@@ -303,6 +1058,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
       runAndthenSkillsBootstrap: false,
     );
 
@@ -365,6 +1121,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
       runAndthenSkillsBootstrap: false,
     );
 
@@ -448,6 +1205,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
       runAndthenSkillsBootstrap: false,
     );
 
@@ -499,6 +1257,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
       // Default `runAndthenSkillsBootstrap: true` – we want the bootstrap to run.
       skillProvisionerEnvironment: {'HOME': provisionHome.path},
     );

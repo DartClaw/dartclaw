@@ -698,6 +698,40 @@ channels:
       final router = createRouter();
       await api(router).expectResponse('DELETE', '/api/scheduling/jobs/nonexistent', status: 404);
     });
+
+    // shelf_router exposes the matched <name> segment still percent-encoded, so
+    // names the client encodes (encodeURIComponent) must be decoded server-side
+    // before matching stored job names. Without the decode, GET/PUT/DELETE fail
+    // to find the job. Each case round-trips: POST the name, then address it via
+    // the percent-encoded path.
+    for (final specialName in const ['A&B job', "Johns'job", 'x<y>z', 'Q&A digest', 'has space']) {
+      test('special-character name "$specialName" round-trips through GET/PUT/DELETE', () async {
+        final router = createRouter();
+        final encoded = Uri.encodeComponent(specialName);
+
+        await api(router).expectResponse(
+          'POST',
+          '/api/scheduling/jobs',
+          json: {'name': specialName, 'schedule': '0 7 * * *', 'prompt': 'hi', 'delivery': 'announce'},
+          status: 201,
+        );
+
+        final fetched = await api(router).expectJsonObject('GET', '/api/scheduling/jobs/$encoded');
+        expect(fetched['name'], specialName);
+
+        final updated = await api(
+          router,
+        ).expectJsonObject('PUT', '/api/scheduling/jobs/$encoded', json: {'schedule': '0 8 * * *'});
+        expect(updated['job']['name'], specialName);
+        expect(updated['job']['schedule'], '0 8 * * *');
+
+        final deleted = await api(router).expectJsonObject('DELETE', '/api/scheduling/jobs/$encoded');
+        expect(deleted['deleted'], true);
+
+        // Confirm the delete actually removed it (encoded path no longer resolves).
+        await api(router).expectResponse('GET', '/api/scheduling/jobs/$encoded', status: 404);
+      });
+    }
   });
 
   /// Writes task jobs to the YAML config file so [ConfigWriter.readSchedulingJobs]
@@ -835,6 +869,28 @@ channels:
     test('DELETE /api/scheduling/tasks/<id> returns 404 for missing task', () async {
       final router = createRouter();
       await api(router).expectResponse('DELETE', '/api/scheduling/tasks/nonexistent', status: 404);
+    });
+
+    test('special-character task id round-trips through PUT/DELETE', () async {
+      // Same percent-encoded <id> decode contract as scheduling jobs.
+      const taskId = "R&D 'review'";
+      final encoded = Uri.encodeComponent(taskId);
+      final router = createRouter();
+
+      await api(router).expectResponse(
+        'POST',
+        '/api/scheduling/tasks',
+        json: {'id': taskId, 'schedule': '0 9 * * *', 'title': 'Review', 'description': 'Desc', 'type': 'automation'},
+        status: 201,
+      );
+
+      final updated = await api(
+        router,
+      ).expectJsonObject('PUT', '/api/scheduling/tasks/$encoded', json: {'enabled': false});
+      expect(updated['task']['enabled'], false);
+
+      final deleted = await api(router).expectJsonObject('DELETE', '/api/scheduling/tasks/$encoded');
+      expect(deleted['deleted'], true);
     });
 
     test('POST /api/scheduling/jobs with type: task does not require delivery', () async {

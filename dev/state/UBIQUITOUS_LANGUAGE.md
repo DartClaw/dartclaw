@@ -109,6 +109,17 @@
 | API Client | The CLI-only loopback HTTP client (`DartclawApiClient`) used for connected commands, auth resolution, error mapping, and SSE workflow streaming | HTTP helper, REST wrapper | CLI operations |
 | Server Detection | The CLI health probe that checks the configured loopback server before choosing connected or standalone behavior | server probe, health check | CLI operations |
 
+## Knowledge & Context Engine
+
+| Term | Definition | Avoid (synonyms) | Bounded Context |
+|------|-----------|-------------------|-----------------|
+| Context Engine | Server-side layer that synthesizes internal knowledge from wiki, temporal KG, and memory, ingests external sources through MCP, and serves compact citation-backed packets to agents over MCP | turn context assembler, context window assembler | Knowledge / MCP |
+| Turn Context Assembler | Future per-turn context-window assembly and compaction abstraction inside `TurnManager`; not part of the 0.19 Context Engine milestone | context engine | Turn management |
+| outbound MCP client | DartClaw's client-side MCP runtime for connecting to configured external MCP servers, discovering tools, and calling them through the egress guard | outpost, outpost client, external tool bridge | Outbound MCP |
+| `context_research` | MCP synthesis tool that retrieves across internal knowledge layers and returns a compact citation-backed packet | context engine tool, research outpost, search summary | Knowledge synthesis |
+| egress guard | Guard boundary that evaluates outbound MCP calls before external network or subprocess dispatch and records allow/deny audit evidence | network filter, outbound policy | Security / outbound MCP |
+| citation packet | Compact synthesized response where claims carry source references resolvable to wiki, temporal KG, memory, or external MCP source material | answer blob, summary packet | Knowledge synthesis |
+
 ## Governance
 
 | Term | Definition | Avoid (synonyms) | Bounded Context |
@@ -153,6 +164,7 @@
 | Drain | Workflow git | Cancelling and re-queueing in-flight foreach iterations on Serialize-remaining | Emergency Control | Informal use in `/resume (drain queue)` describing message-queue replay |
 | Type | Workflow steps | Step type — workflow dispatch kind: `agent`, `bash`, `approval`, `foreach`, `loop`, `aggregate-reviews` (see `WorkflowTaskType`) | DartClaw runtime | Task type — broader vocabulary for queued tasks (coding, research, writing, analysis, automation, custom) |
 | Verification | Workflow git | Resolution Verification — merge-resolve skill's post-resolution checks | Workflow execution | Generic step-level review/verification activities (e.g. `dartclaw-review`) |
+| Context Engine | Knowledge / MCP | Server-side synthesis and external-ingestion layer served over MCP | Turn management | Not the per-turn context-window assembler |
 
 ## Changelog
 
@@ -164,3 +176,4 @@
 - 2026-03-23: Initial extraction from architecture docs, CLAUDE.md, and codebase
 - 2026-04-25: Added 0.16.4 agent-resolved-merge terms — Workflow git: Foreach Iteration, Project Base Branch, Integration Branch, Story Branch, Promotion, Promotion Conflict, Resolution Attempt, Resolution Verification, Internal Remediation, Serialize-remaining, Drain, Workflow Run Artifact. Agent skills: Bang Operator, Env-var Injection.
 - 2026-05-19: Added S38 overloaded Type row distinguishing workflow step type (`WorkflowTaskType`) from DartClaw task type.
+- 2026-06-12: Added 0.19 Context Engine, Turn Context Assembler, outbound MCP client, `context_research`, egress guard, and citation packet terms.

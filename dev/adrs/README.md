@@ -28,7 +28,7 @@ Public-canonical decision records for DartClaw. ADRs are standalone development 
 | 022 | [Workflow Run Status Split and Step Outcome Protocol](022-workflow-run-status-and-step-outcome-protocol.md) |  |  | — |
 | 023 | [Workflow–Task Architectural Boundary](023-workflow-task-boundary.md) |  |  | — |
 | 024 | [Workflow Step Semantics — Workflow-Level Project, Engine-Computed Task Bookkeeping](024-workflow-step-semantics.md) |  |  | — |
-| 025 | [AndThen as Runtime Prerequisite](025-andthen-as-runtime-prerequisite.md) | Accepted (runtime-provisioning implementation: 0.16.4 / S71; namespace flipped to `dartclaw-*` 2026-04-27; native user-tier install simplified 2026-05-04) | 2026-04-24 (original); 2026-04-27 (namespace amendment); 2026-05-04 (install-scope simplification) | — |
+| 025 | [AndThen as Runtime Prerequisite](025-andthen-as-runtime-prerequisite.md) | Accepted; runtime-provisioning + namespace decision superseded by ADR-040 (0.17). Core "depend on AndThen, don't port" decision stands. | 2026-04-24 (original); 2026-04-27 / 2026-05-04 (amendments); 2026-06-04 (provisioning superseded by ADR-040) | — |
 | 026 | [Skill-Reference Validation via Harness Introspection](026-skill-reference-validation-via-harness-introspection.md) |  |  | — |
 | 027 | [Claude Harness Setting-Sources Default — Load User Scope by Default, Isolation Opt-In](027-claude-harness-setting-sources-default.md) |  |  | — |
 | 028 | [Unified Workflow Step Retry Authority](028-unified-workflow-step-retry-authority.md) |  |  | — |
@@ -42,3 +42,7 @@ Public-canonical decision records for DartClaw. ADRs are standalone development 
 | 036 | [Web UI Interaction Layer — Stimulus on HTMX](036-web-ui-interaction-layer-stimulus-on-htmx.md) |  |  | — |
 | 037 | [Universal ACP Harness (AcpHarness)](037-universal-acp-harness.md) |  |  | [Appendix](research/037-universal-acp-harness.md) |
 | 038 | [Homebrew Formula Publication via Canonical Template + CI-Mirrored Tap](038-homebrew-formula-publication.md) | Accepted — implemented in 0.18 | 2026-06-09 | — |
+| 039 | [Outbound MCP Trust Boundary and Transport](039-outbound-mcp-trust-boundary-and-transport.md) | Accepted | 2026-06-12 | — |
+| 040 | [AndThen Skills via Canonical-Name Resolution (No Runtime Clone/Install)](040-andthen-skills-via-canonical-name-resolution.md) | Accepted — supersedes ADR-025 provisioning + namespace (SP-1/SP-2 remediation, 0.17) | 2026-06-04 (recorded retroactively 2026-06-18) | — |
+| 041 | [Framework-Agnostic Workflow Engine — Generic Output Validation, Skills Own Domain Semantics](041-framework-agnostic-workflow-engine-generic-output-validation.md) | Accepted — refines ADR-025/040 (engine `.dart` carries no framework knowledge) | 2026-06-22 | — |
+| 042 | [Context Research Synthesis and Citation Model](042-context-research-synthesis-and-citation-model.md) | Accepted | 2026-06-24 | — |

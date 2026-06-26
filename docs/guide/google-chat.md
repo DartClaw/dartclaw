@@ -74,7 +74,7 @@ Field mapping is defined by `GoogleChatConfig` in `packages/dartclaw_google_chat
 | `audience.value` | Audience value that matches the Chat app config |
 | `webhook_path` | Inbound callback path |
 | `bot_user` | Google Chat bot user resource name |
-| `typing_indicator` | `true` for a placeholder indicator, or `emoji` for the emoji typing state |
+| `typing_indicator` | `true`/`message` for a placeholder indicator, `emoji` for the emoji typing state, or `false`/`disabled` to turn it off |
 | `quote_reply` | `true` enables quoted replies when the space supports quoting |
 | `reactions_auth` | `disabled` or `user`; `user` enables emoji reactions through user OAuth |
 | `dm_access` | DM access policy |
@@ -180,7 +180,7 @@ Use **Slash command** entries for all DartClaw commands. Do not replace these wi
 
 The numeric IDs must match DartClaw's default `SlashCommandParser` mapping. DartClaw accepts both Google Chat slash-command event shapes: `MESSAGE + message.slashCommand` and `APP_COMMAND + appCommandMetadata`.
 
-At the time of writing, this guide documents the supported Console-based setup flow for slash commands. If you automate Chat app configuration by API or Terraform, keep the command IDs aligned with the mapping above.
+This guide documents the supported Console-based setup flow for slash commands. If you automate Chat app configuration by API or Terraform, keep the command IDs aligned with the mapping above.
 
 ## Testing
 
@@ -345,8 +345,9 @@ Subscriptions are managed automatically:
 - **Reconciled** on startup — expired subscriptions are recreated, orphaned ones pruned
 
 Manual management is available via the API:
-- `POST /api/google-chat/subscriptions` — create subscription
-- `DELETE /api/google-chat/subscriptions/{spaceId}` — delete subscription
+- `GET /api/google-chat/subscriptions` — list active subscriptions
+- `POST /api/google-chat/subscriptions` — create subscription (`spaceId` in JSON body)
+- `DELETE /api/google-chat/subscriptions` — delete subscription (`spaceId` in JSON body)
 
 ### Troubleshooting
 

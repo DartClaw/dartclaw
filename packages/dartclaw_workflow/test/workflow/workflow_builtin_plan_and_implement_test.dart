@@ -804,13 +804,16 @@ final List<_DiscoveryRow> _discoveryMatrix = [
     planDescriptionContains: 'docs/specs/reused/prd.md',
   ),
   // replans-empty-catalog: a markdown plan with an empty discovered story
-  // catalog cannot prove every story is terminal, so the plan step re-runs.
+  // catalog cannot prove every story is terminal, so the discovery skill emits
+  // an empty `plan` (S01 final-payload contract) and the plan step re-runs.
   _DiscoveryRow(
     name: 'replans when an empty discovered story catalog is unproven',
     feature: 'Recover a reused plan without a discovered story catalog',
     discover: {
       'prd': 'docs/specs/reused/prd.md',
-      'plan': 'docs/specs/reused/plan.md',
+      // Unproven non-JSON plan: the skill blanks `plan` itself (no engine
+      // normalization), so the entryGate fires on the empty value.
+      'plan': '',
       'story_specs': {'items': <Map<String, dynamic>>[]},
     },
     plan: {
@@ -848,14 +851,15 @@ final List<_DiscoveryRow> _discoveryMatrix = [
     expectQuickReview: 0,
     expectSimplifyCode: 0,
   ),
-  // uses-PRD-when-only-plan: only an active plan path was discovered, so the
-  // required PRD path is used (no synthesis) and the markdown plan re-plans.
+  // uses-PRD-when-only-plan: only an active plan path was discovered, but its
+  // empty story catalog is unproven over a non-JSON plan, so the skill blanks
+  // `plan` (S01 final-payload contract) and the markdown plan re-plans.
   _DiscoveryRow(
     name: 'uses the required PRD path when only an active plan path was discovered',
     feature: 'Recover a discovered plan path without an active PRD',
     discover: {
       'prd': 'docs/specs/test/prd.md',
-      'plan': 'docs/specs/reused/plan.md',
+      'plan': '',
       'story_specs': {'items': <Map<String, dynamic>>[]},
     },
     plan: {
@@ -926,30 +930,19 @@ final List<_DiscoveryRow> _discoveryMatrix = [
     implementPromptContains: ['docs/specs/reused/fis/s01-relative-story.md'],
     implementPromptExcludes: ['(story 1 of 1):'],
   ),
-  // drops-terminal-specs: done/skipped story specs emitted by discovery are
-  // dropped; only the open story flows into implement.
+  // resume-emits-open-only: on resume the discovery skill omits done/skipped
+  // stories (S01 ownership), so the catalog it emits carries only the open
+  // story. The engine maps over exactly the emitted catalog — it no longer
+  // re-filters by status (ADR-041) — so the single open story flows into
+  // implement.
   _DiscoveryRow(
-    name: 'drops terminal story specs emitted by discovery',
+    name: 'implements exactly the open story catalog discovery emits on resume',
     feature: 'Resume a partially completed plan',
     discover: {
       'prd': 'docs/specs/resume/prd.md',
       'plan': 'docs/specs/resume/plan.json',
       'story_specs': {
         'items': [
-          {
-            'id': 'S01',
-            'title': 'Done Story',
-            'spec_path': 'docs/specs/resume/fis/s01-done-story.md',
-            'dependencies': <String>[],
-            'status': 'done',
-          },
-          {
-            'id': 'S02',
-            'title': 'Skipped Story',
-            'spec_path': 'docs/specs/resume/fis/s02-skipped-story.md',
-            'dependencies': <String>[],
-            'status': 'skipped',
-          },
           {
             'id': 'S03',
             'title': 'Open Story',
@@ -965,7 +958,6 @@ final List<_DiscoveryRow> _discoveryMatrix = [
     expectImplement: 1,
     expectPlanReview: 1,
     implementPromptContains: ['docs/specs/resume/fis/s03-open-story.md'],
-    implementPromptExcludes: ['s01-done-story.md', 's02-skipped-story.md'],
   ),
   // runs-plan-review-on-reused: a reused plan still runs the full plan-review
   // and enters remediation when review finds issues.

@@ -129,7 +129,7 @@ Each task type maps to a security profile that determines container isolation:
 | `automation` | `workspace` | `/workspace:rw`, `/project:ro` |
 | `custom` | `workspace` | `/workspace:rw`, `/project:ro` |
 
-In pool mode, the task executor matches a task's profile to a runner started with that profile. A `research` task will only run on a `restricted`-profile runner -- it won't accidentally get a `workspace` runner with filesystem access.
+In pool mode, the task executor matches a task's profile to a runner started with that profile. A `research` task will only run on a `restricted`-profile runner – it won't accidentally get a `workspace` runner with filesystem access.
 
 ## Coding Tasks and Worktrees
 
@@ -153,7 +153,7 @@ When execution finishes, the task enters `review` with artifacts attached:
 
 The task detail page combines:
 
-- recent session messages (most recent messages from the execution transcript, not the full history)
+- recent session messages (from the execution transcript, not the full history)
 - structured diff output when available
 - raw or rendered artifacts
 - review controls

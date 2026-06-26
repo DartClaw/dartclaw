@@ -70,7 +70,7 @@ void main() {
     expect(response.headers['HX-Location'], startsWith('/workflows/'));
   });
 
-  test('POST /api/workflows/run-form returns html validation errors', () async {
+  test('POST /api/workflows/run-form returns swappable 200 fragment for validation errors', () async {
     final response = await handler(
       Request(
         'POST',
@@ -80,8 +80,11 @@ void main() {
       ),
     );
 
-    expect(response.statusCode, 400);
-    expect(await response.readAsString(), contains('Missing required variable'));
+    // 200 (not 4xx) so HTMX's default responseHandling swaps the fragment into hx-target.
+    expect(response.statusCode, 200);
+    final body = await response.readAsString();
+    expect(body, contains('form-error-text'));
+    expect(body, contains('Missing required variable'));
   });
 
   test('POST /api/workflows/run rejects oversized streamed JSON body', () async {
@@ -138,7 +141,7 @@ void main() {
     expect(workflows.startCalls, isZero);
   });
 
-  test('POST /api/workflows/run-form returns 409 for workflow precondition failures', () async {
+  test('POST /api/workflows/run-form returns swappable 200 fragment for precondition failures', () async {
     workflows.startError = StateError(
       'Local-path project "alpha" is not safe to mutate: observed branch "feature/local", expected "main", dirty path count 1. Re-run with --allow-dirty-localpath to override.',
     );
@@ -152,11 +155,14 @@ void main() {
       ),
     );
 
-    expect(response.statusCode, 409);
-    expect(await response.readAsString(), contains('Local-path project'));
+    // Precondition StateError is a 409 on the JSON API, but the web form needs 200 to swap.
+    expect(response.statusCode, 200);
+    final body = await response.readAsString();
+    expect(body, contains('form-error-text'));
+    expect(body, contains('Local-path project'));
   });
 
-  test('POST /api/workflows/run-form returns 409 for remote ref precondition failures', () async {
+  test('POST /api/workflows/run-form returns swappable 200 fragment for remote ref precondition failures', () async {
     workflows.startError = StateError(
       "git fetch failed for \"alpha\" (ref: missing/ref): fatal: couldn't find remote ref",
     );
@@ -170,7 +176,9 @@ void main() {
       ),
     );
 
-    expect(response.statusCode, 409);
-    expect(await response.readAsString(), contains('git fetch failed'));
+    expect(response.statusCode, 200);
+    final body = await response.readAsString();
+    expect(body, contains('form-error-text'));
+    expect(body, contains('git fetch failed'));
   });
 }

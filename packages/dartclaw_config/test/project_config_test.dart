@@ -53,6 +53,51 @@ void main() {
       expect(result.pathExists, isTrue);
       expect(result.gitRepository, isTrue);
     });
+
+    test('resolves a relative path against the provided base', () {
+      final result = validateProjectLocalPath('..', base: '${gitRepoDir.path}/.dartclaw');
+
+      expect(result.isValid, isTrue);
+      expect(result.normalizedPath, gitRepoDir.path);
+      expect(result.pathExists, isTrue);
+      expect(result.gitRepository, isTrue);
+    });
+
+    test('accepts a relative path with .. that resolves inside the allowlist', () {
+      final result = validateProjectLocalPath(
+        '../sibling',
+        base: '${gitRepoDir.path}/.dartclaw',
+        allowlist: [gitRepoDir.path],
+      );
+
+      expect(result.isValid, isTrue);
+      expect(result.normalizedPath, '${gitRepoDir.path}/sibling');
+    });
+
+    test('rejects a relative path that resolves outside the allowlist', () {
+      final result = validateProjectLocalPath(
+        '../../elsewhere',
+        base: '${gitRepoDir.path}/.dartclaw',
+        allowlist: [gitRepoDir.path],
+      );
+
+      expect(result.isValid, isFalse);
+      expect(result.errorCode, 'outside-allowlist');
+    });
+
+    test('leaves an absolute path unchanged when a base is provided', () {
+      final result = validateProjectLocalPath(gitRepoDir.path, base: '/some/other/base', allowlist: [tempDir.path]);
+
+      expect(result.isValid, isTrue);
+      expect(result.normalizedPath, gitRepoDir.path);
+    });
+
+    test('still rejects an absolute path with traversal even when a base is provided', () {
+      final result = validateProjectLocalPath('${tempDir.path}/allowed/../etc', base: tempDir.path);
+
+      expect(result.isValid, isFalse);
+      expect(result.errorCode, 'traversal');
+    });
   });
 
   group('parseProjectConfig', () {
@@ -125,6 +170,65 @@ void main() {
       expect(warns, isEmpty);
       expect(def.localPath, gitRepoDir.path);
       expect(def.branch, isEmpty);
+    });
+
+    test('resolves a relative localPath against the provided base', () {
+      final warns = <String>[];
+      final config = parseProjectConfig(
+        {
+          'local-app': {'localPath': '..'},
+        },
+        warns,
+        base: '${gitRepoDir.path}/.dartclaw',
+      );
+
+      final def = config.definitions['local-app']!;
+      expect(def.localPath, gitRepoDir.path);
+      expect(warns, isNot(anyElement(contains('local-path must be absolute'))));
+    });
+
+    test('skips a relative localPath when no base is provided', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'local-app': {'localPath': 'relative/path'},
+      }, warns);
+
+      expect(config.definitions, isEmpty);
+      expect(warns, anyElement(contains('local-path must be absolute')));
+    });
+
+    test('skips a relative localPath that resolves outside the allowlist', () {
+      final warns = <String>[];
+      final config = parseProjectConfig(
+        {
+          'localPathAllowlist': [gitRepoDir.path],
+          'x': {'localPath': '../../elsewhere'},
+        },
+        warns,
+        base: '${gitRepoDir.path}/.dartclaw',
+      );
+
+      expect(config.definitions.containsKey('x'), isFalse);
+      expect(warns, anyElement(contains('local-path outside allowlist')));
+    });
+
+    test('disables allowApiLocalPath when the allowlist is empty (fail closed)', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({'allowApiLocalPath': true}, warns);
+
+      expect(config.allowApiLocalPath, isFalse);
+      expect(warns, anyElement(contains('allowApiLocalPath')));
+    });
+
+    test('keeps allowApiLocalPath enabled when a non-empty allowlist is configured', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'allowApiLocalPath': true,
+        'localPathAllowlist': [gitRepoDir.path],
+      }, warns);
+
+      expect(config.allowApiLocalPath, isTrue);
+      expect(warns, isNot(anyElement(contains('allowApiLocalPath'))));
     });
 
     test('remote-backed project definitions still default branch to main', () {

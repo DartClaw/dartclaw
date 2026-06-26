@@ -6,7 +6,7 @@
 # Bash steps run on the host with a sandboxed working directory under the run
 # data dir, so this script does NOT rely on its cwd: it locates the repo root by
 # walking up from the artifacts directory passed as $2 (which lives under
-# <repo>/dev/tools/dartclaw-workflows/.data/...).
+# <repo>/.dartclaw/...).
 #
 # It runs one or all CI-equivalent gates, captures full output under
 # <artifacts>/verify/<gate>.log, and prints exactly `pass` or `fail` (no
@@ -56,7 +56,7 @@ cd "$repo" || emit_fail
 
 # Automated remediation gates (mirror the CI checks that can pass with intended
 # inline workflow edits still uncommitted).
-# `dart format`/`dart analyze` skip hidden dirs, so the gitignored .data tree is
+# `dart format`/`dart analyze` skip hidden dirs, so the gitignored .dartclaw tree is
 # never scanned.
 gate_format() {
   dart format --line-length=120 --output=none --set-exit-if-changed .

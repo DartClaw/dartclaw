@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
 
 import 'setup_state.dart';
@@ -14,6 +15,29 @@ import 'setup_state.dart';
 /// All mutations happen atomically at the end (atomic config write via tmp+rename).
 /// If [state] is null, no writes are made (dry-run).
 class SetupApply {
+  /// Leading comment block for a freshly written `dartclaw init --workflow`
+  /// config. `YamlEditor` preserves it above the emitted keys.
+  static const _workflowConfigBanner =
+      '# DartClaw — standalone workflow config (written by `dartclaw init --workflow`).\n'
+      '# Minimal subset of the full DartClaw config: no HTTP server, channels, or\n'
+      '# container. Runs workflows in-process, no server required:\n'
+      '#   dartclaw workflow run --standalone <name>\n'
+      '# Drop custom workflow YAMLs in ./.dartclaw/workflows/ to run them by name.\n';
+
+  // Commit the config and any custom workflow YAMLs; ignore runtime state
+  // (local DB, sessions, logs, worktrees) and materialized built-in workflows.
+  // built-in/ is regenerated on every run and runs/ holds per-run execution
+  // state, so both stay ignored even though the surrounding workflows/ tree is
+  // allowlisted.
+  static const _workflowGitignore =
+      '*\n'
+      '!.gitignore\n'
+      '!dartclaw.yaml\n'
+      '!workflows/\n'
+      '!workflows/**\n'
+      'workflows/built-in/\n'
+      'workflows/runs/\n';
+
   static const canonicalUserSections = [
     'Identity',
     'Goals',
@@ -39,11 +63,17 @@ class SetupApply {
     final configExists = configFile.existsSync();
 
     final String configContent;
+    // Header for a freshly created file. Prepended to the serialized YAML rather
+    // than seeded into YamlEditor, because the first key-creating edit rewrites
+    // the (otherwise comment-only) root and would drop a leading comment.
+    final String headerForNewFile;
     if (configExists) {
       // Non-destructive update: load current YAML, apply only our keys.
       configContent = configFile.readAsStringSync();
+      headerForNewFile = '';
     } else {
-      configContent = '# DartClaw configuration\n';
+      configContent = '';
+      headerForNewFile = state.workflowTrack ? _workflowConfigBanner : '# DartClaw configuration\n';
       created.add(configPath);
     }
 
@@ -172,9 +202,12 @@ class SetupApply {
     }
 
     // Atomic write: tmp file + rename
+    // New files are normalized to block style; existing files keep the surgical
+    // editor output so user content and comments survive untouched.
+    final body = configExists ? editor.toString() : _blockStyle(editor);
     final tmpPath = '$configPath.tmp';
     final tmpFile = File(tmpPath);
-    tmpFile.writeAsStringSync(editor.toString());
+    tmpFile.writeAsStringSync('$headerForNewFile$body');
     tmpFile.renameSync(configPath);
 
     if (configExists) {
@@ -182,6 +215,11 @@ class SetupApply {
     }
 
     if (state.workflowTrack) {
+      final gitignore = File(p.join(configFile.parent.path, '.gitignore'));
+      if (!gitignore.existsSync()) {
+        gitignore.writeAsStringSync(_workflowGitignore);
+        created.add(gitignore.path);
+      }
       return created;
     }
 
@@ -215,6 +253,32 @@ class SetupApply {
     }
 
     return created;
+  }
+
+  /// Re-emits a freshly built document in block style.
+  ///
+  /// The incremental `_set` path creates empty parent maps, which `YamlEditor`
+  /// renders in flow style (`{a: {b: 1}}`). Assigning the fully built map at the
+  /// root in one shot renders block style instead. Only safe for new files —
+  /// it discards comments, so existing files keep the surgical editor output.
+  static String _blockStyle(YamlEditor built) {
+    final value = _plainValue(built.parseAt([]));
+    if (value is! Map || value.isEmpty) return built.toString();
+    final block = YamlEditor('');
+    block.update([], value);
+    return block.toString();
+  }
+
+  static Object? _plainValue(YamlNode node) {
+    if (node is YamlMap) {
+      return {
+        for (final entry in node.nodes.entries) (entry.key as YamlScalar).value as String: _plainValue(entry.value),
+      };
+    }
+    if (node is YamlList) {
+      return [for (final item in node.nodes) _plainValue(item)];
+    }
+    return node.value;
   }
 
   static void _set(YamlEditor editor, List<String> path, Object value) {

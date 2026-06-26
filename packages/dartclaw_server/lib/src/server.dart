@@ -6,7 +6,14 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show MemoryPruner, TaskEventService, TurnTraceService, WebhookDeliveryStore, openWebhookDeliveryStore;
+    show
+        MemoryPruner,
+        MemoryService,
+        TaskEventService,
+        TemporalKnowledgeGraphService,
+        TurnTraceService,
+        WebhookDeliveryStore,
+        openWebhookDeliveryStore;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
 import 'package:logging/logging.dart';
@@ -651,6 +658,8 @@ class DartclawServer {
       turns: _turn.turns,
       runtimeConfig: _core.runtimeConfig,
       memoryStatusService: _observability.memoryStatusService,
+      memoryService: _observability.memoryService,
+      kgService: _web.kgService,
       cookieSecure: _core.config?.auth.cookieSecure ?? false,
       trustedProxies: _core.config?.auth.trustedProxies ?? const [],
       contentGuardDisplay: _web.contentGuardDisplay,

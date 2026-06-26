@@ -6,11 +6,11 @@ Drop source files into a watched folder and let DartClaw extract durable knowled
 
 ## Features Used
 
-- [Knowledge inbox config](../configuration.md#knowledge-inbox) -- `knowledge.inbox.*` controls the drop folder, size limit, scan interval, retry/quarantine, and delivery
+- [Knowledge inbox config](../configuration.md#full-config-reference) -- `knowledge.inbox.*` controls the drop folder, size limit, scan interval, retry/quarantine, and delivery
 - [Memory](../workspace.md) -- synthesized findings are saved as memory entries with `category='knowledge-inbox'`
 - [Wiki](../workspace.md) -- each processed file produces a wiki page under `<data_dir>/workspace/wiki/` with source-provenance frontmatter
 - [Temporal KG](../workspace.md) -- extracted entity/predicate/value facts are stored in the knowledge graph (when enabled)
-- [Wiki lint](../configuration.md#knowledge-wiki-lint) -- the optional `knowledge.wiki_lint` job audits the wiki for stale pages, missing links, and provenance gaps
+- [Wiki lint](../configuration.md#full-config-reference) -- the optional `knowledge.wiki_lint` job audits the wiki for stale pages, missing links, and provenance gaps
 - [Delivery modes](../scheduling.md#delivery-modes) -- `announce`, `webhook`, or `none` for run-completion reports
 
 ## Configuration
@@ -34,7 +34,7 @@ knowledge:
     delivery_mode: announce
 ```
 
-All `knowledge.inbox` fields are optional — the values above are the defaults. You only need `enabled: true` to start.
+All `knowledge.inbox` fields are optional – the values above are the defaults. You only need `enabled: true` to start.
 
 ## Inbox Drop Folder
 
@@ -86,17 +86,17 @@ inbox/my-notes.md
            quarantine/my-notes.md.error.json  (attempt count, error, timestamp)
 ```
 
-Each file gets its own bounded cron session (visible in the web UI sidebar under the job id). The extraction turn runs with no outbound tools — the agent synthesizes knowledge from the file content alone.
+Each file gets its own bounded cron session (visible in the web UI sidebar under the job id). The extraction turn runs with no outbound tools – the agent synthesizes knowledge from the file content alone.
 
 ### Extraction output
 
 The extraction turn produces a structured JSON payload with three sections:
 
-- **`memory_findings`** — one or more synthesized summaries, each saved as a memory entry prefixed with `Synthesized inbox finding from inbox/<filename>:`
-- **`wiki_page`** — a slug, title, body, and confidence level (`high` / `medium` / `low`) written to `workspace/wiki/<slug>.md` with YAML frontmatter recording provenance, sources, confidence, and timestamps
-- **`facts`** — temporal entity/predicate/value triples with ISO-8601 `valid_from` (required) and optional `valid_to`, inserted into the KG; conflicting facts are surfaced in the run report and excluded from the insert
+- **`memory_findings`** – one or more synthesized summaries, each saved as a memory entry prefixed with `Synthesized inbox finding from inbox/<filename>:`
+- **`wiki_page`** – a slug, title, body, and confidence level (`high` / `medium` / `low`) written to `workspace/wiki/<slug>.md` with YAML frontmatter recording provenance, sources, confidence, and timestamps
+- **`facts`** – temporal entity/predicate/value triples with ISO-8601 `valid_from` (required) and optional `valid_to`, inserted into the KG; conflicting facts are surfaced in the run report and excluded from the insert
 
-Verbatim reproduction of the source is rejected at validation — the agent must synthesize, not copy.
+Verbatim reproduction of the source is rejected at validation – the agent must synthesize, not copy.
 
 ### Knowledge-graph contradiction handling
 
@@ -106,9 +106,9 @@ If an extracted fact conflicts with an existing KG entry (same entity + predicat
 
 When `knowledge.wiki_lint.enabled: true`, a separate scheduled job audits the wiki on the configured interval. It reports:
 
-- **Stale pages** — not updated within 30 days
-- **Missing links** — internal `.md` links that point to non-existent pages
-- **Orphan pages** — pages with no inbound links (excluding `README.md`)
+- **Stale pages** – not updated within 30 days
+- **Missing links** – internal `.md` links that point to non-existent pages
+- **Orphan pages** – pages with no inbound links (excluding `README.md`)
 - **Provenance inconsistencies** -- pages missing required frontmatter fields or with invalid confidence values
 - **KG contradictions** -- open conflicts between the knowledge graph entries
 
@@ -130,25 +130,25 @@ Both `knowledge.inbox` and `knowledge.wiki_lint` support:
 - **Increase size limit**: Raise `max_bytes` for larger reference files. The limit is per-file, not per-run.
 - **Tune retries**: `retry_attempts: 0` quarantines immediately on first failure; higher values are useful when transient I/O errors are expected.
 - **Extend processed retention**: Increase `processed_retention_days` if you want to keep originals longer for reference.
-- **Filter irrelevant topics**: Add a `## Not Relevant` section to your workspace `USER.md` — the extraction prompt reads it and omits those topics unless they provide essential supporting context.
+- **Filter irrelevant topics**: Add a `## Not Relevant` section to your workspace `USER.md` – the extraction prompt reads it and omits those topics unless they provide essential supporting context.
 - **Disable wiki lint**: Leave `knowledge.wiki_lint.enabled: false` (the default) if you only need memory/KG output.
 
 ## Troubleshooting
 
 **File stays in `inbox/` after scan**
-- Check server logs for the `knowledge-inbox` job — files still changing within the stability window are deferred, not skipped.
+- Check server logs for the `knowledge-inbox` job – files still changing within the stability window are deferred, not skipped.
 - Verify the file extension is `.md`, `.txt`, `.json`, or `.ndjson`.
 
 **File moved to `skipped/`**
 - Unsupported extension (including `.pdf`) or file exceeded `max_bytes`.
-- Check the skipped entry name — the reason is logged alongside the filename in the run summary.
+- Check the skipped entry name – the reason is logged alongside the filename in the run summary.
 
 **File moved to `quarantine/`**
 - All retry attempts failed. Read `quarantine/<filename>.error.json` for the error and attempt count.
 - Common causes: extraction turn returned no findings, verbatim source reproduction detected, or malformed KG fact dates.
 
 **Wiki page not appearing**
-- Confirm the extraction turn produced a non-empty `wiki_page.body` — an empty body is a quarantine signal.
+- Confirm the extraction turn produced a non-empty `wiki_page.body` – an empty body is a quarantine signal.
 - Check the run summary in the cron session (web UI sidebar) for contradiction or validation details.
 
 **No memory entries saved**
@@ -159,4 +159,4 @@ Both `knowledge.inbox` and `knowledge.wiki_lint` support:
 - **No real-time watch**: Processing is periodic, not inotify-based. Files dropped between scans are picked up on the next interval tick.
 - **No exactly-once guarantee**: If the server crashes mid-write after some findings are committed, the file is reprocessed on the next run. Duplicate memory entries may result.
 - **KG requires storage package**: Temporal KG storage is optional. When the KG is not wired (e.g. in minimal deployments), `facts` from the extraction are ignored without error.
-- **`announce` delivery**: Posts a run summary (processed/skipped/quarantine counts) to the active session or channel. It does not push individual memory findings — query memory or the wiki directly to review extracted content.
+- **`announce` delivery**: Posts a run summary (processed/skipped/quarantine counts) to the active session or channel. It does not push individual memory findings – query memory or the wiki directly to review extracted content.

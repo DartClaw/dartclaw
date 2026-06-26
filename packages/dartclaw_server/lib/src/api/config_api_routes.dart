@@ -88,7 +88,8 @@ Router configApiRoutes({
   });
 
   // GET /api/scheduling/jobs/<name> — fetch a single job by name
-  router.get('/api/scheduling/jobs/<name>', (Request request, String name) async {
+  router.get('/api/scheduling/jobs/<name>', (Request request, String rawName) async {
+    final name = _decodePathSegment(rawName);
     try {
       final jobs = await writer.readSchedulingJobs();
       final job = jobs.firstWhere(
@@ -422,7 +423,8 @@ Router configApiRoutes({
   });
 
   // PUT /api/scheduling/jobs/<name> — update existing job
-  router.put('/api/scheduling/jobs/<name>', (Request request, String name) async {
+  router.put('/api/scheduling/jobs/<name>', (Request request, String rawName) async {
+    final name = _decodePathSegment(rawName);
     final parsedBody = await _parseJsonBody(request);
     if (parsedBody.error != null) return parsedBody.error;
     final body = parsedBody.body;
@@ -493,7 +495,8 @@ Router configApiRoutes({
   });
 
   // DELETE /api/scheduling/jobs/<name>
-  router.delete('/api/scheduling/jobs/<name>', (Request request, String name) async {
+  router.delete('/api/scheduling/jobs/<name>', (Request request, String rawName) async {
+    final name = _decodePathSegment(rawName);
     // Read fresh from YAML (not startup snapshot) to avoid overwrite races.
     final currentJobs = await writer.readSchedulingJobs();
     final idx = currentJobs.indexWhere((j) => j['name'] == name || j['id'] == name);
@@ -580,7 +583,8 @@ Router configApiRoutes({
   });
 
   // PUT /api/scheduling/tasks/<id> — update existing scheduled task
-  router.put('/api/scheduling/tasks/<id>', (Request request, String id) async {
+  router.put('/api/scheduling/tasks/<id>', (Request request, String rawId) async {
+    final id = _decodePathSegment(rawId);
     final parsedBody = await _parseJsonBody(request);
     if (parsedBody.error != null) return parsedBody.error;
     final body = parsedBody.body;
@@ -631,7 +635,8 @@ Router configApiRoutes({
   });
 
   // DELETE /api/scheduling/tasks/<id>
-  router.delete('/api/scheduling/tasks/<id>', (Request request, String id) async {
+  router.delete('/api/scheduling/tasks/<id>', (Request request, String rawId) async {
+    final id = _decodePathSegment(rawId);
     final currentJobs = await writer.readSchedulingJobs();
     final idx = currentJobs.indexWhere((j) => j['type'] == 'task' && (j['id'] == id || j['name'] == id));
     if (idx == -1) {
@@ -1063,6 +1068,20 @@ Map<String, dynamic>? readRestartPending(String dataDir) {
 }
 
 // --- HTTP helpers ---
+
+/// Percent-decodes a shelf path segment captured by `shelf_router`.
+///
+/// `shelf_router` exposes the matched `<name>`/`<id>` segment still
+/// percent-encoded, so identifiers the client encodes (`&`, `'`, `<`, `>`,
+/// space, …) must be decoded before matching against stored job/task names.
+/// Falls back to the raw segment when it is not valid percent-encoding.
+String _decodePathSegment(String value) {
+  try {
+    return Uri.decodeComponent(value);
+  } on ArgumentError {
+    return value;
+  }
+}
 
 Future<({Map<String, dynamic>? body, Response? error})> _parseJsonBody(Request request) async {
   final bodyResult = await readRequestBody(request, maxBytes: _maxConfigJsonBodyBytes);

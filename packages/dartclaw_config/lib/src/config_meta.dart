@@ -32,6 +32,9 @@ enum ConfigFieldType {
 
   /// List of object maps.
   objectList,
+
+  /// Object map keyed by name.
+  objectMap,
 }
 
 /// Metadata describing a single config field.
@@ -207,6 +210,13 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
       nullable: true,
+    ),
+    'workflow.approvals': FieldMeta(
+      yamlPath: 'workflow.approvals',
+      jsonKey: 'workflow.approvals',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['manual', 'auto-on-stall', 'auto'],
     ),
     'workflow.defaults.workflow.provider': FieldMeta(
       yamlPath: 'workflow.defaults.workflow.provider',
@@ -616,6 +626,14 @@ abstract final class ConfigMeta {
       yamlPath: 'search.default_depth',
       jsonKey: 'search.defaultDepth',
       type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+
+    // External MCP server registry.
+    'mcp_servers': FieldMeta(
+      yamlPath: 'mcp_servers',
+      jsonKey: 'mcpServers',
+      type: ConfigFieldType.objectMap,
       mutability: ConfigMutability.restart,
     ),
 

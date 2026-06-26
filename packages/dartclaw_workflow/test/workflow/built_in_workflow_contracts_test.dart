@@ -43,7 +43,7 @@ WorkflowDefinition _load(String fileName) {
 }
 
 WorkflowDefinition _loadInline(String fileName) {
-  final dir = findAncestorDir(['dev/tools/dartclaw-workflows/custom-workflows']);
+  final dir = findAncestorDir(['.dartclaw/workflows/custom']);
   final yaml = File(p.join(dir, fileName)).readAsStringSync();
   return WorkflowDefinitionParser().parse(yaml);
 }
@@ -301,7 +301,7 @@ void main() {
     });
 
     test('inline verification all gate does not require a clean working tree', () {
-      final dir = findAncestorDir(['dev/tools/dartclaw-workflows/custom-workflows']);
+      final dir = findAncestorDir(['.dartclaw/workflows/custom']);
       final script = File(p.join(dir, 'scripts/verify-gate.sh')).readAsStringSync();
       final allCase = RegExp(r'all\)\n([\s\S]*?)\n    ;;').firstMatch(script)!.group(1)!;
 
@@ -881,6 +881,56 @@ void main() {
             );
           }
         }
+      }
+    });
+
+    test('discovery steps declare framework-neutral output validation (structured story_specs + format: path)', () {
+      // ADR-041: the engine validates discovery output with only declared
+      // schema (outputMode: structured) and generic format: path. These
+      // declarations are what the un-gated generic validators key on — the
+      // bespoke dartclaw-discover-andthen-* validators are no longer wired into
+      // the dispatch path. Locking the declarations here keeps the generic path
+      // load-bearing.
+      final planDefs = <String, WorkflowDefinition>{
+        'plan-and-implement.yaml': _load('plan-and-implement.yaml'),
+        'plan-and-implement-inline.yaml': _loadInline('plan-and-implement-inline.yaml'),
+      };
+      for (final entry in planDefs.entries) {
+        final discover = _flattenedSteps(entry.value).firstWhere((s) => s.id == 'discover-plan-state');
+        final storySpecs = discover.outputs!['story_specs']!;
+        expect(storySpecs.presetName, 'story_specs', reason: '${entry.key} → discover-plan-state story_specs preset');
+        expect(storySpecs.format, OutputFormat.json, reason: '${entry.key} → story_specs format');
+        expect(
+          storySpecs.outputMode,
+          OutputMode.structured,
+          reason: '${entry.key} → story_specs must be schema-validated (outputMode: structured)',
+        );
+        expect(storySpecs.hasSchema, isTrue, reason: '${entry.key} → story_specs carries a schema');
+        for (final key in ['prd', 'plan']) {
+          expect(
+            discover.outputs![key]!.format,
+            OutputFormat.path,
+            reason: '${entry.key} → discover-plan-state $key is format: path',
+          );
+        }
+      }
+
+      final specDefs = <String, WorkflowDefinition>{
+        'spec-and-implement.yaml': _load('spec-and-implement.yaml'),
+        'spec-and-implement-inline.yaml': _loadInline('spec-and-implement-inline.yaml'),
+      };
+      for (final entry in specDefs.entries) {
+        final detect = _flattenedSteps(entry.value).firstWhere((s) => s.id == 'detect-spec-input');
+        expect(
+          detect.outputs!['spec_path']!.format,
+          OutputFormat.path,
+          reason: '${entry.key} → detect-spec-input.spec_path is format: path',
+        );
+        expect(
+          detect.outputs!['spec_source']!.presetName,
+          'spec_source',
+          reason: '${entry.key} → detect-spec-input.spec_source preset',
+        );
       }
     });
 

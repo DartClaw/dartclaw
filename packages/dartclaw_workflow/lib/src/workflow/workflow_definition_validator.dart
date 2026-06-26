@@ -1,6 +1,7 @@
 import 'workflow_definition.dart';
 import 'package:logging/logging.dart';
 
+import 'workflow_artifact_committer.dart' show workflowHasArtifactProducer;
 import 'schema_presets.dart' show isReviewReportPathPreset, schemaPresets;
 import 'schema_validator.dart' show SchemaValidator;
 import 'step_config_resolver.dart'
@@ -83,7 +84,6 @@ class WorkflowDefinitionValidator {
   static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
   static final _entryGateUnaryConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s+(isEmpty|isNotEmpty)$');
 
-  static const _artifactProducingSkills = {'andthen:prd', 'andthen:plan', 'andthen:spec'};
   final WorkflowTemplateEngine _engine;
   final WorkflowRoleDefaults roleDefaults;
 

@@ -106,6 +106,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
       workflowStepExecutionRepository: _workflowStepExecutionRepository,
       executionTransactor: _executionTransactor,
       projectService: _projectService,
+      defaultWorkspaceRoot: _defaultWorkspaceRoot,
       uuid: _uuid,
       workflowGitPort: _workflowGitPort,
     ),
@@ -229,78 +230,11 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
       planDir: planDir,
       activeWorkspaceRoot: activeWorkspaceRoot,
     );
-    if (validation.validationFailure == null &&
-        outputs.containsKey('story_specs') &&
-        (activeWorkspaceRoot == null || activeWorkspaceRoot.isEmpty)) {
-      const failure = StepValidationFailure(
-        reason: 'Plan step cannot validate story-spec paths without an active workspace root.',
-      );
-      WorkflowExecutor._log.severe("Workflow '${run.id}': step '${step.id}': ${failure.reason}");
-      return (outputs: validation.outputs, validationFailure: failure);
-    }
     final validationFailure = validation.validationFailure;
     if (validationFailure != null) {
       WorkflowExecutor._log.severe("Workflow '${run.id}': step '${step.id}': ${validationFailure.reason}");
     }
     return validation;
-  }
-
-  StepValidationFailure? _validateDiscoverAndthenSpecOutputs(
-    WorkflowStep step,
-    Map<String, dynamic> outputs,
-    WorkflowContext context,
-    String? activeWorkspaceRoot,
-  ) {
-    if (step.skill != 'dartclaw-discover-andthen-spec') return null;
-    if (activeWorkspaceRoot == null || activeWorkspaceRoot.isEmpty) {
-      const missingRoot = StepValidationFailure(
-        reason: 'Detect spec input cannot validate paths without an active workspace root.',
-      );
-      WorkflowExecutor._log.severe("Workflow step '${step.id}': ${missingRoot.reason}");
-      return missingRoot;
-    }
-    final validation = step_outcome_normalizer.validateDiscoverAndthenSpecOutputs(
-      outputs,
-      feature: context.variable('FEATURE') ?? '',
-      activeWorkspaceRoot: activeWorkspaceRoot,
-    );
-    final failure = validation.validationFailure;
-    if (failure != null) {
-      WorkflowExecutor._log.severe("Workflow step '${step.id}': ${failure.reason}");
-    } else if (!identical(validation.outputs, outputs)) {
-      outputs
-        ..clear()
-        ..addAll(validation.outputs);
-    }
-    return failure;
-  }
-
-  StepValidationFailure? _validateDiscoverAndthenPlanOutputs(
-    WorkflowStep step,
-    Map<String, dynamic> outputs,
-    String? activeWorkspaceRoot,
-  ) {
-    if (step.skill != 'dartclaw-discover-andthen-plan') return null;
-    if (activeWorkspaceRoot == null || activeWorkspaceRoot.isEmpty) {
-      const missingRoot = StepValidationFailure(
-        reason: 'Discover plan state cannot validate paths without an active workspace root.',
-      );
-      WorkflowExecutor._log.severe("Workflow step '${step.id}': ${missingRoot.reason}");
-      return missingRoot;
-    }
-    final validation = step_outcome_normalizer.validateDiscoverAndthenPlanOutputs(
-      outputs,
-      activeWorkspaceRoot: activeWorkspaceRoot,
-    );
-    final failure = validation.validationFailure;
-    if (failure != null) {
-      WorkflowExecutor._log.severe("Workflow step '${step.id}': ${failure.reason}");
-    } else if (!identical(validation.outputs, outputs)) {
-      outputs
-        ..clear()
-        ..addAll(validation.outputs);
-    }
-    return failure;
   }
 
   Future<String?> _resolveActiveWorkspaceRoot(
@@ -314,26 +248,27 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     final persistedWorktreePath = (await _repository.getWorktreeBinding(run.id))?.path.trim();
     if (persistedWorktreePath != null && persistedWorktreePath.isNotEmpty) return persistedWorktreePath;
 
-    final String? projectId;
-    try {
-      projectId = _resolveWorkflowProjectTemplate(definition.project, context);
-    } on ArgumentError {
-      return null;
-    }
-    if (projectId == null || projectId.isEmpty) return null;
+    // _resolveWorkflowProjectTemplate yields null for an unset optional project
+    // variable (standalone/inline), so an empty/absent project id falls through
+    // to the default workspace root rather than failing the run.
+    final projectId = _resolveWorkflowProjectTemplate(definition.project, context);
+    if (projectId == null || projectId.isEmpty) return _normalizedDefaultWorkspaceRoot();
 
     final localPath = (await _projectService?.get(projectId))?.localPath.trim();
     if (localPath != null && localPath.isNotEmpty) return localPath;
 
     final dataDirProjectPath = p.join(_dataDir, 'projects', projectId);
-    return Directory(dataDirProjectPath).existsSync() ? dataDirProjectPath : null;
+    return Directory(dataDirProjectPath).existsSync() ? dataDirProjectPath : _normalizedDefaultWorkspaceRoot();
   }
 
-  bool _requiresActiveWorkspaceRoot(WorkflowDefinition definition) => definition.steps.any((step) {
-    if (step.skill == 'dartclaw-discover-andthen-spec') return true;
-    if (step.skill == 'dartclaw-discover-andthen-plan') return true;
-    return step.outputs?.containsKey('story_specs') ?? false;
-  });
+  String? _normalizedDefaultWorkspaceRoot() {
+    final root = _defaultWorkspaceRoot?.trim();
+    if (root == null || root.isEmpty) return null;
+    return p.normalize(p.absolute(root));
+  }
+
+  bool _emitsStorySpecs(WorkflowDefinition definition) =>
+      definition.steps.any((step) => step.outputs?.containsKey('story_specs') ?? false);
 
   bool _isPromotionAwareScope(
     WorkflowGitStrategy? strategy, {

@@ -21,6 +21,12 @@ String _templatesDir() {
   return p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'templates');
 }
 
+String _workflowDefinitionsDir() {
+  const fromWorkspace = 'packages/dartclaw_workflow/lib/src/workflow/definitions';
+  if (Directory(fromWorkspace).existsSync()) return fromWorkspace;
+  return p.join('..', '..', 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions');
+}
+
 HarnessFactory _harnessFactoryFor(AgentHarness harness) {
   final factory = HarnessFactory();
   factory.register('claude', (_) => harness);
@@ -56,13 +62,13 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: MessageRedactor(),
-      assetResolver: AssetResolver(homeDir: tempDir.path, version: 'test'),
+      resolvedAssets: ResolvedAssets.fromRoot(assetRoot.path, AssetSource.downloadedCache),
     );
 
     expect(assetRoot.existsSync(), isTrue);
     await expectLater(
       wiring.wire(),
-      throwsA(isA<SkillProvisionException>().having((e) => e.message, 'message', contains('built-in skills source'))),
+      throwsA(isA<SkillProvisionException>().having((e) => e.message, 'message', contains('manifest missing'))),
     );
   });
 
@@ -77,7 +83,7 @@ void main() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });
 
-    _seedAssetRoot(tempDir, createSkills: true);
+    final assetRoot = _seedAssetRoot(tempDir, createSkills: true);
     _seedProviderAndThenSkills(fakeHome.path);
     final logService = LogService.fromConfig(format: 'human', level: 'WARNING', redactor: LogRedactor());
     logService.install();
@@ -96,7 +102,7 @@ void main() {
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: MessageRedactor(),
-      assetResolver: AssetResolver(homeDir: tempDir.path, version: 'test'),
+      resolvedAssets: ResolvedAssets.fromRoot(assetRoot.path, AssetSource.downloadedCache),
       skillProvisionerEnvironment: {'HOME': fakeHome.path},
     );
 
@@ -210,17 +216,25 @@ Directory _seedAssetRoot(Directory tempDir, {required bool createSkills}) {
   final root = Directory(p.join(tempDir.path, '.dartclaw', 'assets', 'vtest'))..createSync(recursive: true);
   Directory(p.join(root.path, 'templates')).createSync(recursive: true);
   Directory(p.join(root.path, 'static')).createSync(recursive: true);
+  final workflowsDir = Directory(p.join(root.path, 'workflows'))..createSync(recursive: true);
+  for (final source in Directory(_workflowDefinitionsDir()).listSync().whereType<File>()) {
+    if (source.path.endsWith('.yaml')) {
+      source.copySync(p.join(workflowsDir.path, p.basename(source.path)));
+    }
+  }
   if (createSkills) {
-    for (final name in const [
+    const skillNames = [
       'dartclaw-discover-andthen-spec',
       'dartclaw-discover-andthen-plan',
       'dartclaw-validate-workflow',
       'dartclaw-merge-resolve',
-    ]) {
+    ];
+    for (final name in skillNames) {
       File(p.join(root.path, 'skills', name, 'SKILL.md'))
         ..createSync(recursive: true)
         ..writeAsStringSync('# $name\n');
     }
+    File(p.join(root.path, 'skills', 'dartclaw-native-skills.txt')).writeAsStringSync('${skillNames.join('\n')}\n');
   } else {
     Directory(p.join(root.path, 'skills')).createSync(recursive: true);
   }

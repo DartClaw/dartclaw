@@ -50,6 +50,12 @@ Future<void> _waitFor(bool Function() predicate, {Duration timeout = const Durat
   }
 }
 
+ResolvedAssets _resolvedAssetsForConfig(DartclawConfig config) => ResolvedAssets.fromSourceTree(
+  templatesDir: config.server.templatesDir,
+  staticDir: config.server.staticDir,
+  source: AssetSource.sourceTreeDefault,
+);
+
 Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during service wiring test');
 }
@@ -181,6 +187,7 @@ steps:
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
       runAndthenSkillsBootstrap: false,
     );
 
@@ -278,6 +285,7 @@ steps:
       resolvedConfigPath: configFile.path,
       logService: logService,
       messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
       runAndthenSkillsBootstrap: false,
     );
 

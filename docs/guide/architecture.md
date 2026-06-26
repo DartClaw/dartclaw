@@ -298,7 +298,7 @@ Added in 0.14. DartClaw can manage multiple git repositories, routing coding tas
 1. Register an external git repository via the web UI (`/tasks`) or the config API. Provide the remote URL and optionally a credential reference (SSH key or token name stored in the credential store).
 2. DartClaw clones the repository into `<dataDir>/projects/<projectId>/` and keeps it fresh with periodic auto-fetch.
 3. When a coding task targets that project, `WorktreeManager` creates an isolated git worktree for the task's working branch — the agent operates in this worktree, isolated from other concurrent tasks.
-4. On task accept, the result is pushed to the remote as a branch (or as a pull request, if `prStrategy: pr` is configured).
+4. On task accept, the result is pushed to the remote as a branch (or as a pull request, if `pr.strategy: github-pr` is configured).
 5. On task reject, the worktree is cleaned up.
 
 **Backward compatibility**: If no projects are configured, DartClaw synthesizes an implicit `_local` project from the directory where `dartclaw serve` was started. Existing single-project deployments work unchanged — no migration required.
@@ -447,4 +447,4 @@ DartClaw evolved through three iterations:
 - **NanoClaw** — stripped-down version that identified the core feature set and proved OS-level isolation
 - **DartClaw** — current: rewritten in Dart for AOT compilation, zero npm runtime, security-first design
 
-The Dart rewrite was motivated by AOT compilation to a single binary (no runtime dependencies beyond SQLite) and eliminating the Node.js/npm supply chain from the runtime. The architecture decisions and their rationale are documented in detail in the development repository.
+The Dart rewrite targets a single AOT-compiled binary (no runtime dependencies beyond SQLite) and removes the Node.js/npm supply chain from the runtime.

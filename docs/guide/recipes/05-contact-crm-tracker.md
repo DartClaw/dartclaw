@@ -150,7 +150,7 @@ scheduling:
 - **Auto-reminders**: Add a morning cron job that checks for overdue action items and announces them
 - **Manage allowlists via API**: Use `PATCH /api/config` to add/remove contacts without restarting the server (available since 0.6). Or edit allowlists in the web UI at `/settings/channels/<channel_type>`
 - **Task triggers (0.9+)**: Enable `task_trigger` on a channel so contacts can create background tasks by prefixing messages with `task:`. See [Common Patterns](_common-patterns.md#channel-to-task-integration-09)
-- **Session scoping**: `dm_scope: per-contact` (default) gives each contact their own session history. Use `per-channel-contact` if the same person contacts you from multiple channels and you want separate sessions per channel
+- **Session scoping**: `dm_scope: per-contact` gives each contact a shared session across channels (recommended for CRM). The default, `per-channel-contact`, keeps a separate session per channel when the same person contacts you from multiple channels
 
 ## Gotchas & Limitations
 

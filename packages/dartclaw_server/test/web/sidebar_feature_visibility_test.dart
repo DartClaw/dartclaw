@@ -22,7 +22,7 @@ void main() {
       );
 
       expect(visibility.showChannels, isFalse);
-      expect(_labels(registry), ['Settings']);
+      expect(_labels(registry), ['Settings', 'Knowledge', 'Research', 'Timeline']);
     });
 
     test('personal-assistant.yaml keeps only Settings and Scheduling on real startup inputs', () {
@@ -39,7 +39,7 @@ void main() {
       );
 
       expect(visibility.showChannels, isFalse);
-      expect(_labels(registry), ['Settings', 'Scheduling']);
+      expect(_labels(registry), ['Settings', 'Knowledge', 'Research', 'Timeline', 'Scheduling']);
     });
 
     test('production.yaml enables the full system nav on real startup inputs', () {
@@ -56,7 +56,16 @@ void main() {
       );
 
       expect(visibility.showChannels, isFalse);
-      expect(_labels(registry), ['Health', 'Settings', 'Memory', 'Scheduling', 'Tasks']);
+      expect(_labels(registry), [
+        'Health',
+        'Settings',
+        'Memory',
+        'Knowledge',
+        'Research',
+        'Timeline',
+        'Scheduling',
+        'Tasks',
+      ]);
     });
 
     test('config-free callers retain legacy service-presence behavior', () {
@@ -76,7 +85,7 @@ void main() {
         showTasks: visibility.showTasks,
       );
 
-      expect(_labels(registry), ['Health', 'Settings', 'Memory', 'Tasks']);
+      expect(_labels(registry), ['Health', 'Settings', 'Memory', 'Knowledge', 'Research', 'Timeline', 'Tasks']);
     });
   });
 }

@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 
 Map<String, dynamic> _item(String id, {List<String> deps = const []}) => {
   'id': id,
+  'title': id,
   'spec_path': 'dev/specs/0.17/fis/${id.toLowerCase()}.md',
   'dependencies': deps,
 };
@@ -12,48 +13,32 @@ List<Map<String, dynamic>> _items(Map<String, dynamic> storySpecs) =>
     (storySpecs['items'] as List).cast<Map<String, dynamic>>();
 
 void main() {
-  group('validateStorySpecsContract dependency pruning', () {
-    // On the 0.17 resume, S01/S03/S06 are done and excluded from the emitted set.
-    const completed = {'S01', 'S03', 'S06', 'S12'};
-
-    test('dependencies on completed (excluded) stories validate', () {
+  // The contract validator is generic: it normalizes the structural shape and
+  // runs the dependency DAG/cycle check on the emitted payload alone. It carries
+  // no plan-status knowledge — pruning of already-completed prerequisites is the
+  // discovery skill's job, so a dependency on a story absent from the emitted
+  // set is always rejected as unknown.
+  group('validateStorySpecsContract structural + DAG validation', () {
+    test('a well-formed catalog validates and preserves emitted ordering', () {
       final storySpecs = {
         'items': [
           _item('S08'),
-          _item('S07', deps: ['S01']),
+          _item('S07', deps: ['S08']),
           _item('S13'),
-          _item('S11', deps: ['S01', 'S03', 'S06', 'S07', 'S08', 'S13']),
+          _item('S11', deps: ['S07', 'S08', 'S13']),
         ],
       };
 
-      final result = validateStorySpecsContract(storySpecs, completedStoryIds: completed);
+      final result = validateStorySpecsContract(storySpecs);
 
-      expect(result.validationFailure, isNull, reason: 'deps on completed stories must not be "unknown"');
+      expect(result.validationFailure, isNull);
       final items = _items(result.storySpecs!);
-      final s07 = items.firstWhere((i) => i['id'] == 'S07');
-      expect(s07['dependencies'], isEmpty);
-      final s11 = items.firstWhere((i) => i['id'] == 'S11');
-      expect(s11['dependencies'], unorderedEquals(['S07', 'S08', 'S13']));
-    });
-
-    test('ordering among emitted stories is preserved after pruning', () {
-      final storySpecs = {
-        'items': [
-          _item('S08'),
-          _item('S07', deps: ['S01']),
-          _item('S13'),
-          _item('S11', deps: ['S01', 'S03', 'S06', 'S07', 'S08', 'S13']),
-        ],
-      };
-
-      final items = _items(validateStorySpecsContract(storySpecs, completedStoryIds: completed).storySpecs!);
       final graph = DependencyGraph(items);
-
-      expect(graph.getReady({}), unorderedEquals([0, 1, 2]));
+      expect(graph.getReady({}), unorderedEquals([0, 2]));
       expect(graph.getReady({'S07', 'S08', 'S13'}), contains(3));
     });
 
-    test('cycle among emitted stories is still rejected', () {
+    test('a dependency cycle is rejected', () {
       final storySpecs = {
         'items': [
           _item('S07', deps: ['S08']),
@@ -61,13 +46,13 @@ void main() {
         ],
       };
 
-      final result = validateStorySpecsContract(storySpecs, completedStoryIds: completed);
+      final result = validateStorySpecsContract(storySpecs);
 
       expect(result.storySpecs, isNull);
       expect(result.validationFailure!.reason, contains('Circular dependency'));
     });
 
-    test('dependency on an id that is not a completed story is rejected (typo guard)', () {
+    test('a dependency on a story absent from the emitted set is rejected as unknown', () {
       final storySpecs = {
         'items': [
           _item('S01'),
@@ -75,40 +60,75 @@ void main() {
         ],
       };
 
-      // S99 is not a completed story, so it is unknown, not an already-satisfied prerequisite.
-      final result = validateStorySpecsContract(storySpecs, completedStoryIds: {'S03', 'S06'});
+      final result = validateStorySpecsContract(storySpecs);
 
       expect(result.storySpecs, isNull);
       expect(result.validationFailure!.reason, contains('Unknown dependency IDs: S99'));
     });
 
-    test('dependency on an absent but NON-completed story is rejected, not silently pruned', () {
-      // S05 exists in the plan but is, say, blocked/pending — not in completedStoryIds.
-      // Pruning it would treat an unsatisfied prerequisite as met.
+    test('the unknown-dependency failure carries skill-actionable pruning guidance', () {
+      // ADR-041 moved resume-pruning to the skill. A dependency on a closed
+      // (omitted) story surfaces as "unknown"; the retry feedback must tell the
+      // skill to drop the dependency, not re-add the closed story to `items`.
       final storySpecs = {
         'items': [
-          _item('S02', deps: ['S05']),
+          _item('S01'),
+          _item('S02', deps: ['S99']),
         ],
       };
 
-      final result = validateStorySpecsContract(storySpecs, completedStoryIds: {'S01'});
+      final result = validateStorySpecsContract(storySpecs);
 
-      expect(result.storySpecs, isNull);
-      expect(result.validationFailure!.reason, contains('Unknown dependency IDs: S05'));
+      final reason = result.validationFailure!.reason;
+      expect(reason, contains('drop that dependency'));
+      expect(reason, contains('do not re-add the closed story'));
     });
 
-    test('without a completed-story set validation stays strict (out-of-set deps rejected)', () {
+    test('a cycle failure stays generic (no story-pruning guidance)', () {
       final storySpecs = {
         'items': [
-          _item('S07', deps: ['S01']),
+          _item('S07', deps: ['S08']),
+          _item('S08', deps: ['S07']),
         ],
       };
 
-      // completedStoryIds null: plan catalog unavailable, fall back to strict rejection.
+      final result = validateStorySpecsContract(storySpecs);
+
+      expect(result.validationFailure!.reason, contains('Circular dependency'));
+      expect(result.validationFailure!.reason, isNot(contains('drop that dependency')));
+    });
+
+    test('legacy list-shaped story_specs is rejected', () {
+      final result = validateStorySpecsContract([_item('S01')]);
+
+      expect(result.storySpecs, isNull);
+      expect(result.validationFailure!.reason, contains('legacy list-shaped'));
+    });
+
+    test('an item missing a non-empty spec_path is rejected', () {
+      final storySpecs = {
+        'items': [
+          {'id': 'S01', 'title': 'Story', 'spec_path': '', 'dependencies': <String>[]},
+        ],
+      };
+
       final result = validateStorySpecsContract(storySpecs);
 
       expect(result.storySpecs, isNull);
-      expect(result.validationFailure!.reason, contains('Unknown dependency IDs: S01'));
+      expect(result.validationFailure!.reason, contains('spec_path'));
+    });
+
+    test('an item missing a non-empty title is rejected', () {
+      final storySpecs = {
+        'items': [
+          {'id': 'S01', 'spec_path': 'dev/specs/0.17/fis/s01.md', 'dependencies': <String>[]},
+        ],
+      };
+
+      final result = validateStorySpecsContract(storySpecs);
+
+      expect(result.storySpecs, isNull);
+      expect(result.validationFailure!.reason, contains('title'));
     });
   });
 }

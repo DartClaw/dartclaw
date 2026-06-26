@@ -53,6 +53,8 @@ export 'src/identifier_preservation_mode.dart' show IdentifierPreservationMode;
 export 'src/knowledge_config.dart' show KnowledgeConfig, KnowledgeInboxConfig, KnowledgeWikiLintConfig;
 export 'src/logging_config.dart' show LoggingConfig;
 export 'src/memory_config.dart' show MemoryConfig;
+export 'src/mcp_servers_config.dart'
+    show McpNetworkClass, McpServerEntry, McpServerRateLimit, McpServerTokenBudget, McpServersConfig;
 export 'src/onboarding_config.dart' show OnboardingConfig;
 export 'src/project_config.dart'
     show LocalProjectPathValidation, ProjectConfig, ProjectDefinition, parseProjectConfig, validateProjectLocalPath;
@@ -71,6 +73,7 @@ export 'src/task_config.dart' show TaskBudgetConfig, TaskConfig;
 export 'src/usage_config.dart' show UsageConfig;
 export 'src/workflow_config.dart'
     show
+        WorkflowApprovalPolicy,
         WorkflowCleanupConfig,
         WorkflowConfig,
         WorkflowRoleDefaultsConfig,

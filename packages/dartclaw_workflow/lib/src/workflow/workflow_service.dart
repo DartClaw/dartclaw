@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
+import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowApprovalPolicy, WorkflowRunStatus;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         EventBus,
@@ -14,14 +14,22 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowRunStatusChangedEvent,
         WorkflowTaskService,
         atomicWriteJson;
-import 'workflow_definition.dart' show WorkflowDefinition, WorkflowTaskType;
+import 'workflow_definition.dart'
+    show
+        WorkflowDefinition,
+        WorkflowGitStrategy,
+        WorkflowGitWorktreeMode,
+        WorkflowGitWorktreeStrategy,
+        WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun;
 import 'workflow_run_repository.dart' show WorkflowRunRepository;
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 import 'workflow_context.dart';
+import 'workflow_approval_policy.dart';
 import 'context_extractor.dart';
+import '../skills/provider_auth_preflight.dart';
 import 'gate_evaluator.dart';
 import 'skill_introspector.dart';
 import 'step_config_resolver.dart';
@@ -49,9 +57,11 @@ class WorkflowService {
   final String _dataDir;
   final Uuid _uuid;
   final WorkflowRoleDefaults _roleDefaults;
+  final WorkflowApprovalPolicy _approvalPolicyDefault;
   final WorkflowStepOutputTransformer? _outputTransformer;
   final StructuredOutputFallbackRecorder? _structuredOutputFallbackRecorder;
   final SkillIntrospector? _skillIntrospector;
+  final ProviderAuthPreflight? _providerAuthPreflight;
   final WorkflowSkillPreflightConfig _skillPreflightConfig;
   final WorkflowPersistencePorts? _persistencePorts;
   final Map<String, String>? _hostEnvironment;
@@ -133,9 +143,11 @@ class WorkflowService {
        _kvService = kvService,
        _dataDir = dataDir,
        _roleDefaults = options.roleDefaults,
+       _approvalPolicyDefault = options.approvalPolicyDefault,
        _outputTransformer = options.outputTransformer,
        _structuredOutputFallbackRecorder = options.structuredOutputFallbackRecorder,
        _skillIntrospector = options.skillIntrospector,
+       _providerAuthPreflight = options.providerAuthPreflight,
        _skillPreflightConfig = options.skillPreflightConfig,
        _persistencePorts = persistencePorts,
        _hostEnvironment = options.hostEnvironment,
@@ -153,6 +165,8 @@ class WorkflowService {
     String? projectId,
     bool allowDirtyLocalPath = false,
     bool headless = false,
+    bool inline = false,
+    WorkflowApprovalPolicy? approvals,
   }) async {
     // Validate required variables.
     for (final entry in definition.variables.entries) {
@@ -197,10 +211,18 @@ class WorkflowService {
 
     final now = DateTime.now();
     final runId = _uuid.v4();
-    final context = WorkflowContext(variables: resolvedVariables);
+    final effectiveApprovals = approvals ?? _approvalPolicyDefault;
+    final context = WorkflowContext(
+      variables: resolvedVariables,
+      data: {workflowApprovalsContextKey: effectiveApprovals.yamlValue},
+    );
 
-    // Apply headless mode: override all step review modes to auto-accept.
-    final effectiveDefinition = headless ? _applyHeadlessMode(definition) : definition;
+    // Apply headless mode (override step review modes to auto-accept) and/or
+    // inline mode (override the git strategy to run on the current branch). The
+    // two transforms compose so `--inline` works with headless standalone runs.
+    var effectiveDefinition = definition;
+    if (headless) effectiveDefinition = _applyHeadlessMode(effectiveDefinition);
+    if (inline) effectiveDefinition = _applyInlineMode(effectiveDefinition);
     _ensureTaskPersistenceAvailable(_persistencePorts, effectiveDefinition);
 
     // Create run in pending status.
@@ -212,6 +234,7 @@ class WorkflowService {
       startedAt: now,
       updatedAt: now,
       definitionJson: effectiveDefinition.toJson(),
+      contextJson: {workflowApprovalsContextKey: effectiveApprovals.yamlValue, ...context.toJson()},
     );
     await _repository.insert(run);
 
@@ -676,12 +699,14 @@ class WorkflowService {
         workflowGitPort: _gitContext?.gitPort,
         outputTransformer: _outputTransformer,
         skillIntrospector: _skillIntrospector,
+        providerAuthPreflight: _providerAuthPreflight,
         skillPreflightConfig: _skillPreflightConfig,
         taskRepository: _persistencePorts?.taskRepository,
         agentExecutionRepository: _persistencePorts?.agentExecutionRepository,
         workflowStepExecutionRepository: _persistencePorts?.workflowStepExecutionRepository,
         executionTransactor: _persistencePorts?.executionRepositoryTransactor,
         projectService: _gitContext?.projectService,
+        defaultWorkspaceRoot: _gitContext?.defaultWorkspaceRoot,
       ),
       promptConfiguration: StepPromptConfiguration(),
       dataDir: _dataDir,
@@ -872,6 +897,21 @@ class WorkflowService {
     }).toList();
     json['steps'] = steps;
     return WorkflowDefinition.fromJson(json);
+  }
+
+  /// Applies inline mode by overriding the git strategy to run on the current
+  /// branch: no workflow-owned integration branch and an `inline` worktree.
+  ///
+  /// Discards the base strategy's `promotion`/`publish`/`cleanup`/`mergeResolve`
+  /// — all no-ops without an integration branch — matching what hand-authored
+  /// `*-inline` workflow variants already omit.
+  WorkflowDefinition _applyInlineMode(WorkflowDefinition definition) {
+    return definition.copyWith(
+      gitStrategy: const WorkflowGitStrategy(
+        integrationBranch: false,
+        worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.inline),
+      ),
+    );
   }
 
   Future<void> _rehydrateApprovalTimeout(WorkflowRun run) async {

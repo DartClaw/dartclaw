@@ -292,6 +292,50 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
 
+    test('S03 inline worktree mode serializes map iterations despite maxParallel > 1', () async {
+      // Inline shares the operator's live checkout, so concurrent iterations
+      // would clobber the tree. The runner must clamp effective concurrency to
+      // 1 even though maxParallel is 2.
+      final definition = WorkflowDefinition(
+        name: 'map-inline-clamp',
+        description: 'Inline map clamps concurrency',
+        gitStrategy: const WorkflowGitStrategy(
+          integrationBranch: false,
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.inline),
+        ),
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 2,
+          ),
+        ],
+      );
+      final run = await insertRun(definition);
+      final context = itemsContext(['a', 'b', 'c']);
+
+      var inFlight = 0;
+      var maxInFlight = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        inFlight++;
+        if (inFlight > maxInFlight) maxInFlight = inFlight;
+        await Future<void>.delayed(Duration.zero);
+        await h.completeTask(e.taskId);
+        inFlight--;
+      });
+
+      await h.executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(maxInFlight, equals(1), reason: 'inline mode must dispatch map iterations one at a time');
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
     test('S02 map item run-abort during wait is not retried and does not complete the run', () async {
       // Regression: a run pause/cancel mid-wait must abort the item without
       // retrying (no orphan task triples) AND propagate to the step so the

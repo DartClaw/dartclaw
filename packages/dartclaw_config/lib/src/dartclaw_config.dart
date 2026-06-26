@@ -13,6 +13,7 @@ import 'package:dartclaw_models/dartclaw_models.dart'
         GroupScope,
         SessionScopeConfig;
 import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
@@ -35,6 +36,7 @@ import 'identifier_preservation_mode.dart';
 import 'knowledge_config.dart';
 import 'logging_config.dart';
 import 'memory_config.dart';
+import 'mcp_servers_config.dart';
 import 'onboarding_config.dart';
 import 'path_utils.dart';
 import 'project_config.dart';
@@ -99,6 +101,9 @@ class DartclawConfig {
 
   /// search.
   final SearchConfig search;
+
+  /// External MCP server registry.
+  final McpServersConfig mcpServers;
 
   /// providers.
   final ProvidersConfig providers;
@@ -203,6 +208,7 @@ class DartclawConfig {
     this.memory = const MemoryConfig.defaults(),
     this.knowledge = const KnowledgeConfig.defaults(),
     this.search = const SearchConfig.defaults(),
+    this.mcpServers = const McpServersConfig.defaults(),
     this.providers = const ProvidersConfig.defaults(),
     this.credentials = const CredentialsConfig.defaults(),
     this.tasks = const TaskConfig.defaults(),
@@ -245,6 +251,7 @@ class DartclawConfig {
     MemoryConfig? memory,
     KnowledgeConfig? knowledge,
     SearchConfig? search,
+    McpServersConfig? mcpServers,
     ProvidersConfig? providers,
     CredentialsConfig? credentials,
     TaskConfig? tasks,
@@ -277,6 +284,7 @@ class DartclawConfig {
       memory: memory ?? this.memory,
       knowledge: knowledge ?? this.knowledge,
       search: search ?? this.search,
+      mcpServers: mcpServers ?? this.mcpServers,
       providers: providers ?? this.providers,
       credentials: credentials ?? this.credentials,
       tasks: tasks ?? this.tasks,
@@ -409,8 +417,9 @@ class DartclawConfig {
     final workflow = parseWorkflowConfig(_sectionMap('workflow', yaml, warns), warns, env: environment);
     final scheduling = _parseScheduling(yaml, const SchedulingConfig.defaults(), warns);
     final search = _parseSearch(yaml, environment, const SearchConfig.defaults(), warns);
-    final providers = _parseProviders(yaml, environment, const ProvidersConfig.defaults(), warns);
     final credentials = _parseCredentials(yaml, environment, const CredentialsConfig.defaults(), warns);
+    final mcpServers = _parseMcpServers(yaml, credentials, const McpServersConfig.defaults(), warns);
+    final providers = _parseProviders(yaml, environment, const ProvidersConfig.defaults(), warns);
     final security = _parseSecurity(yaml, const SecurityConfig.defaults(), warns);
     final usage = _parseUsage(yaml, const UsageConfig.defaults(), warns);
     final memory = _parseMemory(yaml, cli, const MemoryConfig.defaults(), warns);
@@ -420,7 +429,7 @@ class DartclawConfig {
     final tasks = _parseTasks(yaml, const TaskConfig.defaults(), warns);
     final governance = _parseGovernance(yaml, const GovernanceConfig.defaults(), warns);
     final features = _parseFeatures(yaml);
-    final projects = parseProjectConfig(_sectionMap('projects', yaml, warns), warns);
+    final projects = parseProjectConfig(_sectionMap('projects', yaml, warns), warns, base: configBaseDir);
     final alerts = _parseAlerts(yaml, const AlertsConfig.defaults(), warns);
     final delegation = _parseDelegation(yaml, const DelegationConfig.defaults(), warns);
     _warnRetiredAndthenConfig(yaml, warns);
@@ -439,6 +448,7 @@ class DartclawConfig {
       memory: memory,
       knowledge: knowledge,
       search: search,
+      mcpServers: mcpServers,
       providers: providers,
       credentials: credentials,
       tasks: tasks,

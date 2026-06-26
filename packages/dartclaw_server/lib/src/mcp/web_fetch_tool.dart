@@ -160,7 +160,6 @@ class WebFetchTool implements McpTool {
   /// Blocks loopback, link-local, RFC1918 private, CGNAT, multicast/reserved,
   /// and IPv6 private ranges to prevent SSRF. Resolves DNS to catch hostnames
   /// that map to internal addresses.
-  @visibleForTesting
   static Future<String?> checkSsrfPolicy(Uri uri) async {
     final host = uri.host.toLowerCase();
 

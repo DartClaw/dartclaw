@@ -1,9 +1,23 @@
 import 'dart:convert';
 
-import '../connected_command_support.dart';
+import 'standalone_lifecycle_support.dart';
 
-class WorkflowCancelCommand extends ConnectedCommand {
-  WorkflowCancelCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+class WorkflowCancelCommand extends StandaloneWorkflowLifecycleCommand {
+  WorkflowCancelCommand({
+    super.config,
+    super.apiClient,
+    super.writeLine,
+    super.exitFn,
+    super.searchDbFactory,
+    super.taskDbFactory,
+    super.harnessFactory,
+    super.environment,
+    super.stderrLine,
+    super.interrupts,
+    super.runAndthenSkillsBootstrap,
+    super.skillIntrospector,
+    super.providerAuthPreflight,
+  }) {
     argParser
       ..addOption('feedback', help: 'Optional rejection or cancellation feedback')
       ..addFlag('json', negatable: false, help: 'Output as JSON');
@@ -19,20 +33,42 @@ class WorkflowCancelCommand extends ConnectedCommand {
   String get invocation => '${runner!.executableName} workflow cancel <runId>';
 
   @override
-  Future<void> run() => runConnected((apiClient) async {
+  Future<void> run() async {
+    requireForceWithStandalone();
     final runId = requirePositionalArg('Run ID required');
-    await apiClient.post(
-      '/api/workflows/runs/$runId/cancel',
-      body: {
-        if ((argResults!['feedback'] as String?)?.trim().isNotEmpty == true)
-          'feedback': (argResults!['feedback'] as String).trim(),
-      },
-    );
-    final updated = await apiClient.getObject('/api/workflows/runs/$runId');
-    if (argResults!['json'] as bool) {
-      writeLine(const JsonEncoder.withIndent('  ').convert(updated));
+    final feedback = _feedback();
+    if (isStandalone) {
+      await runStandaloneLifecycle(
+        runId: runId,
+        provisionTaskRunners: false,
+        runAndthenSkillsBootstrap: false,
+        action: (session) async {
+          await session.wiring.workflowService.cancel(runId, feedback: feedback);
+          final updated = await session.wiring.workflowService.get(runId);
+          if (argResults!['json'] as bool) {
+            writeLine(const JsonEncoder.withIndent('  ').convert(updated?.toJson() ?? {'id': runId}));
+          } else {
+            writeLine('Workflow ${updated?.id ?? runId} cancelled (${updated?.status.name ?? 'unknown'}).');
+          }
+          return 0;
+        },
+      );
     } else {
-      writeLine('Workflow ${updated['id']} cancelled (${updated['status']}).');
+      await runConnected((apiClient) async {
+        await apiClient.post('/api/workflows/runs/$runId/cancel', body: {'feedback': ?feedback});
+        final updated = await apiClient.getObject('/api/workflows/runs/$runId');
+        if (argResults!['json'] as bool) {
+          writeLine(const JsonEncoder.withIndent('  ').convert(updated));
+        } else {
+          writeLine('Workflow ${updated['id']} cancelled (${updated['status']}).');
+        }
+      });
     }
-  });
+  }
+
+  String? _feedback() {
+    final raw = argResults!['feedback'] as String?;
+    if (raw == null || raw.trim().isEmpty) return null;
+    return raw.trim();
+  }
 }

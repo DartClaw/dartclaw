@@ -253,6 +253,7 @@ class ConfigValidator {
       ConfigFieldType.enum_ => _validateEnum(meta, value),
       ConfigFieldType.stringList => _validateStringList(meta, value),
       ConfigFieldType.objectList => _validateObjectList(meta, value),
+      ConfigFieldType.objectMap => _validateObjectMap(meta, value),
     };
   }
 
@@ -362,6 +363,16 @@ class ConfigValidator {
     }
     if (value.any((item) => item is! Map)) {
       return ValidationError(field: meta.yamlPath, message: "Field '${meta.yamlPath}' must contain only objects");
+    }
+    return null;
+  }
+
+  ValidationError? _validateObjectMap(FieldMeta meta, Object value) {
+    if (value is! Map) {
+      return ValidationError(
+        field: meta.yamlPath,
+        message: "Field '${meta.yamlPath}' must be an object map, got ${value.runtimeType}",
+      );
     }
     return null;
   }

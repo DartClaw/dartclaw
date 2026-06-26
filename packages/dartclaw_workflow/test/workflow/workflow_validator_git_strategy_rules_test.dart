@@ -107,7 +107,12 @@ void main() {
           artifacts: WorkflowGitArtifactsStrategy(commit: false),
         ),
         steps: const [
-          WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
+          WorkflowStep(
+            id: 'plan',
+            name: 'Plan',
+            skill: 'andthen:plan',
+            outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+          ),
         ],
       );
       final report = validator.validate(def);
@@ -123,7 +128,12 @@ void main() {
           artifacts: WorkflowGitArtifactsStrategy(commit: false),
         ),
         steps: const [
-          WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
+          WorkflowStep(
+            id: 'plan',
+            name: 'Plan',
+            skill: 'andthen:plan',
+            outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+          ),
           WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 2),
         ],
       );
@@ -140,7 +150,12 @@ void main() {
           artifacts: WorkflowGitArtifactsStrategy(commit: false),
         ),
         steps: const [
-          WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
+          WorkflowStep(
+            id: 'plan',
+            name: 'Plan',
+            skill: 'andthen:plan',
+            outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+          ),
           WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 1),
         ],
       );
@@ -157,7 +172,12 @@ void main() {
           artifacts: WorkflowGitArtifactsStrategy(commit: false),
         ),
         steps: const [
-          WorkflowStep(id: 'plan', name: 'Plan', skill: 'andthen:plan', outputs: {'plan': OutputConfig()}),
+          WorkflowStep(
+            id: 'plan',
+            name: 'Plan',
+            skill: 'andthen:plan',
+            outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+          ),
         ],
       );
       final report = validator.validate(def);
@@ -178,6 +198,51 @@ void main() {
       );
       final report = validator.validate(def);
       expect(hasError(report.errors, messageContains: 'artifacts.commit'), isFalse);
+    });
+
+    test('review_report_path-only producer is detected (generic format: path, not a key-name allowlist)', () {
+      // A custom workflow whose sole path output is review_report_path — not in
+      // the retired key-name allowlist — must still be recognised as
+      // artifact-producing so the per-map-item + commit: false guard fires.
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
+          artifacts: WorkflowGitArtifactsStrategy(commit: false),
+        ),
+        steps: const [
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            skill: 'andthen:review',
+            outputs: {'review_report_path': OutputConfig(format: OutputFormat.path)},
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(hasError(report.errors, messageContains: 'artifacts.commit: false is incompatible'), isTrue);
+    });
+
+    test('story_specs-only producer is detected through schema metadata', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
+          artifacts: WorkflowGitArtifactsStrategy(commit: false),
+        ),
+        steps: const [
+          WorkflowStep(
+            id: 'plan',
+            name: 'Plan',
+            skill: 'some:plan',
+            outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs')},
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(hasError(report.errors, messageContains: 'artifacts.commit: false is incompatible'), isTrue);
     });
 
     test('externalArtifactMount per-story-copy without source raises error', () {

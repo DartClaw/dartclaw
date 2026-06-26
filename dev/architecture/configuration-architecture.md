@@ -2,7 +2,7 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.17.0
+**Current through**: 0.18.0
 
 ---
 
@@ -12,7 +12,7 @@ Configuration is a first-class subsystem and the single source of truth for all 
 
 | Principle | Meaning |
 |-----------|---------|
-| **Immutable composed model** | The runtime config is a single `DartclawConfig` instance composed of 25+ typed section classes. Once loaded, sections are immutable value objects with `==` and `hashCode` |
+| **Immutable composed model** | The runtime config is a single `DartclawConfig` instance composed of typed section classes. Once loaded, sections are immutable value objects with `==` and `hashCode` |
 | **3-tier mutation model** | Changes are classified by latency: Tier 1 (ephemeral, instant), Tier 2 (persistent YAML, restart), Tier 3 (persistent YAML, hot-reload without restart) |
 | **Safe persistence** | YAML writes use atomic temp-file-then-rename with `.bak` backup. Comment and key ordering are preserved via `yaml_edit` |
 | **Typed validation** | Every writable field has registered metadata (`FieldMeta`) with type, range, and mutability classification. Invalid values are rejected before write |
@@ -45,7 +45,7 @@ All three tiers persist to YAML via `ConfigWriter` so changes survive restarts. 
 `DartclawConfig` is the immutable top-level configuration object, defined in `dartclaw_config` package. It holds all section configs as typed fields with `const` defaults.
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/dartclaw_config.dart
+packages/dartclaw_config/lib/src/dartclaw_config.dart
 ```
 
 ```
@@ -54,17 +54,19 @@ All three tiers persist to YAML via `ConfigWriter` so changes survive restarts. 
 │  ────────────────────────────────────────────────────────────────    │
 │  server: ServerConfig          agent: AgentConfig                    │
 │  advisor: AdvisorConfig        auth: AuthConfig                      │
-│  gateway: GatewayConfig                                              │
+│  gateway: GatewayConfig        harness: HarnessConfig                │
 │  sessions: SessionConfig       context: ContextConfig                │
 │  security: SecurityConfig      memory: MemoryConfig                  │
-│  search: SearchConfig          providers: ProvidersConfig             │
+│  knowledge: KnowledgeConfig    search: SearchConfig                  │
+│  mcpServers: McpServersConfig  providers: ProvidersConfig             │
 │  credentials: CredentialsConfig  tasks: TaskConfig                   │
 │  scheduling: SchedulingConfig  workspace: WorkspaceConfig            │
-│  workflow: WorkflowConfig      logging: LoggingConfig                │
-│  usage: UsageConfig            container: ContainerConfig            │
-│  channels: ChannelConfig       governance: GovernanceConfig          │
-│  features: FeaturesConfig      projects: ProjectConfig               │
-│  alerts: AlertsConfig          extensions: Map<String, Object?>      │
+│  onboarding: OnboardingConfig  workflow: WorkflowConfig              │
+│  logging: LoggingConfig        usage: UsageConfig                    │
+│  container: ContainerConfig    channels: ChannelConfig               │
+│  governance: GovernanceConfig  features: FeaturesConfig              │
+│  projects: ProjectConfig       alerts: AlertsConfig                  │
+│  delegation: DelegationConfig  extensions: Map<String, Object?>      │
 │  ────────────────────────────────────────────────────────────────    │
 │  + warnings: List<String>     (collected during load)                │
 │  + channelConfigProvider      (typed channel config access)          │
@@ -74,7 +76,7 @@ All three tiers persist to YAML via `ConfigWriter` so changes survive restarts. 
 
 Key characteristics:
 
-- **25 typed section fields** plus `extensions` map for deployer-registered custom sections
+- **29 typed section fields** plus `extensions` map for deployer-registered custom sections
 - **`const` constructor** with named defaults for every section (e.g., `const ServerConfig.defaults()`)
 - **Value equality** on all sections via `==` and `hashCode` overrides, enabling `ConfigNotifier` to compute section-level deltas
 - **Warnings list** collected during parsing (unknown keys, deprecated syntax, invalid values that fell back to defaults)
@@ -91,16 +93,20 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | `advisor` | `AdvisorConfig` | Self-reflection advisor | `enabled`, `model`, `effort`, `triggers`, `periodicIntervalMinutes`, `maxWindowTurns` |
 | `auth` | `AuthConfig` | Authentication | `cookieSecure`, `trustedProxies`, tokens |
 | `gateway` | `GatewayConfig` | Gateway/proxy | `authMode`, `token`, `hsts`, `reload` (`ReloadConfig`: mode, debounceMs) |
+| `harness` | `HarnessConfig` | ACP agent harness | `acp.agents.*` target profiles (binary, args, topology, modelProvider, verification, requiredBuiltins, container profile) |
 | `sessions` | `SessionConfig` | Session lifecycle | `resetHour`, `idleTimeoutMinutes`, `scopeConfig` (dm/group scope), `maintenanceConfig` |
 | `context` | `ContextConfig` | Context management | `reserveTokens`, `maxResultBytes`, `warningThreshold`, `compactInstructions`, `identifierPreservation` |
 | `security` | `SecurityConfig` | Guard chain config | `contentGuardEnabled`, `contentGuardClassifier`, `contentGuardModel`, `inputSanitizerEnabled` |
 | `memory` | `MemoryConfig` | Memory/workspace files | `maxBytes`, `pruningEnabled`, `archiveAfterDays`, `pruningSchedule` |
+| `knowledge` | `KnowledgeConfig` | Knowledge ingestion | `inbox` (`KnowledgeInboxConfig`: enabled, intervalMinutes, maxBytes, deliveryMode), `wikiLint` (`KnowledgeWikiLintConfig`) |
 | `search` | `SearchConfig` | Search backend | `backend` (fts5/qmd), `qmd.host`, `qmd.port`, `defaultDepth` |
+| `mcpServers` | `McpServersConfig` | External MCP server registry | `entries` map of `McpServerEntry` (command/url, enabled, networkClass, credential) |
 | `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, poolSize, options such as `inherit_user_settings`) |
 | `credentials` | `CredentialsConfig` | Multi-credential store | `entries` map of `CredentialEntry` (apiKey) |
 | `tasks` | `TaskConfig` | Task execution | `maxConcurrent`, `artifactRetentionDays`, `completionAction`, `worktreeBaseRef`, `worktreeMergeStrategy` |
 | `scheduling` | `SchedulingConfig` | Scheduled jobs | `heartbeatIntervalMinutes`, `jobs` list |
 | `workspace` | `WorkspaceConfig` | Workspace git sync | `gitSyncEnabled`, `gitSyncPushEnabled` |
+| `onboarding` | `OnboardingConfig` | Conversational onboarding | `expiryDays` |
 | `workflow` | `WorkflowConfig` | Workflow engine | `workspaceDir` (override) |
 | `logging` | `LoggingConfig` | Log configuration | `level`, `format`, `file`, `redactPatterns` |
 | `usage` | `UsageConfig` | Usage tracking | `budgetWarningTokens`, `maxFileSizeBytes` |
@@ -110,6 +116,7 @@ Each section is a standalone Dart class in `dartclaw_config/lib/src/`:
 | `features` | `FeaturesConfig` | Feature flags | `threadBinding` (enabled, idleTimeoutMinutes) |
 | `projects` | `ProjectConfig` | Multi-project | Project definitions |
 | `alerts` | `AlertsConfig` | Alert routing | `enabled`, `cooldownSeconds`, `burstThreshold`, `targets`, `routes` |
+| `delegation` | `DelegationConfig` | Agent delegation | `enabled`, `agents` (`DelegationAgentConfig`), `maxBudgetTokens`, `budgetAccounting`, `rateLimit` |
 
 ### Nested Config Types
 
@@ -138,7 +145,8 @@ Loading follows a strict resolution order: **CLI overrides > YAML file > environ
                    │  order:      │                               └─────────────────┘
                    │  1. --config │
                    │  2. $DARTCLAW_CONFIG
-                   │  3. defaults │
+                   │  3. instance dir
+                   │  4. defaults │
                    └──────────────┘
 ```
 
@@ -146,9 +154,12 @@ Loading follows a strict resolution order: **CLI overrides > YAML file > environ
 
 1. **Explicit path** (`--config` flag) — takes precedence. Warns if file not found, falls back to defaults
 2. **Environment variable** (`DARTCLAW_CONFIG`) — second priority. Same fallback behavior
-3. **Defaults** — if no config file found, all sections use `const` defaults
+3. **Instance directory** — `DARTCLAW_HOME/dartclaw.yaml` if `DARTCLAW_HOME` is set, otherwise the default `~/.dartclaw/dartclaw.yaml`
+4. **Defaults** — if no config file is found, all sections use `const` defaults
 
-Paths with leading `~` are expanded via `expandHome()` using `$HOME` from the environment.
+A `dartclaw.yaml` in the current working directory is no longer discovered (deprecated in 0.16.2); if one is present a warning is emitted but it is not loaded.
+
+Paths with leading `~` are expanded via `expandHome()` using `$HOME` (falling back to `$USERPROFILE`).
 
 ### Section Parsing
 
@@ -160,8 +171,8 @@ Each section has a dedicated parser function (e.g., `_parseServer()`, `_parseAge
 - Return typed section objects with defaults for missing fields
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/config_parser.dart
-../dartclaw-public/packages/dartclaw_config/lib/src/config_parser_governance.dart
+packages/dartclaw_config/lib/src/config_parser.dart
+packages/dartclaw_config/lib/src/config_parser_governance.dart
 ```
 
 ### Channel Config Registration
@@ -186,7 +197,7 @@ This keeps `dartclaw_config` free of channel package dependencies while allowing
 Every writable config field is registered in `ConfigMeta.fields` — a static `Map<String, FieldMeta>` keyed by YAML path:
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/config_meta.dart
+packages/dartclaw_config/lib/src/config_meta.dart
 ```
 
 Each `FieldMeta` captures:
@@ -217,7 +228,7 @@ The mutability enum drives the config API's field routing:
 `ConfigValidator` runs validation checks in order: known field, writable, type check, constraint check. It also handles cross-field validation (e.g., Google Chat requires `service_account` and `audience` when `enabled: true`).
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/config_validator.dart
+packages/dartclaw_config/lib/src/config_validator.dart
 ```
 
 ---
@@ -229,7 +240,7 @@ The mutability enum drives the config API's field routing:
 `ConfigWriter` provides non-destructive YAML config writing with write-queue serialization:
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/config_writer.dart
+packages/dartclaw_config/lib/src/config_writer.dart
 ```
 
 ```
@@ -256,7 +267,7 @@ Two routers handle config mutations at different tiers:
 **`config_routes.dart`** — Tier 1 ephemeral toggles:
 
 ```
-../dartclaw-public/packages/dartclaw_server/lib/src/api/config_routes.dart
+packages/dartclaw_server/lib/src/api/config_routes.dart
 ```
 
 | Endpoint | Purpose |
@@ -271,7 +282,7 @@ These modify `RuntimeConfig` in-memory only. State resets on restart.
 **`config_api_routes.dart`** — Tier 2/3 persistent config:
 
 ```
-../dartclaw-public/packages/dartclaw_server/lib/src/api/config_api_routes.dart
+packages/dartclaw_server/lib/src/api/config_api_routes.dart
 ```
 
 | Endpoint | Purpose |
@@ -328,7 +339,7 @@ Hot-reload eliminates restarts for frequently changed settings like scheduling i
 ### ConfigNotifier
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/config_notifier.dart
+packages/dartclaw_config/lib/src/config_notifier.dart
 ```
 
 `ConfigNotifier` is the reactive config holder. It:
@@ -346,7 +357,7 @@ Hot-reload eliminates restarts for frequently changed settings like scheduling i
 ### ConfigDelta
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/config_delta.dart
+packages/dartclaw_config/lib/src/config_delta.dart
 ```
 
 An immutable snapshot containing `previous` config, `current` config, and `changedKeys`. The `hasChanged(key)` method supports bidirectional prefix matching:
@@ -358,7 +369,7 @@ An immutable snapshot containing `previous` config, `current` config, and `chang
 ### Reconfigurable Interface
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/reconfigurable.dart
+packages/dartclaw_config/lib/src/reconfigurable.dart
 ```
 
 ```dart
@@ -387,7 +398,7 @@ Services implement `Reconfigurable` and register with `ConfigNotifier`. Currentl
 `ReloadTriggerService` manages the external triggers that initiate config reload:
 
 ```
-../dartclaw-public/apps/dartclaw_cli/lib/src/commands/reload_trigger_service.dart
+apps/dartclaw_cli/lib/src/commands/reload_trigger_service.dart
 ```
 
 Controlled by `gateway.reload.mode`:
@@ -416,15 +427,15 @@ Controlled by `gateway.reload.mode`:
 | `logging.redact_patterns` | `logging.level`, `logging.format` |
 | `context.reserve_tokens`, `context.max_result_bytes` | `container.*` |
 | `alerts.*` (targets, cooldowns, thresholds) | `search.backend`, `search.qmd.*` |
-| Guard chain config (`guards.*`) | `tasks.max_concurrent`, `tasks.worktree.*` |
+| `governance.*` (turn limits, stall detection) | `tasks.max_concurrent`, `tasks.worktree.*`, guard chain (`guards.*`) |
 
 ### Restart Banner
 
 When restart-required fields are changed, the Settings UI displays a banner listing the pending fields:
 
 ```
-../dartclaw-public/packages/dartclaw_server/lib/src/templates/restart_banner.dart
-../dartclaw-public/packages/dartclaw_server/lib/src/templates/restart_banner.html
+packages/dartclaw_server/lib/src/templates/restart_banner.dart
+packages/dartclaw_server/lib/src/templates/restart_banner.html
 ```
 
 The banner is rendered by `restartBannerTemplate()` using Trellis fragment rendering. Each page calls `context.restartBannerHtml()` to inject the banner when `restart.pending` exists.
@@ -436,7 +447,7 @@ The banner is rendered by `restartBannerTemplate()` using Trellis fragment rende
 The extension system allows private deployers to add custom config sections without forking `dartclaw_config`.
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/config_extensions.dart
+packages/dartclaw_config/lib/src/config_extensions.dart
 ```
 
 ### Registration
@@ -482,7 +493,7 @@ Credentials follow a reference-based model: API keys are **never** stored in `da
 ### CredentialsConfig
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/credentials_config.dart
+packages/dartclaw_config/lib/src/credentials_config.dart
 ```
 
 Maps credential names to `CredentialEntry` objects. The `credentials:` YAML section provides named API key entries that `CredentialRegistry` can look up.
@@ -490,7 +501,7 @@ Maps credential names to `CredentialEntry` objects. The `credentials:` YAML sect
 ### CredentialRegistry
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/credential_registry.dart
+packages/dartclaw_config/lib/src/credential_registry.dart
 ```
 
 Synchronous provider-to-credential lookup:
@@ -507,7 +518,7 @@ Resolution order:
 ### ProviderValidator
 
 ```
-../dartclaw-public/packages/dartclaw_config/lib/src/provider_validator.dart
+packages/dartclaw_config/lib/src/provider_validator.dart
 ```
 
 Validates all configured providers at startup:
@@ -536,7 +547,7 @@ Two server-side subscribers bridge Tier 1 config changes to runtime services:
 ### ConfigChangeSubscriber
 
 ```
-../dartclaw-public/packages/dartclaw_server/lib/src/config/config_change_subscriber.dart
+packages/dartclaw_server/lib/src/config/config_change_subscriber.dart
 ```
 
 Subscribes to `ConfigChangedEvent` on the `EventBus` and applies side-effects for live-mutable fields:
@@ -551,7 +562,7 @@ Subscribes to `ConfigChangedEvent` on the `EventBus` and applies side-effects fo
 ### ScopeReconciler
 
 ```
-../dartclaw-public/packages/dartclaw_server/lib/src/config/scope_reconciler.dart
+packages/dartclaw_server/lib/src/config/scope_reconciler.dart
 ```
 
 Subscribes to `ConfigChangedEvent` and updates `LiveScopeConfig` when `sessions.dm_scope` or `sessions.group_scope` change. This allows session scope changes to take effect immediately without restart.
@@ -563,7 +574,7 @@ Subscribes to `ConfigChangedEvent` and updates `LiveScopeConfig` when `sessions.
 ### Settings Page
 
 ```
-../dartclaw-public/packages/dartclaw_server/lib/src/web/pages/settings_page.dart
+packages/dartclaw_server/lib/src/web/pages/settings_page.dart
 ```
 
 The web-based Settings page renders a comprehensive system status view:
@@ -577,7 +588,7 @@ The web-based Settings page renders a comprehensive system status view:
 ### Config Serializer
 
 ```
-../dartclaw-public/packages/dartclaw_server/lib/src/config/config_serializer.dart
+packages/dartclaw_server/lib/src/config/config_serializer.dart
 ```
 
 `ConfigSerializer.toJson()` converts the full `DartclawConfig` to nested camelCase JSON for the `GET /api/config` response. Live-mutable fields are read from `RuntimeConfig` (not the startup YAML) so the UI reflects current toggle state.
@@ -591,7 +602,7 @@ The `metaJson()` method serializes `ConfigMeta.fields` to the `_meta.fields` sha
 ### dartclaw_config Package
 
 ```
-../dartclaw-public/packages/dartclaw_config/
+packages/dartclaw_config/
 ```
 
 The `dartclaw_config` package owns the full config lifecycle: parsing, validation, persistence, hot-reload, and extension system.
@@ -619,7 +630,7 @@ The `dartclaw_config` package owns the full config lifecycle: parsing, validatio
 ### Server-Side Config Components
 
 ```
-../dartclaw-public/packages/dartclaw_server/lib/src/config/
+packages/dartclaw_server/lib/src/config/
   config_change_subscriber.dart   # Tier 1 side-effect subscriber
   scope_reconciler.dart           # Live scope config reconciliation
   config_serializer.dart          # JSON serialization for API
@@ -627,13 +638,13 @@ The `dartclaw_config` package owns the full config lifecycle: parsing, validatio
 ```
 
 ```
-../dartclaw-public/packages/dartclaw_server/lib/src/api/
+packages/dartclaw_server/lib/src/api/
   config_routes.dart              # Tier 1 ephemeral toggle endpoints
   config_api_routes.dart          # Tier 2/3 persistent config API
 ```
 
 ```
-../dartclaw-public/apps/dartclaw_cli/lib/src/commands/
+apps/dartclaw_cli/lib/src/commands/
   config/                     # Connected config command group
   jobs/                       # Connected scheduling/job command group
   reload_trigger_service.dart     # SIGUSR1 + file-watch triggers
@@ -708,22 +719,6 @@ Comprehensive listing of all sections with hot-reload status:
 
 ---
 
-## 13. Evolution History
-
-| Version | Milestone | What Changed |
-|---------|-----------|-------------|
-| **0.5** | Live Config Tier 1 | Reactive config holders (`RuntimeConfig`), ephemeral toggle APIs, `ConfigChangedEvent` on EventBus |
-| **0.6** | Live Config Tier 2 | `ConfigWriter` (atomic YAML writes with backup), `ConfigValidator`, `ConfigMeta`/`FieldMeta` registry, `config_api_routes.dart` CRUD, Settings UI page |
-| **0.9** | Package decomposition | `dartclaw_config` extracted as standalone package. Channel config parsers moved to channel packages with registration pattern |
-| **0.10.2** | Composed config model | Decomposed `DartclawConfig` from 72 flat fields into 14+ typed sections. `registerExtensionParser()` + typed `config.extension<T>()`. Consumer migration across 35+ files |
-| **0.12** | Governance config | `GovernanceConfig` with rate limits, budget, loop detection. All default disabled for backward compat |
-| **0.14** | Multi-project config | `ProjectConfig`, `ProvidersConfig`, `CredentialsConfig`, `CredentialRegistry`, `ProviderValidator` |
-| **0.16** | Live Config Tier 3 | `ConfigNotifier`, `ConfigDelta`, `Reconfigurable` interface. `ReloadTriggerService` (SIGUSR1 + file-watch). `ReloadConfig` on `GatewayConfig`. Guard chain hot-reload. 8+ services implement `Reconfigurable` |
-| **0.16.3** | Workflow & advisor config | `WorkflowConfig`, `AdvisorConfig`, `AlertsConfig`, `HistoryConfig`. Config section count grew to 25+ |
-| **0.17** | Personalization & knowledge config | `OnboardingConfig` (personalization onboarding) and `KnowledgeConfig` (scheduled inbox ingestion + wiki-lint jobs) added as restart-tier sections |
-
----
-
 ## Cross-References
 
 - [System Architecture](system-architecture.md) — component map, package DAG, where config fits in the overall system
@@ -731,3 +726,4 @@ Comprehensive listing of all sections with hot-reload status:
 - [Data Model](data-model.md) — `dartclaw.yaml` as primary config store, `restart.pending` marker, config backup files
 - [Workflow Architecture](workflow-architecture.md) — workflow config section, workspace directory override
 - ADR-016 — live config tiers (Tier 1 and 2 design rationale; Tier 3 hot-reload resolved as "Future" item)
+- [`CHANGELOG.md`](../../CHANGELOG.md) — authoritative per-release history of configuration changes

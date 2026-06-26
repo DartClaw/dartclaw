@@ -1,7 +1,21 @@
 import 'workflow_run_id_command.dart';
 
 class WorkflowRetryCommand extends WorkflowRunIdCommand {
-  WorkflowRetryCommand({super.config, super.apiClient, super.writeLine, super.exitFn});
+  WorkflowRetryCommand({
+    super.config,
+    super.apiClient,
+    super.writeLine,
+    super.exitFn,
+    super.searchDbFactory,
+    super.taskDbFactory,
+    super.harnessFactory,
+    super.environment,
+    super.stderrLine,
+    super.interrupts,
+    super.runAndthenSkillsBootstrap,
+    super.skillIntrospector,
+    super.providerAuthPreflight,
+  });
 
   @override
   String get name => 'retry';
@@ -10,5 +24,17 @@ class WorkflowRetryCommand extends WorkflowRunIdCommand {
   String get description => 'Retry a failed workflow';
 
   @override
-  Future<void> run() => runAgainstRun(pathSuffix: 'retry', verb: 'retried');
+  Future<void> run() async {
+    requireForceWithStandalone();
+    final runId = requirePositionalArg('Run ID required');
+    if (isStandalone) {
+      await runStandaloneLifecycle(
+        runId: runId,
+        provisionTaskRunners: true,
+        action: (session) => driveStandaloneExecution(session, () => session.wiring.workflowService.retry(runId)),
+      );
+    } else {
+      await runAgainstRun(runId: runId, pathSuffix: 'retry', verb: 'retried');
+    }
+  }
 }

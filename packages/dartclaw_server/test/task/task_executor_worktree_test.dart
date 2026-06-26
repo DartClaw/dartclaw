@@ -857,4 +857,60 @@ void main() {
     expect(updated?.status, TaskStatus.failed);
     expect(updated?.configJson['errorSummary'], contains('required input path "fis/s01.md" is missing'));
   });
+
+  test('standalone required input path preflight resolves against the live checkout cwd', () async {
+    // Standalone/inline runs register no project and create no per-story
+    // worktree, so the required artifact lives in the current working directory
+    // (the live checkout) — the same dir the agent runs in. Regression: the
+    // preflight must not reject a spec that is present in cwd.
+    final cwd = Directory.current.path;
+    final specDir = Directory(p.join(cwd, '.dart_tool')).createTempSync('dartclaw_standalone_preflight_');
+    addTearDown(() {
+      if (specDir.existsSync()) specDir.deleteSync(recursive: true);
+    });
+    final specFile = File(p.join(specDir.path, 's01.md'))..writeAsStringSync('# FIS');
+    final relativeSpecPath = p.relative(specFile.path, from: cwd);
+
+    var processStarted = false;
+    final runner = echoCliRunner(
+      (_) => jsonEncode({'session_id': 'cli-session', 'result': 'Done.'}),
+      onArgs: (_, _) => processStarted = true,
+    );
+    // No projectService and no worktreeManager → project and worktree both
+    // resolve to null, exactly as in a standalone/inline run.
+    final standaloneExecutor = ctx.harness.buildWorkflowExecutor(
+      workflowCliRunner: runner,
+      workflowRunRepository: workflowRuns,
+      workflowStepExecutionRepository: workflowStepExecutions,
+    );
+    addTearDown(standaloneExecutor.stop);
+
+    await tasks.create(
+      id: 'task-standalone-required-input',
+      title: 'Implement Story',
+      description: 'Implement $relativeSpecPath',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-standalone-required-input',
+      workflowRunId: 'wf-standalone-required-input',
+      provider: 'claude',
+      configJson: {'_workflowNeedsWorktree': true, 'requiredInputPath': relativeSpecPath},
+    );
+    await seedWorkflowExecution(
+      'task-standalone-required-input',
+      agentExecutionId: 'ae-task-standalone-required-input',
+      workflowRunId: 'wf-standalone-required-input',
+      stepId: 'implement',
+      git: const {'worktree': 'inline'},
+      mapIterationIndex: 0,
+    );
+
+    final processed = await standaloneExecutor.pollOnce();
+    final updated = await waitForTaskStatus(tasks, 'task-standalone-required-input');
+
+    expect(processed, isTrue);
+    expect(processStarted, isTrue, reason: 'preflight should pass when the spec exists in the live checkout cwd');
+    expect(updated?.status, isNot(TaskStatus.failed));
+    expect(updated?.configJson['errorSummary'], isNot(contains('artifact-propagation')));
+  });
 }

@@ -3,14 +3,24 @@ import 'package:dartclaw_cli/src/commands/config_loader.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('standalone workflow config resolution prefers the cwd-local ./dartclaw/dartclaw.yaml', () {
+  test('standalone workflow config resolution prefers the cwd-local ./.dartclaw/dartclaw.yaml', () {
+    final resolved = resolveStandaloneWorkflowConfigPath(
+      env: const {'HOME': '/home/testuser'},
+      currentDirectory: '/repo',
+      exists: (path) => path == '/repo/.dartclaw/dartclaw.yaml',
+    );
+
+    expect(resolved, '/repo/.dartclaw/dartclaw.yaml');
+  });
+
+  test('standalone workflow config resolution ignores legacy ./dartclaw/dartclaw.yaml', () {
     final resolved = resolveStandaloneWorkflowConfigPath(
       env: const {'HOME': '/home/testuser'},
       currentDirectory: '/repo',
       exists: (path) => path == '/repo/dartclaw/dartclaw.yaml',
     );
 
-    expect(resolved, '/repo/dartclaw/dartclaw.yaml');
+    expect(resolved, '/home/testuser/.dartclaw/dartclaw.yaml');
   });
 
   test('standalone workflow config resolution falls back to home default when no cwd-local config exists', () {
@@ -40,6 +50,14 @@ void main() {
         exists: (_) => true,
       ),
       '/tmp/env.yaml',
+    );
+    expect(
+      resolveStandaloneWorkflowConfigPath(
+        env: const {'HOME': '/home/testuser', 'DARTCLAW_HOME': '/tmp/dartclaw-home'},
+        currentDirectory: '/repo',
+        exists: (path) => path == '/repo/.dartclaw/dartclaw.yaml',
+      ),
+      '/tmp/dartclaw-home/dartclaw.yaml',
     );
   });
 

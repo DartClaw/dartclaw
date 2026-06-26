@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.18 (ACP harness, provider-scoped pools, delegation, and Homebrew-first distribution)
+**Current through**: 0.19 (outbound MCP client, context_research, and knowledge UI)
 
 ---
 
@@ -18,7 +18,7 @@ Five principles shape every architectural decision:
 | **Outpost pattern** | Purpose-built CLI tools in the best language for the job (Go for WhatsApp, Python for ML/NLP), invoked as subprocesses with structured JSON I/O. No shared runtime, no dependency contamination |
 | **Auditable** | Codebase fits in a context window; dependencies stay minimal. On the order of ~100K production LOC across ~600 `lib/` Dart files (excluding tests and tooling) |
 
-See also: [Roadmap — Core Philosophy](../ROADMAP.md)
+See also: [Roadmap — Core Philosophy](../state/ROADMAP.md)
 
 ---
 
@@ -202,7 +202,7 @@ Turn orchestration coordinates message flow from user input through guard evalua
 | `ExplorationSummarizer` | `context/exploration_summarizer.dart` | Type-aware structural summaries for large tool output (JSON schema, CSV columns, source code declarations); falls back to `ResultTrimmer` for unrecognized types or parse failures |
 | `CompactionTaskEventSubscriber` | `task/compaction_task_event_subscriber.dart` | Listens for `CompactionCompletedEvent` and records a `compaction` task-timeline event when the compacted session belongs to an active running task |
 
-**Context management strategy** (0.10): Three layers preserve useful context in long-running sessions:
+**Context management strategy** (0.10): Layered mechanisms preserve useful context in long-running sessions:
 1. **Compact instructions** — `BehaviorFileService.composeSystemPrompt()` appends a `# Compact instructions` section for long-running session types (web, DM, group, cron), guiding the binary on what to preserve during auto-compaction. Configurable via `context.compact_instructions`.
 2. **Exploration summaries** — `ExplorationSummarizer` produces type-aware structural summaries (JSON key-paths, CSV columns, source code declarations) for tool output exceeding `context.exploration_summary_threshold` (default 25K tokens). Unrecognized types fall back to `ResultTrimmer` head+tail.
 3. **Context warning** — `ContextMonitor.checkThreshold()` emits an SSE `context_warning` event when usage exceeds `context.warning_threshold` (default 80%, live-mutable). One-shot per session; web UI renders a dismissable banner.
@@ -346,7 +346,7 @@ The default system model remains a long-lived streaming harness per active runne
 - The Dart host still owns task rows, workflow state, transcript persistence, and budget enforcement.
 - Workflow agent steps execute prompt chains as direct CLI invocations instead of replaying those prompts through the interactive streaming harness.
 - Structured extraction turns reuse provider-native session continuity (`--resume` / `resume`) and add native schema flags.
-- Workflow-authored step types are preserved as metadata (`_workflowStepType`), while runtime dispatch uses the coding-task path and `readOnly` to distinguish mutating and non-mutating workflow steps.
+- Workflow-authored step types are preserved on the hydrated `WorkflowStepExecution` side-table row (`stepType`), while runtime dispatch uses the coding-task path and `readOnly` to distinguish mutating and non-mutating workflow steps.
 
 Key workflow-engine extensions:
 - **Output format system**: `outputs:` map per step, `format: text/json/lines`, `schema: preset_name` or inline JSON Schema. Multi-strategy JSON extraction (raw → code blocks → pattern scan). 5 built-in schema presets: `verdict`, `remediation_result`, `story_plan`, `file_list`, `checklist`.
@@ -464,7 +464,7 @@ Three-tier configuration system:
 | `ReloadConfig` | `config/gateway_config.dart` | `gateway.reload` sub-config: `mode` (`off` / `signal` / `auto`) and file-watch `debounce_ms` |
 | `ReloadTriggerService` | `apps/dartclaw_cli/.../reload_trigger_service.dart` | Process-level trigger integration: `SIGUSR1` plus parent-directory file watching with debounce for atomic writes |
 
-Config resolution order: CLI flags > config file (`--config` > `DARTCLAW_CONFIG` env > `./dartclaw.yaml` > `~/.dartclaw/dartclaw.yaml`) > defaults.
+Config resolution order: CLI flags > config file (`--config` > `DARTCLAW_CONFIG` env > `DARTCLAW_HOME/dartclaw.yaml` > `~/.dartclaw/dartclaw.yaml`) > defaults. Standalone workflow commands add a scoped cwd-local `.dartclaw/dartclaw.yaml` lookup before the default instance path when no explicit config path or home is set.
 
 The config API now partitions fields into three mutability classes:
 - **live** — handled immediately by existing Tier 1 side effects
@@ -594,6 +594,27 @@ daily logs  ─────────────────────┘
 
 Memory MCP tools (`memory_save`, `memory_search`, `memory_read`) are registered on the internal MCP server and invoked by the agent via standard MCP protocol.
 
+#### Context Research Synthesis
+
+`context_research` is the Context Engine's MCP synthesis tool. It returns one compact citation packet instead of
+requiring separate `memory_search`, temporal-KG, and wiki reads. Design rationale:
+[ADR-042](../adrs/042-context-research-synthesis-and-citation-model.md).
+
+At call time the tool fans out retrieval across:
+
+- FTS5/QMD memory search, using the configured search backend;
+- temporal-KG facts and timelines for query-derived entity candidates;
+- wiki/source documents exposed through the knowledge layer.
+
+Results are deduplicated while preserving source metadata. Synthesis then runs through the injected background-turn
+seam; production wiring uses the existing session delegation path, while tests can inject a deterministic synthesizer.
+The returned `CitationPacket` contains statements, source references, degraded layers, and a
+`noSourcesFound` flag. If no sources are found, the packet reports that state instead of fabricating an answer. If the
+synthesizer returns malformed output, assembly falls back to citation-preserving snippets.
+
+Synthesized answers are never cached. Every `context_research` call reruns retrieval and synthesis so temporal facts,
+wiki edits, and memory updates are reflected by the next request.
+
 **Package**: `dartclaw_core` (file services), `dartclaw_storage` (SQLite services, search backends)
 
 #### Project Management
@@ -652,6 +673,16 @@ Internal MCP server hosted as a `/mcp` endpoint on the existing shelf HTTP serve
 | `BraveSearchTool` | `mcp/brave_search_tool.dart` | Brave Search API |
 | `TavilySearchTool` | `mcp/tavily_search_tool.dart` | Tavily Search API |
 | `SearchProvider` | `mcp/search_provider.dart` | Configurable search backend selection |
+| `ContextResearchTool` | `mcp/context_research_tool.dart` | `context_research` synthesis over memory, temporal KG, and wiki sources |
+| `OutboundMcpPool` | `mcp/outbound/outbound_mcp_pool.dart` | Pooled outbound MCP client with guard, audit, governance, and selective tool surfacing |
+
+The outbound MCP client consumes configured external MCP servers rather than serving tools to provider binaries. It
+owns native stdio and HTTP transports, performs `initialize`, `tools/list`, and `tools/call`, pools connections with
+idle teardown, and surfaces only tools listed in `mcp_servers.<name>.surface_tools`. Calls are mediated by the egress
+guard and audited before dispatch; guard, governance, or audit failure denies the call without contacting the external
+server.
+See [Security Architecture](security-architecture.md#outbound-mcp-egress-boundary) and
+[ADR-039](../adrs/039-outbound-mcp-trust-boundary-and-transport.md).
 
 SDK extensibility: `server.registerTool(McpTool)` — implement `name`, `description`, `inputSchema`, and `call()`.
 
@@ -1004,10 +1035,10 @@ All services are single-instance, single-threaded. Isolates are avoided unless p
 | Observability & operations | [`dev/architecture/observability-operations-architecture.md`](observability-operations-architecture.md) | Turn traces, task events, alert routing, scheduling |
 | Session & state management | [`dev/architecture/session-state-architecture.md`](session-state-architecture.md) | Session lifecycle, scoping, locks, pause/resume, crash recovery |
 | Architecture governance | [`dev/architecture/architecture-governance.md`](architecture-governance.md) | Fitness functions, structural boundaries, update rules, and governance scope |
-| Roadmap | [`docs/ROADMAP.md`](../ROADMAP.md) | Milestones, status, success criteria |
-| Feature comparison | [`docs/specs/feature-comparison.md`](../specs/feature-comparison.md) | OpenClaw vs NanoClaw vs DartClaw |
-| Product Backlog | [`docs/PRODUCT-BACKLOG.md`](../PRODUCT-BACKLOG.md) | Deferred/future features with rationale |
-| Learnings | [`dartclaw-public/dev/state/LEARNINGS.md`](../../../dartclaw-public/dev/state/LEARNINGS.md) | Traps, gotchas, non-obvious patterns |
+| Roadmap | [`dev/state/ROADMAP.md`](../state/ROADMAP.md) | Milestones, status, success criteria |
+| Feature comparison | `docs/specs/feature-comparison.md` (private repo) | OpenClaw vs NanoClaw vs DartClaw |
+| Product Backlog | `docs/PRODUCT-BACKLOG.md` (private repo) | Deferred/future features with rationale |
+| Learnings | [`dev/state/LEARNINGS.md`](../state/LEARNINGS.md) | Traps, gotchas, non-obvious patterns |
 | User-facing architecture overview | [`docs/guide/architecture.md`](../../docs/guide/architecture.md) | Operator-oriented 2-layer overview |
 
 ### Key ADRs
@@ -1031,4 +1062,4 @@ All services are single-instance, single-threaded. Isolates are avoided unless p
 
 ### Diagrams
 
-Architecture diagrams are maintained as Excalidraw source files in [`docs/diagrams/`](../diagrams/). Rendered PNGs in `docs/diagrams/renders/` are gitignored and regenerable.
+Architecture diagrams are maintained as Excalidraw source files in `docs/diagrams/` (private repo). Rendered PNGs in `docs/diagrams/renders/` are gitignored and regenerable.

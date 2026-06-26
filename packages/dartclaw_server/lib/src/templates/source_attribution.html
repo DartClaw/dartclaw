@@ -1,0 +1,49 @@
+<span tl:fragment="sourceAttribution" class="source-attribution" tl:classappend="${stateClass}" tl:attr="data-controller=${controllerName}">
+  <button tl:if="${attributed}"
+          type="button"
+          class="citation-marker"
+          data-action="click->dc-attribution#toggle mouseenter->dc-attribution#show keydown.esc->dc-attribution#hide"
+          tl:attr="aria-label=${ariaLabel}">
+    [<span tl:text="${marker}">1</span>]
+  </button>
+  <span tl:if="${attributed}" class="layer-badge" tl:classappend="${layerClass}" tl:text="${layerLabel}">Wiki</span>
+  <span tl:if="${attributed}" class="attribution-popover card-elevated" hidden="hidden" data-dc-attribution-target="popover">
+    <span class="attribution-popover-head">
+      <span class="layer-badge" tl:classappend="${layerClass}" tl:text="${layerLabel}">Wiki</span>
+      <a class="source-link" tl:attr="href=${sourceHref}" tl:text="${sourceLabel}">Source</a>
+    </span>
+    <span class="source-excerpt" tl:text="${excerpt}">Source excerpt</span>
+    <a class="source-open-link" tl:attr="href=${sourceHref}">Open source</a>
+  </span>
+  <span tl:unless="${attributed}" class="unverified-flag">Unverified</span>
+</span>
+
+<p tl:fragment="citationStatement" class="attribution-statement" tl:classappend="${stateClass}">
+  <span class="attribution-statement-text" tl:text="${text}">Statement text.</span>
+  <tl:block tl:utext="${attributionHtml}"><!-- attribution --></tl:block>
+</p>
+
+<div tl:fragment="sourceListItem" class="source-list-item" tl:classappend="${stateClass}">
+  <tl:block tl:utext="${attributionHtml}"><!-- attribution --></tl:block>
+  <a tl:if="${attributed}" class="source-list-link" tl:attr="href=${sourceHref}" tl:text="${sourceLabel}">Source</a>
+  <span tl:unless="${attributed}" class="source-list-label" tl:text="${sourceLabel}">Source</span>
+  <span class="source-list-locator" tl:text="${locator}">locator</span>
+</div>
+
+<div tl:fragment="hubItemFixture" class="knowledge-hub-item">
+  <span class="hub-item-icon" aria-hidden="true">#</span>
+  <span class="hub-item-body">
+    <strong tl:text="${title}">Knowledge item</strong>
+    <span tl:text="${summary}">Summary</span>
+    <tl:block tl:utext="${attributionHtml}"><!-- attribution --></tl:block>
+  </span>
+</div>
+
+<div tl:fragment="timelineItemFixture" class="knowledge-timeline-item">
+  <span class="timeline-rail" aria-hidden="true"></span>
+  <span class="timeline-item-body">
+    <span class="timeline-item-meta" tl:text="${meta}">turn 1</span>
+    <span tl:text="${fact}">Fact text</span>
+    <tl:block tl:utext="${attributionHtml}"><!-- attribution --></tl:block>
+  </span>
+</div>

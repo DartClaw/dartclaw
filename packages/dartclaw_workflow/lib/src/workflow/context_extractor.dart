@@ -14,6 +14,7 @@ import 'filesystem_output_resolver.dart' as fs;
 import 'json_extraction.dart';
 import 'output_normalization.dart' as on_;
 import 'output_resolver.dart';
+import 'path_safety_policy.dart' show validateArgumentSafePath;
 import 'review_artifact_policy.dart' as rap;
 import 'schema_presets.dart' show outputResolverFor;
 import 'schema_validator.dart';
@@ -157,7 +158,7 @@ class ContextExtractor {
           // its own session payload, so the bare alias cannot cross-contaminate
           // a sibling step.
           final claimKey = _fileSystemClaimKey(outputKey, step, workflowContextPayload);
-          outputs[outputKey] = await _resolveFileSystemOutput(
+          final resolvedFsOutput = await _resolveFileSystemOutput(
             resolver,
             outputKey: outputKey,
             step: step,
@@ -166,6 +167,8 @@ class ContextExtractor {
             hasInlineClaim: claimKey != null,
             workflowContextPayload: workflowContextPayload,
           );
+          _assertArgumentSafeFileSystemOutput(resolvedFsOutput, outputKey);
+          outputs[outputKey] = resolvedFsOutput;
           continue;
         case InlineOutput():
           if (workflowContextPayload != null && workflowContextPayload.containsKey(outputKey)) {
@@ -359,6 +362,18 @@ class ContextExtractor {
       git: git,
       dataDir: _dataDir,
     );
+  }
+
+  // Single-value relative `format: path` outputs are interpolated straight into
+  // skill command arguments (e.g. `--auto {{context.spec_path}}`), so they must
+  // pass the argument-safety axis (control chars, parent traversal, flag-shaped
+  // segments) of the generic `format: path` trust boundary (ADR-041). Absolute
+  // values are engine-produced runtime-artifacts claims (trusted, may contain
+  // spaces) and list outputs are diff-derived, so both are exempt. Restores the
+  // check the removed discovery-spec validator ran on `spec_path`.
+  void _assertArgumentSafeFileSystemOutput(Object? value, String outputKey) {
+    if (value is! String || value.isEmpty || p.isAbsolute(value)) return;
+    validateArgumentSafePath(value, fieldName: outputKey, rawPath: value);
   }
 
   /// Distinguishes an explicit "no path" claim (agent emitted `""`, `"null"`,

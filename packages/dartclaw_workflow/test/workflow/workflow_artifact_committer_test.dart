@@ -37,7 +37,7 @@ void main() {
       await tempDir.delete(recursive: true);
     });
 
-    test('detects path-output and skill artifact producers', () {
+    test('detects artifact producers via the generic OutputFormat.path signal, not skill name', () {
       expect(
         workflowHasArtifactProducer(
           const WorkflowDefinition(
@@ -54,12 +54,40 @@ void main() {
         ),
         isTrue,
       );
+      // A skill step with no path-shaped output is not an artifact producer:
+      // detection keys on OutputFormat.path alone, carrying no skill allowlist.
       expect(
         workflowHasArtifactProducer(
           const WorkflowDefinition(
             name: 'wf',
             description: 'test',
-            steps: [WorkflowStep(id: 'prd', name: 'PRD', skill: 'andthen:prd')],
+            steps: [
+              WorkflowStep(
+                id: 'review',
+                name: 'Review',
+                skill: 'some:review',
+                outputs: {'findings_count': OutputConfig(format: OutputFormat.json)},
+              ),
+            ],
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test('detects artifact producers via story_specs spec_path outputs', () {
+      expect(
+        workflowHasArtifactProducer(
+          const WorkflowDefinition(
+            name: 'wf',
+            description: 'test',
+            steps: [
+              WorkflowStep(
+                id: 'plan',
+                name: 'Plan',
+                outputs: {'story_specs': OutputConfig(format: OutputFormat.json, schema: 'story_specs')},
+              ),
+            ],
           ),
         ),
         isTrue,

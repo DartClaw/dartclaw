@@ -40,6 +40,10 @@ abstract class ConnectedCommand extends Command<void> {
   @protected
   DartclawConfig? get injectedConfig => _config;
 
+  /// The injected API client, when one was provided to the constructor.
+  @protected
+  DartclawApiClient? get injectedApiClient => _apiClient;
+
   /// Resolves the API client (injected client/config win, else loaded from global opts).
   @protected
   DartclawApiClient client() =>

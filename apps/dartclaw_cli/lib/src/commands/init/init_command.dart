@@ -282,10 +282,13 @@ abstract class _InitImpl extends Command<void> {
     }
 
     if (state.workflowTrack) {
-      // The bare standalone command resolves only the cwd-local ./dartclaw/dartclaw.yaml;
+      // The bare standalone command resolves only the cwd-local ./.dartclaw/dartclaw.yaml;
       // a custom config folder must be passed explicitly with --config.
       final configPath = p.join(state.instanceDir, 'dartclaw.yaml');
-      final isCwdLocal = p.equals(p.absolute(configPath), p.absolute(p.join('dartclaw', 'dartclaw.yaml')));
+      final isCwdLocal = p.equals(
+        p.normalize(p.absolute(configPath)),
+        p.normalize(p.absolute(p.join('.dartclaw', 'dartclaw.yaml'))),
+      );
       if (isCwdLocal) {
         _writeLine('Run a workflow: dartclaw workflow run --standalone code-review');
       } else {
@@ -1011,7 +1014,7 @@ abstract class _InitImpl extends Command<void> {
     final base = _defaultsFromExisting(existingConfig);
     return (
       instanceName: base.instanceName,
-      instanceDir: './dartclaw',
+      instanceDir: './.dartclaw',
       providers: base.providers.isEmpty ? const ['claude'] : base.providers,
       primaryProvider: base.primaryProvider,
       authMethods: base.authMethods,

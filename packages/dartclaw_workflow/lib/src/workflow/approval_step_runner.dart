@@ -1,14 +1,18 @@
 import 'dart:async' show Timer;
 
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
+import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowApprovalPolicy, WorkflowRunStatus;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show EventBus, WorkflowApprovalRequestedEvent, WorkflowRunStatusChangedEvent;
+    show EventBus, WorkflowApprovalRequestedEvent, WorkflowApprovalResolvedEvent, WorkflowRunStatusChangedEvent;
+import 'package:logging/logging.dart';
 import 'workflow_definition.dart' show ActionNode, WorkflowStep, WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowRun;
 
+import 'workflow_approval_policy.dart';
 import 'workflow_context.dart';
 import 'workflow_runner_types.dart';
 import 'workflow_template_engine.dart';
+
+final _log = Logger('ApprovalStepRunner');
 
 /// Runs a normalized approval action node.
 Future<StepOutcome> approvalStepRun(ActionNode node, StepExecutionContext ctx) async {
@@ -19,7 +23,7 @@ Future<StepOutcome> approvalStepRun(ActionNode node, StepExecutionContext ctx) a
     throw StateError('approvalStepRun requires run, definition, and workflowContext on StepExecutionContext.');
   }
   final step = definition.steps.firstWhere((candidate) => candidate.id == node.stepId);
-  await executeApprovalStep(
+  final paused = await executeApprovalStep(
     run: run,
     step: step,
     context: context,
@@ -33,6 +37,14 @@ Future<StepOutcome> approvalStepRun(ActionNode node, StepExecutionContext ctx) a
       approvalTimers: <String, Timer>{},
     ),
   );
+  if (!paused) {
+    return StepOutcome(
+      step: step,
+      success: true,
+      outcome: 'succeeded',
+      outcomeReason: 'approval auto-resolved: ${step.id}',
+    );
+  }
   return StepOutcome(
     step: step,
     success: false,
@@ -59,8 +71,10 @@ final class ApprovalStepDependencies {
   });
 }
 
-/// Executes a `type: approval` step and pauses the run with approval metadata.
-Future<void> executeApprovalStep({
+/// Executes a `type: approval` step.
+///
+/// Returns `true` when the run pauses for manual approval.
+Future<bool> executeApprovalStep({
   required WorkflowRun run,
   required WorkflowStep step,
   required WorkflowContext context,
@@ -89,6 +103,60 @@ Future<void> executeApprovalStep({
     '_approval.pending.stepIndex': stepIndex,
   };
 
+  dependencies.eventBus.fire(
+    WorkflowApprovalRequestedEvent(
+      runId: run.id,
+      stepId: step.id,
+      message: message,
+      timeoutSeconds: timeoutSeconds,
+      timestamp: DateTime.now(),
+    ),
+  );
+
+  final policy = workflowApprovalPolicyFromRun(run);
+  if (policy == WorkflowApprovalPolicy.auto) {
+    final resolvedAt = DateTime.now().toIso8601String();
+    final reason = 'approval step auto-accepted by workflow.approvals=${policy.yamlValue}';
+    final autoResolvedKey = '$approvalAutoResolvedPrefix${step.id}';
+    final autoResolvedValue = approvalAutoResolvedValue(policy: policy, reason: reason, source: 'approval');
+    context['${step.id}.status'] = 'accepted';
+    context['${step.id}.approval.status'] = 'approved';
+    context['${step.id}.approval.resolved_at'] = resolvedAt;
+    context[autoResolvedKey] = autoResolvedValue;
+    _log.info(
+      "Workflow '${run.id}': auto-resolved approval step '${step.id}' "
+      'with approval policy ${policy.yamlValue}: $reason',
+    );
+    await dependencies.persistContext(run.id, context);
+    await dependencies.repository.update(
+      run.copyWith(
+        currentStepIndex: stepIndex + 1,
+        contextJson: {
+          ...privateContextEntries(run.contextJson),
+          ...context.toJson(),
+          '${step.id}.status': 'accepted',
+          '${step.id}.approval.status': 'approved',
+          '${step.id}.approval.message': message,
+          '${step.id}.approval.requested_at': requestedAt,
+          '${step.id}.approval.resolved_at': resolvedAt,
+          '${step.id}.tokenCount': 0,
+          autoResolvedKey: autoResolvedValue,
+        },
+        updatedAt: DateTime.now(),
+      ),
+    );
+    dependencies.eventBus.fire(
+      WorkflowApprovalResolvedEvent(
+        runId: run.id,
+        stepId: step.id,
+        approved: true,
+        feedback: reason,
+        timestamp: DateTime.now(),
+      ),
+    );
+    return false;
+  }
+
   if (timeoutSeconds != null) {
     final deadline = DateTime.now().add(Duration(seconds: timeoutSeconds)).toIso8601String();
     context['${step.id}.approval.timeout_deadline'] = deadline;
@@ -105,15 +173,6 @@ Future<void> executeApprovalStep({
   await dependencies.persistContext(run.id, context);
   await dependencies.repository.update(awaitingApprovalRun);
 
-  dependencies.eventBus.fire(
-    WorkflowApprovalRequestedEvent(
-      runId: run.id,
-      stepId: step.id,
-      message: message,
-      timeoutSeconds: timeoutSeconds,
-      timestamp: DateTime.now(),
-    ),
-  );
   dependencies.eventBus.fire(
     WorkflowRunStatusChangedEvent(
       runId: run.id,
@@ -140,6 +199,7 @@ Future<void> executeApprovalStep({
       await dependencies.cancelRun(withReason, 'approval timeout: ${step.id}');
     });
   }
+  return true;
 }
 
 /// Cancels outstanding approval timers.

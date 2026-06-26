@@ -4,8 +4,8 @@
   "references": [
     "technical-research.md",
     "../0.17/fis/s08-chat-composer.md",
-    "../../../../dartclaw-public/dev/guidelines/HTMX-GUIDELINES.md",
-    "../../../../dartclaw-public/dev/guidelines/TRELLIS-GUIDELINES.md"
+    "dev/guidelines/HTMX-GUIDELINES.md",
+    "dev/guidelines/TRELLIS-GUIDELINES.md"
   ],
   "overview": {
     "summary": "DartClaw 0.16.6 adopts Stimulus as the Web UI browser interaction layer while preserving the existing HTMX, Trellis, static-asset, and zero-Node architecture. The plan keeps the migration sequential because the foundation contract drives every later page migration, and the completion story removes legacy patterns only after the high-traffic surfaces have moved.\n\nAll FIS files already exist and are preserved as spec-ready during this migration from legacy plan.md to plan.json. The markdown plan remains a human-facing companion only; plan.json is the runtime ledger for downstream workflow skills.",
@@ -126,8 +126,8 @@
       "provenance": null,
       "assetRefs": [
         "technical-research.md",
-        "../../../../dartclaw-public/dev/guidelines/HTMX-GUIDELINES.md",
-        "../../../../dartclaw-public/dev/guidelines/TRELLIS-GUIDELINES.md"
+        "dev/guidelines/HTMX-GUIDELINES.md",
+        "dev/guidelines/TRELLIS-GUIDELINES.md"
       ],
       "notes": "Locks down the integration contract that all later stories must follow."
     },
@@ -208,7 +208,7 @@
         "technical-research.md",
         "../0.17/fis/s08-chat-composer.md",
         "../../ROADMAP.md",
-        "../../../../dartclaw-public/dev/state/STATE.md"
+        "dev/state/STATE.md"
       ],
       "notes": "Use the current 0.17 composer FIS path, not the older consolidated filename from the draft PRD."
     }

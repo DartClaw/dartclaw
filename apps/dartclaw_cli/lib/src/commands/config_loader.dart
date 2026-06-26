@@ -47,7 +47,7 @@ String resolveCliConfigPath({String? configPath, Map<String, String>? env}) {
 /// Resolves the config path for `dartclaw workflow --standalone` commands.
 ///
 /// Explicit `--config` and `DARTCLAW_CONFIG` stay authoritative. Otherwise the
-/// resolver prefers a cwd-local `./dartclaw/dartclaw.yaml` — the file
+/// resolver prefers a cwd-local `./.dartclaw/dartclaw.yaml` — the file
 /// `dartclaw init --workflow` writes — so a freshly initialized project runs a
 /// bare `dartclaw workflow run --standalone <name>` without `--config`. When no
 /// cwd-local config exists it falls back to the normal CLI config path.
@@ -65,11 +65,15 @@ String resolveStandaloneWorkflowConfigPath({
   if (envPath != null && envPath.isNotEmpty) {
     return resolveCliConfigPath(env: environment);
   }
+  final homePath = environment['DARTCLAW_HOME'];
+  if (homePath != null && homePath.isNotEmpty) {
+    return resolveCliConfigPath(env: environment);
+  }
 
   bool defaultExists(String path) => File(path).existsSync();
   final fileExists = exists ?? defaultExists;
   final cwd = currentDirectory ?? Directory.current.path;
-  final cwdConfig = p.join(cwd, 'dartclaw', 'dartclaw.yaml');
+  final cwdConfig = p.join(cwd, '.dartclaw', 'dartclaw.yaml');
   if (fileExists(cwdConfig)) return cwdConfig;
 
   return resolveCliConfigPath(env: environment);

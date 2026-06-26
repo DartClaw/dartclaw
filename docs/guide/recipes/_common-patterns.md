@@ -28,7 +28,7 @@ The agent can update SOUL.md over time. It is re-read every turn -- edit live wi
 
 ### Example: A real daily-driver SOUL.md
 
-Here is a fleshed-out example that goes beyond placeholders:
+A fleshed-out example that goes beyond placeholders:
 
 ```markdown
 # Agent Identity
@@ -214,7 +214,7 @@ DartClaw has two independent scheduling mechanisms. They serve different purpose
 | **Schedule** | Fixed interval (`interval_minutes`) | Cron expression or interval per job |
 | **Memory consolidation** | Triggers automatically when MEMORY.md exceeds cap | Does not trigger consolidation |
 | **Git sync** | Commits workspace changes after each run | Does not trigger git sync |
-| **Delivery** | Results logged only | Configurable: `none`, `announce` (planned), `webhook` |
+| **Delivery** | Results logged only | Configurable: `none`, `announce`, `webhook` |
 | **Session** | New isolated session each run | Same session reused per job ID (history accumulates) |
 
 **When to use which:**

@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkspaceSkillInventory, WorkspaceSkillLinker;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkspaceSkillInventory, WorkspaceSkillLinker, skillProvisionerMarkerFile;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -122,9 +123,8 @@ void main() {
       );
 
       final exclude = File(p.join(effectiveGitDir.path, 'info', 'exclude')).readAsStringSync();
-      expect(exclude, contains('/.claude/skills/dartclaw-discover-andthen-spec'));
-      expect(exclude, contains('/.claude/skills/dartclaw-discover-andthen-plan'));
-      expect(exclude, contains('/.agents/skills/dartclaw-merge-resolve'));
+      expect(exclude, contains('/.claude/skills/dartclaw-*'));
+      expect(exclude, contains('/.agents/skills/dartclaw-*'));
     });
 
     test('crafted gitdir file is ignored when git plumbing rejects it', () {
@@ -312,6 +312,49 @@ void main() {
 
       linker.clean(workspaceDir: workspaceDir);
       expect(File(p.join(operatorSkill.path, 'SKILL.md')).readAsStringSync(), 'operator\n');
+    });
+  });
+
+  group('WorkspaceSkillInventory.fromDataDir', () {
+    late Directory tempDir;
+    late String dataDir;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('workspace_skill_inventory_test_');
+      dataDir = p.join(tempDir.path, 'data');
+      _seedDataDir(dataDir);
+    });
+
+    tearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+
+    test('without a manifest marker, discovers all managed dartclaw-* skills (cold-start fallback)', () {
+      final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
+      expect(inventory.skillNames, containsAll(<String>['dartclaw-discover-andthen-spec', 'dartclaw-merge-resolve']));
+    });
+
+    test('binds the inventory to the manifest marker: a stale dartclaw-* skill is never surfaced', () {
+      // A stale managed skill lingers on disk after a manifest removal.
+      for (final root in [p.join(dataDir, '.claude', 'skills'), p.join(dataDir, '.agents', 'skills')]) {
+        File(p.join(root, 'dartclaw-old-skill', 'SKILL.md'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('---\nname: dartclaw-old-skill\n---\nbody\n');
+      }
+      // The provisioned marker is the canonical inventory and omits it.
+      File(p.join(dataDir, skillProvisionerMarkerFile)).writeAsStringSync(
+        const [
+          'dartclaw-discover-andthen-spec',
+          'dartclaw-discover-andthen-plan',
+          'dartclaw-validate-workflow',
+          'dartclaw-merge-resolve',
+        ].join('\n'),
+      );
+
+      final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
+
+      expect(inventory.skillNames, isNot(contains('dartclaw-old-skill')));
+      expect(inventory.skillNames, contains('dartclaw-discover-andthen-spec'));
     });
   });
 }

@@ -3,12 +3,20 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 
+typedef KgPrincipalProvider = String Function();
+typedef KgGuardEvaluator = Future<GuardVerdict> Function(String tool, Map<String, dynamic> args, String principal);
+
+const systemKgPrincipal = 'system';
+
 /// MCP tool for adding source-linked temporal facts.
 class KgAddTool implements McpTool {
   final TemporalKnowledgeGraphService kg;
   final GuardAuditLogger? auditLogger;
+  final KgPrincipalProvider principalProvider;
+  final KgGuardEvaluator? guardEvaluator;
 
-  KgAddTool({required this.kg, this.auditLogger});
+  KgAddTool({required this.kg, this.auditLogger, KgPrincipalProvider? principalProvider, this.guardEvaluator})
+    : principalProvider = principalProvider ?? _systemPrincipal;
 
   @override
   String get name => 'kg_add';
@@ -31,16 +39,41 @@ class KgAddTool implements McpTool {
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
+    final principal = principalProvider();
+    final guardFailure = await _guardFailureResult(
+      guardEvaluator,
+      auditLogger: auditLogger,
+      tool: 'kg_add',
+      args: args,
+      principal: principal,
+    );
+    if (guardFailure != null) return guardFailure;
     final contradictions = kg.contradictions(
       entity: _string(args, 'entity'),
       predicate: _string(args, 'predicate'),
       value: _string(args, 'value'),
     );
     if (contradictions.isNotEmpty) {
+      final failure = await _auditFailureResult(
+        auditLogger,
+        tool: 'kg_add',
+        principal: principal,
+        decision: 'deny',
+        reason: 'contradiction',
+      );
+      if (failure != null) return failure;
       return _jsonText({'status': 'contradiction', 'contradictions': _contradictionsJson(contradictions)});
     }
     final entity = _string(args, 'entity');
     final predicate = _string(args, 'predicate');
+    final failure = await _auditFailureResult(
+      auditLogger,
+      tool: 'kg_add',
+      principal: principal,
+      decision: 'allow',
+      reason: 'entity=$entity predicate=$predicate',
+    );
+    if (failure != null) return failure;
     final id = kg.addFact(
       entity: entity,
       predicate: predicate,
@@ -48,15 +81,7 @@ class KgAddTool implements McpTool {
       validFrom: _string(args, 'valid_from'),
       validTo: args['valid_to'] as String?,
       source: _string(args, 'source'),
-    );
-    auditLogger?.logVerdict(
-      verdict: GuardVerdict.pass(),
-      guardName: 'KgAdd',
-      guardCategory: 'mcp_write',
-      hookPoint: 'mcp_tool_call',
-      timestamp: DateTime.now().toUtc(),
-      rawProviderToolName: 'kg_add',
-      sessionId: 'entity=$entity predicate=$predicate id=$id',
+      owner: principal,
     );
     return _jsonText({'status': 'added', 'id': id});
   }
@@ -131,8 +156,17 @@ class KgTimelineTool implements McpTool {
 class KgInvalidateTool implements McpTool {
   final TemporalKnowledgeGraphService kg;
   final GuardAuditLogger? auditLogger;
+  final KgPrincipalProvider principalProvider;
+  final String stewardPrincipal;
+  final KgGuardEvaluator? guardEvaluator;
 
-  KgInvalidateTool({required this.kg, this.auditLogger});
+  KgInvalidateTool({
+    required this.kg,
+    this.auditLogger,
+    KgPrincipalProvider? principalProvider,
+    this.stewardPrincipal = systemKgPrincipal,
+    this.guardEvaluator,
+  }) : principalProvider = principalProvider ?? _systemPrincipal;
 
   @override
   String get name => 'kg_invalidate';
@@ -152,22 +186,61 @@ class KgInvalidateTool implements McpTool {
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
+    final principal = principalProvider();
     final id = (args['id'] as num).toInt();
     final reason = _string(args, 'reason');
-    final updated = kg.invalidate(id: id, invalidatedAt: _string(args, 'invalidated_at'), reason: reason);
-    if (!updated) {
-      // Fact does not exist — reject rather than silently accepting an arbitrary ID.
+    final guardFailure = await _guardFailureResult(
+      guardEvaluator,
+      auditLogger: auditLogger,
+      tool: 'kg_invalidate',
+      args: args,
+      principal: principal,
+    );
+    if (guardFailure != null) return guardFailure;
+    if (!kg.factExists(id)) {
+      final failure = await _auditFailureResult(
+        auditLogger,
+        tool: 'kg_invalidate',
+        principal: principal,
+        decision: 'deny',
+        reason: 'not_found',
+      );
+      if (failure != null) return failure;
       return _jsonText({'status': 'not_found', 'id': id});
     }
-    auditLogger?.logVerdict(
-      verdict: GuardVerdict.pass(),
-      guardName: 'KgInvalidate',
-      guardCategory: 'mcp_write',
-      hookPoint: 'mcp_tool_call',
-      timestamp: DateTime.now().toUtc(),
-      rawProviderToolName: 'kg_invalidate',
-      sessionId: 'id=$id reason=$reason',
+    final owner = kg.ownerForFact(id);
+    if (owner == null && !_samePrincipal(principal, stewardPrincipal)) {
+      final failure = await _auditFailureResult(
+        auditLogger,
+        tool: 'kg_invalidate',
+        principal: principal,
+        decision: 'deny',
+        reason: 'legacy/system-owned fact requires steward principal',
+      );
+      if (failure != null) return failure;
+      return _jsonText({'status': 'denied', 'id': id, 'reason': 'legacy/system-owned fact requires steward principal'});
+    }
+    if (owner != null && !_samePrincipal(owner, principal)) {
+      final failure = await _auditFailureResult(
+        auditLogger,
+        tool: 'kg_invalidate',
+        principal: principal,
+        decision: 'deny',
+        reason: 'principal does not own fact',
+      );
+      if (failure != null) return failure;
+      return _jsonText({'status': 'denied', 'id': id, 'reason': 'principal does not own fact'});
+    }
+    final failure = await _auditFailureResult(
+      auditLogger,
+      tool: 'kg_invalidate',
+      principal: principal,
+      decision: 'allow',
+      reason: 'fact_invalidated',
     );
+    if (failure != null) return failure;
+    final updated = kg.invalidate(id: id, invalidatedAt: _string(args, 'invalidated_at'), reason: reason);
+    if (!updated) return _jsonText({'status': 'not_found', 'id': id});
     return _jsonText({'status': 'invalidated'});
   }
 }
@@ -227,3 +300,84 @@ String _string(Map<String, dynamic> args, String key) {
   }
   return value;
 }
+
+String _systemPrincipal() => systemKgPrincipal;
+
+bool _samePrincipal(String left, String right) => left.trim() == right.trim();
+
+Future<ToolResult?> _guardFailureResult(
+  KgGuardEvaluator? guardEvaluator, {
+  required GuardAuditLogger? auditLogger,
+  required String tool,
+  required Map<String, dynamic> args,
+  required String principal,
+}) async {
+  final evaluator = guardEvaluator;
+  if (evaluator == null) return null;
+  try {
+    final verdict = await evaluator(tool, args, principal);
+    if (!verdict.isBlock) return null;
+    final reason = verdict.message ?? 'KG write denied';
+    final failure = await _auditFailureResult(
+      auditLogger,
+      tool: tool,
+      principal: principal,
+      decision: 'deny',
+      reason: reason,
+    );
+    if (failure != null) return failure;
+    return _jsonText({'status': 'denied', 'decision': 'deny', 'reason': reason});
+  } catch (error) {
+    final failure = await _auditFailureResult(
+      auditLogger,
+      tool: tool,
+      principal: principal,
+      decision: 'deny',
+      reason: 'guard failure: $error',
+    );
+    if (failure != null) return failure;
+    return _jsonText(_auditFailurePayload('guard failure: $error'));
+  }
+}
+
+Future<void> _auditKgDecision(
+  GuardAuditLogger? auditLogger, {
+  required String tool,
+  required String principal,
+  required String decision,
+  String? reason,
+}) async {
+  if (auditLogger == null) return;
+  await auditLogger.writeEntry(
+    AuditEntry(
+      timestamp: DateTime.now(),
+      guard: 'KgWriteGuard',
+      hook: 'mcp_tool_call',
+      verdict: decision == 'allow' ? 'pass' : 'block',
+      reason: reason,
+      rawProviderToolName: tool,
+      sessionId: principal,
+      server: 'kg',
+      tool: tool,
+      decision: decision,
+      principal: principal,
+    ),
+  );
+}
+
+Future<ToolResult?> _auditFailureResult(
+  GuardAuditLogger? auditLogger, {
+  required String tool,
+  required String principal,
+  required String decision,
+  String? reason,
+}) async {
+  try {
+    await _auditKgDecision(auditLogger, tool: tool, principal: principal, decision: decision, reason: reason);
+    return null;
+  } catch (error) {
+    return _jsonText(_auditFailurePayload('audit failure: $error'));
+  }
+}
+
+Map<String, Object?> _auditFailurePayload(String reason) => {'status': 'denied', 'decision': 'deny', 'reason': reason};

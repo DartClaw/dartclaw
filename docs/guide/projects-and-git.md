@@ -1,6 +1,6 @@
 # Projects and Git
 
-> Current through: **0.16.4**
+> Current through: **0.18**
 
 DartClaw manages git repositories as **projects** -- first-class entities that coding tasks branch from, work in, and push results back to. A single DartClaw instance can manage multiple projects simultaneously.
 
@@ -17,7 +17,7 @@ There are two kinds of projects:
 
 ### The Implicit `_local` Project
 
-If you don't configure any external projects, DartClaw works exactly like a single-project setup. It creates an implicit `_local` project from the current working directory:
+If you don't configure any external projects, DartClaw creates an implicit `_local` project from the current working directory:
 
 ```bash
 cd ~/repos/my-app      # this becomes the _local project
@@ -28,7 +28,7 @@ The `_local` project:
 - Is always available, even when external projects are registered
 - Uses local merge semantics (squash-merge into the base ref) -- no remote push
 - Is the **default project** when no external projects exist
-- Requires the same git prerequisites as before: `.git/` directory and a local base ref
+- Requires a `.git/` directory and a local base ref
 
 When you register external projects, `_local` remains selectable but is no longer the default -- the first external project (or whichever is marked `default: true`) takes over.
 
@@ -186,12 +186,11 @@ For **`_local` tasks**, the flow is the same except: no auto-fetch, and accept p
 
 ```
 ~/.dartclaw/
-  .dartclaw/
-    worktrees/
-      <taskId>/         # isolated checkout for each coding task
+  worktrees/
+    <taskId>/           # isolated checkout for each coding task
 ```
 
-The exact path is `<dataDir>/.dartclaw/worktrees/`.
+The exact path is `<dataDir>/worktrees/`.
 
 ### Branch Naming
 
@@ -239,7 +238,7 @@ tasks:
 
 ## Workflow-Owned Promotion and Publish
 
-Workflow runs with `gitStrategy.publish.enabled: true` now publish deterministically from workflow runtime state, instead of only from manual task acceptance flows.
+Workflow runs with `gitStrategy.publish.enabled: true` publish deterministically from workflow runtime state, not only from manual task acceptance flows.
 
 For project-backed workflows:
 
@@ -308,8 +307,8 @@ In containerized mode, project clones are mounted read-only:
 When the agent harness needs to work in a worktree inside a container, host paths are translated:
 
 ```
-Host:      ~/.dartclaw/.dartclaw/worktrees/task-42/
-Container: /workspace/.dartclaw/worktrees/task-42/
+Host:      ~/.dartclaw/worktrees/task-42/
+Container: /workspace/worktrees/task-42/
 ```
 
 `ContainerManager.containerPathForHostPath()` handles translation. The worktree path must be within a mounted volume.
@@ -336,7 +335,7 @@ When a task **fails**, its worktree is intentionally preserved. This allows insp
 
 ```bash
 # Inspect a failed task's work
-cd ~/.dartclaw/.dartclaw/worktrees/<taskId>
+cd ~/.dartclaw/worktrees/<taskId>
 
 git log --oneline          # what did the agent commit?
 git diff                   # uncommitted changes?

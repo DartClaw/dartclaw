@@ -1,0 +1,70 @@
+<div tl:fragment="knowledgeHub" class="shell">
+  <div tl:utext="${sidebar}"><!-- sidebar --></div>
+  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+    <div class="page-inner knowledge-hub-page">
+      <header class="pagehead">
+        <div>
+          <h1 class="page-title">Knowledge Hub</h1>
+          <p class="page-subtitle">Browse wiki, temporal KG, memory, and inbox sources.</p>
+        </div>
+        <span class="read-only-marker" tl:text="${readOnlyMarker}">READ-ONLY</span>
+      </header>
+
+      <nav class="knowledge-tabs" aria-label="Knowledge views">
+        <a class="tab-link active" href="/knowledge">Hub</a>
+        <a class="tab-link" href="/knowledge/research">Research</a>
+        <a class="tab-link" href="/knowledge/timeline">Timeline</a>
+      </nav>
+
+      <section class="knowledge-search-strip" aria-label="Knowledge search">
+        <form class="knowledge-search-form" action="/knowledge" method="get">
+          <label class="sr-only" for="knowledge-search">Search knowledge</label>
+          <input id="knowledge-search" name="q" type="search" maxlength="160" placeholder="Search knowledge..."
+                 tl:attr="value=${query}">
+          <input type="hidden" name="layer" tl:attr="value=${activeLayer}">
+          <button class="btn btn-primary" type="submit">Search</button>
+        </form>
+        <div class="filter-chip-row" role="list">
+          <a tl:each="chip : ${layerChips}" role="listitem" tl:attr="href=${chip.href},class=${chip.className}"
+             tl:text="${chip.label}">All</a>
+        </div>
+      </section>
+
+      <section class="knowledge-summary-strip" aria-label="Layer summary">
+        <div tl:each="summary : ${layerSummaries}" class="knowledge-summary-item">
+          <span class="knowledge-summary-count" tl:text="${summary.count}">0</span>
+          <span class="knowledge-summary-label" tl:text="${summary.label}">Wiki</span>
+        </div>
+      </section>
+
+      <div tl:if="${hasFailedLayers}" class="notice notice-warning knowledge-partial-notice">
+        Partial results: <span tl:text="${failedLayerNames}">KG</span> failed to load.
+      </div>
+
+      <section class="knowledge-results" aria-label="Knowledge results">
+        <article tl:each="item : ${items}" class="knowledge-result-row">
+          <span class="layer-badge" tl:classappend="${item.layerClass}" tl:text="${item.layerLabel}">WIKI</span>
+          <div class="knowledge-result-body">
+            <h2 class="knowledge-result-title" tl:text="${item.title}">Source title</h2>
+            <p class="knowledge-result-snippet" tl:text="${item.snippet}">Snippet</p>
+            <div class="knowledge-result-meta">
+              <a class="source-link" tl:attr="href=${item.sourceHref}" tl:text="${item.sourceLabel}">Source</a>
+              <tl:block tl:utext="${item.attributionHtml}"><!-- attribution --></tl:block>
+            </div>
+          </div>
+        </article>
+        <div tl:unless="${hasItems}" class="knowledge-empty-state">
+          <p tl:text="${emptyMessage}">No results for this filter.</p>
+        </div>
+      </section>
+
+      <nav tl:if="${hasPagination}" class="pager" aria-label="Knowledge pagination">
+        <a tl:if="${hasPreviousPage}" class="pager-link" tl:attr="href=${previousHref}">Previous</a>
+        <span class="pager-label" tl:text="${pageLabel}">Page 1 of 1</span>
+        <a tl:if="${hasNextPage}" class="pager-link" tl:attr="href=${nextHref}">Next</a>
+      </nav>
+    </div>
+  </main>
+</div>

@@ -12,9 +12,9 @@ enum OutputFormat {
   lines,
 
   /// Workspace-relative file path produced on disk by an artifact-producing
-  /// step (`andthen:prd`, `andthen:plan`, `andthen:spec`). Treated as text
-  /// at runtime; the distinct format surfaces intent in the workflow contract
-  /// and lets the engine recognise artifact-producing outputs.
+  /// step (a planning, spec, or review skill that writes files). Treated as
+  /// text at runtime; the distinct format surfaces intent in the workflow
+  /// contract and lets the engine recognise artifact-producing outputs.
   path;
 
   /// Parses an [OutputFormat] from its YAML string representation.

@@ -246,6 +246,53 @@ void main() {
     expect(finalRun?.contextJson['data']?['_approval.pending.stepId'], isNull);
   });
 
+  test('S03 inline worktree mode serializes foreach iterations despite maxParallel > 1', () async {
+    // Inline shares the operator's live checkout, so concurrent iterations
+    // would clobber the tree. The foreach controller must clamp effective
+    // concurrency to 1 even though maxParallel is 2.
+    final definition = WorkflowDefinition(
+      name: 'foreach-inline-clamp',
+      description: 'Inline foreach clamps concurrency',
+      gitStrategy: const WorkflowGitStrategy(
+        integrationBranch: false,
+        worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.inline),
+      ),
+      steps: const [
+        WorkflowStep(
+          id: 'story-pipeline',
+          name: 'Story Pipeline',
+          type: WorkflowTaskType.foreach,
+          mapOver: 'items',
+          foreachSteps: ['implement'],
+          maxParallel: 2,
+          outputs: {'story_results': OutputConfig()},
+        ),
+        WorkflowStep(id: 'implement', name: 'Implement', prompts: ['implement {{map.item}}']),
+      ],
+    );
+    final run = await h.insertRun(definition);
+    final context = h.itemsContext(['a', 'b', 'c']);
+
+    var inFlight = 0;
+    var maxInFlight = 0;
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      inFlight++;
+      if (inFlight > maxInFlight) maxInFlight = inFlight;
+      await Future<void>.delayed(Duration.zero);
+      await h.completeTask(e.taskId);
+      inFlight--;
+    });
+
+    await h.executor.execute(run, definition, context);
+    await sub.cancel();
+
+    expect(maxInFlight, equals(1), reason: 'inline mode must run foreach iterations one at a time');
+    final finalRun = await h.repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
   test('continue-on-failure foreach still fails controller preflight errors', () async {
     final definition = h.storyPipelineDefinition(mapOver: 'missing_story_specs');
     final result = await h.executeCountingQueuedTasks(definition, WorkflowContext());

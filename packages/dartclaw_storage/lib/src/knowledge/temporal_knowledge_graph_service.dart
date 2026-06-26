@@ -23,12 +23,21 @@ class TemporalKnowledgeGraphService {
         valid_from TEXT NOT NULL,
         valid_to TEXT,
         source TEXT NOT NULL,
+        owner TEXT,
         invalidated_at TEXT,
         invalidation_reason TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
     ''');
+    _migrateOwnerColumn();
     _db.execute('CREATE INDEX IF NOT EXISTS kg_facts_lookup ON kg_facts(entity, predicate, valid_from, valid_to)');
+  }
+
+  void _migrateOwnerColumn() {
+    final columns = _db.select('PRAGMA table_info(kg_facts)').map((row) => row['name'] as String).toSet();
+    if (!columns.contains('owner')) {
+      _db.execute('ALTER TABLE kg_facts ADD COLUMN owner TEXT');
+    }
   }
 
   /// Stores a source-linked temporal fact and returns its row id.
@@ -39,11 +48,13 @@ class TemporalKnowledgeGraphService {
     required String validFrom,
     String? validTo,
     required String source,
+    String? owner,
   }) {
     final normalizedEntity = normalizeKnowledgeEntity(entity);
     final normalizedPredicate = _required(predicate, 'predicate');
     final normalizedValue = _required(value, 'value');
     final normalizedSource = _required(source, 'source');
+    final normalizedOwner = owner == null || owner.trim().isEmpty ? null : owner.trim();
     final from = _parseIso(validFrom, 'valid_from');
     final to = validTo == null || validTo.trim().isEmpty ? null : _parseIso(validTo, 'valid_to');
     if (to != null && to.isBefore(from)) {
@@ -52,8 +63,8 @@ class TemporalKnowledgeGraphService {
 
     _db.execute(
       '''
-      INSERT INTO kg_facts(entity, predicate, value, valid_from, valid_to, source)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO kg_facts(entity, predicate, value, valid_from, valid_to, source, owner)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         normalizedEntity,
@@ -62,6 +73,7 @@ class TemporalKnowledgeGraphService {
         _isoUtc(from),
         to == null ? null : _isoUtc(to),
         normalizedSource,
+        normalizedOwner,
       ],
     );
     return _db.lastInsertRowId;
@@ -82,26 +94,57 @@ class TemporalKnowledgeGraphService {
       where.add('predicate = ?');
       args.add(predicate.trim());
     }
-    if (instant != null) {
-      final iso = _isoUtc(instant);
-      where.add('valid_from <= ?');
-      where.add('(valid_to IS NULL OR valid_to >= ?)');
-      args.addAll([iso, iso]);
-      if (!includeInvalidated) {
-        where.add('(invalidated_at IS NULL OR invalidated_at > ?)');
-        args.add(iso);
-      }
-    } else if (!includeInvalidated) {
+    if (instant == null && !includeInvalidated) {
       where.add('invalidated_at IS NULL');
     }
     final rows = _db.select('''
-      SELECT id, entity, predicate, value, valid_from, valid_to, source, invalidated_at, invalidation_reason
+      SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
       FROM kg_facts
       WHERE ${where.join(' AND ')}
       ORDER BY valid_from DESC, id DESC
       ''', args);
-    return rows.map(KnowledgeFact.fromRow).toList();
+    final facts = rows.map(KnowledgeFact.fromRow);
+    if (instant == null) {
+      return facts.toList();
+    }
+    return facts.where((fact) => _isValidAt(fact, instant, includeInvalidated: includeInvalidated)).toList();
   }
+
+  /// Returns facts across every entity, optionally filtered by [asOf] and [search].
+  List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) {
+    if (limit != null && limit < 1) {
+      return const [];
+    }
+    final instant = asOf == null || asOf.trim().isEmpty ? null : parseAsOf(asOf);
+    final where = <String>[];
+    final args = <Object?>[];
+    for (final term in _searchTerms(search ?? '')) {
+      where.add("instr(lower(entity || ' ' || predicate || ' ' || value || ' ' || source), ?) > 0");
+      args.add(term);
+    }
+    final sqlLimit = instant == null ? limit : null;
+    if (sqlLimit != null) {
+      args.add(sqlLimit);
+    }
+    final facts = _db
+        .select('''
+          SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
+          FROM kg_facts
+          ${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'}
+          ORDER BY entity ASC, valid_from ASC, id ASC
+          ${sqlLimit == null ? '' : 'LIMIT ?'}
+          ''', args)
+        .map(KnowledgeFact.fromRow)
+        .toList();
+    if (instant == null) {
+      return facts;
+    }
+    final filtered = facts.where((fact) => _isValidAt(fact, instant, includeInvalidated: false));
+    return limit == null ? filtered.toList() : filtered.take(limit).toList();
+  }
+
+  /// Parses an `as_of` date or timestamp using the graph's query semantics.
+  DateTime parseAsOf(String asOf) => _parseIso(asOf, 'as_of');
 
   /// Returns all facts for [entity] in chronological order.
   List<KnowledgeFact> timeline({required String entity, String? predicate}) {
@@ -114,7 +157,7 @@ class TemporalKnowledgeGraphService {
     }
     return _db
         .select('''
-          SELECT id, entity, predicate, value, valid_from, valid_to, source, invalidated_at, invalidation_reason
+          SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
           FROM kg_facts
           WHERE ${where.join(' AND ')}
           ORDER BY valid_from ASC, id ASC
@@ -147,6 +190,19 @@ class TemporalKnowledgeGraphService {
     return _db.updatedRows > 0;
   }
 
+  /// Returns the owner principal for [id], or `null` for legacy/system-owned rows.
+  String? ownerForFact(int id) {
+    final rows = _db.select('SELECT owner FROM kg_facts WHERE id = ?', [id]);
+    if (rows.isEmpty) return null;
+    return rows.first['owner'] as String?;
+  }
+
+  /// Whether a fact row with [id] exists.
+  bool factExists(int id) => _db.select('SELECT 1 FROM kg_facts WHERE id = ? LIMIT 1', [id]).isNotEmpty;
+
+  /// Whether the backing schema contains the additive owner column.
+  bool get hasOwnerColumn => _db.select('PRAGMA table_info(kg_facts)').any((row) => row['name'] == 'owner');
+
   /// Finds open facts that disagree with an incoming value.
   List<KnowledgeContradiction> contradictions({
     required String entity,
@@ -159,7 +215,7 @@ class TemporalKnowledgeGraphService {
     return _db
         .select(
           '''
-          SELECT id, entity, predicate, value, valid_from, valid_to, source, invalidated_at, invalidation_reason
+          SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
           FROM kg_facts
           WHERE entity = ?
             AND predicate = ?
@@ -178,7 +234,7 @@ class TemporalKnowledgeGraphService {
   List<KnowledgeContradiction> openContradictions() {
     return _db
         .select('''
-          SELECT a.id, a.entity, a.predicate, a.value, a.valid_from, a.valid_to, a.source, a.invalidated_at,
+          SELECT a.id, a.entity, a.predicate, a.value, a.valid_from, a.valid_to, a.source, a.owner, a.invalidated_at,
                  a.invalidation_reason, b.value AS incoming_value
           FROM kg_facts a
           JOIN kg_facts b
@@ -243,6 +299,29 @@ class TemporalKnowledgeGraphService {
 
   static String _isoUtc(DateTime value) => value.toUtc().toIso8601String();
 
+  static List<String> _searchTerms(String search) => search
+      .replaceAll('"', ' ')
+      .split(RegExp(r'\s+'))
+      .map((term) => term.trim().toLowerCase())
+      .where((term) => term.isNotEmpty)
+      .toList();
+
+  static bool _isValidAt(KnowledgeFact fact, DateTime instant, {required bool includeInvalidated}) {
+    final asOf = instant.toUtc();
+    if (_parseIso(fact.validFrom, 'valid_from').isAfter(asOf)) {
+      return false;
+    }
+    final validTo = fact.validTo;
+    if (validTo != null && _parseIso(validTo, 'valid_to').isBefore(asOf)) {
+      return false;
+    }
+    final invalidatedAt = fact.invalidatedAt;
+    if (!includeInvalidated && invalidatedAt != null && !_parseIso(invalidatedAt, 'invalidated_at').isAfter(asOf)) {
+      return false;
+    }
+    return true;
+  }
+
   static String _required(String value, String field) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) throw ArgumentError('$field must not be empty');
@@ -273,6 +352,9 @@ class KnowledgeFact {
   /// Source material that supports the fact.
   final String source;
 
+  /// Principal that owns the fact, or null for legacy/system-owned facts.
+  final String? owner;
+
   /// ISO-8601 invalidation timestamp, when invalidated.
   final String? invalidatedAt;
 
@@ -288,6 +370,7 @@ class KnowledgeFact {
     required this.validFrom,
     this.validTo,
     required this.source,
+    this.owner,
     this.invalidatedAt,
     this.invalidationReason,
   });
@@ -301,6 +384,7 @@ class KnowledgeFact {
     validFrom: row['valid_from'] as String,
     validTo: row['valid_to'] as String?,
     source: row['source'] as String,
+    owner: row['owner'] as String?,
     invalidatedAt: row['invalidated_at'] as String?,
     invalidationReason: row['invalidation_reason'] as String?,
   );
@@ -314,6 +398,7 @@ class KnowledgeFact {
     'valid_from': validFrom,
     if (validTo != null) 'valid_to': validTo,
     'source': source,
+    if (owner != null) 'owner': owner,
     if (invalidatedAt != null) 'invalidated_at': invalidatedAt,
     if (invalidationReason != null) 'invalidation_reason': invalidationReason,
   };

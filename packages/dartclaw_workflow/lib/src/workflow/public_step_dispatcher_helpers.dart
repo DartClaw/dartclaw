@@ -23,7 +23,10 @@ Future<StepHandoff> _dispatchActionNode(
   }
 
   if (step.taskType == WorkflowTaskType.approval) {
-    await dispatcher._executor._executeApprovalStep(preflight.run, step, context, stepIndex: stepIndex);
+    final paused = await dispatcher._executor._executeApprovalStep(preflight.run, step, context, stepIndex: stepIndex);
+    if (!paused) {
+      return StepHandoffSuccess(outputs: _outputsFromContext(context));
+    }
     return _approvalRetryingHandoff(step, context);
   }
 

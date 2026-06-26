@@ -4,17 +4,29 @@ import 'package:test/test.dart';
 
 void main() {
   group('registerSystemDashboardPages', () {
-    test('defaults register all 5 system pages', () {
+    test('defaults register all 8 system pages', () {
       final registry = PageRegistry();
 
       registerSystemDashboardPages(registry);
 
-      expect(registry.pages, hasLength(5));
-      expect(_labels(registry), containsAll(<String>['Health', 'Settings', 'Memory', 'Scheduling', 'Tasks']));
+      expect(registry.pages, hasLength(8));
+      expect(
+        _labels(registry),
+        containsAll(<String>[
+          'Health',
+          'Settings',
+          'Memory',
+          'Knowledge',
+          'Research',
+          'Timeline',
+          'Scheduling',
+          'Tasks',
+        ]),
+      );
       expect(_labels(registry).where((label) => label == 'Settings'), hasLength(1));
     });
 
-    test('all flags false register only Settings', () {
+    test('all flags false keep Settings and knowledge pages', () {
       final registry = PageRegistry();
 
       registerSystemDashboardPages(
@@ -25,8 +37,8 @@ void main() {
         showTasks: false,
       );
 
-      expect(registry.pages, hasLength(1));
-      expect(_labels(registry), ['Settings']);
+      expect(registry.pages, hasLength(4));
+      expect(_labels(registry), ['Settings', 'Knowledge', 'Research', 'Timeline']);
     });
 
     test('showTasks false omits Tasks', () {
@@ -35,17 +47,40 @@ void main() {
       registerSystemDashboardPages(registry, showTasks: false);
 
       expect(_labels(registry), isNot(contains('Tasks')));
-      expect(_labels(registry), containsAll(<String>['Health', 'Settings', 'Memory', 'Scheduling']));
+      expect(
+        _labels(registry),
+        containsAll(<String>['Health', 'Settings', 'Memory', 'Knowledge', 'Research', 'Timeline', 'Scheduling']),
+      );
     });
 
-    test('showHealth false and showMemory false keep Settings, Scheduling, and Tasks', () {
+    test('showHealth false and showMemory false keep Settings, knowledge pages, Scheduling, and Tasks', () {
       final registry = PageRegistry();
 
       registerSystemDashboardPages(registry, showHealth: false, showMemory: false);
 
-      expect(_labels(registry), containsAll(<String>['Settings', 'Scheduling', 'Tasks']));
+      expect(
+        _labels(registry),
+        containsAll(<String>['Settings', 'Knowledge', 'Research', 'Timeline', 'Scheduling', 'Tasks']),
+      );
       expect(_labels(registry), isNot(contains('Health')));
       expect(_labels(registry), isNot(contains('Memory')));
+    });
+
+    test('knowledge parent and child routes coexist while exact duplicate collides', () {
+      final registry = PageRegistry();
+
+      registerSystemDashboardPages(
+        registry,
+        showHealth: false,
+        showMemory: false,
+        showScheduling: false,
+        showTasks: false,
+      );
+
+      expect(registry.resolve('/knowledge'), isNotNull);
+      expect(registry.resolve('/knowledge/research'), isNotNull);
+      expect(registry.resolve('/knowledge/timeline'), isNotNull);
+      expect(() => registry.register(registry.resolve('/knowledge')!), throwsStateError);
     });
 
     test('Settings is always present', () {

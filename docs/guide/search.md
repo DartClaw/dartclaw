@@ -2,11 +2,11 @@
 
 DartClaw includes a dedicated search agent for safe web access and a two-tier memory search system.
 
-The search agent is one of DartClaw's two agent execution models. For the broader picture -- how subagents differ from task runners, how to define custom agents, and when to use which -- see [Agents](agents.md).
+The search agent is one of DartClaw's two agent execution models. For the broader picture – how subagents differ from task runners, how to define custom agents, and when to use which – see [Agents](agents.md).
 
 ## Search Agent
 
-The search agent has restricted tools -- only `WebSearch` and `WebFetch`. No filesystem, exec, or browser tools. It runs in a separate session store (`agents/search/sessions/`).
+The search agent has restricted tools – only `WebSearch` and `WebFetch`. No filesystem, exec, or browser tools. It runs in a separate session store (`agents/search/sessions/`).
 
 ### How It Works
 
@@ -19,9 +19,9 @@ The search agent has restricted tools -- only `WebSearch` and `WebFetch`. No fil
 ### Tool Policy Cascade
 
 3-layer policy evaluator (most restrictive wins):
-1. **Global deny** -- always blocked regardless of agent
-2. **Agent deny** -- blocked for this specific agent
-3. **Sandbox allow** -- only explicitly listed tools permitted (closed set)
+1. **Global deny** – always blocked regardless of agent
+2. **Agent deny** – blocked for this specific agent
+3. **Sandbox allow** – only explicitly listed tools permitted (closed set)
 
 ### Configuration
 
@@ -41,7 +41,7 @@ agent:
 |-------|---------|---------|
 | `maxConcurrent` | 2 | Max parallel search agents |
 | `maxSpawnDepth` | 0 | Search agent cannot spawn sub-agents |
-| `maxChildrenPerAgent` | 2 | Max children per parent |
+| `maxChildrenPerAgent` | 0 | Max children per parent |
 
 These are per-agent limits. Global subagent limits and the full configuration reference are documented in [Agents](agents.md#subagent-limits).
 

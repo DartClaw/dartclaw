@@ -1,5 +1,7 @@
 part of 'dartclaw_config.dart';
 
+final _mcpServersLog = Logger('McpServersConfig');
+
 SearchConfig _parseSearch(
   Map<String, dynamic> yaml,
   Map<String, String> env,
@@ -128,6 +130,152 @@ ProvidersConfig _parseProviders(
   return ProvidersConfig(entries: entries);
 }
 
+McpServersConfig _parseMcpServers(
+  Map<String, dynamic> yaml,
+  CredentialsConfig credentials,
+  McpServersConfig defaults,
+  List<String> warns,
+) {
+  final raw = yaml['mcp_servers'];
+  if (raw == null) return defaults;
+  if (raw is! Map) {
+    throw FormatException('mcp_servers must be a map of server entries.');
+  }
+
+  if (raw is YamlMap) {
+    _rejectDuplicateMcpServerNames(raw);
+  }
+
+  final entries = <String, McpServerEntry>{};
+  for (final entry in raw.entries) {
+    final serverName = entry.key.toString();
+    final value = entry.value;
+    if (value is! Map) {
+      throw FormatException('mcp_servers.$serverName must be a map entry.');
+    }
+
+    final serverMap = Map<String, dynamic>.from(value);
+    final command = _readOptionalMcpString(serverMap, 'command', serverName);
+    final url = _readOptionalMcpString(serverMap, 'url', serverName);
+    if (url != null) {
+      _validateMcpServerUrl(serverName, url);
+    }
+    if ((command == null) == (url == null)) {
+      throw FormatException('mcp_servers.$serverName must declare exactly one transport: command or url.');
+    }
+
+    final networkClassRaw = serverMap['network_class'];
+    if (networkClassRaw is! String || networkClassRaw.trim().isEmpty) {
+      throw FormatException(
+        'mcp_servers.$serverName missing network_class '
+        '(accepted: ${McpNetworkClass.knownValues.join(', ')}).',
+      );
+    }
+    final networkClass = McpNetworkClass.fromYaml(networkClassRaw);
+    if (networkClass == null) {
+      throw FormatException(
+        'mcp_servers.$serverName has unknown network_class "$networkClassRaw" '
+        '(accepted: ${McpNetworkClass.knownValues.join(', ')}).',
+      );
+    }
+
+    final enabledRaw = serverMap['enabled'];
+    if (enabledRaw != null && enabledRaw is! bool) {
+      throw FormatException('mcp_servers.$serverName enabled must be a boolean when present.');
+    }
+
+    final credential = _readOptionalMcpString(serverMap, 'credential', serverName);
+    final rateLimit = _parseMcpServerRateLimit(serverName, serverMap['rate_limit']);
+    final tokenBudget = _parseMcpServerTokenBudget(serverName, serverMap['token_budget']);
+    final allowTools = _parseMcpServerToolList(serverName, 'allow_tools', serverMap['allow_tools']);
+    final surfaceTools = _parseMcpServerToolList(serverName, 'surface_tools', serverMap['surface_tools']);
+    var enabled = enabledRaw is bool ? enabledRaw : true;
+    if (enabled && (credential == null || credentials[credential]?.isPresent != true)) {
+      enabled = false;
+      final message = credential == null
+          ? 'mcp_servers.$serverName has no credential reference — disabling server'
+          : 'mcp_servers.$serverName credential "$credential" is unresolved — disabling server';
+      warns.add(message);
+      _mcpServersLog.warning(message);
+    }
+
+    entries[serverName] = McpServerEntry(
+      command: command,
+      url: url,
+      enabled: enabled,
+      networkClass: networkClass,
+      credential: credential,
+      rateLimit: rateLimit,
+      tokenBudget: tokenBudget,
+      allowTools: allowTools,
+      surfaceTools: surfaceTools,
+    );
+  }
+
+  return McpServersConfig(entries: entries);
+}
+
+McpServerRateLimit _parseMcpServerRateLimit(String serverName, Object? raw) {
+  if (raw == null) return const McpServerRateLimit();
+  if (raw is! Map) {
+    throw FormatException('mcp_servers.$serverName.rate_limit must be a map when present.');
+  }
+  final map = Map<String, dynamic>.from(raw);
+  final calls = _readNonNegativeMcpInt(serverName, map, 'rate_limit', 'calls');
+  final windowSeconds = _readNonNegativeMcpInt(serverName, map, 'rate_limit', 'window_seconds', defaultValue: 60);
+  return McpServerRateLimit(
+    calls: calls,
+    window: Duration(seconds: windowSeconds),
+  );
+}
+
+McpServerTokenBudget _parseMcpServerTokenBudget(String serverName, Object? raw) {
+  if (raw == null) return const McpServerTokenBudget();
+  if (raw is! Map) {
+    throw FormatException('mcp_servers.$serverName.token_budget must be a map when present.');
+  }
+  final map = Map<String, dynamic>.from(raw);
+  final tokens = _readNonNegativeMcpInt(serverName, map, 'token_budget', 'tokens');
+  final windowSeconds = _readNonNegativeMcpInt(serverName, map, 'token_budget', 'window_seconds', defaultValue: 60);
+  return McpServerTokenBudget(
+    tokens: tokens,
+    window: Duration(seconds: windowSeconds),
+  );
+}
+
+List<String> _parseMcpServerToolList(String serverName, String key, Object? raw) {
+  if (raw == null) return const [];
+  if (raw is! List) {
+    throw FormatException('mcp_servers.$serverName.$key must be a list of tool names when present.');
+  }
+  final tools = <String>[];
+  for (final value in raw) {
+    if (value is! String || value.trim().isEmpty) {
+      throw FormatException('mcp_servers.$serverName.$key must contain only non-empty tool names.');
+    }
+    tools.add(value.trim());
+  }
+  return List.unmodifiable(tools);
+}
+
+int _readNonNegativeMcpInt(
+  String serverName,
+  Map<String, dynamic> map,
+  String section,
+  String key, {
+  int defaultValue = 0,
+}) {
+  final raw = map[key];
+  if (raw == null) return defaultValue;
+  if (raw is! int) {
+    throw FormatException('mcp_servers.$serverName.$section.$key must be a non-negative integer.');
+  }
+  if (raw < 0) {
+    throw FormatException('mcp_servers.$serverName.$section.$key must be non-negative.');
+  }
+  return raw;
+}
+
 CredentialsConfig _parseCredentials(
   Map<String, dynamic> yaml,
   Map<String, String> env,
@@ -190,4 +338,39 @@ CredentialsConfig _parseCredentials(
   }
 
   return CredentialsConfig(entries: entries);
+}
+
+String? _readOptionalMcpString(Map<String, dynamic> serverMap, String key, String serverName) {
+  final raw = serverMap[key];
+  if (raw == null) return null;
+  if (raw is! String) {
+    throw FormatException('mcp_servers.$serverName $key must be a string when present.');
+  }
+  final value = raw.trim();
+  return value.isEmpty ? null : value;
+}
+
+void _validateMcpServerUrl(String serverName, String value) {
+  final uri = Uri.tryParse(value);
+  if (uri == null ||
+      !uri.hasScheme ||
+      (uri.scheme != 'http' && uri.scheme != 'https') ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasQuery ||
+      uri.hasFragment) {
+    throw FormatException(
+      'mcp_servers.$serverName url must be an absolute http or https URL with a host and no userinfo, query, or fragment.',
+    );
+  }
+}
+
+void _rejectDuplicateMcpServerNames(YamlMap raw) {
+  final seen = <String>{};
+  for (final keyNode in raw.nodes.keys.cast<YamlNode>()) {
+    final name = keyNode.value.toString();
+    if (!seen.add(name)) {
+      throw FormatException('mcp_servers contains duplicate server name "$name".');
+    }
+  }
 }

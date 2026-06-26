@@ -212,6 +212,67 @@ void main() {
       });
     });
 
+    group('McpServersConfig', () {
+      test('entries participate in equality', () {
+        const entry = McpServerEntry(
+          command: 'linear-mcp',
+          enabled: true,
+          networkClass: McpNetworkClass.public,
+          credential: 'linear',
+          allowTools: ['list_issues'],
+        );
+        const a = McpServersConfig(entries: {'linear': entry});
+        const b = McpServersConfig(entries: {'linear': entry});
+        const c = McpServersConfig(
+          entries: {
+            'github': McpServerEntry(
+              command: 'github-mcp',
+              enabled: true,
+              networkClass: McpNetworkClass.public,
+              credential: 'github',
+            ),
+          },
+        );
+
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+        expect(a, isNot(equals(c)));
+        expect(
+          entry,
+          isNot(
+            equals(
+              McpServerEntry(
+                command: 'linear-mcp',
+                enabled: true,
+                networkClass: McpNetworkClass.public,
+                credential: 'linear',
+                allowTools: ['create_issue'],
+              ),
+            ),
+          ),
+        );
+      });
+
+      test('ConfigNotifier does not hot-reload mcp_servers changes', () {
+        const base = DartclawConfig.defaults();
+        final updated = base.copyWith(
+          mcpServers: const McpServersConfig(
+            entries: {
+              'linear': McpServerEntry(
+                command: 'linear-mcp',
+                networkClass: McpNetworkClass.public,
+                credential: 'linear',
+              ),
+            },
+          ),
+        );
+
+        final delta = ConfigNotifier(base).reload(updated);
+
+        expect(delta, isNull);
+      });
+    });
+
     group('LoggingConfig', () {
       test('equal instances match', () {
         const a = LoggingConfig(format: 'json', level: 'DEBUG');

@@ -1,28 +1,30 @@
 # DartClaw Roadmap — Current & Next
 
-> Trimmed to the active milestone and what comes next. Full milestone history (MVP onward) and unscheduled drafts are maintained separately.
+> Trimmed to the active milestone and what comes next. Full milestone history (MVP onward) and unscheduled drafts are maintained separately in private repo.
 
 ## Active Milestone
 
-### 0.18 — Universal Agent Harness (Release-ready)
+### 0.19 — Context Engine
 
-Provider-runtime expansion beyond the current Claude/Codex families through `AcpHarness`, a universal ACP adapter for non-Claude agents. Scope includes Phase A0 verification of capability-gated reverse-call mediation, Goose as the first target, Mistral Vibe as the verified second target, per-provider pool structure and queueing semantics needed when a third built-in provider is introduced, `delegate_to_agent` MCP delegation, stuck-turn recovery, and distribution polish. Implementation is complete and automated release prep is green; release is pending manual gates, squash-merge, and tag.
-
-Backlog migrations from 0.16.5 close-out triage:
-- TD-068: Replace the shared mixed-provider `HarnessPool` with provider-scoped pools before adding the third built-in provider.
-- TD-062: Add stuck-turn visibility and an admin/operator escape hatch for wedged Codex sessions.
-- TD-109: Add per-turn tool scoping or toolless structured extraction before inbox ingestion is treated as untrusted multi-session input.
-- TD-110: Decide and implement guard/audit coverage for write-capable MCP tools before broader multi-operator deployments.
-
-## Planned
-
-### 0.19 — Context Engine (Next)
+**Status: Release-ready (0.19.0) — awaiting squash-merge to `main` + annotated `v0.19.0` tag.** FR1–FR8 (outbound MCP client + governance + audit, `context_research` synthesis, read-only knowledge UI on Afterglow) shipped across S01–S12; FR9–FR11 (validation/dogfooding/steward) carved to a 0.19.x follow-on per the PRD sizing flag. See `CHANGELOG.md`.
 
 A knowledge-serving context layer: DartClaw synthesizes its internal knowledge (LLM-maintained wiki + temporal knowledge graph + memory) into compact, citation-backed packets served to agents over MCP via a single `context_research` call, instead of returning raw ranked rows. Adds outbound MCP — DartClaw as a guard-mediated, audited MCP *client* — so it can consume external MCP servers and systems of record. Includes a documented DartClaw-on-DartClaw dogfooding reference (propose-only). Builds on the 0.17 knowledge backend (temporal KG, wiki, inbox ingestion, FTS5/QMD, inbound MCP).
 
-The workflow track (Workflow DSL v2 + Dynamic Workflows) is confirmed for the milestone after this.
+Scoping backlog disposition:
+- TD-109: Add per-turn tool scoping or toolless structured extraction before inbox ingestion is treated as untrusted multi-session input. *(Carried — revisit with the FR9–FR11 0.19.x tail.)*
+- TD-110: Guard/audit coverage for write-capable MCP tools — **closed** inside FR3 (S04, egress-guard trust-boundary audit).
+
+## Planned
+
+### Workflow DSL v2 + Dynamic Workflows (Next)
+
+The workflow track is confirmed for the milestone after 0.19.
 
 ## Recently Shipped
+
+### 0.18 — Universal Agent Harness ✅
+
+Tagged `v0.18.0` on 2026-06-11. First-party ACP (Agent Client Protocol) harness spawning any ACP-compliant agent over JSON-RPC/stdio through one adapter, with capability-gated reverse-calls routed through the existing `FileGuard`/`CommandGuard` chain; Goose and Mistral Vibe as verified targets (new agents usable via config alone). `delegate_to_agent` MCP tool for delegating to allowlisted ACP/Codex agents with explicit security modes and token budgets. Provider-scoped harness pools (closes TD-068), stuck-turn status + early cancel (closes TD-062), versioned release assets, automated Homebrew tap publication, and refreshed architecture/user guides. See `CHANGELOG.md` for details.
 
 ### 0.17 — Personal AI & Developer Experience ✅
 

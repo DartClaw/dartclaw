@@ -25,6 +25,7 @@ void main() {
         'static_dir',
         'templates_dir',
         'workflow.workspace_dir',
+        'workflow.approvals',
         'worker_timeout',
         'agent.model',
         'agent.max_turns',
@@ -53,6 +54,7 @@ void main() {
         'search.qmd.host',
         'search.qmd.port',
         'search.default_depth',
+        'mcp_servers',
         'logging.file',
         'logging.redact_patterns',
         'guards.content.enabled',
@@ -171,6 +173,8 @@ void main() {
         (field: 'context.exploration_summary_threshold', mutability: ConfigMutability.restart),
         (field: 'context.compact_instructions', mutability: ConfigMutability.restart),
         (field: 'workflow.workspace_dir', mutability: ConfigMutability.restart),
+        (field: 'workflow.approvals', mutability: ConfigMutability.restart),
+        (field: 'mcp_servers', mutability: ConfigMutability.restart),
         (field: 'delegation.enabled', mutability: ConfigMutability.restart),
         (field: 'gateway.auth_mode', mutability: ConfigMutability.readonly),
         (field: 'gateway.token', mutability: ConfigMutability.readonly),
@@ -186,6 +190,7 @@ void main() {
 
       final typeCases = <({String field, ConfigFieldType type})>[
         (field: 'delegation.agents', type: ConfigFieldType.objectList),
+        (field: 'mcp_servers', type: ConfigFieldType.objectMap),
         (field: 'context.warning_threshold', type: ConfigFieldType.int_),
         (field: 'context.exploration_summary_threshold', type: ConfigFieldType.int_),
         (field: 'context.compact_instructions', type: ConfigFieldType.string),
@@ -201,6 +206,7 @@ void main() {
         'provider_reported',
         'estimate_if_unreported',
       ]);
+      expect(ConfigMeta.fields['workflow.approvals']!.allowedValues, ['manual', 'auto-on-stall', 'auto']);
       expect(ConfigMeta.fields['context.warning_threshold']!.min, 50);
       expect(ConfigMeta.fields['context.warning_threshold']!.max, 99);
       expect(ConfigMeta.fields['context.exploration_summary_threshold']!.min, 1000);
@@ -225,6 +231,8 @@ void main() {
         'static_dir': 'staticDir',
         'templates_dir': 'templatesDir',
         'workflow.workspace_dir': 'workflow.workspaceDir',
+        'workflow.approvals': 'workflow.approvals',
+        'mcp_servers': 'mcpServers',
         'workflow.defaults.reviewer.model': 'workflow.defaults.reviewer.model',
         'channels.google_chat.quote_reply': 'channels.googleChat.quoteReplyMode',
         'channels.google_chat.feedback.status_interval': 'channels.googleChat.feedback.statusInterval',
@@ -251,7 +259,9 @@ void main() {
         'channels.signal.task_trigger.prefix',
         'channels.google_chat.task_trigger.default_type',
         'agent.provider',
+        'mcp_servers',
         'workflow.workspace_dir',
+        'workflow.approvals',
         'workflow.defaults.workflow.provider',
       ]) {
         expect(ConfigMeta.isWritable(field), isTrue, reason: field);

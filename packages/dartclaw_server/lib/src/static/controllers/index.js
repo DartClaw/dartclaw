@@ -3,6 +3,7 @@ import DcChatController from './dc_chat_controller.js';
 import DcHealthController from './dc_health_controller.js';
 import DcMemoryController from './dc_memory_controller.js';
 import DcProjectsController from './dc_projects_controller.js';
+import DcAttributionController from './dc_attribution_controller.js';
 import DcSchedulingController from './dc_scheduling_controller.js';
 import DcSettingsController from './dc_settings_controller.js';
 import DcShellController from './dc_shell_controller.js';
@@ -25,6 +26,7 @@ if (!stimulus || !stimulus.Application) {
   application.register('dc-health', DcHealthController);
   application.register('dc-memory', DcMemoryController);
   application.register('dc-projects', DcProjectsController);
+  application.register('dc-attribution', DcAttributionController);
   application.register('dc-scheduling', DcSchedulingController);
   application.register('dc-settings', DcSettingsController);
   application.register('dc-shell', DcShellController);

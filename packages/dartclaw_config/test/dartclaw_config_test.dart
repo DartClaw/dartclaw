@@ -225,6 +225,20 @@ projects:
         expect(def.isDefault, isTrue);
       });
 
+      test('relative project localPath resolves absolute against the config directory', () {
+        const yaml = '''
+projects:
+  surrounding-repo:
+    localPath: ..
+''';
+        final config = loadYaml(yaml, configPath: '/repo/.dartclaw/dartclaw.yaml');
+
+        final def = config.projects.definitions['surrounding-repo'];
+        expect(def, isNotNull);
+        expect(def!.localPath, '/repo');
+        expect(config.warnings, isNot(anyElement(contains('local-path must be absolute'))));
+      });
+
       test('type mismatch (port: "abc") collects warning and uses default', () {
         final config = loadYaml('port: abc\n');
         expect(config.server.port, 3333);

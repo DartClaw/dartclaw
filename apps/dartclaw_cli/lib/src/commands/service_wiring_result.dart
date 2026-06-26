@@ -17,6 +17,7 @@ WiringResult _assembleWiringResult(
   ScopeReconciler scopeReconciler,
   GroupSessionInitializer groupSessionInit,
   AdvisorSubscriber? advisorSubscriber,
+  OutboundMcpPool? outboundMcpPool,
 ) {
   return WiringResult(
     server: server,
@@ -38,20 +39,25 @@ WiringResult _assembleWiringResult(
     containerManagers: security.containerManagers,
     projectService: project.projectService,
     configNotifier: ctx.configNotifier,
+    outboundMcpPool: outboundMcpPool,
     workflowRegistry: workflowRegistry,
     shutdownExtras: () async {
-      lifecycleManager?.dispose();
-      await task.dispose();
-      await workflowService.dispose();
-      await alertRouter.cancel();
-      await channel.taskNotificationSubscriber?.dispose();
-      await security.dispose();
-      groupSessionInit.dispose();
-      await scopeReconciler.cancel();
-      await storage.turnStateStore.dispose();
-      await scheduling.dispose();
-      await project.dispose();
-      await advisorSubscriber?.dispose();
+      try {
+        lifecycleManager?.dispose();
+        await task.dispose();
+        await workflowService.dispose();
+        await alertRouter.cancel();
+        await channel.taskNotificationSubscriber?.dispose();
+        await security.dispose();
+        groupSessionInit.dispose();
+        await scopeReconciler.cancel();
+        await storage.turnStateStore.dispose();
+        await scheduling.dispose();
+        await project.dispose();
+        await advisorSubscriber?.dispose();
+      } finally {
+        await outboundMcpPool?.close();
+      }
     },
   );
 }

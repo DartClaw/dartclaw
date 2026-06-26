@@ -5,6 +5,20 @@ import 'step_config_resolver.dart';
 import 'workflow_context.dart';
 import 'workflow_template_engine.dart';
 
+/// Resolves the effective worktree mode for a (possibly null) [strategy].
+///
+/// A null strategy is treated as the default [WorkflowGitStrategy] (`auto`),
+/// identical to an authored `gitStrategy: { worktree: auto }`: a parallel
+/// map/foreach scope resolves to `per-map-item` (isolated per-iteration
+/// worktrees), serial and non-map scopes to `inline`. Collapsing null to a
+/// literal `inline` would deny a strategy-less definition its per-item
+/// isolation, so concurrent iterations would share — and clobber — the live
+/// checkout. This is the single resolution seam; every caller routes through it
+/// so the dispatcher's worktree provisioning and the iteration concurrency
+/// clamp agree on one value.
+String resolveWorktreeMode(WorkflowGitStrategy? strategy, {required int? maxParallel, required bool isMap}) =>
+    (strategy ?? const WorkflowGitStrategy()).effectiveWorktreeMode(maxParallel: maxParallel, isMap: isMap);
+
 /// Resolves the effective worktree mode for a step in its current scope.
 String resolveWorktreeModeForScope(
   WorkflowDefinition definition,
@@ -15,15 +29,13 @@ String resolveWorktreeModeForScope(
   bool enclosingMapScope = false,
   WorkflowTemplateEngine? templateEngine,
 }) {
-  final strategy = definition.gitStrategy;
-  if (strategy == null) return 'inline';
   final isMapScope = step.mapOver != null || enclosingMapScope || enclosingMaxParallel != null;
   final maxParallel = switch ((step.mapOver != null, enclosingMapScope || enclosingMaxParallel != null)) {
     (false, false) => null,
     (true, false) => resolveMaxParallel(step.maxParallel, context, step.id, templateEngine: templateEngine),
     _ => enclosingMaxParallel,
   };
-  return strategy.effectiveWorktreeMode(maxParallel: maxParallel, isMap: isMapScope);
+  return resolveWorktreeMode(definition.gitStrategy, maxParallel: maxParallel, isMap: isMapScope);
 }
 
 /// Resolves the promotion strategy implied by the worktree mode.
@@ -141,8 +153,6 @@ bool requiresPerMapItemGitIsolation(
   WorkflowContext context, {
   required WorkflowTemplateEngine templateEngine,
 }) {
-  final strategy = definition.gitStrategy;
-  if (strategy == null) return false;
   for (final step in definition.steps.where((candidate) => candidate.mapOver != null)) {
     int? maxParallel;
     try {
@@ -150,8 +160,7 @@ bool requiresPerMapItemGitIsolation(
     } on ArgumentError {
       maxParallel = 2;
     }
-    final resolvedMode = strategy.effectiveWorktreeMode(maxParallel: maxParallel, isMap: true);
-    if (resolvedMode == 'per-map-item') {
+    if (resolveWorktreeMode(definition.gitStrategy, maxParallel: maxParallel, isMap: true) == 'per-map-item') {
       return true;
     }
   }

@@ -10,6 +10,7 @@ import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         InMemoryDefinitionSource,
+        WorkflowApprovalPolicy,
         WorkflowDefinition,
         WorkflowLoop,
         WorkflowRun,
@@ -246,6 +247,69 @@ void main() {
       );
 
       expect(workflows.lastAllowDirtyLocalPath, isTrue);
+    });
+
+    test('passes inline flag to the workflow service (S02)', () async {
+      await api.expectResponse(
+        'POST',
+        '/api/workflows/run',
+        json: {
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Pagination'},
+          'inline': true,
+        },
+        status: 201,
+      );
+
+      expect(workflows.lastInline, isTrue);
+    });
+
+    test('omitting inline preserves the authored strategy (inline defaults to false)', () async {
+      await api.expectResponse(
+        'POST',
+        '/api/workflows/run',
+        json: {
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Pagination'},
+        },
+        status: 201,
+      );
+
+      expect(workflows.lastInline, isFalse);
+    });
+
+    test('passes approvals policy to the workflow service', () async {
+      await api.expectResponse(
+        'POST',
+        '/api/workflows/run',
+        json: {
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Pagination'},
+          'approvals': 'auto',
+        },
+        status: 201,
+      );
+
+      expect(workflows.lastApprovals, WorkflowApprovalPolicy.auto);
+    });
+
+    test('returns 400 for invalid approvals policy', () async {
+      final body = await api.expectJsonObject(
+        'POST',
+        '/api/workflows/run',
+        json: {
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Pagination'},
+          'approvals': 'bogus',
+        },
+        status: 400,
+      );
+
+      final error = body['error'] as Map<String, dynamic>;
+      expect(error['code'], 'INVALID_INPUT');
+      expect(error['details']['field'], 'approvals');
+      expect(error['details']['allowedValues'], ['manual', 'auto-on-stall', 'auto']);
+      expect(workflows.startCalls, 0);
     });
 
     test('local-path preflight state errors return workflow precondition failed', () async {

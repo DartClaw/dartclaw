@@ -96,9 +96,6 @@ To run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – see `dev/to
 
 ## Rules, Guardrails and Guidelines
 
-### Foundational Rules and Guardrails
-Adhere to system prompt "CRITICAL RULES and GUARDRAILS" before doing any work.
-
 ### Vital Conventions
 - Single-threaded (add isolates only if profiling shows bottleneck)
 - Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_server/lib/src/static/` – see `VENDORS.md` in that directory for versions and upgrade instructions
@@ -165,7 +162,7 @@ build tooling, workflow definitions, or cross-package behavior, run the CI-equiv
 `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md`.
 
 #### Example configs
-Quick start: `bash examples/run.sh` – defaults to `dev.yaml` (no auth, guards off), stores data in `.dartclaw-dev/`.
+Quick start: `bash examples/run.sh` – defaults to `dev.yaml` (no auth, guards off), stores data in `.dartclaw-example/`.
 Specify a config: `bash examples/run.sh production --port 8080`
 
 

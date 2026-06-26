@@ -61,3 +61,38 @@ final class EmergencyStopEvent extends DartclawEvent {
   @override
   String toString() => 'EmergencyStopEvent(stoppedBy: $stoppedBy, turns: $turnsCancelled, tasks: $tasksCancelled)';
 }
+
+/// Fired when per-server outbound MCP governance counters change.
+final class OutboundMcpGovernanceEvent extends DartclawEvent {
+  /// External MCP server whose counters are reported.
+  final String serverName;
+
+  /// Calls allowed in the current window.
+  final int callsUsed;
+
+  /// Tokens consumed in the current window.
+  final int tokensUsed;
+
+  /// Calls rejected by governance in the current window.
+  final int rejections;
+
+  /// Reason for the latest rejection, when this event follows a denial.
+  final String? rejectionReason;
+
+  @override
+  final DateTime timestamp;
+
+  /// Creates an outbound MCP governance counter event.
+  OutboundMcpGovernanceEvent({
+    required this.serverName,
+    required this.callsUsed,
+    required this.tokensUsed,
+    required this.rejections,
+    this.rejectionReason,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'OutboundMcpGovernanceEvent(server: $serverName, calls: $callsUsed, tokens: $tokensUsed, rejections: $rejections)';
+}

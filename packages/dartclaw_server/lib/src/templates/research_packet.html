@@ -1,0 +1,46 @@
+<div tl:fragment="researchPacket" class="shell">
+  <div tl:utext="${sidebar}"><!-- sidebar --></div>
+  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+    <div class="page-inner research-packet-page">
+      <div class="pagehead">
+        <div>
+          <h1 class="page-title">Research Packet</h1>
+          <p class="page-subtitle">Read-only context_research synthesis with source attribution.</p>
+        </div>
+        <span class="status-badge status-badge-info">/knowledge/research</span>
+      </div>
+
+      <nav class="knowledge-tabs" aria-label="Knowledge views">
+        <span class="tab-btn">Browse</span>
+        <span class="tab-btn">Timeline</span>
+        <span class="tab-btn active">Research packet</span>
+      </nav>
+
+      <section class="card research-answer-card" aria-labelledby="research-answer-heading">
+        <div class="card-header">
+          <h2 id="research-answer-heading" class="card-title">Synthesized answer</h2>
+          <span class="card-badge badge-muted">Read-only</span>
+        </div>
+        <div tl:if="${hasNoSourcesFound}" class="research-notice research-notice--empty">
+          No sources found. No synthesized claim was produced.
+        </div>
+        <div tl:if="${hasDegradedLayers}" class="research-notice research-notice--degraded">
+          Degraded coverage:
+          <span tl:each="layer : ${degradedLayers}" class="degraded-layer" tl:text="${layer}">kg</span>
+        </div>
+        <div tl:if="${hasStatements}" class="research-statements" tl:utext="${statementHtml}"><!-- statements --></div>
+        <p tl:unless="${hasStatements}" class="card-detail card-detail-muted">No synthesized statements.</p>
+      </section>
+
+      <section class="card research-sources-card" aria-labelledby="research-sources-heading">
+        <div class="card-header">
+          <h2 id="research-sources-heading" class="card-title">Sources</h2>
+        </div>
+        <div tl:if="${hasSources}" class="source-list" tl:utext="${sourceListHtml}"><!-- sources --></div>
+        <p tl:unless="${hasSources}" class="card-detail card-detail-muted">No resolvable sources to list.</p>
+      </section>
+    </div>
+  </main>
+</div>

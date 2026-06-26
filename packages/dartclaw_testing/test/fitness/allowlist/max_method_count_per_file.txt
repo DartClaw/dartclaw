@@ -3,6 +3,7 @@ apps/dartclaw_cli/lib/src/commands/service/service_backend.dart  # 41 methods; s
 apps/dartclaw_cli/lib/src/commands/service_wiring_workflow.dart  # 49 methods; shrink to <=40 by 0.16.6 service wiring cleanup.
 apps/dartclaw_cli/lib/src/commands/workflow/workflow_git_support.dart  # 65 methods; shrink to <=40 by 0.16.6 workflow CLI git support cleanup.
 apps/dartclaw_cli/lib/src/dartclaw_api_client.dart  # 50 methods; shrink to <=40 by 0.16.6 API client decomposition.
+packages/dartclaw_config/lib/src/config_parser.dart  # 42 methods; shrink to <=40 by config parser decomposition.
 packages/dartclaw_core/lib/src/harness/claude_code_harness.dart  # 50 methods; shrink to <=40 by 0.16.6 harness cleanup.
 packages/dartclaw_core/lib/src/harness/codex_harness.dart  # 46 methods; shrink to <=40 by 0.16.6 harness cleanup.
 packages/dartclaw_core/lib/src/harness/acp_harness.dart  # 43 methods; new in 0.18 (universal ACP harness — subprocess lifecycle + session mgmt + reverse-call wiring); shrink to <=40 by folding reverse-call handlers into a collaborator.
@@ -10,10 +11,12 @@ packages/dartclaw_server/lib/src/advisor/advisor_subscriber.dart  # 55 methods; 
 packages/dartclaw_server/lib/src/api/config_api_routes.dart  # 163 methods; shrink to <=40 by route decomposition.
 packages/dartclaw_server/lib/src/api/guard_editor_service.dart  # 44 methods; shrink to <=40 by 0.16.6 guard editor decomposition.
 packages/dartclaw_server/lib/src/api/google_chat_webhook.dart  # 47 methods; shrink to <=40 by 0.16.6 webhook route cleanup.
-packages/dartclaw_server/lib/src/knowledge/knowledge_inbox_service.dart  # 93 methods; shrink to <=40 by 0.16.6 knowledge inbox cleanup.
+packages/dartclaw_server/lib/src/knowledge/knowledge_inbox_service.dart  # 101 methods; shrink to <=40 by 0.16.6 knowledge inbox cleanup.
 packages/dartclaw_server/lib/src/api/project_routes.dart  # 44 methods; shrink to <=40 by 0.16.6 project routes decomposition.
 packages/dartclaw_server/lib/src/api/task_routes.dart  # 55 methods; shrink to <=40 by 0.16.6 task routes decomposition.
 packages/dartclaw_server/lib/src/api/workflow_routes.dart  # 45 methods; shrink to <=40 by 0.16.6 workflow routes decomposition.
+packages/dartclaw_server/lib/src/mcp/context_research_tool.dart  # 45 methods; shrink to <=40 by context research decomposition.
+packages/dartclaw_server/lib/src/mcp/outbound/outbound_mcp_pool.dart  # 59 methods; shrink to <=40 by outbound MCP pool decomposition (+2: credential ref fail-closed resolution before transport spawn).
 packages/dartclaw_server/lib/src/project/project_service_impl.dart  # 50 methods; shrink to <=40 by 0.16.6 project service cleanup.
 packages/dartclaw_server/lib/src/server.dart  # 47 methods; shrink to <=40 by 0.16.6 server composition cleanup.
 packages/dartclaw_server/lib/src/task/merge_executor.dart  # 54 methods; shrink to <=40 by 0.16.6 merge executor cleanup.
@@ -25,5 +28,5 @@ packages/dartclaw_workflow/lib/src/workflow/merge_resolve_coordinator.dart  # 49
 packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart  # 68 methods; shrink to <=40 by 0.16.6 workflow definition split.
 packages/dartclaw_workflow/lib/src/workflow/workflow_definition_parser.dart  # 149 methods; shrink to <=40 by parser decomposition.
 packages/dartclaw_workflow/lib/src/workflow/workflow_executor.dart  # 54 methods; shrink to <=40 by 0.16.6 executor decomposition after S38 _logRun helper.
-packages/dartclaw_workflow/lib/src/workflow/workflow_service.dart  # 41 methods; shrink to <=40 by 0.16.6 workflow service cleanup.
+packages/dartclaw_workflow/lib/src/workflow/workflow_service.dart  # 42 methods; shrink to <=40 by 0.16.6 workflow service cleanup (+1: _providerAuthPreflight wiring field for the workflow provider auth preflight).
 packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart  # 70 methods; shrink to <=40 by state-machine extraction.

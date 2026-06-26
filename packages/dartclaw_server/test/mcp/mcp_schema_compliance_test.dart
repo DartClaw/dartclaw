@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/mcp/brave_search_tool.dart';
+import 'package:dartclaw_server/src/mcp/context_research_tool.dart';
 import 'package:dartclaw_server/src/mcp/kg_tools.dart';
 import 'package:dartclaw_server/src/mcp/memory_tools.dart';
 import 'package:dartclaw_server/src/mcp/onboarding_complete_tool.dart';
@@ -15,6 +16,14 @@ import 'package:test/test.dart';
 class _StubSearchProvider implements SearchProvider {
   @override
   Future<List<SearchResult>> search(String query, {int count = 5}) async => [];
+}
+
+class _StubSearchBackend implements SearchBackend {
+  @override
+  Future<void> indexAfterWrite() async {}
+
+  @override
+  Future<List<MemorySearchResult>> search(String query, {int limit = 10, String userId = 'owner'}) async => [];
 }
 
 SessionDelegate _stubDelegate() => SessionDelegate(
@@ -40,6 +49,13 @@ void main() {
       );
     }
 
+    ContextResearchTool contextResearchTool() => ContextResearchTool(
+      memorySearch: _StubSearchBackend(),
+      kg: kg,
+      wikiSearch: WikiSearchSource(workspaceDir: '/tmp'),
+      synthesizer: (_) async => '{}',
+    );
+
     test('MemorySaveTool', () => expectCompliant(MemorySaveTool(handler: (args) async => {})));
 
     test('MemorySearchTool', () => expectCompliant(MemorySearchTool(handler: (args) async => {})));
@@ -64,6 +80,10 @@ void main() {
       expectCompliant(KgContradictionsTool(kg: kg));
     });
 
+    test('ContextResearchTool', () {
+      expectCompliant(contextResearchTool());
+    });
+
     test('all registered object-type tools have additionalProperties: false (regression guard)', () {
       final tools = <McpTool>[
         MemorySaveTool(handler: (args) async => {}),
@@ -79,6 +99,7 @@ void main() {
         KgTimelineTool(kg: kg),
         KgInvalidateTool(kg: kg),
         KgContradictionsTool(kg: kg),
+        contextResearchTool(),
       ];
 
       for (final tool in tools) {

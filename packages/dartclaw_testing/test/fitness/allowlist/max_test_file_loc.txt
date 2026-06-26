@@ -16,6 +16,7 @@ apps/dartclaw_cli/test/commands/workflow/cli_workflow_wiring_test.dart  # 1576 L
 packages/dartclaw_server/test/api/config_api_routes_test.dart  # 1388 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/workflow_definition_test.dart  # 1360 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/executor_sequential_test.dart  # 1313 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart  # 1284 LOC; shrink under 800 via server builder integration test decomposition.
 packages/dartclaw_workflow/test/workflow/workflow_builtin_plan_and_implement_test.dart  # 1271 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_server/test/api/task_routes_test.dart  # 1261 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_server/test/turn_manager_test.dart  # 1138 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
@@ -37,4 +38,5 @@ packages/dartclaw_server/test/task/task_executor_worktree_test.dart  # 860 LOC; 
 packages/dartclaw_workflow/test/workflow/serialize_remaining_escalation_test.dart  # 859 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_server/test/project/project_service_impl_test.dart  # 853 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_core/test/harness/codex_protocol_adapter_test.dart  # 838 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_server/test/mcp/outbound/outbound_mcp_pool_test.dart  # 937 LOC; shrink under 800 via outbound MCP pool test decomposition.
 packages/dartclaw_server/test/config/config_serializer_test.dart  # 822 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md

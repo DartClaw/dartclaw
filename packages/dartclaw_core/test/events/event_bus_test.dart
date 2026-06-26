@@ -39,6 +39,15 @@ void main() {
   SessionErrorEvent errorEvent({String id = 's1', String error = 'fail'}) =>
       SessionErrorEvent(sessionId: id, sessionType: 'web', timestamp: now, error: error);
 
+  ContextResearchMetricsEvent contextResearchEvent() => ContextResearchMetricsEvent(
+    inputTokens: 10,
+    outputTokens: 5,
+    sourcesCount: 3,
+    truncated: true,
+    cacheBypass: true,
+    timestamp: now,
+  );
+
   group('fire and subscribe', () {
     test('on<T>() receives fired events of matching type', () async {
       final events = <GuardBlockEvent>[];
@@ -86,6 +95,18 @@ void main() {
       expect(events[0], isA<SessionCreatedEvent>());
       expect(events[1], isA<SessionEndedEvent>());
       expect(events[2], isA<SessionErrorEvent>());
+    });
+
+    test('on<ContextResearchMetricsEvent>() receives synthesis metrics', () async {
+      final events = <ContextResearchMetricsEvent>[];
+      bus.on<ContextResearchMetricsEvent>().listen(events.add);
+
+      bus.fire(contextResearchEvent());
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events, hasLength(1));
+      expect(events.single.sourcesCount, 3);
+      expect(events.single.cacheBypass, isTrue);
     });
 
     test('multiple subscribers receive same event', () async {

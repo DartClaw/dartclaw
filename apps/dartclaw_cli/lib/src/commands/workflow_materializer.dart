@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
+import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolutionRequest, AssetResolver;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -38,10 +38,14 @@ class WorkflowMaterializer {
     AssetResolver? assetResolver,
     String? sourceDir,
     bool preferSourceTree = false,
+    bool allowFallback = true,
   }) async {
     final targetRoot = Directory(builtInDir(dataDir))..createSync(recursive: true);
     final resolvedSourceDir =
-        sourceDir ?? resolveBuiltInWorkflowSourceDir(assetResolver: assetResolver, preferSourceTree: preferSourceTree);
+        sourceDir ??
+        (allowFallback
+            ? resolveBuiltInWorkflowSourceDir(assetResolver: assetResolver, preferSourceTree: preferSourceTree)
+            : null);
     if (resolvedSourceDir == null) {
       _log.warning('Built-in workflow source tree not found; skipping workflow materialization');
       return 0;
@@ -133,8 +137,9 @@ class WorkflowMaterializer {
     Iterable<String>? candidateRootsForTesting,
   }) {
     String? assetWorkflowsDir() {
-      final resolvedAssets = assetResolver?.resolve();
-      final workflowsDir = resolvedAssets?.workflowsDir;
+      final workflowsDir = assetResolver
+          ?.resolveAssets(const AssetResolutionRequest.noConfiguredAssets())
+          ?.rootWorkflowsDir;
       if (workflowsDir != null && Directory(workflowsDir).existsSync()) {
         return workflowsDir;
       }

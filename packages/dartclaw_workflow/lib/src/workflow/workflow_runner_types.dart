@@ -20,6 +20,7 @@ import 'package:uuid/uuid.dart';
 
 import 'context_extractor.dart';
 import 'gate_evaluator.dart';
+import '../skills/provider_auth_preflight.dart';
 import 'prompt_augmenter.dart';
 import 'skill_introspector.dart';
 import 'skill_prompt_builder.dart';
@@ -57,10 +58,6 @@ final class StepValidationFailure {
 }
 
 typedef StorySpecOutputValidation = ({Map<String, dynamic> outputs, StepValidationFailure? validationFailure});
-
-typedef DiscoverAndthenSpecValidation = ({Map<String, dynamic> outputs, StepValidationFailure? validationFailure});
-
-typedef DiscoverAndthenPlanValidation = ({Map<String, dynamic> outputs, StepValidationFailure? validationFailure});
 
 /// Token accounting attached to a step handoff.
 final class StepTokenBreakdown {
@@ -209,12 +206,14 @@ final class StepExecutionContext {
   final WorkflowTurnAdapter? turnAdapter;
   final WorkflowStepOutputTransformer? outputTransformer;
   final SkillIntrospector? skillIntrospector;
+  final ProviderAuthPreflight? providerAuthPreflight;
   final WorkflowSkillPreflightConfig skillPreflightConfig;
   final TaskRepository? taskRepository;
   final AgentExecutionRepository? agentExecutionRepository;
   final WorkflowStepExecutionRepository? workflowStepExecutionRepository;
   final ExecutionRepositoryTransactor? executionTransactor;
   final ProjectService? projectService;
+  final String? defaultWorkspaceRoot;
   final String? dataDir;
   final WorkflowTemplateEngine? templateEngine;
   final WorkflowGitPort? workflowGitPort;
@@ -238,12 +237,14 @@ final class StepExecutionContext {
     this.turnAdapter,
     this.outputTransformer,
     this.skillIntrospector,
+    this.providerAuthPreflight,
     this.skillPreflightConfig = const WorkflowSkillPreflightConfig(),
     this.taskRepository,
     this.agentExecutionRepository,
     this.workflowStepExecutionRepository,
     this.executionTransactor,
     this.projectService,
+    this.defaultWorkspaceRoot,
     this.dataDir,
     this.templateEngine,
     this.workflowGitPort,
@@ -275,12 +276,14 @@ final class StepExecutionContext {
       turnAdapter: turnAdapter,
       outputTransformer: outputTransformer,
       skillIntrospector: skillIntrospector,
+      providerAuthPreflight: providerAuthPreflight,
       skillPreflightConfig: skillPreflightConfig,
       taskRepository: taskRepository,
       agentExecutionRepository: agentExecutionRepository,
       workflowStepExecutionRepository: workflowStepExecutionRepository,
       executionTransactor: executionTransactor,
       projectService: projectService,
+      defaultWorkspaceRoot: defaultWorkspaceRoot,
       dataDir: dataDir,
       templateEngine: promptConfiguration.templateEngine,
       workflowGitPort: workflowGitPort,
@@ -311,12 +314,14 @@ final class StepExecutionContext {
       turnAdapter: turnAdapter,
       outputTransformer: outputTransformer,
       skillIntrospector: skillIntrospector,
+      providerAuthPreflight: providerAuthPreflight,
       skillPreflightConfig: skillPreflightConfig,
       taskRepository: taskRepository,
       agentExecutionRepository: agentExecutionRepository,
       workflowStepExecutionRepository: workflowStepExecutionRepository,
       executionTransactor: executionTransactor,
       projectService: projectService,
+      defaultWorkspaceRoot: defaultWorkspaceRoot,
       dataDir: dataDir,
       templateEngine: templateEngine,
       workflowGitPort: workflowGitPort,

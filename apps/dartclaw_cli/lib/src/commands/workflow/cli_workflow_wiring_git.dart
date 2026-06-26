@@ -143,19 +143,18 @@ int _standaloneTaskRunnerCapacity(DartclawConfig config) {
   return _effectiveWorkflowProviderEntries(config).values.fold<int>(0, (sum, entry) => sum + entry.effectivePoolSize);
 }
 
-Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
-  final environment = SafeProcess.sanitize(
+Map<String, String> _providerEnvironment(DartclawConfig config, String providerId, CredentialRegistry registry) {
+  final executable = _resolveProviderExecutable(config, providerId);
+  return buildWorkflowProviderEnvironment(
+    providerId: providerId,
+    providerFamily: ProviderIdentity.resolveFamily(
+      providerId,
+      options: _providerOptions(config, providerId),
+      executable: executable,
+    ),
+    registry: registry,
     baseEnvironment: Platform.environment,
-    sensitivePatterns: [...defaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
-    extraEnvironment: claudeHardeningEnvVars,
   );
-  final apiKey = registry.getApiKey(providerId);
-  if (apiKey != null) {
-    for (final envVar in CredentialRegistry.envVarsFor(providerId)) {
-      environment[envVar] = apiKey;
-    }
-  }
-  return environment;
 }
 
 String _resolveProviderExecutable(DartclawConfig config, String providerId) {

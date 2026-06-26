@@ -1,6 +1,6 @@
 # CLI Operations
 
-The CLI now has two execution modes for workflow operations:
+The CLI has two execution modes for workflow operations:
 
 Examples in this page use `dartclaw` as the command name. If you are running from a source checkout, use `build/dartclaw` after `bash dev/tools/build.sh`, or replace `dartclaw` with `dart run dartclaw_cli:dartclaw`.
 
@@ -21,11 +21,13 @@ Connected mode is the right choice when you are already running `dartclaw serve`
 
 ## Standalone Mode
 
-Standalone mode is available for workflow execution and status inspection:
+Standalone mode is available for workflow execution, lifecycle control, and status inspection:
 
 ```bash
 dartclaw workflow run spec-and-implement --standalone --force --var FEATURE="Add alerts"
 dartclaw workflow run spec-and-implement --standalone --json --var FEATURE="Add alerts"
+dartclaw workflow resume <run-id> --standalone
+dartclaw workflow cancel <run-id> --standalone --feedback "wrong approach"
 dartclaw workflow status <run-id> --standalone
 ```
 
@@ -36,6 +38,29 @@ Use standalone mode when:
 - you intentionally want direct local-database inspection
 
 `workflow run --standalone` performs a safety check. If the server is already running on the resolved loopback port, the CLI aborts unless you add `--force`.
+
+### Standalone lifecycle control
+
+`resume`, `cancel`, `pause`, and `retry` also accept `--standalone`, driving a run's lifecycle in-process against the local task DB — no `dartclaw serve` required. The headline flow takes an approval-paused `workflow run --standalone` to completion server-less: when the run pauses at an `approval` step (exit `2`), `dartclaw workflow resume <run-id> --standalone` records the approval and drives the run to its next settle point (completed / failed / next pause), rendering the same step-progress output as the original run. `cancel --standalone` records the optional `--feedback` as an approval rejection and transitions the run to `cancelled`.
+
+These commands reuse `workflow run --standalone`'s safety guard: they abort against a reachable server unless `--force` is added. The engine's state-transition guards apply — resuming a `running` run or retrying a non-`failed` run prints a clean one-line reason and exits non-zero, never a Dart stack trace. A stale `running` run (left by an abruptly killed standalone process) is **not** auto-reconciled; the guard surfaces it and you re-run once it is back in a resumable state.
+
+### Inline runs (`--inline`)
+
+`workflow run --inline <name>` runs any existing definition on the **current branch** — no workflow-owned integration branch, no worktree, no merge-back. It overrides the definition's git strategy at run time (`integrationBranch: false` + `worktree: inline`), so you don't need a separate `*-inline` copy of a workflow just to flip the git behavior.
+
+```bash
+# Standalone: run on the checked-out branch, work lands directly there
+dartclaw workflow run spec-and-implement --standalone --inline --var FEATURE="Add alerts"
+
+# Connected: the CLI sends inline:true; the server applies the same override
+dartclaw workflow run spec-and-implement --inline --var FEATURE="Add alerts"
+```
+
+- `--inline` applies identically in standalone and connected mode (one shared seam in `WorkflowService.start`).
+- Multi-story workflows (`plan-and-implement --inline`) run stories **sequentially** in the shared checkout — concurrency is clamped to 1 automatically, so you never have to pin a parallelism variable by hand.
+- `--inline` is **orthogonal** to `--allow-dirty-localpath`: it only changes git strategy and does not relax the dirty-tree guard. Inline mutates the live checkout by design, so the guard still refuses a tree that is already dirty unless you also pass `--allow-dirty-localpath`.
+- In connected mode the run mutates the **server's** project checkout on its current branch — be deliberate about where the server is pointed.
 
 ## Headless CI Usage
 
@@ -77,6 +102,7 @@ dartclaw workflow run code-review --json \
 Standalone mode auto-accepts normal step review gates, but explicit workflow `approval` steps still pause the run and return exit code `2`. Runs can also pause for runtime-managed recovery paths such as `promotion-conflict` or deterministic publish recovery, and cancelled runs also return exit code `2`. For CI:
 
 - avoid `approval` steps in non-interactive workflows
+- clear the gate server-less with `dartclaw workflow resume <run-id> --standalone` / `dartclaw workflow cancel <run-id> --standalone`
 - or run the server and use connected `workflow resume` / `workflow cancel`
 
 ### GitHub Actions example
@@ -113,9 +139,10 @@ When using Codex in CI, prefer `CODEX_API_KEY` and set the least-permissive sand
 
 Connected commands resolve auth in this order:
 
-1. `gateway.token` from config
-2. persisted `gateway_token` in the data directory
-3. no auth header when `gateway.auth_mode: none`
+1. the `--token` global flag, when provided
+2. no auth header when `gateway.auth_mode: none`
+3. `gateway.token` from config
+4. persisted `gateway_token` in the data directory
 
 The CLI never prints the raw gateway token in user-facing error output.
 

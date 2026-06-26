@@ -73,7 +73,7 @@ Links DartClaw as a secondary device to your existing Signal account. Your phone
 
 #### Option 2: SMS Registration
 
-Registers the phone number as a new Signal identity. **Warning**: This takes over the phone number for Signal — the phone can no longer use that number for Signal.
+Registers the phone number as a new Signal identity. **Warning**: This takes over the number for Signal — your phone can no longer use it for Signal.
 
 1. Click "Send SMS Code" on the pairing page
 2. Enter the verification code received via SMS
@@ -145,7 +145,7 @@ If `signal-cli` is not on PATH and `executable` is not a valid absolute path:
 
 | Issue | Solution |
 |-------|----------|
-| signal-cli won't start | Check `signal-cli --version`, verify Java 17+ installed |
+| signal-cli won't start | Check `signal-cli --version`, verify Java 21+ installed |
 | Daemon not reachable | Check port 8080 is free: `curl http://127.0.0.1:8080/api/v1/check` |
 | Registration fails | Signal rate-limits registration attempts. Wait and retry. |
 | Messages not delivered | Check DM access mode, verify registration is complete |

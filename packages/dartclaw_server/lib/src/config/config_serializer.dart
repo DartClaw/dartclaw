@@ -169,6 +169,7 @@ class ConfigSerializer {
       },
       'workflow': {
         'workspaceDir': config.workflow.workspaceDir,
+        'approvals': config.workflow.approvals.yamlValue,
         'defaults': {
           'workflow': {
             'provider': config.workflow.defaults.workflow.provider,
@@ -323,6 +324,7 @@ class ConfigSerializer {
     ConfigFieldType.enum_ => 'enum',
     ConfigFieldType.stringList => 'string[]',
     ConfigFieldType.objectList => 'object[]',
+    ConfigFieldType.objectMap => 'object',
   };
 
   static String _googleChatAudienceMode(GoogleChatAudienceMode mode) => switch (mode) {

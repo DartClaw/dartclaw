@@ -3,11 +3,14 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
+import 'package:dartclaw_cli/src/commands/workflow/standalone_lifecycle_support.dart' show requiredWorkflowProviders;
 import 'package:dartclaw_cli/src/commands/workflow/workflow_run_command.dart';
 import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show MergeResolveConfig, WorkflowDefinition, WorkflowGitStrategy, WorkflowStep, WorkflowTaskType;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -19,6 +22,53 @@ HarnessFactory _harnessFactoryFor(AgentHarness Function() builder) {
   final factory = HarnessFactory();
   factory.register('claude', (_) => builder());
   return factory;
+}
+
+/// A [FakeAgentHarness] whose [start] throws — stands in for a logged-out
+/// provider whose real harness would throw a `StateError` from `_verifyAuth`.
+/// [start] records the attempt before throwing, so a test can assert it was
+/// never reached (the auth preflight aborts first).
+class _ThrowOnStartHarness extends FakeAgentHarness {
+  @override
+  Future<void> start() async {
+    await super.start();
+    throw StateError('harness start blew up (logged-out provider)');
+  }
+}
+
+class _AutoCompletingHarness extends FakeAgentHarness {
+  @override
+  bool get supportsSessionContinuity => true;
+
+  @override
+  Future<Map<String, dynamic>> turn({
+    required String sessionId,
+    required List<Map<String, dynamic>> messages,
+    required String systemPrompt,
+    Map<String, dynamic>? mcpServers,
+    bool resume = false,
+    String? directory,
+    String? model,
+    String? effort,
+    int? maxTurns,
+  }) {
+    final result = super.turn(
+      sessionId: sessionId,
+      messages: messages,
+      systemPrompt: systemPrompt,
+      mcpServers: mcpServers,
+      resume: resume,
+      directory: directory,
+      model: model,
+      effort: effort,
+      maxTurns: maxTurns,
+    );
+    Future<void>.microtask(() {
+      emit(DeltaEvent('<step-outcome>{"outcome":"succeeded","reason":"test completed"}</step-outcome>'));
+      completeSuccess({'stop_reason': 'completed'});
+    });
+    return result;
+  }
 }
 
 HarnessFactory _harnessFactoryForProviders(Iterable<String> providers, AgentHarness Function() builder) {
@@ -71,6 +121,7 @@ steps:
         stderrLine: output.add,
         exitFn: fakeExit,
         runAndthenSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
@@ -86,15 +137,103 @@ steps:
       expect(output.last, contains('"newStatus":"completed"'));
     });
 
+    test('standalone --inline overrides an integration-branch git strategy to inline (S01)', () async {
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
+      File(p.join(workflowsDir.path, 'ci-demo.yaml')).writeAsStringSync('''
+name: ci-demo
+description: Demo workflow authored with an integration-branch git strategy
+gitStrategy:
+  integrationBranch: true
+  worktree: shared
+steps:
+  - id: shell-check
+    name: Shell Check
+    type: bash
+    prompt: |
+      printf 'standalone-ok\\n'
+''');
+
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stdoutLine: output.add,
+        stderrLine: output.add,
+        exitFn: fakeExit,
+        runAndthenSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
+        skillIntrospector: FakeSkillIntrospector({}),
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'ci-demo', '--standalone', '--inline', '--json']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      final gitStrategy = _runStartedGitStrategy(output);
+      expect(gitStrategy['integrationBranch'], isFalse);
+      expect(gitStrategy['worktree'], equals('inline'));
+    });
+
+    test('standalone run without --inline keeps the authored git strategy (S04 regression)', () async {
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
+      File(p.join(workflowsDir.path, 'ci-demo.yaml')).writeAsStringSync('''
+name: ci-demo
+description: Demo workflow authored with an integration-branch git strategy
+gitStrategy:
+  integrationBranch: true
+  worktree: shared
+steps:
+  - id: shell-check
+    name: Shell Check
+    type: bash
+    prompt: |
+      printf 'standalone-ok\\n'
+''');
+
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stdoutLine: output.add,
+        stderrLine: output.add,
+        exitFn: fakeExit,
+        runAndthenSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
+        skillIntrospector: FakeSkillIntrospector({}),
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'ci-demo', '--standalone', '--json']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      final gitStrategy = _runStartedGitStrategy(output);
+      expect(gitStrategy['integrationBranch'], isTrue);
+      expect(gitStrategy['worktree'], equals('shared'));
+    });
+
     test('standalone run with no config exits with init workflow guidance', () async {
       final output = <String>[];
       final command = WorkflowRunCommand(environment: {'HOME': tempDir.path}, stderrLine: output.add, exitFn: fakeExit);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+      final savedCwd = Directory.current;
 
-      await expectLater(
-        () => runner.run(['run', 'code-review', '--standalone']),
-        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
-      );
+      try {
+        Directory.current = tempDir;
+        await expectLater(
+          () => runner.run(['run', 'code-review', '--standalone']),
+          throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
+        );
+      } finally {
+        Directory.current = savedCwd;
+      }
 
       expect(output.single, contains('No config found at ${p.join(tempDir.path, '.dartclaw', 'dartclaw.yaml')}'));
       expect(output.single, contains('dartclaw init --workflow'));
@@ -129,6 +268,7 @@ steps:
         stderrLine: output.add,
         exitFn: fakeExit,
         runAndthenSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
@@ -165,6 +305,7 @@ steps:
         stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: fakeExit,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
@@ -209,6 +350,7 @@ steps:
         stdoutLine: output.add,
         stderrLine: output.add,
         exitFn: fakeExit,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({
           'claude': {'dartclaw-discover-andthen-spec'},
           'codex': {},
@@ -253,6 +395,7 @@ steps:
         taskDbFactory: (_) => sqlite3.openInMemory(),
         stderrLine: output.add,
         exitFn: fakeExit,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
@@ -286,6 +429,7 @@ steps:
         stderrLine: output.add,
         exitFn: fakeExit,
         runAndthenSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
@@ -316,6 +460,7 @@ steps:
         stderrLine: output.add,
         exitFn: fakeExit,
         runAndthenSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
@@ -359,6 +504,7 @@ steps:
         stderrLine: output.add,
         exitFn: fakeExit,
         runAndthenSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector({}),
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
@@ -424,7 +570,185 @@ steps:
       expect(wiring.workflowCliRunner.providers.containsKey('claude'), isTrue);
       expect(createdHarnesses['claude'], isNotEmpty);
     });
+
+    test('S01 logged-out referenced provider aborts before any harness starts', () async {
+      // ci-demo's bash step resolves to the default provider 'claude', which the
+      // injected preflight reports unauthenticated. The harness start() throws,
+      // so reaching it would surface a StateError instead of the friendly path.
+      final created = <_ThrowOnStartHarness>[];
+      final factory = HarnessFactory()
+        ..register('claude', (_) {
+          final harness = _ThrowOnStartHarness();
+          created.add(harness);
+          return harness;
+        });
+
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        harnessFactory: factory,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stdoutLine: output.add,
+        stderrLine: output.add,
+        exitFn: fakeExit,
+        runAndthenSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(unauthenticated: {'claude'}),
+        skillIntrospector: FakeSkillIntrospector({}),
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'ci-demo', '--standalone']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+
+      expect(
+        output.any((line) => line.contains('claude') && line.contains('not authenticated')),
+        isTrue,
+        reason: 'provider-named remediation expected: $output',
+      );
+      expect(created.every((harness) => !harness.startCalled), isTrue, reason: 'no harness.start() reached');
+      expect(output.every((line) => !line.contains('standalone-ok')), isTrue, reason: 'no workflow step ran');
+    });
+
+    test('S02 unreferenced logged-out default provider does not block a single-provider run', () async {
+      // Default provider claude is unauthenticated and its start() throws, but
+      // only the agent-backed step resolves to codex. The unpinned bash
+      // scaffold must not cause claude to be probed or started.
+      config = DartclawConfig(
+        agent: const AgentConfig(provider: 'claude'),
+        providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 1)}),
+        server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      );
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'))..createSync(recursive: true);
+      File(p.join(workflowsDir.path, 'codex-only.yaml')).writeAsStringSync('''
+name: codex-only
+description: Bash scaffold plus a codex agent step
+steps:
+  - id: shell-check
+    name: Shell Check
+    type: bash
+    provider: codex
+    prompt: |
+      printf 'standalone-ok\\n'
+  - id: agent-check
+    name: Agent Check
+    provider: codex
+    prompt: Say OK
+''');
+
+      final claudeHarnesses = <_ThrowOnStartHarness>[];
+      final factory = HarnessFactory()
+        ..register('claude', (_) {
+          final harness = _ThrowOnStartHarness();
+          claudeHarnesses.add(harness);
+          return harness;
+        })
+        ..register('codex', (_) => _AutoCompletingHarness());
+      final preflight = FakeProviderAuthPreflight(unauthenticated: {'claude'});
+
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        harnessFactory: factory,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stdoutLine: output.add,
+        stderrLine: output.add,
+        exitFn: fakeExit,
+        runAndthenSkillsBootstrap: false,
+        providerAuthPreflight: preflight,
+        skillIntrospector: FakeSkillIntrospector({}),
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(() => runner.run(['run', 'codex-only', '--standalone']), throwsA(isA<FakeExit>()));
+
+      expect(preflight.probed, contains('codex'));
+      expect(preflight.probed, isNot(contains('claude')), reason: 'unreferenced default must not be probed');
+      expect(claudeHarnesses.every((harness) => !harness.startCalled), isTrue, reason: 'claude.start() never called');
+      expect(
+        output.any((line) => line.contains('agent-check') && line.contains('running (codex)')),
+        isTrue,
+        reason: 'codex agent path reached; output=$output probed=${preflight.probed}',
+      );
+    });
+
+    test('S02 provider derivation reuses continueSession root provider instead of default provider', () {
+      config = DartclawConfig(
+        agent: const AgentConfig(provider: 'claude'),
+        providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 1)}),
+        server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      );
+      final definition = WorkflowDefinition(
+        name: 'codex-continue',
+        description: 'Continued codex session with an unpinned continuation step',
+        steps: const [
+          WorkflowStep(id: 'root', name: 'Root', provider: 'codex', prompts: ['Start']),
+          WorkflowStep(id: 'follow-up', name: 'Follow Up', continueSession: '@previous', prompts: ['Continue']),
+        ],
+      );
+
+      expect(requiredWorkflowProviders(definition, config), {'codex'});
+    });
+
+    // Parallel foreach materializes a synthetic merge-resolve step on the workflow
+    // default provider, so derivation must include it alongside the declared step
+    // providers; serial foreach materializes nothing extra.
+    test('C-01 provider derivation includes synthetic merge-resolve default provider', () {
+      config = _providerDerivationConfig(tempDir.path);
+      expect(requiredWorkflowProviders(_mergeResolveDefinition(maxParallel: 2), config), {'claude', 'codex'});
+    });
+
+    test('C-01 provider derivation excludes synthetic merge-resolve provider for serial foreach', () {
+      config = _providerDerivationConfig(tempDir.path);
+      expect(requiredWorkflowProviders(_mergeResolveDefinition(), config), {'claude'});
+    });
+
+    test('S03 authenticated standalone run is behavior-unchanged (no added auth output)', () async {
+      // Mirrors the happy-path json-mode test but asserts the auth preflight
+      // adds no stdout/stderr noise and the exit code is unchanged.
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stdoutLine: output.add,
+        stderrLine: output.add,
+        exitFn: fakeExit,
+        runAndthenSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
+        skillIntrospector: FakeSkillIntrospector({}),
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'ci-demo', '--standalone']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      expect(output.any((line) => line.contains('[workflow] Completed')), isTrue, reason: '$output');
+      expect(
+        output.every((line) => !line.contains('not authenticated')),
+        isTrue,
+        reason: 'no auth output on happy path',
+      );
+    });
   });
+}
+
+/// Extracts the effective workflow `gitStrategy` from the standalone JSON
+/// `run_started` event. The event carries the run's `definitionJson`, which
+/// reflects any inline override applied inside `WorkflowService.start`.
+Map<String, dynamic> _runStartedGitStrategy(List<String> output) {
+  final started = output
+      .map((line) => jsonDecode(line) as Map<String, dynamic>)
+      .firstWhere((event) => event['type'] == 'run_started');
+  final run = started['run'] as Map<String, dynamic>;
+  final definitionJson = run['definitionJson'] as Map<String, dynamic>;
+  return definitionJson['gitStrategy'] as Map<String, dynamic>;
 }
 
 ApiResponse _response(int statusCode, [Object? body]) {
@@ -439,3 +763,30 @@ void _writeSkill(String root, String name) {
   final dir = Directory(p.join(root, name))..createSync(recursive: true);
   File(p.join(dir.path, 'SKILL.md')).writeAsStringSync('---\nname: $name\n---\n\n# $name\n');
 }
+
+DartclawConfig _providerDerivationConfig(String dataDir) => DartclawConfig(
+  agent: const AgentConfig(provider: 'codex'),
+  providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 1)}),
+  server: ServerConfig(dataDir: dataDir, claudeExecutable: Platform.resolvedExecutable),
+);
+
+/// Foreach workflow whose merge-resolve materializes a synthetic step on the
+/// default provider when [maxParallel] > 1 (parallel) and not when it is null
+/// (serial) — the distinction `requiredWorkflowProviders` must honor (C-01).
+WorkflowDefinition _mergeResolveDefinition({Object? maxParallel}) => WorkflowDefinition(
+  name: 'merge-resolve-provider-derivation',
+  description: 'Synthetic merge resolve provider derivation',
+  project: 'demo',
+  gitStrategy: const WorkflowGitStrategy(mergeResolve: MergeResolveConfig(enabled: true)),
+  steps: [
+    WorkflowStep(
+      id: 'stories',
+      name: 'Stories',
+      taskType: WorkflowTaskType.foreach,
+      mapOver: 'stories',
+      foreachSteps: const ['implement'],
+      maxParallel: maxParallel,
+    ),
+    const WorkflowStep(id: 'implement', name: 'Implement', provider: 'claude', prompts: ['Build']),
+  ],
+);

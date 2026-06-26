@@ -33,10 +33,11 @@ credentials.json
 service-account*.json
 
 # Runtime data dirs (created by local configs)
-.dartclaw-dev/
+.dartclaw-example/
 .dartclaw-dev-test-*/
-dev/tools/dartclaw-workflows/.data/
 dev/tools/dartclaw-workflows/.cache/
+dev/tools/dartclaw-workflows/.data/
+dev/state/STATE.local.md
 storages
 statics
 

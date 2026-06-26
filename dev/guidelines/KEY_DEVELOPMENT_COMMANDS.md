@@ -185,6 +185,14 @@ bash dev/testing/profiles/workflow-live/run.sh --canary merge-resolve
 # Full live workflow sweep, final gate only
 bash dev/testing/profiles/workflow-live/run.sh --full
 
+# Full live sweep WITHOUT the heavy multi-minute agent e2e (tag: live-e2e).
+# Fast iteration gate — keeps server/CLI/merge-resolve/fixture/step-isolation live tests.
+bash dev/testing/profiles/workflow-live/run.sh --full --skip-e2e
+
+# Only the heavy real-provider agent e2e (spec-and-implement + plan-and-implement).
+# Long-running — launch detached (e.g. nohup … & disown) and poll the log.
+bash dev/testing/profiles/workflow-live/run.sh --e2e
+
 # Run live core integration tests (requires real claude binary + API credentials)
 dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_core
 
@@ -202,4 +210,4 @@ dart pub global run coverage:format_coverage \
 
 See `VISUAL-VALIDATION-WORKFLOW.md` for project-specific conventions (server setup, auth, chrome-devtools, viewports, screenshot naming).
 
-See `../../../dartclaw-public/dev/testing/UI-SMOKE-TEST.md` for concrete numbered test cases (TC-01…TC-18).
+See `dev/testing/UI-SMOKE-TEST.md` for concrete numbered test cases (TC-01…TC-18).

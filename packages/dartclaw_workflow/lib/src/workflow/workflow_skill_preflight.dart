@@ -1,8 +1,8 @@
 import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
 
+import '../skills/provider_auth_preflight.dart';
 import 'skill_introspector.dart';
 import 'step_config_resolver.dart';
-import 'step_config_policy.dart' as step_config_policy;
 import 'workflow_context.dart';
 import 'workflow_definition.dart';
 
@@ -25,6 +25,7 @@ Future<WorkflowSkillPreflightResult> preflightWorkflowSkillRefs({
   required WorkflowSkillPreflightConfig skillPreflightConfig,
   required WorkflowRoleDefaults roleDefaults,
   required WorkflowContext context,
+  ProviderAuthPreflight? providerAuthPreflight,
 }) async {
   if (introspector == null) return WorkflowSkillPreflightResult.empty;
 
@@ -59,8 +60,15 @@ Future<WorkflowSkillPreflightResult> preflightWorkflowSkillRefs({
     addSkillRef(step, skill);
   }
 
-  for (final step in _syntheticSkillSteps(definition, context: context, roleDefaults: roleDefaults)) {
+  for (final step in syntheticWorkflowSkillSteps(definition, context: context, roleDefaults: roleDefaults)) {
     addSkillRef(step, step.skill!);
+  }
+
+  // Probe provider auth over the same referenced-provider set, before any skill
+  // introspection spawn, so a logged-out CLI aborts with actionable guidance
+  // instead of surfacing a cryptic mid-introspection 401.
+  if (providerAuthPreflight != null) {
+    await _preflightProviderAuth(providerAuthPreflight, refsByProvider.keys, skillPreflightConfig);
   }
 
   final visibleByProviderAndAuthored = <String, Map<String, String>>{};
@@ -83,7 +91,7 @@ Future<WorkflowSkillPreflightResult> preflightWorkflowSkillRefs({
     }
     // Resolve the effective family the same way the introspector probed for
     // skills (configured family option, then executable-name fallback) so a
-    // custom provider alias that wraps codex translates `andthen:*` skill refs
+    // custom provider alias that wraps codex translates namespaced skill refs
     // instead of being rejected.
     final family = ProviderIdentity.resolveFamily(provider, options: providerOptions, executable: executable);
     final visibleByAuthored = <String, String>{};
@@ -108,6 +116,25 @@ Future<WorkflowSkillPreflightResult> preflightWorkflowSkillRefs({
   return WorkflowSkillPreflightResult._(visibleByProviderAndAuthored);
 }
 
+Future<void> _preflightProviderAuth(
+  ProviderAuthPreflight preflight,
+  Iterable<String> providers,
+  WorkflowSkillPreflightConfig config,
+) async {
+  for (final provider in providers) {
+    final result = await preflight.evaluate(
+      provider: provider,
+      executable: config.executableFor(provider),
+      providerOptions: config.optionsFor(provider),
+    );
+    if (!result.authenticated) {
+      throw WorkflowPreflightException(
+        result.remediationMessage ?? 'Workflow provider "$provider" is not authenticated.',
+      );
+    }
+  }
+}
+
 String? _providerVisibleSkillName({
   required String family,
   required String authoredSkill,
@@ -127,9 +154,14 @@ String _missingSkillLabel({required String family, required String authoredSkill
 }
 
 Iterable<String> _providerVisibleSkillCandidates({required String family, required String authoredSkill}) sync* {
-  if (family == ProviderIdentity.codex && authoredSkill.startsWith('andthen:')) {
-    yield 'andthen-${authoredSkill.substring('andthen:'.length)}';
-  }
+  // The codex family exposes namespaced skills (`<ns>:<skill>`) under a
+  // hyphenated provider-visible name (`<ns>-<skill>`). Generalize over any
+  // namespace prefix so the translation carries no framework-specific literal
+  // while remaining behavior-preserving for existing refs.
+  if (family != ProviderIdentity.codex) return;
+  final separator = authoredSkill.indexOf(':');
+  if (separator <= 0 || separator == authoredSkill.length - 1) return;
+  yield '${authoredSkill.substring(0, separator)}-${authoredSkill.substring(separator + 1)}';
 }
 
 String? _effectivePreflightProvider({
@@ -168,41 +200,4 @@ String? _resolveContinueSessionTargetStepId(WorkflowDefinition definition, Workf
   final index = definition.steps.indexWhere((candidate) => candidate.id == step.id);
   if (index <= 0) return null;
   return definition.steps[index - 1].id;
-}
-
-Iterable<WorkflowStep> _syntheticSkillSteps(
-  WorkflowDefinition definition, {
-  required WorkflowContext context,
-  required WorkflowRoleDefaults roleDefaults,
-}) sync* {
-  final strategy = definition.gitStrategy;
-  if (strategy?.mergeResolve.enabled != true) return;
-  final stepById = {for (final step in definition.steps) step.id: step};
-  for (final step in definition.steps) {
-    if (!step.isForeachController) continue;
-    final childSteps = step.foreachSteps?.map((id) => stepById[id]).nonNulls.toList(growable: false) ?? const [];
-    final hasCodingSteps = childSteps.any(
-      (child) => step_config_policy.stepTouchesProjectBranch(definition, child, roleDefaults: roleDefaults),
-    );
-    int? maxParallel;
-    try {
-      maxParallel = step_config_policy.resolveMaxParallel(step.maxParallel, context, step.id);
-    } on ArgumentError {
-      continue;
-    }
-    final resolvedWorktreeMode = strategy!.effectiveWorktreeMode(maxParallel: maxParallel, isMap: true);
-    final promotionAware = step_config_policy.isPromotionAwareScope(
-      strategy,
-      resolvedWorktreeMode: resolvedWorktreeMode,
-      hasCodingSteps: hasCodingSteps,
-    );
-    if (promotionAware) {
-      yield WorkflowStep(
-        id: '_merge_resolve_${step.id}_0_1',
-        name: 'merge-resolve preflight',
-        skill: 'dartclaw-merge-resolve',
-        prompts: const ['preflight'],
-      );
-    }
-  }
 }

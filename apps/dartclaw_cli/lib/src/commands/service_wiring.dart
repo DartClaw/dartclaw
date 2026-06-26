@@ -43,7 +43,6 @@ import 'workflow/project_definition_paths.dart';
 import 'workflow/workflow_git_support.dart';
 import 'workflow/workflow_local_path_preflight.dart';
 import 'workflow/workflow_skill_preflight_config.dart';
-import 'workflow_asset_source_resolver.dart';
 import 'wiring/scheduling_wiring.dart';
 import 'wiring/security_wiring.dart';
 import 'wiring/storage_wiring.dart';
@@ -55,6 +54,8 @@ part 'service_wiring_notifications.dart';
 part 'service_wiring_mcp_tools.dart';
 part 'service_wiring_result.dart';
 part 'service_wiring_builder.dart';
+
+typedef PostMcpStartupHook = Future<void> Function(ChannelWiring channel);
 
 /// Immutable holder for services produced by [ServiceWiring.wire].
 ///
@@ -82,6 +83,7 @@ class WiringResult {
   final Future<void> Function() shutdownExtras;
   final ProjectService projectService;
   final ConfigNotifier configNotifier;
+  final OutboundMcpPool? outboundMcpPool;
 
   /// Workflow registry populated by [ServiceWiring.wire]. Exposed so tests can
   /// assert that the shipped built-in workflow definitions (`plan-and-implement`,
@@ -110,6 +112,7 @@ class WiringResult {
     required this.shutdownExtras,
     required this.projectService,
     required this.configNotifier,
+    this.outboundMcpPool,
     required this.workflowRegistry,
   });
 }
@@ -124,8 +127,7 @@ final class _WiringContext {
   final ConfigNotifier configNotifier;
   final String dataDir;
   final int port;
-  final AssetResolver assetResolver;
-  final ResolvedAssetPaths? resolvedAssets;
+  final ResolvedAssets resolvedAssets;
   final String? builtInSkillsSourceDir;
   final MessageRedactor messageRedactor;
 
@@ -138,7 +140,6 @@ final class _WiringContext {
     required this.configNotifier,
     required this.dataDir,
     required this.port,
-    required this.assetResolver,
     required this.resolvedAssets,
     required this.builtInSkillsSourceDir,
     required this.messageRedactor,
@@ -173,7 +174,9 @@ class ServiceWiring {
   final String resolvedConfigPath;
   final LogService logService;
   final MessageRedactor messageRedactor;
-  final AssetResolver assetResolver;
+  final ResolvedAssets resolvedAssets;
+  final OutboundMcpTransportFactory? outboundMcpTransportFactory;
+  final PostMcpStartupHook postMcpStartupHook;
 
   /// When `false`, [wire] skips the [SkillProvisioner] bootstrap. Production
   /// callers leave the default. Tests opt out when they do not need native
@@ -204,11 +207,13 @@ class ServiceWiring {
     required this.resolvedConfigPath,
     required this.logService,
     required this.messageRedactor,
-    AssetResolver? assetResolver,
+    required this.resolvedAssets,
+    this.outboundMcpTransportFactory,
+    PostMcpStartupHook? postMcpStartupHook,
     this.runAndthenSkillsBootstrap = true,
     this.skillProvisionerEnvironment,
     this.skillProvisionerProcessRunner,
-  }) : assetResolver = assetResolver ?? AssetResolver();
+  }) : postMcpStartupHook = postMcpStartupHook ?? _startSpaceEvents;
 
   /// Constructs all services, wires them together via [DartclawServerBuilder],
   /// and registers MCP tools on the built server.
@@ -218,9 +223,7 @@ class ServiceWiring {
   Future<WiringResult> wire() async {
     ensureDartclawGoogleChatRegistered();
 
-    final resolvedAssets = assetResolver.resolve();
-    final builtInSkillsSourceDir =
-        resolvedAssets?.skillsDir ?? WorkflowAssetSourceResolver.resolveBuiltInSkillsSourceDir();
+    final builtInSkillsSourceDir = _builtInSkillsSourceDir(resolvedAssets);
 
     // 0.5. Skill bootstrap – must run before workflow execution so native
     // DartClaw skills are on disk for provider introspection and invocation.
@@ -230,7 +233,6 @@ class ServiceWiring {
       configNotifier: ConfigNotifier(config),
       dataDir: dataDir,
       port: port,
-      assetResolver: assetResolver,
       resolvedAssets: resolvedAssets,
       builtInSkillsSourceDir: builtInSkillsSourceDir,
       messageRedactor: messageRedactor,
@@ -286,9 +288,29 @@ class ServiceWiring {
     );
     final server = serverFactory(ctx.builder);
     ctx.bindServer(server);
-    final advisorSubscriber = _registerMcpTools(config, ctx, server, harness, storage, security, channel);
-    if (channel.spaceEventsWiring != null) {
-      await channel.spaceEventsWiring!.start();
+    final (advisorSubscriber, outboundMcpPool) = await _registerMcpTools(
+      config,
+      ctx,
+      server,
+      harness,
+      storage,
+      security,
+      channel,
+      outboundMcpTransportFactory: outboundMcpTransportFactory,
+    );
+    try {
+      await postMcpStartupHook(channel);
+    } catch (error, stackTrace) {
+      try {
+        await outboundMcpPool?.close();
+      } catch (closeError, closeStackTrace) {
+        ServiceWiring._log.warning(
+          'Failed to close outbound MCP pool after startup error: $closeError',
+          closeError,
+          closeStackTrace,
+        );
+      }
+      Error.throwWithStackTrace(error, stackTrace);
     }
     return _assembleWiringResult(
       ctx,
@@ -307,8 +329,17 @@ class ServiceWiring {
       scopeReconciler,
       groupSessionInit,
       advisorSubscriber,
+      outboundMcpPool,
     );
   }
+
+  static Future<void> _startSpaceEvents(ChannelWiring channel) async {
+    if (channel.spaceEventsWiring != null) {
+      await channel.spaceEventsWiring!.start();
+    }
+  }
+
+  static String? _builtInSkillsSourceDir(ResolvedAssets resolvedAssets) => resolvedAssets.skillsDir;
 
   Future<ProjectWiring> _wireProjects(_WiringContext ctx) async {
     final project = ProjectWiring(config: config, dataDir: ctx.dataDir, eventBus: ctx.eventBus);
@@ -549,6 +580,7 @@ class ServiceWiring {
         bashStepEnvAllowlist: config.security.bashStep.envAllowlist,
         bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
         roleDefaults: workflowRoleDefaults,
+        approvalPolicyDefault: config.workflow.approvals,
         structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
         skillIntrospector: CliSkillIntrospector(
           environmentForProvider: (providerId) => _providerProbeEnvironment(providerId, credentialRegistry),
@@ -573,7 +605,8 @@ class ServiceWiring {
         .where((r) => r.harness.supportsSessionContinuity)
         .map((r) => r.providerId)
         .toSet();
-    await WorkflowMaterializer.materialize(dataDir: ctx.dataDir, assetResolver: ctx.assetResolver);
+    final resolvedWorkflowsDir = ctx.resolvedAssets.workflowsDir;
+    await WorkflowMaterializer.materialize(dataDir: ctx.dataDir, sourceDir: resolvedWorkflowsDir, allowFallback: false);
     final workflowRegistry = WorkflowRegistry(
       parser: WorkflowDefinitionParser(),
       validator: WorkflowDefinitionValidator(roleDefaults: workflowRoleDefaults),

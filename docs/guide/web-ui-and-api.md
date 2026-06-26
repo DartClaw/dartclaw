@@ -59,13 +59,25 @@ The interface has three main areas:
 - **Workflow launch form**: The `/workflows` page now includes an inline launch form on each workflow definition card
 - **Validation**: Required workflow variables are validated inline before a run starts
 - **Redirect**: Successful launches navigate directly to `/workflows/<runId>`
-- **Other trigger surfaces**: Chat `/workflow run` commands and the GitHub PR webhook share the same launch path — see [Workflow Triggers](workflows.md#workflow-triggers) for the full surface
+- **Other trigger surfaces**: Chat `/workflow run` commands and the GitHub PR webhook share the same launch path – see [Workflow Triggers](workflows.md#workflow-triggers) for the full surface
 
 **Guard Editor** (Settings page)
 - **Manage guard extensions**: Admins list, add, edit, delete, and test command/file/network/input-sanitizer guard extensions without hand-editing YAML
 - **In-UI tester**: Evaluate a sample command, path, or URL through the real runtime guard semantics
 - **Fail-closed + activation status**: Invalid changes are rejected before save; responses separate immediately-active from pending-restart changes
-- **Admin-gated**: Editing and testing require admin access, enforced server-side — see [Security § Guard Editor](security.md#guard-editor-web-ui)
+- **Admin-gated**: Editing and testing require admin access, enforced server-side – see [Security § Guard Editor](security.md#guard-editor-web-ui)
+
+**Knowledge Hub**
+- **Browse**: Open `/knowledge` to inspect wiki, temporal KG, memory, and inbox/search-derived knowledge in one read-only view
+- **Filter**: Use `q` and `layer` query parameters, for example `/knowledge?q=release&layer=kg`
+- **Attribution**: The shared source-attribution component keeps wiki pages, KG facts, memory entries, and inbox sources traceable
+- **Read-only**: Ingestion and invalidation remain MCP/tool or job operations
+
+**Temporal KG Timeline**
+- **Open**: Use `/knowledge/timeline` for the category-first temporal-KG timeline
+- **As-of view**: Add `as_of=<ISO-8601 timestamp>` to inspect the graph at a point in time, for example `/knowledge/timeline?as_of=2026-01-01T00:00:00Z`
+- **Validity windows**: Facts render with valid-from/valid-until windows where present
+- **Contradictions and supersession**: Superseded or contradictory facts stay visible as timeline evidence
 
 ### Keyboard Shortcuts
 
@@ -133,7 +145,7 @@ Content-Type: application/json
 {"title": "New title"}
 ```
 
-Title must be non-empty and ≤ 500 characters. Returns the updated session.
+Title must be non-empty and ≤ 120 characters. Returns the updated session.
 
 #### Delete session
 
@@ -184,9 +196,9 @@ message=Help+me+write+a+test&attachments=[]&references=[]
 Stores the user message, validates rich input metadata, composes the system prompt, and starts an agent turn. Attachments and references are persisted with the message and appended to the turn payload as a JSON-fenced `rich_input_context` block marked as untrusted data. Returns an HTML fragment (for HTMX) containing an `sse-connect` attribute that connects to the SSE stream via the HTMX SSE extension.
 
 **Error responses**:
-- `400` — empty message
-- `404` — session not found
-- `409` — another turn is already active on this session
+- `400` – empty message
+- `404` – session not found
+- `409` – another turn is already active on this session
 
 #### Turn status
 
@@ -253,7 +265,7 @@ event: tool_use
 data: <div id="tool-toolabc123" class="tool-indicator pending">Read</div>
 ```
 
-**Tool result** (tool execution completed — uses OOB swap to update existing indicator):
+**Tool result** (tool execution completed – uses OOB swap to update existing indicator):
 ```
 event: tool_result
 data: <div id="tool-toolabc123" hx-swap-oob="outerHTML:#tool-toolabc123" class="tool-indicator success">Read</div>
@@ -291,7 +303,7 @@ Returns the current server configuration with metadata (allowed values, restart-
 PATCH /api/config
 Content-Type: application/json
 
-{"agent.model": "sonnet", "server.port": 3333}
+{"agent.model": "sonnet", "port": 3333}
 ```
 
 Validates and applies configuration changes. Fields requiring restart are flagged in the response metadata. Returns `422` with field-level errors on validation failure.
@@ -488,7 +500,7 @@ Content-Type: application/json
 GET /api/config/channels/:type/group-allowlist
 ```
 
-Returns the group allowlist (restart-required — reads from persisted YAML).
+Returns the group allowlist (restart-required – reads from persisted YAML).
 
 #### Add to group allowlist
 
@@ -602,9 +614,12 @@ After reconnect, clients should refresh the displayed session through `GET /api/
 | `GET /scheduling` | Scheduling status, heartbeat, job management |
 | `GET /memory` | Memory dashboard (overview, pruning, search, file viewer) |
 | `GET /memory/content` | Memory dashboard content fragment (HTMX polling) |
+| `GET /knowledge` | Read-only knowledge hub across wiki, temporal KG, memory, and inbox/search-derived sources |
+| `GET /knowledge/timeline` | Read-only category-first temporal-KG timeline; accepts `category` and `as_of` query parameters |
+| `GET /knowledge/research` | Read-only rendered `context_research` citation packet view |
 | `GET /static/*` | Static assets (CSS, JS, vendored libraries) |
 
-#### Workflow and Skill API
+#### Workflow API
 
 Workflow discovery and execution endpoints:
 
@@ -616,12 +631,12 @@ Workflow discovery and execution endpoints:
 | `GET` | `/api/workflows/runs/<id>` | Get a single run with step/task detail |
 | `POST` | `/api/workflows/runs/<id>/pause` | Pause a running workflow |
 | `POST` | `/api/workflows/runs/<id>/resume` | Resume a paused workflow |
+| `POST` | `/api/workflows/runs/<id>/retry` | Retry a failed workflow run |
 | `POST` | `/api/workflows/runs/<id>/cancel` | Cancel a running or paused workflow |
 | `GET` | `/api/workflows/runs/<id>/events` | SSE stream for a specific run |
 | `GET` | `/api/workflows/definitions` | List workflow summaries |
 | `GET` | `/api/workflows/definitions/<name>` | Fetch a full workflow definition |
 | `POST` | `/webhook/github` | Trigger webhook-driven workflow launches for matching GitHub PR events |
-| `GET` | `/api/skills` | List discovered skills and metadata |
 
 Common request shape for `POST /api/workflows/run`:
 
@@ -645,7 +660,7 @@ These tools are available to the agent during conversations. They're exposed via
 |------|-----------|-------------|
 | `memory_save` | `text` (required), `category` (optional) | Save text to persistent memory. Categories: general, preferences, facts, etc. |
 | `memory_search` | `query` (required), `limit` (optional, default 5) | Search memory using FTS5 full-text search. Returns ranked results. |
-| `memory_read` | — | Read the full contents of MEMORY.md |
+| `memory_read` | – | Read the full contents of MEMORY.md |
 
 The agent decides when to use these tools based on the conversation context. Memory persists across sessions.
 

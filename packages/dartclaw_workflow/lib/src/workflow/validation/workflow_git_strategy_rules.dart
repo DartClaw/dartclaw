@@ -34,23 +34,11 @@ extension _WorkflowGitStrategyRules on WorkflowDefinitionValidator {
       );
     }
 
-    // Artifact-producing step detection — a step is artifact-producing if its
-    // skill is on the known artifact-producer list, or if its outputs declare
-    // a path-shaped artifact output.
-    final hasArtifactProducer = definition.steps.any((step) {
-      if (step.skill != null && WorkflowDefinitionValidator._artifactProducingSkills.contains(step.skill)) {
-        return true;
-      }
-      return step.outputKeys.any(
-        (k) =>
-            k == 'prd' ||
-            k == 'plan' ||
-            k == 'story_spec' ||
-            k == 'spec_path' ||
-            k == 'story_specs' ||
-            k == 'technical_research',
-      );
-    });
+    // Artifact-producing step detection — a step is artifact-producing if any
+    // output declares format: path. Shares the runtime committer's detector so
+    // validation and commit-time behavior agree on what "artifact-producing"
+    // means (ADR-041: generic format: path, not a key-name allowlist).
+    final hasArtifactProducer = workflowHasArtifactProducer(definition);
 
     final artifacts = strategy.artifacts;
     // gitStrategy.artifacts.commit defaulting truth table:

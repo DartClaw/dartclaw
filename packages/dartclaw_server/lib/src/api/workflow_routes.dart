@@ -16,6 +16,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        WorkflowApprovalPolicy,
         WorkflowDefinition,
         WorkflowDefinitionResolver,
         WorkflowDefinitionSource,
@@ -242,7 +243,9 @@ typedef _ParsedWorkflowRunRequest = ({
   WorkflowDefinition? definition,
   Map<String, String> variables,
   String? projectId,
+  WorkflowApprovalPolicy? approvals,
   bool allowDirtyLocalPath,
+  bool inline,
   Response? error,
 });
 
@@ -256,7 +259,9 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      approvals: null,
       allowDirtyLocalPath: false,
+      inline: false,
       error: body.error,
     );
   }
@@ -266,7 +271,9 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      approvals: null,
       allowDirtyLocalPath: false,
+      inline: false,
       error: errorResponse(400, 'INVALID_INPUT', 'Missing required field: definition'),
     );
   }
@@ -275,7 +282,9 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      approvals: null,
       allowDirtyLocalPath: false,
+      inline: false,
       error: errorResponse(400, 'INVALID_INPUT', 'Field "definition" must be a non-empty string'),
     );
   }
@@ -286,7 +295,9 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      approvals: null,
       allowDirtyLocalPath: false,
+      inline: false,
       error: errorResponse(404, 'DEFINITION_NOT_FOUND', 'Workflow definition not found: $definitionField'),
     );
   }
@@ -297,7 +308,9 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      approvals: null,
       allowDirtyLocalPath: false,
+      inline: false,
       error: errorResponse(400, 'INVALID_INPUT', 'Field "variables" must be an object', {'field': 'variables'}),
     );
   }
@@ -307,7 +320,20 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
   };
   final projectField = body.value!['project'];
   final projectId = projectField is String && projectField.trim().isNotEmpty ? projectField.trim() : null;
+  final approvalsResult = _parseApprovalPolicy(body.value!['approvals']);
+  if (approvalsResult.error != null) {
+    return (
+      definition: null,
+      variables: const <String, String>{},
+      projectId: null,
+      approvals: null,
+      allowDirtyLocalPath: false,
+      inline: false,
+      error: approvalsResult.error,
+    );
+  }
   final allowDirtyLocalPath = body.value!['allowDirtyLocalPath'] == true;
+  final inline = body.value!['inline'] == true;
   if (projectId != null && definition.variables.containsKey('PROJECT') && !variables.containsKey('PROJECT')) {
     variables['PROJECT'] = projectId;
   }
@@ -317,7 +343,9 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
     definition: definition,
     variables: variables,
     projectId: projectId,
+    approvals: approvalsResult.policy,
     allowDirtyLocalPath: allowDirtyLocalPath,
+    inline: inline,
     error: validationError,
   );
 }
@@ -332,7 +360,9 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      approvals: null,
       allowDirtyLocalPath: false,
+      inline: false,
       error: bodyResult.error,
     );
   }
@@ -343,7 +373,9 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      approvals: null,
       allowDirtyLocalPath: false,
+      inline: false,
       error: _workflowFormError('Workflow definition is required.'),
     );
   }
@@ -353,7 +385,9 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      approvals: null,
       allowDirtyLocalPath: false,
+      inline: false,
       error: _workflowFormError('Workflow definition not found: $definitionName'),
     );
   }
@@ -374,8 +408,32 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
     definition: definition,
     variables: variables,
     projectId: projectId,
+    approvals: null,
     allowDirtyLocalPath: allowDirtyLocalPath,
+    inline: false,
     error: validationError,
+  );
+}
+
+({WorkflowApprovalPolicy? policy, Response? error}) _parseApprovalPolicy(Object? raw) {
+  if (raw == null) return (policy: null, error: null);
+  if (raw is! String || raw.trim().isEmpty) {
+    return (
+      policy: null,
+      error: errorResponse(400, 'INVALID_INPUT', 'Field "approvals" must be one of: manual, auto-on-stall, auto', {
+        'field': 'approvals',
+        'allowedValues': ['manual', 'auto-on-stall', 'auto'],
+      }),
+    );
+  }
+  final policy = WorkflowApprovalPolicy.fromYaml(raw);
+  if (policy != null) return (policy: policy, error: null);
+  return (
+    policy: null,
+    error: errorResponse(400, 'INVALID_INPUT', 'Field "approvals" must be one of: manual, auto-on-stall, auto', {
+      'field': 'approvals',
+      'allowedValues': ['manual', 'auto-on-stall', 'auto'],
+    }),
   );
 }
 
@@ -413,7 +471,9 @@ Future<Response> _startWorkflowResponse(
       definition,
       parsed.variables,
       projectId: parsed.projectId,
+      approvals: parsed.approvals,
       allowDirtyLocalPath: parsed.allowDirtyLocalPath,
+      inline: parsed.inline,
     );
     if (htmlResponse) {
       final location = '/workflows/${run.id}';
@@ -427,7 +487,7 @@ Future<Response> _startWorkflowResponse(
   } on StateError catch (e) {
     if (_isWorkflowStartPreconditionError(e.message)) {
       return htmlResponse
-          ? _workflowFormError(e.message, statusCode: 409)
+          ? _workflowFormError(e.message)
           : errorResponse(409, 'WORKFLOW_PRECONDITION_FAILED', e.message);
     }
     _log.severe('Failed to start workflow', e);
@@ -449,9 +509,15 @@ bool _isWorkflowStartPreconditionError(String message) {
       message.startsWith('git fetch failed for "');
 }
 
-Response _workflowFormError(String message, {int statusCode = 400}) {
+/// Renders an inline workflow-form error as an HTMX-swappable fragment.
+///
+/// Returns HTTP 200 (not 4xx/5xx) so HTMX's default `responseHandling` swaps
+/// the fragment into the form's `hx-target`; on a 4xx/5xx the body is dropped
+/// and the launch error vanishes from the UI. The JSON API path surfaces the
+/// real status code via [errorResponse] instead.
+Response _workflowFormError(String message) {
   return Response(
-    statusCode,
+    200,
     body: '<span class="form-error-text">${htmlEscape.convert(message)}</span>',
     headers: {'content-type': 'text/html; charset=utf-8'},
   );

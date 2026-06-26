@@ -1,184 +1,145 @@
 # Trellis Guidelines
 
-High-level Trellis guidance. This is a policy document, not a full directive reference.
+> Vendored copy of the upstream [Trellis agent guide](https://github.com/tolo/trellis/blob/main/packages/trellis/doc/trellis-for-agents.md).
 
-For exact directive syntax and package-specific behavior, use the Trellis package docs and the versioned source used by your project.
-
-
----
-
-
-## Core Principles
-
-- Keep templates simple
-- Keep business logic out of templates
-- Compute view data in code, not in markup
-- Escape by default
-- Use raw HTML only at explicit trust boundaries
+Concise rules for writing **Trellis** templates correctly and safely. Trellis is a
+Thymeleaf-inspired HTML template engine for Dart: templates are valid HTML annotated with
+`tl:*` attributes, rendered server-side, fragment-first for HTMX. This is policy, not a full
+reference — for exact syntax see the
+[README](https://github.com/tolo/trellis/blob/main/packages/trellis/README.md). Verify behavior
+against the `trellis` version your project pins.
 
 
----
+## Core principles
+
+- **Escape by default.** Untrusted/user-controlled values go through `tl:text` (or `tl:attr`).
+- **Keep templates dumb.** Compute view data in Dart; templates only place prepared values.
+- **Trust boundary lives in code.** The code building the context decides what is safe to emit
+  as raw HTML — the template cannot.
 
 
-## Core Rules
+## Security — the rules that matter most
 
-### Use escaped text by default
-
-Use `tl:text` for normal text output, especially user-controlled content.
-
-```html
-<span tl:text="${title}">Title</span>
-```
-
-Only use raw HTML when the value is already trusted and pre-rendered.
+| Directive | Output | Use for |
+|---|---|---|
+| `tl:text` | HTML-escaped | **Default** for all text, especially user input |
+| `tl:attr` + shorthands (`tl:href`, `tl:src`, `tl:value`, `tl:class`, `tl:id`) | attribute-escaped | All dynamic attribute values |
+| `tl:utext` | **raw, unescaped** | **Only** pre-rendered, trusted HTML |
 
 ```html
-<div tl:utext="${bodyHtml}">body</div>
+<span tl:text="${title}">Title</span>            <!-- safe default -->
+<div  tl:utext="${trustedBodyHtml}">body</div>    <!-- only if already trusted -->
 ```
 
-
-### Use `tl:attr` for dynamic attributes
-
-Use `tl:attr` when attribute values come from code.
-
-```html
-<input tl:attr="value=${title},data-id=${id}">
-<a tl:attr="href=${href}">
-<form tl:attr="action=${postUrl}">
-```
-
-Keep static attributes hardcoded in HTML.
+If a value *could* contain unsafe HTML, never pass it to `tl:utext`. There is no sanitizer in
+the engine — sanitize in Dart before marking something trusted.
 
 
-### Keep conditional logic small
+## Keep templates dumb
 
-Use `tl:if` and `tl:unless` for simple show/hide behavior.
+Do these in Dart, not in template expressions:
 
-```html
-<div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">banner</div>
-<div tl:unless="${readOnly}">...</div>
-```
-
-Prefer `null` to mean "absent" when that matches the template contract.
-
-
-### Keep iteration data simple
-
-Use `tl:each` with view-model data that is already prepared for rendering.
-
-```html
-<li tl:each="item : ${items}">
-  <span tl:text="${item.label}">Item</span>
-</li>
-```
-
-Do not push filtering, formatting, or business decisions into the loop body if they can be done before render.
-
-
-### Use fragments for reusable partials
-
-Use `tl:fragment` for sections that need to be rendered independently.
-
-```html
-<div tl:fragment="badge">
-  <span tl:text="${label}">Label</span>
-</div>
-```
-
-Keep fragment names stable and descriptive.
-
-
-### Keep templates dumb
-
-Do in code:
-- format dates
-- build labels
-- choose CSS classes
-- filter and sort lists
-- decide which fragment or template to render
-
-Do not do those things in template expressions unless the expression is trivial.
-
-
----
-
-
-## Data-Passing Rules
-
-- Pass plain text as plain strings
-- Pass trusted HTML only when raw output is intentional
-- Pass URLs and attribute values as plain strings
-- Pass lists in a render-ready shape
-- Pass `null` when the template should omit something
-
-Good:
+- format dates and numbers, build labels and messages
+- choose CSS classes (`'status-${status.name}'`)
+- filter, sort, and shape lists into render-ready view models
+- decide which template or fragment to render
+- map "absent" to `null` so the template can omit it
 
 ```dart
+// Good: render-ready context — strings, render-ready lists, null for "omit"
 {
   'title': title,
   'statusClass': 'status-${status.name}',
   'subtitle': subtitle.isEmpty ? null : subtitle,
+  'items': items.map((i) => {'label': i.label, 'href': i.url}).toList(),
+}
+
+// Bad: makes the template finish the job
+{
+  'rawUserHtml': userInput,                        // unsanitized → XSS if sent to tl:utext
+  'items': allItems.where(complexFilter).toList(), // business logic at render time
 }
 ```
 
-Bad:
+Template expressions should stay trivial (a field access, a simple ternary). Push everything
+else upstream.
+
+
+## Core directives
+
+```html
+<p   tl:text="${message}">placeholder</p>             <!-- escaped text -->
+<div tl:if="${user}">…</div>                          <!-- show if truthy -->
+<div tl:unless="${readOnly}">…</div>                  <!-- show if falsy -->
+<li  tl:each="item : ${items}" tl:text="${item.label}">…</li>
+<div tl:fragment="badge">…</div>                      <!-- reusable partial -->
+<div tl:with="full=${first} + ' ' + ${last}">…</div>  <!-- local var -->
+
+<a   tl:href="${url}">link</a>                        <!-- attribute shorthands -->
+<input tl:value="${title}">
+<div tl:class="${statusClass}">
+<div class="card" tl:classappend="${active} ? 'active' : ''">  <!-- append, not replace -->
+<input tl:attr="value=${title},data-id=${id}">        <!-- generic / multiple attrs -->
+```
+
+Truthiness: non-null, non-false, non-zero, not `"false"`/`"off"`/`"no"`. **Empty strings and
+empty lists are truthy** — guard with `null` (or an explicit length check), not `""`/`[]`.
+
+Prefer the dedicated shorthands for common attributes; use `tl:attr` for anything else.
+
+
+## Footguns (these fail silently — the engine warns, it does not fix)
+
+- **One `tl:attr` per element.** HTML forbids duplicate attribute names, so two `tl:attr` on the
+  same element → the parser keeps the first and drops the rest *before Trellis runs*. Put every
+  dynamic attribute in a single comma-separated `tl:attr` (or use shorthands).
+- **Don't wrap `<tr>`/`<option>` in `<tl:block>`.** Inside `<table>`/`<select>` the HTML5 parser
+  foster-parents unknown tags out of the element, detaching the loop scope (symptom: right row
+  count, empty cells). Put `tl:each` directly on the `<tr>`/`<option>`.
+- A `null` attribute value **removes** the attribute; boolean attrs render valueless on `true`,
+  vanish on `false`.
+
+
+## Integration (HTMX)
+
+- Render full pages and fragments from the same templates; return fragments via
+  `renderFragment()` / `renderFragments()` for HTMX swaps.
+- Reuse a preloaded/cached template source when rendering the same fragment repeatedly.
+- Keep dynamic URLs in the context (`tl:href` / `tl:attr`); keep static HTMX attributes
+  (`hx-get`, `hx-target`, …) hardcoded in the markup.
+- Keep template structure stable so CSS, HTMX, and tests can target it reliably.
+
+
+## Validate
+
+Treat templates as code under test:
 
 ```dart
-{
-  'rawUserHtml': userInput,
-  'items': allItems.where((e) => complexFilter(e)).toList(),
-}
+import 'package:trellis/testing.dart';
+expect(myTemplateSource, isValidTemplate());   // in `dart test`
 ```
 
+```bash
+dart run trellis:validate --strict             # CI gate; --strict makes warnings fail
+```
 
----
-
-
-## Trust Boundary
-
-The code that prepares template context owns the trust boundary.
-
-- `tl:text`: safe default
-- `tl:attr`: safe for attribute output
-- `tl:utext`: only for trusted HTML
-
-If a value could contain unsafe HTML, do not pass it to `tl:utext`.
-
-
----
-
-
-## Integration Guidance
-
-- Separate page rendering from fragment rendering
-- Reuse preloaded or cached template sources when rendering fragments repeatedly
-- Keep template structure stable so CSS, HTMX, and tests can target it reliably
-- If using Trellis with HTMX, keep dynamic URLs in template context and keep static HTMX behavior in markup
-
-
----
-
-
-## Avoid
-
-- Using `tl:utext` for untrusted content
-- Encoding business logic in template expressions
-- Doing heavy formatting work in templates
-- Passing half-baked data structures and expecting templates to finish the job
-- Using templates as a place to hide controller or service logic
-- Letting template contracts drift without updating the calling code
-
-
----
+`--strict` is required in CI: the silent-mutation issues above are reported as *warnings*, so a
+plain run still exits `0`.
 
 
 ## Checklist
 
-- [ ] `tl:text` is the default for text output
-- [ ] `tl:utext` is used only for trusted pre-rendered HTML
-- [ ] Dynamic attributes come from `tl:attr`
-- [ ] Conditions are simple and readable
-- [ ] Lists are prepared before render
-- [ ] Fragments are used for independently rendered partials
-- [ ] Formatting and business rules live in code, not in templates
+- [ ] `tl:text` is the default for text; `tl:utext` only for trusted, pre-rendered HTML
+- [ ] Dynamic attributes use a shorthand or a single `tl:attr`
+- [ ] Conditions and loop bodies are trivial; data is shaped in Dart
+- [ ] Fragments used for independently rendered (HTMX) partials
+- [ ] `null` (not `""`/`[]`) signals "omit"
+- [ ] Templates validate clean under `trellis:validate --strict`
 
+
+## Full reference
+
+- Engine README & syntax: <https://github.com/tolo/trellis/blob/main/packages/trellis/README.md>
+- Framework integration (Shelf, Dart Frog, Relic, HTMX): <https://github.com/tolo/trellis/blob/main/docs/guides/framework-integration.md>
+- API docs: <https://pub.dev/documentation/trellis/latest/>
+- Doc index for agents (`llms.txt`): <https://github.com/tolo/trellis/blob/main/llms.txt>

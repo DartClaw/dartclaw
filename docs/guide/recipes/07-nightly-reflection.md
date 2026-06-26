@@ -2,14 +2,14 @@
 
 ## Overview
 
-A nightly cron job that reviews the day's errors and learnings, synthesizes patterns, and saves actionable insights to memory. This was originally planned as a built-in feature (F06) but was demoted to a recipe -- the infrastructure is general-purpose (cron scheduling + errors.md + learnings.md + memory_save), and reflection is simply a configured use of those building blocks.
+A nightly cron job that reviews the day's errors and learnings, synthesizes patterns, and saves actionable insights to memory. Reflection isn't a dedicated feature -- it's a configured use of general-purpose building blocks: cron scheduling + errors.md + learnings.md + memory_save.
 
 ## Features Used
 
 - [Cron scheduling](../scheduling.md) -- triggers nightly reflection
 - [Self-improvement files](../workspace.md) -- errors.md (auto-populated on failures) and learnings.md (populated via memory_save)
 - [MEMORY.md](../workspace.md) -- stores reflection insights for persistence
-- Global model selection -- Sonnet recommended for cost-efficient routine analysis
+- [Per-job model selection](../scheduling.md) -- Sonnet recommended for cost-efficient routine analysis
 
 ## Configuration
 
@@ -36,9 +36,9 @@ scheduling:
         expression: "0 3 * * *"
       delivery: none
 
-# Cron jobs use the global agent.model (there is no per-job model override)
+# Sets the global default; a job can override it with a per-job `model:` (and `effort:`) field
 agent:
-  model: sonnet                  # applies to all turns: chat, cron, heartbeat
+  model: sonnet                  # default for all turns: chat, cron, heartbeat
 ```
 
 ## Behavior Files
@@ -86,8 +86,8 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 - **Change timing**: `0 23 * * *` runs at 11 PM (same-day reflection). `0 6 * * *` runs at 6 AM (review yesterday before starting)
 - **Add delivery**: Set `delivery: announce` to push the reflection summary to WhatsApp, Signal, Google Chat, or the web UI
 - **Weekly instead of nightly**: Change to `0 3 * * 0` (Sunday at 3 AM) for weekly reflection with broader pattern analysis
-- **Use Opus for deeper analysis**: Change `agent.model: opus` globally if you want more thorough analysis across all turns including reflection (higher cost). There is no per-cron-job model override
-- **Add git sync**: Enable `workspace.git_sync: true` so reflections are committed alongside other workspace changes during heartbeat
+- **Use Opus for deeper analysis**: Add `model: opus` to the job for more thorough reflection without raising the global model (higher cost on that job only)
+- **Add git sync**: Set `workspace.git_sync.enabled: true` so reflections are committed alongside other workspace changes during heartbeat
 - **Customize error categories**: Update SOUL.md reflection guidelines to prioritize certain error types over others
 
 ## Gotchas & Limitations
@@ -95,6 +95,6 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 - **errors.md is capped at 50 entries**: SelfImprovementService trims oldest entries when the cap is reached. If your system generates many errors, older ones may be lost before the nightly reflection runs. Consider running reflection more frequently in high-error environments
 - **learnings.md must be explicitly populated**: Unlike errors.md (auto-populated), learnings.md only gets entries when the agent explicitly uses memory_save with `category='learning'`. If your workflow doesn't generate learnings, this file will be empty
 - **Empty files = no-op**: The prompt instructs the agent to skip reflection if both files are empty. This is intentional -- no wasted tokens on days with no activity
-- **Model override scope**: Cron jobs use the global `agent.model` -- there is no per-job model override. All cron jobs share the same model as interactive chat. To reduce reflection costs without changing the chat model, reduce reflection frequency rather than trying to set a per-job model
+- **Model inheritance**: A job without a `model:`/`effort:` field inherits the global `agent.model`/`agent.effort`. Set a per-job `model:` to run reflection on a cheaper (or pricier) model than interactive chat
 - **Timezone is server-local**: The 3 AM cron uses server time. Adjust for your timezone if the server is in a different location
 - **No errors.md cleanup**: The reflection job reads but does not modify errors.md or learnings.md. These files continue to accumulate until their caps are reached or you manually clear them

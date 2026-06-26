@@ -86,7 +86,7 @@ steps:
 
     test('standalone raw mode prefers cwd-local workflow config', () async {
       final workspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
-      final configDir = Directory(p.join(workspace.path, 'dartclaw'))..createSync();
+      final configDir = Directory(p.join(workspace.path, '.dartclaw'))..createSync();
       final dataDir = Directory(p.join(tempDir.path, 'local-data'))..createSync();
       File(p.join(configDir.path, 'dartclaw.yaml')).writeAsStringSync('''
 data_dir: ${dataDir.path}

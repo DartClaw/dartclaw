@@ -2,6 +2,7 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryService, TemporalKnowledgeGraphService;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 
 import '../audit/audit_log_reader.dart';
@@ -12,8 +13,11 @@ import '../provider_status_service.dart';
 import '../runtime_config.dart';
 import 'page_registry.dart';
 import 'pages/health_page.dart';
+import 'pages/knowledge_hub_page.dart';
+import 'pages/kg_timeline_page.dart';
 import 'pages/memory_page.dart';
 import 'pages/projects_page.dart';
+import 'pages/research_packet_page.dart';
 import 'pages/scheduling_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/tasks_page.dart';
@@ -32,6 +36,8 @@ void registerSystemDashboardPages(
   RuntimeConfig? Function()? runtimeConfigGetter,
   ConfigWriter? configWriter,
   MemoryStatusService? Function()? memoryStatusServiceGetter,
+  MemoryService? Function()? memoryServiceGetter,
+  TemporalKnowledgeGraphService? Function()? kgServiceGetter,
   ContentGuardDisplayParams contentGuardDisplay = const ContentGuardDisplayParams(),
   HeartbeatDisplayParams heartbeatDisplay = const HeartbeatDisplayParams(),
   SchedulingDisplayParams schedulingDisplay = const SchedulingDisplayParams(),
@@ -73,6 +79,19 @@ void registerSystemDashboardPages(
       MemoryPage(memoryStatusServiceGetter: memoryStatusServiceGetter, workspaceDisplay: workspaceDisplay),
     );
   }
+  registry.register(
+    KnowledgeHubPage(
+      hubGetter: () {
+        final workspaceDir = workspaceDisplay.path;
+        final memory = memoryServiceGetter?.call();
+        final kg = kgServiceGetter?.call();
+        if (workspaceDir == null || memory == null || kg == null) return null;
+        return knowledgeHubServiceForWorkspace(workspaceDir: workspaceDir, memory: memory, kg: kg);
+      },
+    ),
+  );
+  registry.register(ResearchPacketPage());
+  registry.register(KgTimelinePage(kgGetter: kgServiceGetter));
   if (showScheduling) {
     registry.register(
       SchedulingPage(

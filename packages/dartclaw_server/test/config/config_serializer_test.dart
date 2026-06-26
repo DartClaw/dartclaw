@@ -77,6 +77,7 @@ void main() {
 
       final workflow = json['workflow'] as Map<String, dynamic>;
       expect(workflow['workspaceDir'], isNull);
+      expect(workflow['approvals'], 'manual');
       expect(workflow['defaults'], {
         'workflow': {'provider': 'claude', 'model': null},
         'planner': {'provider': null, 'model': null},
@@ -137,6 +138,7 @@ void main() {
       final config = const DartclawConfig(
         workflow: WorkflowConfig(
           workspaceDir: '/tmp/workflow-space',
+          approvals: WorkflowApprovalPolicy.auto,
           defaults: WorkflowRoleDefaultsConfig(
             workflow: WorkflowRoleModelConfig(provider: 'codex', model: 'gpt-5'),
             planner: WorkflowRoleModelConfig(model: 'gpt-5-thinking'),
@@ -150,6 +152,7 @@ void main() {
       final json = serializer.toJson(config, runtime: runtime);
       expect(json['workflow'], {
         'workspaceDir': '/tmp/workflow-space',
+        'approvals': 'auto',
         'defaults': {
           'workflow': {'provider': 'codex', 'model': 'gpt-5'},
           'planner': {'provider': null, 'model': 'gpt-5-thinking'},

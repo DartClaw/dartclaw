@@ -8,14 +8,6 @@ import 'schema_presets.dart';
 import 'step_output_validation_helpers.dart';
 import 'workflow_definition.dart' show WorkflowStep;
 
-/// Closed status enum from the AndThen `ops` skill's `update-plan` form.
-///
-/// Mirrored from `dartclaw-discover-andthen-plan/SKILL.md` rule 6 so a code-side
-/// pass can enforce the same vocabulary the LLM is asked to honor. Keep these
-/// two sites in sync.
-const _storyStatusEnum = <String>{'pending', 'spec-ready', 'in-progress', 'done', 'skipped', 'blocked'};
-const _closedStoryStatuses = <String>{'done', 'skipped'};
-
 /// Required artifacts discovered from workflow step outputs.
 final class ProducedArtifacts {
   /// Paths that must be present for downstream workflow worktrees.
@@ -110,8 +102,6 @@ StorySpecPathResolution resolveStorySpecPaths(
   final normalizedItems = <Map<String, dynamic>>[];
   for (final item in rawItems) {
     final itemMap = asStringKeyedMap(item) ?? <String, dynamic>{};
-    final status = _normalizeStoryStatus(itemMap);
-    if (_closedStoryStatuses.contains(status)) continue;
 
     final rawSpecPath = (itemMap['spec_path'] as String?)?.trim();
     if (rawSpecPath != null && rawSpecPath.isNotEmpty) {
@@ -230,19 +220,6 @@ bool _isAlreadyPlanRooted(String specPath, String planDir) {
       ? normalizedPlanDir
       : '$normalizedPlanDir${p.separator}';
   return specPath == normalizedPlanDir || specPath.startsWith(planDirPrefix);
-}
-
-/// Coerces an out-of-enum or missing `status` value on a story-spec item to
-/// `pending` per the resume-filter contract in `dartclaw-discover-andthen-plan`.
-///
-/// Defence-in-depth for the LLM-side rule – a typo like `"spec_ready"` would
-/// otherwise propagate untouched and silently skip downstream `entryGate`
-/// expressions that compare on the canonical dash form.
-String _normalizeStoryStatus(Map<String, dynamic> itemMap) {
-  final raw = itemMap['status'];
-  if (raw is String && _storyStatusEnum.contains(raw)) return raw;
-  itemMap['status'] = 'pending';
-  return 'pending';
 }
 
 void _validateStorySpecPathInput(String path) {

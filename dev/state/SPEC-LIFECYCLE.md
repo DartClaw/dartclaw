@@ -11,6 +11,15 @@ When DartClaw is implementing a planned milestone, an exported implementation bu
 - The squash-merge is what keeps `main` clean: because the feature branch tip no longer contains the exported bundle, the squashed commit on `main` doesn't include it.
 - Older in-flight branches may still contain legacy transient exports under `dev/specs/<version>/`, scattered support-doc directories such as `dev/research/`, `dev/wireframes/`, or `dev/diagrams/`, or root aliases such as `dev/STATE.md`; treat those the same way and remove them before squash-merge. `dev/adrs/`, `dev/architecture/`, and `dev/design-system/` are canonical public docs and are no longer transient.
 
+## Before removal: integrate into the canonical PRD
+
+The transient bundle is a working copy; its canonical home is the private repo. Removing it must not lose information. **Before the bundle is removed (at or before the scope-frozen release commit):**
+
+- **Standalone FIS + interlude PRDs** under `dev/bundle/docs/specs/` (the loose `*.md` and sibling bundles such as `workflow-andthen-decoupling/`) are integrated into the milestone PRD's *Adjacent & interlude work* section — one row/subsection per FIS capturing intent + what shipped + commit — so the PRD is the complete record of the cycle. Review-only artifacts (e.g. `*-mixed-review-*.md`) are process output, not specs, and need no integration.
+- The same integration is reflected in the **private canonical** PRD (`<private>/docs/specs/<version>/prd.md`). The public bundle copy is deleted at merge, so the public bundle PRD alone is **not** durable — the private canonical is the surviving record.
+- **Unfinished or future-milestone specs** (a PRD/FIS that did not ship in this version) are *moved, not deleted*: relocate them to the private repo under their target version (e.g. `docs/specs/0.next/`), so pending work is not lost with the bundle.
+- Supporting research/wireframes under the bundle (`dev/bundle/docs/{research,wireframes,…}`) keep canonical copies in the private repo; confirm those exist before removing the bundle copies.
+
 ## During implementation
 
 If a workflow is running against this repo, expect to see:

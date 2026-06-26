@@ -7,6 +7,7 @@ import 'package:dartclaw_cli/src/commands/init/setup_state.dart';
 import 'package:dartclaw_cli/src/commands/service/service_backend.dart';
 import 'package:dartclaw_cli/src/commands/service/setup_verifier.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 Future<SetupPreflight> _passingPreflight({
@@ -291,8 +292,8 @@ void main() {
 
       final state = captured.single;
       expect(state.workflowTrack, isTrue);
-      expect(state.instanceDir, './dartclaw');
-      expect(state.configPath, './dartclaw/dartclaw.yaml');
+      expect(state.instanceDir, './.dartclaw');
+      expect(state.configPath, './.dartclaw/dartclaw.yaml');
       expect(state.provider, 'claude');
       expect(state.providers, ['claude']);
       expect(state.authMethod, 'oauth');
@@ -300,6 +301,51 @@ void main() {
       expect(preflightWorkflowTrack, isTrue);
       expect(output, contains('Run a workflow: dartclaw workflow run --standalone code-review'));
       expect(output.any((line) => line.contains('Start the server')), isFalse);
+    });
+
+    test('workflow init writes a discoverable .dartclaw config and allowlist gitignore', () async {
+      final tempDir = Directory.systemTemp.createTempSync('init_workflow_dotdir_test_');
+      final savedCwd = Directory.current;
+      addTearDown(() {
+        Directory.current = savedCwd;
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+      Directory.current = tempDir;
+      final output = <String>[];
+      final cmd = InitCommand(
+        hasTerminal: () => false,
+        runPreflight: _passingPreflight,
+        writeLine: output.add,
+        verifier: _verifiedVerifier(),
+        loadConfig: (_) => null,
+      );
+      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+
+      await runner.run([
+        'init',
+        '--workflow',
+        '--non-interactive',
+        '--provider',
+        'claude',
+        '--auth-claude',
+        'oauth',
+        '--model-claude',
+        'sonnet',
+      ]);
+
+      final configPath = p.join(tempDir.path, '.dartclaw', 'dartclaw.yaml');
+      expect(File(configPath).existsSync(), isTrue);
+      final config = DartclawConfig.load(configPath: configPath, env: {'HOME': tempDir.path});
+      expect(config.server.dataDir, p.join(tempDir.path, '.dartclaw'));
+      expect(config.tasksDbPath, p.join(tempDir.path, '.dartclaw', 'tasks.db'));
+      expect(config.searchDbPath, p.join(tempDir.path, '.dartclaw', 'search.db'));
+      expect(Directory(p.join(tempDir.path, 'dartclaw')).existsSync(), isFalse);
+      expect(
+        File(p.join(tempDir.path, '.dartclaw', '.gitignore')).readAsStringSync(),
+        '*\n!.gitignore\n!dartclaw.yaml\n!workflows/\n!workflows/**\nworkflows/built-in/\nworkflows/runs/\n',
+      );
+      expect(output, contains('Run a workflow: dartclaw workflow run --standalone code-review'));
+      expect(output.any((line) => line.contains('--config')), isFalse);
     });
 
     test('workflow track with a custom instance dir prints the --config next-step form', () async {

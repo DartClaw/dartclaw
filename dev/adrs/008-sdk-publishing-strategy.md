@@ -36,13 +36,13 @@ The original decision kept `dartclaw_server` and `dartclaw_cli` as `publish_to: 
 
 **We will publish a single `dartclaw` package initially to claim the prime namespace.** This is the most appealing and discoverable name on pub.dev.
 
-The current `dartclaw_core` package is the source of the published API surface. For the name-squat, we publish it as `dartclaw`. If a core/storage split is warranted later (at 0.4), `dartclaw` becomes the convenience umbrella re-exporting `dartclaw_core` + `dartclaw_storage` — the same pattern `langchain` uses with `langchain_core`.
+The current `dartclaw_core` package is the source of the published API surface. For the namespace reservation, we publish it as `dartclaw`. If a core/storage split is warranted later (at 0.4), `dartclaw` becomes the convenience umbrella re-exporting `dartclaw_core` + `dartclaw_storage` — the same pattern `langchain` uses with `langchain_core`.
 
-### Timeline: Name-squat now, real publish at 0.5
+### Timeline: Namespace reservation now, real publish at 0.5
 
 **We will publish `dartclaw` as `0.0.1-dev.1` immediately to establish pub.dev presence, with the first real release at `0.5.0` after security hardening and agent intelligence types are part of the API surface.**
 
-Name-squat published 2026-03-01. Publisher transfer to verified publisher complete.
+Namespace reservation published 2026-03-01. Publisher transfer to verified publisher complete.
 
 Originally planned for 0.4, but 0.5 is a better release point: it adds `InputSanitizer`, `MessageRedactor`, and `UsageTracker` to the public API — types that belong in an SDK. Publishing at 0.5 means a more complete API surface in the first real release, at the cost of ~1 milestone delay.
 
@@ -50,7 +50,7 @@ Pre-release dev versions are excluded from default dependency resolution — con
 
 ### Granularity: Single package now, evaluate split at 0.5
 
-**We will publish `dartclaw` as a single package for the name-squat.** The core/storage split (separating sqlite3-dependent services into `dartclaw_storage`) is deferred to the SDK package split work and will be evaluated then — it may or may not be warranted depending on how the API evolves.
+**We will publish `dartclaw` as a single package for the namespace reservation.** The core/storage split (separating sqlite3-dependent services into `dartclaw_storage`) is deferred to the SDK package split work and will be evaluated then — it may or may not be warranted depending on how the API evolves.
 
 Investigation (2026-03-02) confirms clean split boundary: sqlite3 isolated to 2 files (`memory_service.dart`, `search_db.dart`), zero cross-imports from outside `storage/`+`search/`. Split is feasible with minimal refactoring.
 
@@ -99,7 +99,7 @@ my-private-repo/
 
 The existing GitHub repo (`tolo/dartclaw`) stays as-is — a pub workspace mono-repo. All packages are published from this repo.
 
-The repo is currently private. It does not need to be public for the name-squat — pub.dev accepts a `repository` URL that doesn't resolve yet. The repo should be made public before the first real publish at latest. When ready to publish, `publish_to: none` will be removed from all packages.
+The repo is currently private. It does not need to be public for the namespace reservation — pub.dev accepts a `repository` URL that doesn't resolve yet. The repo should be made public before the first real publish at latest. When ready to publish, `publish_to: none` will be removed from all packages.
 
 ```
 tolo/dartclaw/                    # public GitHub repo
@@ -157,11 +157,11 @@ Follow `0.BREAKING.FEATURE` (Dart community convention for pre-1.0). Do not mirr
 - **Cons**: S18/S19 will break interfaces within months; sparse docs damage pub.dev score
 - **Rejected because**: API stability risk too high (weighted score 6.15 vs 7.51 for chosen approach)
 
-### B: Publish at 0.4 without name-squatting
+### B: Publish at 0.4 without reserving the namespace
 
 - **Pros**: Balanced quality and timing; proven interfaces
 - **Cons**: 3-4 months of pub.dev invisibility; misses early namespace positioning
-- **Rejected because**: Name-squat captures positioning benefit at near-zero cost (weighted score 6.54 vs 7.51)
+- **Rejected because**: Namespace reservation captures positioning benefit at near-zero cost (weighted score 6.54 vs 7.51)
 
 ### C: Publish post-0.5
 
@@ -189,7 +189,7 @@ Follow `0.BREAKING.FEATURE` (Dart community convention for pre-1.0). Do not mirr
 
 ## Implementation Notes
 
-### Phase 1 — Name-squat ✅ (2026-03-01)
+### Phase 1 — Namespace reservation ✅ (2026-03-01)
 
 - Created `packages/dartclaw/` with zero-dependency placeholder (library doc comment only, no exports — `dartclaw_core` is `publish_to: none`)
 - Preview README with architecture diagram, core abstractions, pre-alpha status
@@ -276,7 +276,7 @@ apps/
 - ~~Private packages coexist with published packages in the same repo~~ → all packages are published; proprietary extensions use separate private repos as overlays
 
 **Preserved aspects (still valid):**
-- Name-squat strategy and timeline
+- Namespace reservation strategy and timeline
 - `dartclaw` as prime namespace / umbrella package
 - Pre-1.0 versioning convention
 - Mono-repo structure

@@ -109,6 +109,32 @@ class MemoryService {
     }
   }
 
+  /// Lists recent memory chunks without mutating the search index.
+  List<MemorySearchResult> listRecent({int limit = 20, String userId = 'owner'}) {
+    final stmt = _db.prepare('''
+      SELECT text, source, category
+      FROM memory_chunks
+      WHERE user_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+    ''');
+    try {
+      final rows = stmt.select([userId, limit]);
+      return rows
+          .map(
+            (row) => MemorySearchResult(
+              text: row['text'] as String,
+              source: row['source'] as String,
+              category: row['category'] as String?,
+              score: 0,
+            ),
+          )
+          .toList();
+    } finally {
+      stmt.close();
+    }
+  }
+
   /// Stub for future vector search. Returns empty list.
   List<MemorySearchResult> searchVector(List<double> embedding, {int limit = 20}) => const [];
 

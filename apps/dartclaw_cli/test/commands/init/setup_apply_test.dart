@@ -348,7 +348,15 @@ New preference
 
       await SetupApply.apply(workflowState);
 
-      final yaml = loadYaml(File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync()) as Map;
+      final raw = File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync();
+      expect(raw, startsWith('# DartClaw — standalone workflow config'));
+      expect(raw, contains('dartclaw workflow run --standalone <name>'));
+      expect(raw, contains('Drop custom workflow YAMLs in ./.dartclaw/workflows/'));
+      // Block style, not a single-line flow map.
+      expect(raw, contains('\nagent:\n'));
+      expect(raw, contains('\n  provider: claude'));
+      expect(raw, isNot(contains('{agent:')));
+      final yaml = loadYaml(raw) as Map;
       expect(yaml['data_dir'], '.');
       expect(yaml['agent']['provider'], 'claude');
       expect(yaml['agent']['model'], 'claude-sonnet-4-6');
@@ -357,8 +365,30 @@ New preference
       expect(yaml['port'], isNull);
       expect(yaml['host'], isNull);
       expect(yaml['gateway'], isNull);
+      expect(
+        File(p.join(tempDir.path, '.gitignore')).readAsStringSync(),
+        '*\n!.gitignore\n!dartclaw.yaml\n!workflows/\n!workflows/**\nworkflows/built-in/\nworkflows/runs/\n',
+      );
       expect(Directory(p.join(tempDir.path, 'workspace')).existsSync(), isFalse);
       expect(File(p.join(tempDir.path, 'workspace', 'ONBOARDING.md')).existsSync(), isFalse);
+    });
+
+    test('workflow track does not overwrite an existing gitignore', () async {
+      File(p.join(tempDir.path, '.gitignore'))
+        ..createSync()
+        ..writeAsStringSync('custom\n');
+
+      await SetupApply.apply(_state(instanceDir: tempDir.path, workflowTrack: true));
+
+      expect(File(p.join(tempDir.path, '.gitignore')).readAsStringSync(), 'custom\n');
+    });
+
+    test('non-workflow track keeps the generic config header (no workflow banner)', () async {
+      await SetupApply.apply(_state(instanceDir: tempDir.path));
+
+      final raw = File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync();
+      expect(raw, startsWith('# DartClaw configuration'));
+      expect(raw, isNot(contains('standalone workflow config')));
     });
   });
 }

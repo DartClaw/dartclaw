@@ -184,21 +184,32 @@ void main() {
 
     test('new presets expose canonical descriptions and schemas', () {
       expect(gatingFindingsCountPreset.schema, {'type': 'integer', 'minimum': 0});
-      expect(gatingFindingsCountPreset.description, contains('MEDIUM-or-higher severity findings'));
+      // Gating count tracks AndThen's fix-character routing (Fix vs Note), not
+      // severity: only auto-applicable Fix-routed findings keep the remediation
+      // loop iterating, so Note-routed findings must be excluded or the loop
+      // deadlocks on a Note-only stall.
+      expect(gatingFindingsCountPreset.description, contains('routed to Fix'));
+      expect(gatingFindingsCountPreset.description, contains('nothing remains for automated remediation'));
+      expect(gatingFindingsCountPreset.description, contains('Note-routed'));
+      expect(
+        gatingFindingsCountPreset.description,
+        isNot(contains('MEDIUM-or-higher severity findings')),
+        reason: 'gating count must not be defined by raw severity (see AndThen Fix/Note routing)',
+      );
       expect(findingsCountPreset.description, 'Number of issues flagged by this review; 0 means clean.');
       expect(reviewReportPathPreset.description, contains('--output-dir'));
       expect(
         reviewReportPathPreset.description,
-        matches(RegExp(r'absolute.{0,80}--output-dir.{0,80}andthen:review', dotAll: true)),
-        reason: 'andthen:review must be paired with the absolute / --output-dir form, not project-root-relative',
+        matches(RegExp(r'absolute.{0,80}--output-dir', dotAll: true)),
+        reason: 'the absolute form must be paired with --output-dir, not project-root-relative',
       );
       expect(
         reviewReportPathPreset.description,
-        matches(
-          RegExp(r'project-root-relative.{0,80}review-report-location\.md.{0,80}andthen:architecture', dotAll: true),
-        ),
-        reason: 'andthen:architecture must be paired with the project-root-relative / review-report-location.md form',
+        matches(RegExp(r'project-root-relative.{0,80}review-report-location\.md', dotAll: true)),
+        reason: 'the project-root-relative form must be paired with review-report-location.md',
       );
+      // The preset description carries no framework-specific skill name (ADR-041).
+      expect(reviewReportPathPreset.description, isNot(contains('andthen')));
       expect(prdPathPreset.description, 'Workspace-relative path to the required PRD on disk.');
       expect(planPathPreset.description, contains('plan.json'));
       expect(fisPathPreset.description, contains('FIS on disk'));

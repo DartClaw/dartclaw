@@ -27,7 +27,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowStepCompletedEvent,
         WorkflowTaskService,
         atomicWriteJson;
-export 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
+export 'package:dartclaw_config/dartclaw_config.dart' show WorkflowApprovalPolicy, WorkflowRunStatus;
 export 'package:dartclaw_models/dartclaw_models.dart';
 export 'src/workflow/workflow_definition.dart'
     show
@@ -107,6 +107,13 @@ export 'src/workflow/schema_presets.dart'
 export 'src/workflow/schema_validator.dart' show SchemaValidator;
 export 'src/skills/cli_skill_introspector.dart'
     show CliSkillIntrospector, SkillProbeEnvironmentBuilder, SkillProbeRunner;
+export 'src/skills/provider_auth_preflight.dart'
+    show
+        AuthProbeEnvironmentBuilder,
+        AuthProbeRunner,
+        CliProviderAuthPreflight,
+        ProviderAuthPreflight,
+        ProviderAuthResult;
 export 'src/workflow/skill_introspector.dart'
     show SkillIntrospector, WorkflowPreflightException, WorkflowSkillPreflightConfig, skillIntrospectionPrompt;
 export 'src/workflow/skill_prompt_builder.dart' show SkillPromptBuilder;
@@ -116,7 +123,8 @@ export 'src/workflow/step_config_resolver.dart'
         WorkflowRoleDefault,
         WorkflowRoleDefaults,
         globMatchStepId,
-        resolveStepConfig; // retained: consumed by CLI validation/wiring and workflow barrel tests
+        resolveStepConfig,
+        syntheticWorkflowSkillSteps; // retained: consumed by CLI validation/wiring and workflow barrel tests
 export 'src/workflow/workflow_context.dart' show WorkflowContext;
 export 'src/workflow/workflow_definition_parser.dart' show WorkflowDefinitionParser;
 export 'src/workflow/workflow_definition_resolver.dart' show WorkflowDefinitionResolver;
@@ -199,7 +207,6 @@ export 'src/skills/skill_provisioner.dart'
         SkillProvisionConfigException,
         SkillProvisionException,
         SkillProvisioner,
-        dcNativeSkillNames,
         skillProvisionerMarkerFile;
 export 'src/skills/workspace_skill_linker.dart'
     show

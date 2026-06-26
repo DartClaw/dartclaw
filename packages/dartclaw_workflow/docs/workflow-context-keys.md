@@ -104,6 +104,14 @@ Set by `workflow_git_lifecycle.dart`.
 |-----|------|-----------|
 | `_workflow.git.integration_branch` | `String` | Integration branch name for promotion |
 
+### `_workflow.approvals`
+
+Set once by `WorkflowService.start` when the run is created.
+
+| Key | Type | Semantics |
+|-----|------|-----------|
+| `_workflow.approvals` | `String` | Effective approval-resolution policy for this run: `manual`, `auto-on-stall`, or `auto`. Persisted so resume uses the same policy instead of re-reading process config or invocation flags |
+
 ### `_approval.pending.*`
 
 Set by `_transitionStepAwaitingApproval` in `parallel_group_runner.dart`.
@@ -112,6 +120,14 @@ Set by `_transitionStepAwaitingApproval` in `parallel_group_runner.dart`.
 |-----|------|-----------|
 | `_approval.pending.stepId` | `String` | Step ID awaiting approval |
 | `_approval.pending.stepIndex` | `int` | Step index awaiting approval |
+
+### `_approval.auto_resolved.<stepId>`
+
+Set when `_workflow.approvals` auto-resolves a `needsInput` outcome or explicit approval step.
+
+| Key | Type | Semantics |
+|-----|------|-----------|
+| `_approval.auto_resolved.<stepId>` | `Map` | Audit record with `policy`, `reason`, `source` (`needsInput` or `approval`), and `resolved_at` |
 
 ## Rules
 

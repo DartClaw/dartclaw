@@ -26,6 +26,8 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
   search.db          # SQLite FTS5 search index
 ```
 
+This view focuses on the workspace behavior files. The instance directory also holds config (`dartclaw.yaml`), databases (`state.db`, `tasks.db`), audit logs, task worktrees, and project clones -- see [Architecture](architecture.md) for the full layout.
+
 ## Behavior Files
 
 Files are re-read on every turn -- edit them live without restarting.
@@ -141,4 +143,4 @@ The system prompt is assembled in this order:
 
 ## Git Sync
 
-When enabled (default), DartClaw auto-initializes a git repo in the workspace and commits changes on each heartbeat cycle. Push to a remote if `origin` is configured. See [Configuration](configuration.md) for `workspace.gitSync` options.
+When enabled (default), DartClaw auto-initializes a git repo in the workspace and commits changes on each heartbeat cycle. Push to a remote if `origin` is configured. See [Configuration](configuration.md) for `workspace.git_sync` options.

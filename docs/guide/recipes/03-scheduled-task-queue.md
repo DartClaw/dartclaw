@@ -2,7 +2,7 @@
 
 ## Overview
 
-Multiple scheduled jobs running at different intervals to form a task automation pipeline. Combines health checks, report generation, and maintenance tasks -- each with its own schedule and delivery mode.
+Multiple scheduled jobs running at different intervals to form a task automation pipeline -- health checks, report generation, and maintenance tasks, each with its own schedule and delivery mode.
 
 ## Features Used
 
@@ -121,7 +121,7 @@ Multiple jobs coexist and run independently:
 
 1. **Health check fires every 5 minutes** -- quick status check, results logged only (`delivery: none`)
 2. **Heartbeat fires every 30 minutes** -- processes HEARTBEAT.md checklist in an isolated session, runs memory consolidation if needed
-3. **Daily report fires at 6:00 PM** -- summarizes the day's findings (accessible via cron session in web UI sidebar; `announce` channel routing is planned)
+3. **Daily report fires at 6:00 PM** -- summarizes the day's findings (`announce` broadcasts to the web UI and any active channel DM sessions)
 4. **Weekly cleanup fires Sunday at 3:00 AM** -- maintenance tasks, results saved to MEMORY.md
 
 Each job runs in its own isolated session. Jobs do not share state directly -- they communicate through MEMORY.md. The `max_parallel_turns: 3` setting limits how many concurrent agent turns can run.
@@ -161,6 +161,8 @@ automation:
         auto_start: true
 ```
 
+> **Note:** `automation.scheduled_tasks` is deprecated. Prefer `scheduling.jobs` with `type: task` (see [Scheduling](../scheduling.md)); the config loader still parses `automation.scheduled_tasks` but logs a deprecation warning.
+
 Or create tasks from WhatsApp/Signal/Google Chat via [channel-to-task triggers](_common-patterns.md#channel-to-task-integration-09). Use cron jobs for lightweight, recurring prompts; use tasks when you need structured review, artifacts, or multi-step work.
 
 ## Gotchas & Limitations
@@ -168,5 +170,5 @@ Or create tasks from WhatsApp/Signal/Google Chat via [channel-to-task triggers](
 - **Jobs run in isolated sessions** -- there is no shared state between jobs except via MEMORY.md. A health check cannot directly pass data to the daily report
 - **`max_parallel_turns` limits concurrent execution** -- if multiple jobs trigger simultaneously and the limit is reached, excess jobs queue until a slot opens
 - **Interval jobs drift over time** -- `type: interval` measures time since the last run, not wall-clock alignment. A 5-minute interval job started at 10:03 runs at 10:08, 10:13, etc., not at 10:05, 10:10
-- **Webhook delivery requires a reachable endpoint** -- the agent POSTs results to the configured URL. If the endpoint is down, the result is logged but delivery fails
+- **Webhook delivery requires a reachable endpoint** -- DartClaw POSTs results to the configured URL. If the endpoint is down, the result is logged but delivery fails
 - **Heartbeat and cron are independent** -- the heartbeat processes HEARTBEAT.md on its own timer, separate from cron jobs. They can overlap

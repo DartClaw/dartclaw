@@ -8,8 +8,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         SkillProvisionException,
         SkillProvisioner,
         WorkspaceSkillInventory,
-        WorkspaceSkillLinker,
-        dcNativeSkillNames;
+        WorkspaceSkillLinker;
 import 'package:path/path.dart' as p;
 
 import 'project_definition_paths.dart';
@@ -29,15 +28,10 @@ Future<void> bootstrapWorkflowSkills({
       'Tests that intentionally skip this step set runAndthenSkillsBootstrap: false.',
     );
   }
-  for (final skillName in dcNativeSkillNames) {
-    if (!Directory(p.join(builtInSkillsSourceDir, skillName)).existsSync()) {
-      throw SkillProvisionException(
-        'built-in skills source missing or invalid: $builtInSkillsSourceDir (missing $skillName). '
-        'Tests that intentionally skip this step set runAndthenSkillsBootstrap: false.',
-      );
-    }
-  }
 
+  // Source-dir, manifest, and per-skill existence are validated by
+  // SkillProvisioner.ensureCacheCurrent (manifest-driven); no separate
+  // hardcoded skill-name list is needed here.
   final provisioner = SkillProvisioner(
     dataDir: dataDir,
     dcNativeSkillsSourceDir: builtInSkillsSourceDir,

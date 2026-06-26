@@ -1,3 +1,5 @@
+import 'step_config_policy.dart' as step_config_policy;
+import 'workflow_context.dart';
 import 'workflow_definition.dart';
 
 const workflowRoleDefaultAlias = '@workflow';
@@ -155,4 +157,41 @@ String? _resolveEffort(String? effort, String? providerOrModel, WorkflowRoleDefa
   final role = workflowRoleDefaultAliases.contains(alias) ? alias : null;
   if (role == null) return null;
   return roleDefaults.resolve(role).effort;
+}
+
+Iterable<WorkflowStep> syntheticWorkflowSkillSteps(
+  WorkflowDefinition definition, {
+  required WorkflowContext context,
+  required WorkflowRoleDefaults roleDefaults,
+}) sync* {
+  final strategy = definition.gitStrategy;
+  if (strategy?.mergeResolve.enabled != true) return;
+  final stepById = {for (final step in definition.steps) step.id: step};
+  for (final step in definition.steps) {
+    if (!step.isForeachController) continue;
+    final childSteps = step.foreachSteps?.map((id) => stepById[id]).nonNulls.toList(growable: false) ?? const [];
+    final hasCodingSteps = childSteps.any(
+      (child) => step_config_policy.stepTouchesProjectBranch(definition, child, roleDefaults: roleDefaults),
+    );
+    int? maxParallel;
+    try {
+      maxParallel = step_config_policy.resolveMaxParallel(step.maxParallel, context, step.id);
+    } on ArgumentError {
+      continue;
+    }
+    final resolvedWorktreeMode = strategy!.effectiveWorktreeMode(maxParallel: maxParallel, isMap: true);
+    final promotionAware = step_config_policy.isPromotionAwareScope(
+      strategy,
+      resolvedWorktreeMode: resolvedWorktreeMode,
+      hasCodingSteps: hasCodingSteps,
+    );
+    if (promotionAware) {
+      yield WorkflowStep(
+        id: '_merge_resolve_${step.id}_0_1',
+        name: 'merge-resolve preflight',
+        skill: 'dartclaw-merge-resolve',
+        prompts: const ['preflight'],
+      );
+    }
+  }
 }

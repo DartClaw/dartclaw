@@ -10,6 +10,7 @@ void main() {
     final channelManager = FakeChannelManager();
     final classifier = FakeContentClassifier();
     final introspector = FakeSkillIntrospector(const {});
+    final authPreflight = FakeProviderAuthPreflight();
 
     expect(harness.state, WorkerState.idle);
     expect(channel.type, ChannelType.signal);
@@ -18,5 +19,6 @@ void main() {
     expect(channelManager.received, isEmpty);
     expect(classifier.result, 'safe');
     expect(introspector.calls, isEmpty);
+    expect(authPreflight.probed, isEmpty);
   });
 }

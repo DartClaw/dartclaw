@@ -28,9 +28,9 @@ Use a harness directly for small tools and examples. Larger hosts usually constr
 
 ## Turns and Events
 
-A Turn is one round of user input, agent reasoning, tool use, and response streaming. `turn()` accepts a `sessionId`, message list, and optional system prompt, then returns metadata such as stop reason and usage.
+A Turn is one round of user input, agent reasoning, tool use, and response streaming. `turn()` accepts a `sessionId`, message list, and system prompt, then returns metadata such as stop reason and usage.
 
-Text does not wait for the final result. Subscribe to `harness.events` and handle the event types your host cares about:
+Text streams before the final result. Subscribe to `harness.events` and handle the event types your host cares about:
 
 - `DeltaEvent` streams assistant text.
 - `ToolUseEvent` reports requested tools.
@@ -57,6 +57,18 @@ For simple CLIs, a stable session key plus `MessageService.getMessages()` is eno
 ## Storage and Memory
 
 `dartclaw_core` stays sqlite3-free and provides file-backed session, message, key-value, and memory-file services. `dartclaw_storage` adds SQLite-backed memory search, pruning, and repository implementations. Most consumers start with the `dartclaw` umbrella package and split to `dartclaw_core` plus their own storage only when they need a smaller dependency graph or a custom persistence backend.
+
+## Context Engine and MCP
+
+The reference server exposes MCP tools through its in-process MCP server. The `dartclaw_server` package also includes
+an outbound MCP client for hosts that consume configured external MCP servers. Servers are configured by name, and the
+pool applies guard, audit, and per-server governance checks before external `tools/call` dispatch. SDK consumers can
+study or reuse the server-side types exported by `dartclaw_server` for the outbound client and tool models.
+
+`context_research` is the built-in Context Engine synthesis tool. It retrieves across memory search, temporal KG facts,
+and wiki/source documents, then returns a compact citation packet. The tool is registered as an `McpTool` by the
+reference server, and the packet model preserves source references so UI and agent consumers can distinguish cited
+statements from unattributed fallback snippets. Synthesized packets are never cached.
 
 ## Channels
 

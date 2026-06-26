@@ -9,25 +9,46 @@ _Agentic powers. No dependency black holes. Secure by design._
 > [!NOTE]
 > Welcome to DartClaw – An **experimental**, security-conscious AI agent runtime built with Dart.
 >
-> _Status_: 0.17 milestone closure candidate – personal workspace scaffolding, knowledge ingestion/wiki/KG, guard editor, SDK documentation Phase 2, richer chat composer, standalone workflow init, and crash-recovery validation are implemented in this checkout. See [CHANGELOG](CHANGELOG.md).
+> _Status_: 0.19.0 — "Context Engine": citation-backed knowledge synthesis over MCP (`context_research`), a guard-mediated outbound MCP client, and a read-only Knowledge UI. See [CHANGELOG](CHANGELOG.md).
 
 <p align="center">
   <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI — Task Dashboard" width="720">
 </p>
 
-## Quick Start
+## Installation
+
+The recommended install path is **Homebrew** — it fetches the prebuilt `dartclaw` binary plus companion assets, with no Dart toolchain required:
+
+```bash
+brew tap DartClaw/dartclaw
+brew install dartclaw
+dartclaw --version
+```
+
+Then point DartClaw at a provider and start the server:
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."   # or run: claude login
+dartclaw init
+dartclaw serve
+# Open http://127.0.0.1:3333
+```
+
+You also need at least one agent CLI (`claude` or `codex`) installed — see [Prerequisites](#prerequisites). For full setup and provider auth, see [Getting Started](docs/guide/getting-started.md).
+
+### From source (development)
+
+For source-based development and `--dev` hot-reload workflows, build the standalone binary from a checkout (requires the Dart SDK — see [Prerequisites](#prerequisites)):
 
 ```bash
 git clone <repo-url> && cd dartclaw
 dart pub get
 bash dev/tools/build.sh
-export ANTHROPIC_API_KEY="sk-ant-..."
 ./build/dartclaw init
 ./build/dartclaw serve
-# Open http://127.0.0.1:3333
 ```
 
-The recommended runtime entrypoint is the standalone `dartclaw` binary. When you are working from a checkout, build it with `bash dev/tools/build.sh` and run `./build/dartclaw`. Use `dart run dartclaw_cli:dartclaw ...` only for source-based development and `--dev` hot-reload workflows.
+The standalone `dartclaw` binary is the recommended runtime entrypoint; use `dart run dartclaw_cli:dartclaw ...` only for source-based development and `--dev` hot-reload workflows.
 
 ## What is DartClaw?
 
@@ -63,7 +84,7 @@ Two layers with clear trust boundaries:
 
 ## Prerequisites
 
-- **Dart SDK** >= 3.12.0
+- **Dart SDK** >= 3.12.0 -- source builds only; the Homebrew binary needs no Dart toolchain
 - **Agent CLI** -- at least one: `claude` (Claude Code) or `codex` (OpenAI Codex CLI)
 - **SQLite** -- system library (bundled on macOS/most Linux)
 - **Docker** -- optional, for container isolation

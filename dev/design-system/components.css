@@ -20,7 +20,14 @@
    14. Data Tables
    15. Theme Toggle, Scrollbar, Utilities (pixel-art, text-gradient, kbd)
    16. Identity & Signature Elements (pixel claw mark/loader, identicons, print-in)
-   17. Reduced Motion */
+   17. Tool Calls (disclosure-enabled tool-invocation cards)
+   18. Approval Gates (HITL plan-approval cards)
+   19. Chips (neutral reference/content tokens)
+   20. Notifications (attention-center rows)
+   21. Command Palette (glass palette rows)
+   22. Orchestration (run-board cards, pipeline spine)
+   23. Code Highlighting (hljs token theme, diff lines)
+   24. Reduced Motion */
 
 
 /* ================================================================
@@ -468,6 +475,25 @@ a:hover { text-decoration: underline; }
 .msg-content th, .msg-content td { border: var(--border); padding: var(--sp-1) var(--sp-2); text-align: left; }
 .msg-content th { background: var(--bg-surface0); font-weight: var(--weight-bold); }
 
+/* --- Thinking slot ---
+   Sanctioned pre-stream composition — the claw moment of the chat view.
+   Replaced entirely by streamed content on first token; at most one per view.
+   Reduced motion shows the static claw-mark + label (see § reduced motion). */
+.msg-thinking {
+  display: flex;
+  align-items: center;  /* The loader is a box, not text — baseline would sink it */
+  gap: var(--sp-2);
+}
+.msg-thinking-label {
+  font-size: var(--text-xs);
+  color: var(--fg-overlay);
+}
+/* Animated ellipsis — reuses the .tool-indicator.pending dots technique (blink). */
+.msg-thinking-label::after {
+  content: '...';
+  animation: blink 1.2s step-end infinite;
+}
+
 /* --- Tool indicators --- */
 
 .tool-indicator {
@@ -533,6 +559,89 @@ a:hover { text-decoration: underline; }
 .input-area textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 .input-area .btn-send { min-height: 40px; border-radius: var(--radius-lg); }
 
+/* --- Composer (the input object) ---
+   One container: textarea on top, toolbar inside; the textarea itself is bare.
+   Focus is terminal-native and quiet: the green caret does the talking, the
+   send button wakes from dim to full, and the container border takes only a
+   whisper of accent — no rings, no glow. Mode indicators are status-badges,
+   context refs are chips — the composer adds no new state vocabulary.
+   .input-area stays the anchored strip and now holds a .composer; the bare
+   textarea+send layout is superseded for chat. */
+.composer {
+  flex: 1;
+  background: var(--bg-base);
+  border: var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--inset-sm);
+  padding: var(--sp-2) var(--sp-3);
+  display: grid;
+  gap: var(--sp-2);
+  transition: border-color var(--transition);
+}
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--bg-surface0));
+}
+.composer textarea {
+  background: transparent;
+  border: none; outline: none; box-shadow: none;
+  caret-color: var(--accent);
+  caret-shape: block;  /* Old-school terminal block caret; falls back to the bar where unsupported */
+  width: 100%;
+  font: inherit; font-size: var(--text-base); line-height: var(--leading-tight);
+  color: var(--fg);
+  resize: none;
+  min-height: 40px; max-height: 40vh;
+  padding: var(--sp-1) 0;
+}
+.composer textarea::placeholder { color: var(--fg-overlay); }
+/* .input-area textarea:focus outranks .composer textarea — pin the bare look. */
+.composer textarea:focus { border: none; outline: none; box-shadow: none; }
+.composer--streaming textarea { opacity: 0.5; cursor: not-allowed; }
+
+.composer-toolbar { display: flex; align-items: center; gap: var(--sp-1); }
+.composer-meta    { margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); }
+
+/* Model/effort selector — quiet text button; the composer's only chrome. */
+.composer-model {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  background: transparent; border: none; cursor: pointer;
+  font: inherit; font-size: var(--text-xs); color: var(--fg-sub0);
+  padding: var(--sp-1) var(--sp-2); border-radius: var(--radius);
+  transition: color var(--transition), background var(--transition);
+}
+.composer-model:hover { color: var(--fg); background: var(--bg-surface0); }
+.composer-model::after {
+  content: '';
+  width: 0.9em; height: 0.9em;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon-chevron-down); mask-image: var(--icon-chevron-down);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.composer-model:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Send — square btn-primary icon button (shape language holds: no circles).
+   Rests dim, wakes to full on focus — the composer's focus indicator.
+   Streaming swaps the glyph to stop (app behavior) and stays awake. */
+.composer-send {
+  width: 32px; height: 32px; min-height: 32px; padding: 0;
+  opacity: 0.6;
+  transition: opacity var(--transition), background var(--transition),
+              border-color var(--transition), transform var(--transition-spring);
+}
+.composer:focus-within .composer-send,
+.composer--streaming .composer-send,
+.composer-send:hover,
+.composer-send:focus-visible { opacity: 1; }
+
+/* Context row — chips + metadata adjacent to the composer (above or below). */
+.composer-context {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-1);
+  font-size: var(--text-xs); color: var(--fg-overlay);
+}
+
 
 /* ================================================================
    5. WELLS — Grouping Containers
@@ -563,6 +672,7 @@ a:hover { text-decoration: underline; }
   border-radius: var(--radius);
   padding: var(--sp-3);
   box-shadow: var(--inset-sm);
+  font-size: var(--text-sm);  /* Code/terminal content reads best a step below body */
 }
 
 .well-content {
@@ -615,7 +725,7 @@ a:hover { text-decoration: underline; }
   opacity: 0.75;
 }
 
-.terminal-frame-body { padding: var(--sp-3); overflow-x: auto; }
+.terminal-frame-body { padding: var(--sp-3); overflow-x: auto; font-size: var(--text-sm); }
 .terminal-frame-body pre { margin: 0; background: transparent; border: none; box-shadow: none; padding: 0; }
 
 /* CRT modifier — scanlines + corner vignette over the body. Hero/demo
@@ -1089,6 +1199,26 @@ a:hover { text-decoration: underline; }
 .status-dot--error   { background: var(--error);   box-shadow: 0 0 4px color-mix(in srgb, var(--error) 55%, transparent); }
 .status-dot--warning { background: var(--warning); box-shadow: 0 0 4px color-mix(in srgb, var(--warning) 55%, transparent); }
 .status-dot--idle    { background: var(--fg-overlay); }
+
+/* Attention — blocked on the user. The ONLY amber pulse in the system:
+   motion is reserved for "working" (--live) and "needs you" (--attention). */
+.status-dot--attention {
+  background: var(--warning);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--warning) 65%, transparent);
+}
+.status-dot--attention::before {
+  content: '';
+  position: absolute; inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--warning);
+  animation: pulse-ring 2.8s ease-out infinite;  /* slower than --live's 2s — urgent but patient */
+}
+
+/* Success — completed, static. Distinct from --live (pulsing = still working). */
+.status-dot--success {
+  background: var(--success);
+  box-shadow: 0 0 3px color-mix(in srgb, var(--success) 45%, transparent);
+}
 
 /* --- Status badges (with dot variants) --- */
 
@@ -1638,7 +1768,448 @@ kbd, .kbd {
 
 
 /* ================================================================
-   17. REDUCED MOTION
+   17. TOOL CALLS
+
+   Structured, disclosure-enabled record of one tool invocation — the
+   timeline sibling of .tool-indicator (which stays the transient/inline
+   atom). Same monospace voice and '> ' prefix, now with status, duration,
+   and an expandable result well. Built on <details>/<summary> (zero-JS).
+   Left edge + name glyph carry state; consecutive calls stack in a
+   .well-flush wrapper (display:grid; gap: var(--sp-1)).
+   ================================================================ */
+
+.tool-call {
+  background: var(--bg-base);
+  border: var(--border);
+  border-left: 3px solid var(--bg-surface1);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+}
+
+.tool-call-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+  list-style: none;
+}
+.tool-call-summary::-webkit-details-marker { display: none; }
+.tool-call-summary::before { content: '> '; color: var(--fg-overlay); }
+.tool-call-summary::after {
+  content: '';
+  width: 1em; height: 1em;
+  margin-left: var(--sp-1);
+  flex-shrink: 0;
+  background-color: var(--fg-overlay);
+  -webkit-mask-image: var(--icon-chevron-right); mask-image: var(--icon-chevron-right);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  transition: transform var(--transition);
+}
+.tool-call[open] .tool-call-summary::after { transform: rotate(90deg); }
+
+.tool-call-name { font-weight: var(--weight-medium); color: var(--fg); }
+.tool-call-detail {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-sub0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tool-call-time { font-size: var(--text-xs); color: var(--fg-overlay); white-space: nowrap; flex-shrink: 0; }
+
+.tool-call-body {
+  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  display: grid;
+  gap: var(--sp-2);
+}
+.tool-call-io-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-overlay);
+}
+.tool-call-body .well-deep { max-height: 320px; overflow: auto; }
+
+/* State variants — left edge + name glyph. --pending carries a scan-bar
+   swept along the summary's bottom edge (reuses .scan-bar, no new animation);
+   --blocked prepends .icon-shield-alert in markup (the guard glass-box moment). */
+.tool-call--pending { border-left-color: var(--bg-surface1); }
+.tool-call--pending .tool-call-summary { position: relative; }
+.tool-call--pending .tool-call-summary .scan-bar {
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.tool-call--success { border-left-color: color-mix(in srgb, var(--success) 55%, var(--bg-surface1)); }
+.tool-call--error   { border-left-color: var(--error); }
+.tool-call--error .tool-call-name { color: var(--error); }
+.tool-call--blocked { border-left-color: var(--warning); }
+
+
+/* ================================================================
+   18. APPROVAL GATES
+
+   The plan-approval / HITL gate as a first-class object — a Card with
+   severity treatment while waiting. The dot pulses; the card does not
+   (no stacked attention effects). Resolved variants swap the pulse +
+   actions for a single resolution line.
+   ================================================================ */
+
+.approval-card--waiting {
+  border-left: 3px solid var(--warning);
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--warning) 7%, var(--bg-mantle)), var(--bg-mantle) 40%);
+}
+.approval-card-meta {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  color: var(--fg-overlay);
+}
+.approval-card-plan { max-height: 400px; overflow: auto; }
+.approval-card-actions { display: flex; gap: var(--sp-2); }
+
+.approval-card-resolution {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-xs);
+  color: var(--fg-sub0);
+}
+.approval-card--approved { border-left: 3px solid var(--success); }
+.approval-card--approved .approval-card-resolution .icon { color: var(--success); }
+.approval-card--rejected { border-left: 3px solid var(--error); }
+.approval-card--rejected .approval-card-resolution .icon { color: var(--error); }
+.approval-card--expired {
+  border-left: 3px solid var(--bg-surface1);
+  opacity: 0.75;
+}
+.approval-card--expired .approval-card-resolution { color: var(--fg-overlay); }
+
+@media (max-width: 768px) {
+  .approval-card-actions { flex-direction: column; }
+  .approval-card-actions .btn { width: 100%; min-height: 48px; }
+}
+
+
+/* ================================================================
+   19. CHIPS
+
+   Neutral reference/content tokens for the composer and metadata rows.
+   Never state (that's badges/pills) — rectangular --radius so they read
+   engineered, not pill-like. Icons hint the kind; no semantic tinting.
+   ================================================================ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 2px var(--sp-2);
+  font-size: var(--text-xs);
+  color: var(--fg-sub1);
+  background: var(--bg-surface0);
+  border: 1px solid color-mix(in oklab, var(--bg-surface1) 65%, transparent);
+  border-radius: var(--radius);
+}
+.chip > .icon { font-size: 0.9em; color: var(--fg-sub0); }
+.chip-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chip-meta { color: var(--fg-overlay); white-space: nowrap; flex-shrink: 0; }
+
+/* Interactive chips (button/anchor) — hover fill, focus ring, no lift. */
+button.chip, a.chip {
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+button.chip:hover, a.chip:hover { background: var(--bg-surface1); text-decoration: none; }
+button.chip:focus-visible, a.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Toggle chips (filters) — pressed state via aria-pressed. Accent tint marks
+   active *selection* (the sanctioned accent family), never outcome state. */
+button.chip[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-surface0));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--bg-surface1));
+  color: var(--fg);
+}
+
+/* Reference chips point at actionable context — a dim accent icon hint is
+   sanctioned (matches the "active selection" accent family). Body stays neutral. */
+.chip--ref > .icon { color: var(--accent-dim); }
+
+/* Remove button — 10px glyph, hit area padded to 24px via negative margins. */
+.chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 24px;
+  margin: -4px -6px -4px -2px;
+  padding: 0;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-overlay);
+}
+.chip-remove::before {
+  content: '';
+  width: 10px; height: 10px;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon-x); mask-image: var(--icon-x);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.chip-remove:hover { color: var(--error); }
+.chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.chip-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+
+/* ================================================================
+   20. NOTIFICATIONS
+
+   Rows for the attention center (panel container is .card-glass — canon).
+   Grouped by section header; unread carries an accent left edge + tinted bg.
+   ================================================================ */
+
+.notif-group {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-overlay);
+  padding: var(--sp-3) var(--sp-3) var(--sp-1);
+}
+.notif-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius);
+  border-left: 2px solid transparent;
+  color: var(--fg-sub1);
+  text-decoration: none;
+  transition: background var(--transition);
+}
+.notif-item:hover { background: var(--bg-surface0); text-decoration: none; }
+.notif-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.notif-item-body { display: flex; flex-direction: column; min-width: 0; }
+.notif-item-title { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg); }
+.notif-item-detail {
+  font-size: var(--text-xs);
+  color: var(--fg-sub0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.notif-item-time { font-size: var(--text-xs); color: var(--fg-overlay); white-space: nowrap; }
+.notif-item--unread {
+  border-left-color: var(--accent);
+  background: var(--bg-sub-base);
+}
+
+
+/* ================================================================
+   21. COMMAND PALETTE
+
+   Rows inside the glass palette (.card-glass container + canonical input
+   at top are existing canon). --active is the keyboard cursor.
+   ================================================================ */
+
+/* Section header — intentionally the same recipe as .notif-group; kept a
+   separate class because the contexts differ. */
+.palette-section {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-overlay);
+  padding: var(--sp-3) var(--sp-3) var(--sp-1);
+}
+.palette-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius);
+  color: var(--fg-sub1);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.palette-item:hover { background: var(--bg-surface0); }
+.palette-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.palette-item > .icon { color: var(--fg-sub0); }
+.palette-item-label { font-size: var(--text-base); color: var(--fg); }
+.palette-item-context {
+  font-size: var(--text-xs);
+  color: var(--fg-overlay);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette-item--active {
+  background: var(--bg-surface0);
+  border-left-color: var(--accent);
+}
+.palette-item--active > .icon { color: var(--fg); }
+
+@media (max-width: 768px) {
+  .palette-item { min-height: 48px; }
+}
+
+
+/* ================================================================
+   22. ORCHESTRATION
+
+   Run-board cards and the workflow-detail pipeline spine. Both are
+   composition-first: .run-card is a .card with an amber attention ring
+   (the sibling of .card-active); the pipeline is a step list with a
+   connector line whose fill encodes progress.
+   ================================================================ */
+
+.run-card-step {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  color: var(--fg-overlay);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* The amber sibling of .card-active — the dot pulses, the card does not. */
+.run-card--attention {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--bg-surface0));
+  box-shadow: var(--shadow-sm), 0 0 12px color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.pipeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  row-gap: var(--sp-1);
+}
+.pipeline-step {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: var(--sp-3);
+  position: relative;
+  padding: var(--sp-2) 0;
+}
+/* Connector spine — centered under the node, bridging to the next step. */
+.pipeline-step::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: calc(50% + 10px);
+  bottom: calc(-50% + 10px);
+  width: 2px;
+  background: var(--bg-surface1);
+}
+.pipeline-step:last-child::before { display: none; }
+.pipeline-step--done::before { background: color-mix(in srgb, var(--success) 40%, var(--bg-surface1)); }
+.pipeline-step--pending::before {
+  background: repeating-linear-gradient(to bottom, var(--bg-surface0) 0 4px, transparent 4px 8px);
+}
+.pipeline-node {
+  width: 14px; height: 14px;
+  margin-top: 2px;
+  align-self: start;
+  border-radius: 50%;
+  border: 2px solid var(--bg-surface1);
+  background: var(--bg-base);
+  position: relative;
+  z-index: 1;
+}
+.pipeline-step--done .pipeline-node {
+  background: var(--success);
+  border-color: var(--success);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--success) 35%, transparent);
+}
+.pipeline-step--running .pipeline-node {
+  border-color: var(--accent);
+  background: var(--bg-base);
+}
+.pipeline-step--running .pipeline-node::after {
+  content: '';
+  position: absolute; inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  animation: pulse-ring 2s ease-out infinite;
+}
+.pipeline-step--failed .pipeline-node {
+  background: var(--error);
+  border-color: var(--error);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--error) 35%, transparent);
+}
+.pipeline-step--blocked .pipeline-node {
+  background: var(--warning);
+  border-color: var(--warning);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--warning) 35%, transparent);
+}
+.pipeline-step-body { display: flex; flex-direction: column; }
+.pipeline-step-name { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg); }
+.pipeline-step--running .pipeline-step-name { color: var(--accent); }
+.pipeline-step-meta { font-size: var(--text-xs); color: var(--fg-overlay); }
+
+
+/* ================================================================
+   23. CODE HIGHLIGHTING
+
+   Token theme for highlight.js output and server-rendered diffs
+   (--syntax-* tokens, tokens.css). Syntax hues are categorical —
+   the chart-ramp family, never state; only diff added/removed
+   carries meaning. Applies wherever code renders: .well-deep,
+   .terminal-frame-body, .msg-content pre.
+   ================================================================ */
+
+.hljs { color: var(--fg); background: transparent; }
+
+.hljs-keyword, .hljs-selector-tag, .hljs-literal,
+.hljs-meta .hljs-keyword                          { color: var(--syntax-keyword); }
+.hljs-string, .hljs-regexp                        { color: var(--syntax-string); }
+.hljs-number, .hljs-symbol                        { color: var(--syntax-number); }
+.hljs-comment, .hljs-quote, .hljs-meta,
+.hljs-doctag                                      { color: var(--syntax-comment); }
+.hljs-title, .hljs-title.function_,
+.hljs-section                                     { color: var(--syntax-function); }
+.hljs-type, .hljs-title.class_,
+.hljs-class .hljs-title                           { color: var(--syntax-type); }
+.hljs-built_in, .hljs-builtin-name, .hljs-attr,
+.hljs-attribute, .hljs-property                   { color: var(--syntax-builtin); }
+.hljs-operator, .hljs-punctuation                 { color: var(--syntax-punct); }
+
+/* Diff lines — server-rendered diffs and hljs diff grammar share one
+   treatment: a faint semantic wash, full-bleed within the code well. */
+.diff-line { display: block; padding: 0 var(--sp-2); margin: 0 calc(-1 * var(--sp-2)); }
+.diff-line--add, .hljs-addition {
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: color-mix(in oklab, var(--success) 60%, var(--fg));
+}
+.diff-line--del, .hljs-deletion {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  color: color-mix(in oklab, var(--error) 60%, var(--fg));
+}
+.diff-line--hunk {
+  color: var(--syntax-function);
+  background: color-mix(in srgb, var(--info) 7%, transparent);
+}
+
+
+/* ================================================================
+   24. REDUCED MOTION
    ================================================================ */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1649,5 +2220,8 @@ kbd, .kbd {
   }
   .status-dot--live::before,
   .status-dot--live::after,
+  .status-dot--attention::before,
+  .pipeline-step--running .pipeline-node::after,
+  .msg-thinking-label::after,
   .claw-loader span { animation: none; }
 }

@@ -33,6 +33,16 @@ colors:
   sky: "#89dceb"
   pink: "#f5c2e7"
   lavender: "#b4befe"
+  # Syntax highlighting — categorical (chart-ramp family), never state.
+  # Raw Catppuccin hues, not the tuned semantic tokens (see § Code highlighting).
+  syntax-keyword: "#cba6f7"
+  syntax-string: "#a6e3a1"
+  syntax-number: "#fab387"
+  syntax-comment: "#7f849c"
+  syntax-function: "#89b4fa"
+  syntax-type: "#f9e2af"
+  syntax-builtin: "#94e2d5"
+  syntax-punct: "#a6adc8"
   # Light-theme overrides (Catppuccin Latte). Semantic values are tuned darker
   # than raw Latte so badges/pills stay readable on light surfaces.
   bg-pit-light: "#e6e9f0"
@@ -58,6 +68,10 @@ colors:
   sky-light: "#04a5e5"
   pink-light: "#ea76cb"
   lavender-light: "#7287fd"
+  syntax-string-light: "#40a02b"
+  syntax-number-light: "#fe640b"
+  syntax-function-light: "#1e66f5"
+  syntax-type-light: "#df8e1d"
 typography:
   metric-value:
     fontFamily: JetBrains Mono
@@ -195,6 +209,12 @@ components:
     typography: "{typography.body-md}"
     rounded: "{rounded.lg}"
     padding: "{spacing.sp-3}"
+  composer:
+    backgroundColor: "{colors.bg-base}"  # the input object; quiet focus (green caret + send wake, no ring)
+    textColor: "{colors.fg}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.lg}"
+    padding: 8px 12px
   status-badge:
     backgroundColor: "{colors.bg-surface0}"
     textColor: "{colors.fg}"
@@ -234,6 +254,46 @@ components:
     textColor: "{colors.bg-crust}"
     typography: "{typography.caption}"
     rounded: "{rounded.sm}"
+  tool-call:
+    backgroundColor: "{colors.bg-base}"  # well-tier; 3px left edge encodes state
+    textColor: "{colors.fg}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.sm}"
+    padding: 8px 12px
+  approval-card:
+    backgroundColor: "{colors.bg-mantle}"  # Card family + warning left edge while waiting
+    textColor: "{colors.fg}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.lg}"
+    padding: "{spacing.sp-4}"
+  run-card:
+    backgroundColor: "{colors.bg-mantle}"  # Card family + amber attention ring
+    textColor: "{colors.fg}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.lg}"
+    padding: "{spacing.sp-4}"
+  chip:
+    backgroundColor: "{colors.bg-surface0}"  # neutral reference token, never state
+    textColor: "{colors.fg-sub1}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.sm}"
+    padding: 2px 8px
+  notif-item:
+    backgroundColor: transparent  # hover bg-surface0; unread adds accent edge + bg-sub-base
+    textColor: "{colors.fg-sub1}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.sm}"
+    padding: 8px 12px
+  palette-item:
+    backgroundColor: transparent  # --active adds bg-surface0 + accent left edge
+    textColor: "{colors.fg-sub1}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.sm}"
+    padding: 8px 12px
+  pipeline-node:
+    backgroundColor: "{colors.bg-base}"  # state fills the node (done/running/failed/blocked)
+    textColor: "{colors.fg}"
+    rounded: "{rounded.full}"
 ---
 
 # DartClaw Design System — "Afterglow"
@@ -349,6 +409,10 @@ The shell is a **CSS Grid two-column layout**: a 260px sidebar and a flexible ma
 | `sidebar-w` | 260px | Sidebar width |
 | `topbar-h` | 48px | Top bar height |
 | `container-max` | 900px | Max content / message width |
+
+### Native shell readiness
+
+The system carries forward-compatibility tokens for a future webview desktop shell: `--safe-top/-right/-bottom/-left` (from `env(safe-area-inset-*)`) and `--titlebar-drag-h`. In a browser they resolve to `0`; the desktop shell supplies real values so chrome can inset past rounded corners and reserve a drag region. They are defined in canon now but **not yet wired into layout rules** — adoption is deferred to the Afterglow overhaul milestone.
 
 ### Body background
 
@@ -513,10 +577,14 @@ Card sub-elements:
 
 | Class | State | Animation |
 |---|---|---|
-| `.status-dot--live` | Running/active | Expanding ring pulse + core glow |
+| `.status-dot--live` | Agent working, no action needed | Expanding ring pulse + core glow (2s) |
+| `.status-dot--attention` | Blocked on you | Expanding amber ring pulse (2.8s) |
+| `.status-dot--success` | Finished OK | Static glow |
 | `.status-dot--error` | Failed | Static glow |
-| `.status-dot--warning` | Pending/warning | Static glow |
+| `.status-dot--warning` | Degraded / pending-external | Static glow |
 | `.status-dot--idle` | Idle/inactive | No glow |
+
+**Status vocabulary and the motion rule** — six states, exactly two of them animated. `--live` (green pulse) means *the agent is working*; `--attention` (amber pulse, slower and more patient) means *it is blocked on you*. Motion attracts the eye, so it is rationed to those two readings and nothing else: a pulse in this system always means "working" or "needs you". `--success` (green static) and `--error` (red static) report terminal outcomes; `--warning` (amber static) marks a degraded or pending-external condition; `--idle` (gray) is inactive. Because `--attention` and `--warning` share the amber hue, any attention treatment must also carry a text cue ("waiting") so it reads without motion or color — see § reduced motion and the Do's and Don'ts.
 
 **Status badges** — subtle semantic chip with embedded dot. Low visual weight, slightly tinted background, thin border so they still read in light mode.
 
@@ -548,14 +616,41 @@ Card sub-elements:
 
 `kbd` / `.kbd` — keyboard shortcuts in help text, tooltips, and command hints. Surface chip with a 2px bottom border for keycap depth. Element selector styles bare `<kbd>` in rendered markdown for free.
 
-### Input area
+### Composer & input area
 
-- Textarea + send button, anchored to bottom of the chat surface.
-- Background: subtle `crust 30% / mantle` gradient, luminous top border.
-- Textarea: `bg-base` background, `inset-sm` shadow, `rounded.lg` corners, symmetric `sp-3` padding.
-- Line height: 1.3 — keeps text vertically centered within `min-height: 40px`.
-- Focus state: accent border + glow ring (`inset-sm` + `1px accent` + `8px` ambient glow).
-- Disabled state: 0.5 opacity during streaming.
+Two roles, split cleanly. **`.input-area`** is the *anchored strip* — the `crust 30% / mantle` gradient with a luminous top border that pins the input to the bottom of the chat surface. **`.composer`** is the *input object* it contains: one card holding the textarea on top and a toolbar row inside it. The bare "textarea + Send button side by side" layout is superseded for chat — a 40px send button bottom-aligned against a growing textarea is exactly the misalignment the object shape removes.
+
+The composer carries the input-family treatment on the *container* — `bg-base`, `inset-sm`, `rounded.lg` — with the textarea bare and transparent inside it. **Focus is terminal-native and quiet**: no rings, no glow. Three cues compose it: the **caret is terminal green** (`caret-color: accent` — the blinking cursor is the focus signal, exactly as in a terminal), the **send button rests at 0.6 opacity and wakes to full** on `:focus-within` (also on hover, keyboard focus, and while streaming — the stop button never sleeps), and the container border takes a whisper of accent (30% mix into `surface0`). A textarea can never carry its own border here (it has no margin against the container), so the container + caret + send do all the work. The textarea grows from `min-height: 40px` to `max-height: 40vh` at `leading-tight`.
+
+> The composer caret goes full old-school where the platform allows: `caret-shape: block` renders a true terminal block caret (green, natively blinking); browsers without support fall back to the green bar caret. No JS caret emulation — native or nothing. The streaming message keeps its own block cursor (`.streaming::after`); the two never appear at once (streaming disables the composer).
+
+Anatomy:
+
+```html
+<div class="input-area">
+  <div class="composer">
+    <textarea name="message" placeholder="Message DartClaw..." rows="1"></textarea>
+    <div class="composer-toolbar">
+      <button type="button" class="btn btn-ghost btn-icon" data-icon="plus" aria-label="Attach"></button>
+      <span class="status-badge"><span class="icon icon-shield-alert" aria-hidden="true"></span> guards: standard</span>
+      <div class="composer-meta">
+        <button type="button" class="composer-model">claude · high</button>
+        <button type="button" class="btn btn-primary btn-icon composer-send" data-icon="arrow-up" aria-label="Send"></button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="composer-context">
+  <span class="chip"><span class="icon icon-folder-kanban" aria-hidden="true"></span> <span class="chip-name">dartclaw-core</span></span>
+</div>
+```
+
+- `.composer-toolbar` — the inside row: attach/mode on the left, `.composer-meta` (model/effort + send) pushed right with `margin-left: auto`.
+- `.composer-model` — a quiet text button (the composer's only chrome) with a trailing chevron; opens the model/effort picker.
+- `.composer-send` — a **square** `btn-primary` icon button (the shape language holds — no circular send buttons); streaming swaps its glyph to `square` (stop), an app behavior, not a CSS state.
+- `.composer-context` — a chip + metadata row adjacent to the composer (above or below).
+
+Composition rules (no new vocabulary): the permission/guard **mode** is a `.status-badge` (neutral default; `status-badge-warning` for elevated modes — badges carry state, chips never do); **attachments/refs** are chips, placed in a `.chip-row` inside the composer above the toolbar or in `.composer-context`; **streaming** adds `.composer--streaming` (disables the textarea at 0.5 opacity) while the app swaps send→stop.
 
 ### Native selects
 
@@ -582,12 +677,29 @@ Toasts auto-dismiss after 4s, slide in from the right. They use the glass treatm
 - `.msg-role` — uppercase label (`caption`, bold)
 - `.msg-content` — markdown-rendered content (headings, lists, code, tables, blockquotes supported)
 
+**Thinking slot** (`.msg-thinking`) — the sanctioned pre-stream composition state, and *the* claw moment of the chat view: an assistant message showing the `.claw-loader` plus a muted "thinking" label with an animated ellipsis (reusing the `.tool-indicator.pending` blink, not a new keyframe). It is replaced entirely by streamed content on the first token, so there is at most one per view — this is where users stare longest, which is exactly why the brand lives here. Under reduced motion it degrades to the static claw-mark + text.
+
 ### Tool indicators
 
 - `.tool-indicator` — monospace one-liner with `> ` prefix
 - `.pending` — muted + animated `...`
 - `.success` — green + checkmark
 - `.error` — red + cross
+
+### Tool calls
+
+`.tool-call` is the structured, timeline sibling of `.tool-indicator`: the line stays the transient/inline atom, the card is the durable conversation record. Same monospace voice and `> ` prefix, now with a name, a detail path, a duration, and an expandable result well — built on `<details>`/`<summary>` so disclosure is zero-JS. A leading `::before` `> ` and a trailing chevron (rotating on `[open]`) frame the summary; the body holds `args`/`result` wells (`.tool-call-io-label` + `.well-deep`, capped at 320px and scrollable).
+
+State lives on the 3px left edge and the name glyph, never on a badge:
+
+| Variant | Left edge | Extra |
+|---|---|---|
+| `--pending` | `bg-surface1` | scan-bar swept along the summary's bottom edge (reuses `.scan-bar`) |
+| `--success` | success-tinted | — |
+| `--error` | `error` | name colored `error` |
+| `--blocked` | `warning` | summary prepends `.icon-shield-alert`; detail carries the guard verdict |
+
+The `--blocked` variant is the glass-box moment — a guard veto rendered as a first-class, legible object rather than a swallowed error. Consecutive calls stack in a `.well-flush` wrapper (`display:grid; gap: var(--sp-1)`); no new class.
 
 ### Streaming cursor
 
@@ -601,6 +713,58 @@ Static 1px section separators.
 |---|---|---|
 | `.divider.divider-fade` | Accent → transparent (left to right) | Section boundaries |
 | `.divider.divider-center` | Transparent → accent → transparent | Content breaks |
+
+### Approval gates
+
+`.approval-card` makes the plan-approval / HITL gate a first-class object rather than a line in the log — governance rendered as UX. It builds on the Card family with a severity treatment while waiting: `--waiting` gets a `warning` left edge and a faint gradient bleed from that edge (the `.panel-warning` recipe), a `.status-dot--attention` in the header, an `.approval-card-plan` well (rendered plan markdown, capped at 400px), and an `.approval-card-actions` footer (Approve / Reject / Comment). **The dot pulses; the card does not** — attention is expressed once, never stacked. On narrow screens (≤768px) the actions stack full-width at ≥48px tall.
+
+Resolved variants drop the pulse and actions for a single `.approval-card-resolution` line (caption, leading icon): `--approved` (success edge, `.icon-check`), `--rejected` (error edge, `.icon-circle-x`), `--expired` (neutral edge, whole card at 0.75 opacity, overlay-toned text).
+
+### Chips
+
+`.chip` is a neutral reference/content token for the composer and metadata rows — like identicons, it answers "what is attached or referenced", **never "did it work"**. That is the whole rule: chips stay neutral-surface with an icon hint and carry no semantic tint (state belongs to badges and pills). They are rectangular (`rounded.sm`) so they read engineered, not pill-like, and cap at 240px with the name ellipsized (`.chip-name`).
+
+- `.chip--file` — an attachment: `.icon-paperclip`, a name, an optional `.chip-meta` size, and a `.chip-remove` button (10px `×` glyph, hit area padded to 24px via negative margins, hover → `error`).
+- `.chip--ref` — an actionable context reference (interactive `button`/`a`): its icon may take a dim accent hint (`accent-dim`), matching the accent's "active selection" usage; the body text stays neutral. Interactive chips hover to `bg-surface1` and take a focus ring — no lift (chips are too small; lifts are for cards and buttons).
+- `.chip-row` — a wrapping flex container for composer attachment rows.
+- **Toggle chips (filters)** — a `button.chip` with `aria-pressed="true"` takes an accent tint (14% mix on the fill, 40% on the border). This marks active *selection* — the sanctioned accent family — not outcome state: a pressed "Failed" filter chip is accent-tinted, never error-tinted.
+
+### Notifications
+
+Rows for the attention center; the panel container is `.card-glass` (canon). `.notif-group` is an uppercase section header; `.notif-item` is a three-column grid (dot · body · time) with a status dot from the vocabulary, a bold `.notif-item-title`, an ellipsized `.notif-item-detail`, and a `.notif-item-time`. Rows are ≥44px for touch, hover to `bg-surface0`, and take an accent focus ring. `.notif-item--unread` carries a 2px accent left edge and a `bg-sub-base` tint; read rows keep a transparent 2px edge so titles stay aligned.
+
+### Command palette
+
+Rows inside the glass palette (`.card-glass` container + the canonical input at top are existing canon). `.palette-section` is a section header sharing the `.notif-group` recipe (kept a separate class because the contexts differ). `.palette-item` is a four-column grid (icon · label · context · `kbd`): `.palette-item-label` in `fg`, an ellipsized `.palette-item-context` in overlay, and a trailing keycap. Rows are ≥40px (48px on ≤768px). `.palette-item--active` is the keyboard cursor — `bg-surface0` plus an accent left edge, with the icon brightening to `fg`; hover matches active minus the accent edge.
+
+### Orchestration
+
+Run-board cards and the workflow-detail pipeline — both composition-first.
+
+`.run-card` is a `.card` with documented anatomy (status dot, name, `.run-card-step` counter, a `.tool-indicator`/`.meter` body, and a footer with identicon + `.status-pill`). The only new treatment is `.run-card--attention`: an amber ring (`box-shadow` glow + tinted border) that is the sibling of `.card-active`. As with approval cards, the dot pulses and the card does not.
+
+`.pipeline` is a vertical `<ol>` step list — the workflow-detail spine. Each `.pipeline-step` pairs a `.pipeline-node` with a `.pipeline-step-body` (name + meta), joined by a connector line drawn with `::before`:
+
+| Step state | Node | Connector to next |
+|---|---|---|
+| `--done` | success fill + glow | success-tinted |
+| `--running` | accent ring + `pulse-ring` (green = working) | default |
+| `--failed` | error fill + glow | default |
+| `--blocked` | warning fill + glow (pair with `.status-dot--attention` in the meta) | default |
+| `--pending` | hollow (default) | dashed (not yet reached) |
+
+Color never stands alone: the step name row always carries a status word or a time, and the running step name takes the accent. Expanded steps may embed `.tool-call` stacks or `.well-deep` output (app-level).
+
+### Code highlighting
+
+Syntax coloring is **categorical, like the chart ramp — never state**. The `--syntax-*` token group (tokens.css) themes highlight.js output and server-rendered diffs wherever code appears (`.well-deep`, `.terminal-frame-body`, `.msg-content pre`). Two deliberate choices:
+
+- **Raw Catppuccin hues, not semantic tokens.** The light theme's semantic values are tuned darker for badges and pills; code text on crust wants the true Latte palette — so `--syntax-string` is Latte green, not the darkened `--success`. In dark mode several syntax hues *coincide* with semantic values by palette, not by role.
+- **Diffs are the exception.** Added/removed lines (`.diff-line--add`/`--del`, and hljs's `addition`/`deletion`) genuinely carry meaning, so they take a faint `success`/`error` wash (10% mix) with the text pulled 60% toward the semantic hue; hunk headers get an `info` wash. Server-rendered diffs and highlight.js diff grammar share the one treatment.
+
+Mapping: keyword→mauve · string→green · number→peach · comment→overlay · function/title→blue · type→yellow · builtin/attr→teal · operator/punctuation→sub0. Code inside wells renders at `text-sm` — a step below body, matching tool-call cards.
+
+Every code-bearing surface takes the theme — an unhighlighted code block is a drift bug, not a style choice. (Shell *transcripts* are the one exception: prompt lines and program output aren't code and stay plain.)
 
 ## Do's and Don'ts
 
@@ -620,10 +784,16 @@ Static 1px section separators.
 - **Don't** recolor, redraw, smooth-scale, or shrink the mascot below legibility (~32px).
 - **Do** apply `.print-in` consistently to arriving content (cards, messages, swapped fragments) — one entry motion is an identity; five are noise.
 - **Don't** hand-pick chart colors — assign `--chart-1`…`--chart-6` by series index so charts look related across views.
+- **Do** theme code with the `--syntax-*` tokens only — syntax hues are categorical (chart-ramp family), and diffs' added/removed wash is the sole place code color means anything.
+- **Don't** read state into syntax colors or restyle hljs classes ad hoc — a green string is not a success, and a second syntax theme is a second design system.
 - **Do** keep monospace throughout. The terminal feel depends on it.
 - **Don't** introduce a second typeface "for headings" or "for body". One family, three weights, one shared size scale.
 - **Do** keep radius minimal: `rounded.sm` (4px) and `rounded.lg` (6px) cover almost everything; `rounded.full` is for badges/pills only.
 - **Don't** mix soft and sharp corners on the same surface or layer different radii within a single component family.
+- **Do** reserve pulsing for `--live` and `--attention` only — a pulse always means "working" or "needs you". Every other state is static.
+- **Don't** tint chips with semantic colors — chips *reference* things, badges and pills *state* things. If a color would answer "did it work?", it doesn't belong on a chip.
+- **Do** pair every attention treatment with a text cue (e.g. "waiting") — amber attention and amber warning share a hue, so it must read under reduced motion and for color-blind users.
+- **Don't** put more than one attention-treated object per row or card. The dot pulses; the card doesn't.
 - **Do** maintain WCAG AA contrast — representative pairings were tuned for both themes; `fg-overlay` is helper/disabled text only.
 - **Don't** rely on color alone for state. Pair dots, icons, or text labels with semantic color so status reads without color cues.
 - **Do** use `color-mix(in oklab, ...)` to derive intermediate shades from existing tokens rather than inventing new constants.
@@ -697,6 +867,13 @@ Static 1px section separators.
 | — | `hash` | `--icon-hash` | Channel indicator |
 | — | `sun` | `--icon-sun` | Theme toggle (dark) |
 | — | `moon` | `--icon-moon` | Theme toggle (light) |
+| `bell` | `bell` | `--icon-bell` | Notification center trigger/section |
+| `search` | `search` | `--icon-search` | Command palette, search inputs |
+| `paperclip` | `paperclip` | `--icon-paperclip` | Attachment chips, composer |
+| — | `git-branch` | `--icon-git-branch` | Session fork/lineage |
+| `workflow` | `workflow` | `--icon-workflow` | Workflows nav / run board |
+| — | `clock` | `--icon-clock` | Durations, timestamps |
+| — | `corner-down-right` | `--icon-corner-down-right` | Forked-from lineage indicator |
 
 ### Unicode exceptions
 
